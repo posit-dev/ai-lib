@@ -1,0 +1,78 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
+ *--------------------------------------------------------------------------------------------*/
+
+// ai-provider-bridge - Platform-neutral provider infrastructure
+
+// Provider-domain types (owned by this package)
+export { NOTIFICATION_ACTIONS, PROVIDER_IDS } from "./types";
+export type {
+	AiToolWithJsonSchema,
+	ApiKeyCredentials,
+	AwsCredentials,
+	CancellationToken,
+	Event,
+	GoogleCloudCredentials,
+	LMStreamPart,
+	LocalCredentials,
+	Logger,
+	ModelInfo,
+	NotificationActionId,
+	OAuthCredentials,
+	PositAiAuthMetadata,
+	PositAiModelFetchState,
+	ProviderId,
+	ProviderCredentials,
+} from "./types";
+
+// Core provider infrastructure
+export { ProviderRegistry } from "./providers/ProviderRegistry";
+export type { ClientFactory, ModelFetcher } from "./providers/ProviderRegistry";
+
+// ModelClient interface
+export type { ModelClient } from "./model-clients/ModelClient";
+
+// StepLogger interface
+export type { StepLogData, StepLogger } from "./StepLogger";
+
+// CredentialProvider interface
+export type { CredentialProvider, Disposable } from "./CredentialProvider";
+
+// Cached model fetcher utility
+export { createCachedModelFetcher } from "./providers/cached-model-fetcher";
+export type {
+	CachedModelFetcherConfig,
+	ClearableModelFetcher,
+} from "./providers/cached-model-fetcher";
+
+// Positron auth-provider mapping (no vscode dependency — pure data)
+export { MAPPED_PROVIDER_IDS, PROVIDER_MAP } from "./provider-map";
+export type { AuthProviderMapping } from "./provider-map";
+
+// Model capability inference
+export { getAnthropicModelCapabilities } from "./model-capabilities/anthropic-helpers";
+export { getGeminiModelCapabilities } from "./model-capabilities/gemini-helpers";
+export {
+	getOpenAIModelCapabilities,
+	openaiMaxInputTokens,
+} from "./model-capabilities/openai-helpers";
+export { getPositAiModelCapabilities } from "./model-capabilities/positai-helpers";
+
+// Tool result image transformation for Chat Completions API compatibility
+export {
+	hasImagesInToolResults,
+	transformToolResultImagesForCompletions,
+} from "./tool-result-images";
+
+// Local provider management
+export { isLocalProviderId, LOCAL_PROVIDER_IDS, LocalProviderManager } from "./local-providers";
+export type { LocalProviderId, LocalProviderManagerOptions } from "./local-providers";
+
+// Small utilities
+export { isThinkingEnabled } from "./utils";
+export { buildSnowflakeCortexUrl } from "./utils";
+export { isAgreementRequiredBody } from "./utils";
+export { joinPath } from "./utils";
+
+// Provider defaults (single source of truth for gateway URLs)
+export { POSIT_AI_DEFAULTS } from "./provider-defaults";

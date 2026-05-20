@@ -1,0 +1,134 @@
+{
+  "name": "ai-provider-bridge",
+  "version": "0.0.0",
+  "description": "Platform-neutral provider infrastructure: registry, model clients, and credential access abstractions",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./providers": {
+      "types": "./dist/providers.d.ts",
+      "import": "./dist/providers.js",
+      "default": "./dist/providers.js"
+    },
+    "./providers-external": {
+      "types": "./dist/providers-external.d.ts",
+      "import": "./dist/providers-external.js",
+      "default": "./dist/providers-external.js"
+    },
+    "./positron": {
+      "types": "./dist/positron/index.d.ts",
+      "import": "./dist/positron/index.js",
+      "default": "./dist/positron/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsx esbuild.config.ts && tsc -p . --emitDeclarationOnly --noCheck && tsc -p tsconfig.positron.json --emitDeclarationOnly",
+    "build:unbundled": "tsc -p .",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo",
+    "check-types": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "ai": "^6.0.68"
+  },
+  "peerDependencies": {
+    "@ai-sdk/amazon-bedrock": "^4.0.64",
+    "@ai-sdk/anthropic": "^3.0.70",
+    "@ai-sdk/deepseek": "^2.0.29",
+    "@ai-sdk/google": "^3.0.20",
+    "@ai-sdk/google-vertex": "^4.0.80",
+    "@ai-sdk/openai": "^3.0.25",
+    "@ai-sdk/openai-compatible": "^2.0.42",
+    "@aws-sdk/client-bedrock": "^3.981.0",
+    "@aws-sdk/credential-providers": "^3.981.0",
+    "@github/copilot-sdk": "^0.2.2",
+    "@openrouter/ai-sdk-provider": "^2.8.0",
+    "ai-sdk-ollama": "^3.8.2",
+    "google-auth-library": "^10.5.0",
+    "vscode": "^1.100.0"
+  },
+  "peerDependenciesMeta": {
+    "@ai-sdk/anthropic": {
+      "optional": true
+    },
+    "@ai-sdk/deepseek": {
+      "optional": true
+    },
+    "@ai-sdk/openai": {
+      "optional": true
+    },
+    "@ai-sdk/openai-compatible": {
+      "optional": true
+    },
+    "@ai-sdk/google": {
+      "optional": true
+    },
+    "@ai-sdk/google-vertex": {
+      "optional": true
+    },
+    "@ai-sdk/amazon-bedrock": {
+      "optional": true
+    },
+    "@aws-sdk/client-bedrock": {
+      "optional": true
+    },
+    "@aws-sdk/credential-providers": {
+      "optional": true
+    },
+    "@github/copilot-sdk": {
+      "optional": true
+    },
+    "@openrouter/ai-sdk-provider": {
+      "optional": true
+    },
+    "ai-sdk-ollama": {
+      "optional": true
+    },
+    "google-auth-library": {
+      "optional": true
+    },
+    "vscode": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@ai-sdk/amazon-bedrock": "^4.0.64",
+    "@ai-sdk/anthropic": "^3.0.70",
+    "@github/copilot-sdk": "^0.2.2",
+    "@ai-sdk/deepseek": "^2.0.29",
+    "@ai-sdk/google": "^3.0.20",
+    "@ai-sdk/google-vertex": "^4.0.80",
+    "@ai-sdk/openai": "^3.0.25",
+    "@ai-sdk/openai-compatible": "^2.0.42",
+    "@aws-sdk/client-bedrock": "^3.981.0",
+    "@aws-sdk/credential-providers": "^3.981.0",
+    "@openrouter/ai-sdk-provider": "^2.8.0",
+    "@smithy/eventstream-codec": "^4.3.3",
+    "@smithy/util-utf8": "^4.3.3",
+    "@types/node": "22.x",
+    "@types/vscode": "^1.100.0",
+    "ai": "^6.0.189",
+    "ai-sdk-ollama": "^3.8.2",
+    "esbuild": "^0.25.0",
+    "google-auth-library": "^10.6.2",
+    "tsx": "^4.20.6",
+    "typescript": "^6.0.2",
+    "vitest": "^3.2.1",
+    "whatwg-fetch": "^3.6.20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/posit-dev/ai-provider-bridge"
+  },
+  "license": "MIT"
+}
