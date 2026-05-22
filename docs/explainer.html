@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ai-provider-bridge Explainer</title>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      primaryColor: '#f1f8ff',
+      primaryBorderColor: '#0366d6',
+      primaryTextColor: '#24292e',
+      secondaryColor: '#f6f8fa',
+      secondaryBorderColor: '#e1e4e8',
+      tertiaryColor: '#dafbe1',
+      lineColor: '#586069',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',
+      fontSize: '14px',
+    },
+    flowchart: { curve: 'basis', padding: 16 },
+  });
+</script>
+<style>
+  :root {
+    --bg: #fafbfc;
+    --card-bg: #ffffff;
+    --border: #e1e4e8;
+    --text: #24292e;
+    --text-muted: #586069;
+    --accent: #0366d6;
+    --accent-light: #f1f8ff;
+    --code-bg: #f6f8fa;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--text);
+    background: var(--bg);
+    line-height: 1.6;
+    padding: 2rem;
+    max-width: 960px;
+    margin: 0 auto;
+  }
+
+  h1 {
+    font-size: 2rem;
+    margin-bottom: 0.5rem;
+    border-bottom: 2px solid var(--accent);
+    padding-bottom: 0.5rem;
+  }
+
+  h2 {
+    font-size: 1.4rem;
+    margin-top: 2.5rem;
+    margin-bottom: 1rem;
+    color: var(--accent);
+  }
+
+  h3 {
+    font-size: 1.1rem;
+    margin-top: 1.5rem;
+    margin-bottom: 0.5rem;
+  }
+
+  p, li { margin-bottom: 0.75rem; }
+  ul, ol { padding-left: 1.5rem; }
+
+  code {
+    background: var(--code-bg);
+    padding: 0.15em 0.4em;
+    border-radius: 3px;
+    font-size: 0.9em;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  }
+
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem;
+    overflow-x: auto;
+    margin: 1rem 0;
+    font-size: 0.85em;
+    line-height: 1.5;
+  }
+
+  pre code { background: none; padding: 0; }
+
+  .subtitle {
+    color: var(--text-muted);
+    font-size: 1.1rem;
+    margin-bottom: 2rem;
+  }
+
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem;
+    margin: 1rem 0;
+  }
+
+  .card-header {
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .badge {
+    display: inline-block;
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 0.15em 0.5em;
+    border-radius: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .badge-interface { background: #ddf4ff; color: #0550ae; }
+  .badge-class { background: #dafbe1; color: #116329; }
+
+  .mermaid-wrapper {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+  }
+
+  .provider-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 0.5rem;
+    margin: 0.5rem 0;
+  }
+
+  .provider-chip {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.3rem 0.6rem;
+    font-size: 0.8rem;
+    text-align: center;
+  }
+
+  .why-box {
+    background: #fffbdd;
+    border: 1px solid #f9c513;
+    border-radius: 6px;
+    padding: 1rem 1.25rem;
+    margin: 1.5rem 0;
+  }
+
+  .why-box h3 { color: #735c0f; margin-top: 0; }
+
+  .before-after {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1rem 0;
+  }
+
+  .before-after > div {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem;
+  }
+
+  .before-after h4 {
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.5rem;
+  }
+
+  .before-after .before h4 { color: #d73a49; }
+  .before-after .after h4 { color: #28a745; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+    font-size: 0.9rem;
+  }
+
+  th, td {
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  th { background: var(--code-bg); font-weight: 600; }
+
+  .toc {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.5rem;
+    margin-bottom: 2rem;
+  }
+
+  .toc h3 { margin-bottom: 0.5rem; }
+  .toc ul { list-style: none; padding: 0; }
+  .toc li { margin-bottom: 0.25rem; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+
+  .glossary {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    font-size: 0.9rem;
+  }
+
+  .glossary dt {
+    font-weight: 600;
+    font-family: "SFMono-Regular", Consolas, monospace;
+    margin-top: 0.5rem;
+  }
+
+  .glossary dd {
+    margin-left: 1rem;
+    margin-bottom: 0.5rem;
+    color: var(--text-muted);
+  }
+
+  footer {
+    margin-top: 3rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+    font-size: 0.85rem;
+    color: var(--text-muted);
+  }
+</style>
+</head>
+<body>
+
+<h1>ai-provider-bridge</h1>
+<p class="subtitle">Platform-neutral provider infrastructure for AI model access in Posit Assistant</p>
+
+<div class="toc">
+  <h3>Contents</h3>
+  <ul>
+    <li><a href="#what">What is it?</a></li>
+    <li><a href="#why">Why does it exist?</a></li>
+    <li><a href="#entrypoints">Entrypoints</a></li>
+    <li><a href="#key-interfaces">Key Interfaces</a></li>
+    <li><a href="#architecture">Architecture</a></li>
+    <li><a href="#positron-integration">Positron Integration</a></li>
+    <li><a href="#providers">Supported Providers</a></li>
+    <li><a href="#adding-provider">Adding a New Provider</a></li>
+  </ul>
+</div>
+
+<!-- ================================================================ -->
+<h2 id="what">What is it?</h2>
+
+<p><code>ai-provider-bridge</code> lets any Posit Assistant platform -- Positron, RStudio, Desktop, TUI -- talk to any LLM provider through a single, shared interface, without platform-specific code leaking into provider logic.</p>
+
+<p>Concretely, it provides:</p>
+<ul>
+  <li>A <strong>provider registry</strong> (plugin system for registering LLM backends)</li>
+  <li><strong>Model client implementations</strong> for 14 providers (Anthropic, OpenAI, Bedrock, etc.)</li>
+  <li><strong>Model discovery with caching</strong> (list available models per provider, with TTL and fallbacks)</li>
+  <li><strong>Credential abstractions</strong> (platform provides credentials; provider code never knows how they were obtained)</li>
+  <li>An <strong>adapter for Positron's <code>vscode.lm</code> API</strong> (so extensions using the VS Code Language Model API route through the same infrastructure)</li>
+</ul>
+
+<dl class="glossary">
+  <dt>vscode.lm</dt>
+  <dd>Positron's VS Code API namespace that lets any extension request LLM completions from models registered by other extensions -- the standard way third-party extensions access AI in Positron.</dd>
+  <dt>AI SDK</dt>
+  <dd>Vercel's <code>ai</code> npm package -- provides normalized types for messages (<code>ModelMessage</code>) and streaming responses (<code>TextStreamPart</code>). Used as the common wire format between this package and its consumers.</dd>
+</dl>
+
+<!-- ================================================================ -->
+<h2 id="why">Why does it exist?</h2>
+
+<div class="why-box">
+  <h3>The problem</h3>
+  <p>Posit Assistant runs on multiple platforms (Positron, standalone Node, RStudio Workbench, TUI). Each has its own auth system, runtime constraints, and way of discovering models. Before this package, provider logic was entangled with platform-specific code -- making it hard to reuse, test, or ship to new surfaces.</p>
+</div>
+
+<div class="before-after">
+  <div class="before">
+    <h4>Before</h4>
+    <ul>
+      <li>Model clients scattered across platform-specific packages</li>
+      <li>Provider registration coupled to platform auth</li>
+      <li>Credential resolution deeply tied to each platform</li>
+      <li>Adding a new consumer meant duplicating provider wiring</li>
+    </ul>
+  </div>
+  <div class="after">
+    <h4>After (this package)</h4>
+    <ul>
+      <li>All provider logic in one standalone package</li>
+      <li>Platform boundary is explicit: only <code>/positron</code> entrypoint touches VS Code</li>
+      <li>Consumers program against interfaces; platforms provide implementations</li>
+      <li>New consumer = just import the package</li>
+    </ul>
+  </div>
+</div>
+
+<p>The key architectural constraint: consumer packages depend on <code>ai-provider-bridge</code>, never the reverse.</p>
+
+<div class="mermaid-wrapper">
+<pre class="mermaid">
+graph LR
+    C1["Host app (Node)"] --> APB["ai-provider-bridge"]
+    C2["Host app (Positron)"] --> APB
+    APB -.-x|"NEVER"| C1
+    APB -.-x|"NEVER"| C2
+
+    style APB fill:#f1f8ff,stroke:#0366d6,stroke-width:2px
+</pre>
+</div>
+
+<!-- ================================================================ -->
+<h2 id="entrypoints">Entrypoints</h2>
+
+<p>The package exposes four entrypoints, each with a different dependency profile. This is the practical answer to "what do I import?":</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Import path</th>
+      <th>What it provides</th>
+      <th>Dependencies</th>
+      <th>Used by</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>ai-provider-bridge</code></td>
+      <td>ProviderRegistry, interfaces, types, cached model fetcher, provider map, LocalProviderManager</td>
+      <td>None (platform-neutral)</td>
+      <td>Everyone</td>
+    </tr>
+    <tr>
+      <td><code>ai-provider-bridge/providers</code></td>
+      <td><code>register*Provider()</code> functions, all client classes</td>
+      <td>AI SDK provider packages</td>
+      <td>Host applications (Positron, Node platforms)</td>
+    </tr>
+    <tr>
+      <td><code>ai-provider-bridge/providers-external</code></td>
+      <td>Minimal provider set (Posit AI only, for OSS/external builds)</td>
+      <td>Minimal</td>
+      <td>External/open-source builds</td>
+    </tr>
+    <tr>
+      <td><code>ai-provider-bridge/positron</code></td>
+      <td>PositronCredentialProvider, VscodeLmClient, message conversion utilities</td>
+      <td><code>vscode</code></td>
+      <td>positron-assistant extension only</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The root entrypoint is intentionally lightweight -- it defines shapes and the registry, but carries no heavy AI SDK dependencies. Heavy provider code is isolated behind <code>/providers</code>. Only the <code>/positron</code> entrypoint may import <code>vscode</code>.</p>
+
+<!-- ================================================================ -->
+<h2 id="key-interfaces">Key Interfaces</h2>
+
+<p>These are the core abstractions that consumers interact with:</p>
+
+<div class="card">
+  <div class="card-header"><span class="badge badge-interface">Interface</span> ModelClient</div>
+  <p>The contract every LLM client implements. One method: <code>chat()</code>. Accepts <code>ModelMessage[]</code> (the AI SDK's normalized message format representing user turns, assistant turns, and tool results) and returns a streaming response.</p>
+  <pre><code>interface ModelClient {
+  chat(params: {
+    model: string;
+    messages: ModelMessage[];
+    systemPrompt?: string;
+    tools?: Record&lt;string, AiToolWithJsonSchema&gt;;
+    cancellationToken: CancellationToken;
+    // ... additional optional params (thinkingEffort, webSearch, etc.)
+  }): Promise&lt;AsyncIterable&lt;LMStreamPart&gt;&gt;;
+}
+
+// Consuming a stream:
+for await (const part of stream) {
+  switch (part.type) {
+    case "text-delta":    // incremental text chunk
+    case "tool-call":     // model wants to call a tool
+    case "reasoning":     // extended thinking content
+    case "finish-step":   // step complete, includes token usage
+  }
+}</code></pre>
+  <p>Every provider -- whether it calls a REST API (Anthropic), spawns a subprocess (Copilot), or routes through VS Code's LM service -- looks identical to callers through this interface.</p>
+</div>
+
+<div class="card">
+  <div class="card-header"><span class="badge badge-class">Class</span> ProviderRegistry</div>
+  <p>The plugin system. Created once at startup. Providers register a <strong>model fetcher</strong> (how to list available models) and a <strong>client factory</strong> (how to create a ModelClient). Consumers ask the registry for models/clients by provider ID -- no hard-coded provider logic in consuming code.</p>
+  <pre><code>const registry = new ProviderRegistry(logger);
+registerAnthropicProvider(registry, logger);
+registerOpenAIProvider(registry, logger);
+
+// Discover models
+const models = await registry.getModelsForProvider("anthropic", credentials);
+
+// Create a client and stream a response
+const client = registry.getClientForProvider("anthropic", credentials);
+const stream = await client.chat({ model: "claude-sonnet-4-5-20250929", messages, ... });</code></pre>
+</div>
+
+<div class="card">
+  <div class="card-header"><span class="badge badge-interface">Interface</span> CredentialProvider</div>
+  <p>Platform-agnostic credential access. The Positron implementation wraps <code>vscode.authentication.getSession()</code>; Node implementations read from env vars, config files, or OAuth flows. Provider code never knows which.</p>
+  <pre><code>interface CredentialProvider {
+  getCredentials(providerId: ProviderId): Promise&lt;ProviderCredentials | null&gt;;
+  onDidChangeCredentials(cb: (ids: ProviderId[]) =&gt; void): Disposable;
+}
+
+// ProviderCredentials is a discriminated union:
+//   ApiKeyCredentials   | OAuthCredentials | LocalCredentials
+//   AwsCredentials      | GoogleCloudCredentials</code></pre>
+</div>
+
+<div class="card">
+  <div class="card-header"><span class="badge badge-class">Utility</span> createCachedModelFetcher</div>
+  <p>Factory for building model fetchers with TTL-based caching and a three-level fallback strategy:</p>
+  <ol>
+    <li><strong>Fresh API fetch</strong> -- call the provider's model-listing endpoint</li>
+    <li><strong>Stale cache</strong> -- if the fetch fails, return previously cached results</li>
+    <li><strong>Static fallback models</strong> -- if no cache exists, return a hardcoded list of known models</li>
+  </ol>
+  <p>Most providers use this internally, so model discovery is fast (cache hit) and resilient (never returns nothing).</p>
+</div>
+
+<!-- ================================================================ -->
+<h2 id="architecture">Architecture</h2>
+
+<p>Now that the core abstractions are clear, here is how they fit together. The package is structured as a plugin registry with layers:</p>
+
+<div class="mermaid-wrapper">
+<pre class="mermaid">
+graph TD
+    subgraph Consumers["Consumers"]
+        C1["Positron Extension"]
+        C2["Node host apps<br/><small>RStudio, Desktop, TUI</small>"]
+        C3["Other VS Code extensions<br/><small>via vscode.lm</small>"]
+    end
+
+    subgraph Bridge["ai-provider-bridge"]
+        REG["ProviderRegistry<br/><small>modelFetchers + clientFactories</small>"]
+        MC["ModelClient interface<br/><small>chat &rarr; AsyncIterable&lt;LMStreamPart&gt;</small>"]
+        CP["CredentialProvider<br/><small>interface</small>"]
+
+        CACHE["createCachedModelFetcher<br/><small>TTL + stale cache + fallback</small>"]
+
+        subgraph Clients["Client Implementations"]
+            CL1["AnthropicClient"]
+            CL2["OpenAIClient"]
+            CL3["BedrockClient"]
+            CL4["GeminiClient"]
+            CL5["CopilotSdkClient"]
+            CL6["OllamaClient"]
+            CL7["VscodeLmClient"]
+        end
+
+        PCRED["PositronCredentialProvider<br/><small>wraps vscode.authentication</small>"]
+    end
+
+    subgraph External["External Systems"]
+        API["Provider APIs<br/><small>Anthropic, OpenAI, Bedrock, etc.</small>"]
+        LMS["Positron LM Service<br/><small>vscode.lm.sendRequest</small>"]
+    end
+
+    C1 --> REG
+    C2 --> REG
+    C3 --> LMS
+
+    REG --> CACHE
+    REG --> MC
+    MC --> Clients
+    CP --> PCRED
+
+    CL1 --> API
+    CL2 --> API
+    CL3 --> API
+    CL4 --> API
+    CL5 --> API
+    CL6 --> API
+    CL7 --> LMS
+</pre>
+</div>
+
+<p>Key points:</p>
+<ul>
+  <li>Consumers only talk to the <strong>ProviderRegistry</strong> -- they never reference specific client classes directly.</li>
+  <li>The <strong>VscodeLmClient</strong> is special: it routes through Positron's LM Service rather than calling a provider API directly. This is how Copilot models (exposed via <code>vscode.lm</code>) get consumed through the same <code>ModelClient.chat()</code> interface.</li>
+  <li>Other VS Code extensions don't import this package at all -- they use the standard <code>vscode.lm</code> API, which the Positron Assistant extension backs with this infrastructure.</li>
+</ul>
+
+<!-- ================================================================ -->
+<h2 id="positron-integration">Positron Integration</h2>
+
+<p>The <code>/positron</code> entrypoint provides the glue between this package and Positron's VS Code-based LM infrastructure. Here's how the pieces connect:</p>
+
+<div class="mermaid-wrapper">
+<pre class="mermaid">
+graph LR
+    subgraph Extensions["Extensions in Positron"]
+        PA["Positron Assistant<br/><small>uses /providers directly</small>"]
+        OE["Other Extensions<br/><small>Ghost Cells, custom exts</small>"]
+    end
+
+    subgraph BridgePkg["ai-provider-bridge"]
+        REG2["ProviderRegistry<br/>+ all provider clients"]
+        POS["/positron entrypoint"]
+    end
+
+    subgraph Positron["Positron Runtime"]
+        LMS2["LM Service<br/><small>exposes vscode.lm API</small>"]
+        AUTH["Auth Extension<br/><small>vscode.authentication<br/>sessions</small>"]
+    end
+
+    PA -->|"registers providers,<br/>fetches models"| REG2
+    REG2 -->|"registers models into"| LMS2
+    OE -->|"vscode.lm.sendRequest()"| LMS2
+    POS -->|"VscodeLmClient<br/>consumes"| LMS2
+    POS -->|"PositronCredentialProvider<br/>reads sessions from"| AUTH
+    PA --> POS
+</pre>
+</div>
+
+<h3>Positron-specific components:</h3>
+
+<ul>
+  <li><strong>PositronCredentialProvider</strong> -- Implements the <code>CredentialProvider</code> interface for Positron. Uses a static <code>PROVIDER_MAP</code> (a lookup table mapping each provider ID to its Positron auth extension ID and credential type) to translate between logical provider IDs (e.g., <code>"anthropic"</code>) and VS Code auth sessions. Handles OAuth tokens, API keys, and AWS credentials uniformly.</li>
+  <li><strong>VscodeLmClient</strong> -- A <code>ModelClient</code> implementation that wraps <code>vscode.lm.sendRequest()</code>. Any model exposed through Positron's LM Service (including Copilot) can be consumed through the standard <code>ModelClient.chat()</code> interface.</li>
+  <li><strong>listVscodeLmModels()</strong> -- Discovers models available through <code>vscode.lm</code> and enriches them with capability metadata (token limits, tool support, thinking effort levels) using provider-specific heuristics.</li>
+  <li><strong>fromAiMessages2()</strong> -- Converts AI SDK <code>ModelMessage[]</code> to VS Code's <code>LanguageModelChatMessage2[]</code> format, handling cache markers, image parts, and tool results in the translation.</li>
+</ul>
+
+<!-- ================================================================ -->
+<h2 id="providers">Supported Providers</h2>
+
+<div class="provider-grid">
+  <div class="provider-chip">Anthropic</div>
+  <div class="provider-chip">OpenAI</div>
+  <div class="provider-chip">AWS Bedrock</div>
+  <div class="provider-chip">Google Gemini</div>
+  <div class="provider-chip">Google Vertex</div>
+  <div class="provider-chip">GitHub Copilot</div>
+  <div class="provider-chip">DeepSeek</div>
+  <div class="provider-chip">OpenRouter</div>
+  <div class="provider-chip">Ollama (local)</div>
+  <div class="provider-chip">LM Studio (local)</div>
+  <div class="provider-chip">Snowflake Cortex</div>
+  <div class="provider-chip">Posit AI</div>
+  <div class="provider-chip">OpenAI-Compatible</div>
+  <div class="provider-chip">MS Foundry</div>
+</div>
+
+<p>Each provider consists of:</p>
+<ul>
+  <li>A <strong>client class</strong> in <code>src/model-clients/</code> implementing <code>ModelClient</code> (some providers reuse <code>OpenAIClient</code> with a custom fetch -- e.g., OpenAI-Compatible and MS Foundry)</li>
+  <li>A <strong>registration module</strong> in <code>src/providers/</code> exporting <code>register*Provider(registry, logger)</code></li>
+  <li>An entry in <code>PROVIDER_MAP</code> if it has Positron auth mapping (10 of 14 do; Ollama, LM Studio, OpenRouter, and Google Vertex do not)</li>
+</ul>
+
+<!-- ================================================================ -->
+<h2 id="adding-provider">Adding a New Provider</h2>
+
+<ol>
+  <li>Add the provider ID to <code>PROVIDER_IDS</code> in <code>src/types.ts</code></li>
+  <li>Create a client class in <code>src/model-clients/MyClient.ts</code> implementing <code>ModelClient</code></li>
+  <li>Create a registration module in <code>src/providers/my-provider.ts</code> that exports <code>registerMyProvider(registry, logger)</code></li>
+  <li>Export both from <code>src/providers.ts</code></li>
+  <li>If it needs Positron auth mapping, add to <code>PROVIDER_MAP</code> in <code>src/provider-map.ts</code></li>
+  <li>Register it in your host application's provider setup</li>
+</ol>
+
+<p>The provider inherits caching (via <code>createCachedModelFetcher</code>), error handling, and credential resolution automatically -- typically 50-100 lines of registration code per provider.</p>
+
+<!-- ================================================================ -->
+
+<footer>
+  <p><strong>Repository:</strong> <code>github.com/posit-dev/ai-provider-bridge</code></p>
+  <p><strong>License:</strong> MIT</p>
+  <p>Generated from source as of the initial release commit (<code>368e5a3</code>).</p>
+</footer>
+
+</body>
+</html>
