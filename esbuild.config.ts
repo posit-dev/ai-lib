@@ -22,5 +22,4 @@ await build({
 	target: 'es2022',
 	sourcemap: true,
 	splitting: true,
-	banner: { js: "import { createRequire as __esbuildCreateRequire } from 'module'; var require = globalThis.require ?? __esbuildCreateRequire(import.meta.url);" },
 });
