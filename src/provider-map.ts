@@ -28,7 +28,7 @@ export interface AuthProviderMapping {
 	authProviderId: string;
 	scopes: string[];
 	fallbackScopes?: string[][];
-	credentialType: "apikey" | "oauth" | "aws-credentials";
+	credentialType: "apikey" | "oauth" | "aws-credentials" | "google-cloud";
 }
 
 /** Provider IDs that have auth mappings — public API for DirectModelService. */
@@ -43,6 +43,7 @@ export const MAPPED_PROVIDER_IDS = [
 	"snowflake-cortex",
 	"copilot",
 	"deepseek",
+	"google-vertex",
 ] satisfies readonly ProviderId[];
 
 /**
@@ -75,6 +76,11 @@ export const PROVIDER_MAP: Partial<Record<ProviderId, AuthProviderMapping>> = {
 		credentialType: "apikey",
 	},
 	deepseek: { authProviderId: "deepseek-api", scopes: [], credentialType: "apikey" },
+	"google-vertex": {
+		authProviderId: "google-cloud",
+		scopes: [],
+		credentialType: "google-cloud",
+	},
 	copilot: {
 		authProviderId: "github",
 		// Primary: the scope our `signInToCopilot` command requests. Preserves

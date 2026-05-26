@@ -56,9 +56,12 @@ function isAuthError(error: unknown): boolean {
 const MODEL_CACHE_TTL = 60 * 60 * 1000;
 
 /**
- * Fetch an access token using Google Application Default Credentials.
+ * Resolve an access token for the Vertex AI REST API.
+ * Uses a broker-provided token (e.g. from Positron auth ext) when available;
+ * otherwise falls back to Application Default Credentials.
  */
-async function getAccessToken(): Promise<string> {
+async function getAccessToken(brokered?: string): Promise<string> {
+	if (brokered) return brokered;
 	const auth = new GoogleAuth({ scopes: ["https://www.googleapis.com/auth/cloud-platform"] });
 	const client = await auth.getClient();
 	const { token } = await client.getAccessToken();
@@ -216,7 +219,7 @@ export function registerGoogleVertexProvider(
 						`[GoogleVertex] Fetching models from Vertex AI API (project=${credentials.project}, location=${location}, anthropicLocation=global)`,
 					);
 
-					const token = await getAccessToken();
+					const token = await getAccessToken(credentials.accessToken);
 
 					// Fetch from both publishers in parallel, collecting errors
 					// so that if both fail we can propagate to the outer catch
@@ -400,6 +403,7 @@ export function registerGoogleVertexProvider(
 		return new GoogleVertexClient({
 			project: credentials.project,
 			location: credentials.location,
+			accessToken: credentials.accessToken,
 		});
 	});
 }

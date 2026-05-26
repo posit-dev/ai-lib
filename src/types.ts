@@ -106,12 +106,17 @@ export interface AwsCredentials {
 }
 
 /**
- * Google Cloud credentials (Vertex AI)
+ * Google Cloud credentials (Vertex AI).
+ *
+ * `accessToken` is supplied by credential brokers (e.g. Positron auth ext) so
+ * the SDK can authenticate without calling ADC itself. Standalone/node/TUI
+ * leave it undefined and let google-auth-library resolve ADC.
  */
 export interface GoogleCloudCredentials {
 	type: "google-cloud";
 	project: string;
 	location: string;
+	accessToken?: string;
 }
 
 /**

@@ -101,6 +101,32 @@ async function getMappedCredentials(
 		};
 	}
 
+	if (credentialType === "google-cloud") {
+		// The Positron auth ext brokers credentials and serializes
+		// {token, project, location} as JSON in session.accessToken.
+		// The token is then passed to the Vertex SDK via googleAuthOptions.authClient
+		// so the SDK does not have to resolve ADC itself.
+		let parsed: { token?: string; project?: string; location?: string };
+		try {
+			parsed = JSON.parse(session.accessToken);
+		} catch {
+			logger.debug(`[positron-ai] Failed to parse Google Cloud credentials JSON for ${providerId}`);
+			return null;
+		}
+
+		if (!parsed.token || !parsed.project || !parsed.location) {
+			logger.debug(`[positron-ai] Google Cloud credentials missing token, project, or location`);
+			return null;
+		}
+
+		return {
+			type: "google-cloud",
+			project: parsed.project,
+			location: parsed.location,
+			accessToken: parsed.token,
+		};
+	}
+
 	if (credentialType === "aws-credentials") {
 		// Parse JSON-serialized AWS credentials from auth session accessToken.
 		// The auth extension stores {accessKeyId, secretAccessKey, sessionToken}.

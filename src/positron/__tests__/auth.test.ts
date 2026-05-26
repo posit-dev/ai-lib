@@ -296,6 +296,65 @@ describe("PositronCredentialProvider.getCredentials", () => {
 		expect(result).toBeNull();
 	});
 
+	// --- Google Cloud credentials (Vertex) ---
+
+	it("returns google-cloud credentials for google-vertex, parsing JSON accessToken", async () => {
+		const gcpCreds = JSON.stringify({
+			token: "test-token",
+			project: "my-gcp-project",
+			location: "us-central1",
+		});
+		mockGetSession.mockResolvedValue(makeSession(gcpCreds));
+
+		const result = await provider.getCredentials("google-vertex");
+
+		expect(result).toEqual({
+			type: "google-cloud",
+			project: "my-gcp-project",
+			location: "us-central1",
+			accessToken: "test-token",
+		});
+		expect(mockGetSession).toHaveBeenCalledWith("google-cloud", [], { silent: true });
+	});
+
+	it("returns null for google-vertex when accessToken is not valid JSON", async () => {
+		mockGetSession.mockResolvedValue(makeSession("not-json"));
+
+		const result = await provider.getCredentials("google-vertex");
+
+		expect(result).toBeNull();
+	});
+
+	it("returns null for google-vertex when accessToken JSON lacks token", async () => {
+		mockGetSession.mockResolvedValue(
+			makeSession(JSON.stringify({ project: "my-gcp-project", location: "us-central1" })),
+		);
+
+		const result = await provider.getCredentials("google-vertex");
+
+		expect(result).toBeNull();
+	});
+
+	it("returns null for google-vertex when accessToken JSON lacks project", async () => {
+		mockGetSession.mockResolvedValue(
+			makeSession(JSON.stringify({ token: "test-token", location: "us-central1" })),
+		);
+
+		const result = await provider.getCredentials("google-vertex");
+
+		expect(result).toBeNull();
+	});
+
+	it("returns null for google-vertex when accessToken JSON lacks location", async () => {
+		mockGetSession.mockResolvedValue(
+			makeSession(JSON.stringify({ token: "test-token", project: "my-gcp-project" })),
+		);
+
+		const result = await provider.getCredentials("google-vertex");
+
+		expect(result).toBeNull();
+	});
+
 	// --- Snowflake URL construction ---
 
 	it("constructs Snowflake base URL from authentication.snowflake.credentials.SNOWFLAKE_ACCOUNT", async () => {

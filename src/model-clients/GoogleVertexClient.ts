@@ -15,6 +15,7 @@ import { createVertexAnthropic } from "@ai-sdk/google-vertex/anthropic";
 import type { LanguageModelV3 } from "@ai-sdk/provider";
 import type { ModelMessage } from "ai";
 import { streamText } from "ai";
+import { OAuth2Client } from "google-auth-library";
 
 import type { StepLogger } from "../StepLogger";
 import type { AiToolWithJsonSchema, CancellationToken, LMStreamPart } from "../types";
@@ -48,6 +49,11 @@ export function getEffectiveLocation(modelId: string, configuredLocation: string
 export interface GoogleVertexClientConfig {
 	project: string;
 	location: string;
+	/**
+	 * Pre-fetched OAuth access token from a credential broker (e.g. Positron auth ext).
+	 * When set, the Vertex SDK uses this token directly instead of resolving ADC.
+	 */
+	accessToken?: string;
 }
 
 export class GoogleVertexClient implements ModelClient {
@@ -55,6 +61,13 @@ export class GoogleVertexClient implements ModelClient {
 
 	constructor(config: GoogleVertexClientConfig) {
 		this.config = config;
+	}
+
+	private googleAuthOptions(): { authClient: OAuth2Client } | undefined {
+		if (!this.config.accessToken) return undefined;
+		const authClient = new OAuth2Client();
+		authClient.setCredentials({ access_token: this.config.accessToken });
+		return { authClient };
 	}
 
 	async chat(params: {
@@ -112,17 +125,20 @@ export class GoogleVertexClient implements ModelClient {
 	 */
 	private createModel(modelId: string): LanguageModelV3 {
 		const location = getEffectiveLocation(modelId, this.config.location);
+		const googleAuthOptions = this.googleAuthOptions();
 
 		if (isVertexAnthropicModel(modelId)) {
 			return createVertexAnthropic({
 				project: this.config.project,
 				location,
+				googleAuthOptions,
 			})(modelId);
 		}
 
 		return createVertex({
 			project: this.config.project,
 			location,
+			googleAuthOptions,
 		})(modelId);
 	}
 }
