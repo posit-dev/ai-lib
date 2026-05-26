@@ -123,6 +123,6 @@ export function registerGeminiProvider(registry: ProviderRegistry, logger: Logge
 		if (credentials.type !== "apikey") {
 			throw new Error(`Gemini provider requires API key, got: ${credentials.type}`);
 		}
-		return new GeminiClient(credentials.apiKey, credentials.baseUrl);
+		return new GeminiClient(credentials.apiKey, credentials.baseUrl, credentials.customHeaders);
 	});
 }

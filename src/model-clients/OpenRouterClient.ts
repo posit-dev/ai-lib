@@ -6,6 +6,7 @@ import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import type { ModelMessage } from "ai";
 import { streamText } from "ai";
 
+import { safeSdkCustomHeaders } from "../custom-headers";
 import type { StepLogger } from "../StepLogger";
 import type { AiToolWithJsonSchema, CancellationToken, LMStreamPart } from "../types";
 import { isThinkingEnabled } from "../utils";
@@ -37,9 +38,11 @@ export function openRouterReasoningSettings(
 
 export class OpenRouterClient implements ModelClient {
 	private readonly apiKey: string;
+	private readonly customHeaders?: Record<string, string>;
 
-	constructor(apiKey: string) {
+	constructor(apiKey: string, customHeaders?: Record<string, string>) {
 		this.apiKey = apiKey;
+		this.customHeaders = customHeaders;
 	}
 
 	async chat(params: {
@@ -56,10 +59,12 @@ export class OpenRouterClient implements ModelClient {
 		};
 		stepLoggers?: StepLogger[];
 	}): Promise<AsyncIterable<LMStreamPart>> {
+		const headers = safeSdkCustomHeaders(this.customHeaders);
 		const provider = createOpenRouter({
 			apiKey: this.apiKey,
 			appName: "Posit Assistant",
 			appUrl: "https://posit.co",
+			...(headers && { headers }),
 		});
 
 		const model = provider.chat(params.model, {

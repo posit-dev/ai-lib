@@ -63,6 +63,6 @@ export function registerAnthropicProvider(registry: ProviderRegistry, logger: Lo
 		if (credentials.type !== "apikey") {
 			throw new Error(`Anthropic provider requires API key credentials, got: ${credentials.type}`);
 		}
-		return new AnthropicClient(credentials.apiKey, credentials.baseUrl);
+		return new AnthropicClient(credentials.apiKey, credentials.baseUrl, credentials.customHeaders);
 	});
 }

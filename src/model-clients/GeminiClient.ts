@@ -12,6 +12,7 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import type { ModelMessage } from "ai";
 import { streamText } from "ai";
 
+import { safeSdkCustomHeaders } from "../custom-headers";
 import type { StepLogger } from "../StepLogger";
 import type { AiToolWithJsonSchema, CancellationToken, LMStreamPart } from "../types";
 import {
@@ -126,10 +127,12 @@ export function geminiThinkingConfig(
 export class GeminiClient implements ModelClient {
 	private readonly apiKey: string;
 	private readonly baseURL?: string;
+	private readonly customHeaders?: Record<string, string>;
 
-	constructor(apiKey: string, baseURL?: string) {
+	constructor(apiKey: string, baseURL?: string, customHeaders?: Record<string, string>) {
 		this.apiKey = apiKey;
 		this.baseURL = baseURL;
+		this.customHeaders = customHeaders;
 	}
 
 	async chat(params: {
@@ -147,9 +150,11 @@ export class GeminiClient implements ModelClient {
 		stepLoggers?: StepLogger[];
 	}): Promise<AsyncIterable<LMStreamPart>> {
 		// Create Google Generative AI provider
+		const headers = safeSdkCustomHeaders(this.customHeaders);
 		const provider = createGoogleGenerativeAI({
 			apiKey: this.apiKey,
 			...(this.baseURL && { baseURL: this.baseURL }),
+			...(headers && { headers }),
 		});
 		const model = provider(params.model);
 

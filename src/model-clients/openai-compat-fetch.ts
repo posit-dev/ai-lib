@@ -55,6 +55,8 @@
  *    auth separately (e.g. Foundry injects its own token).
  */
 
+import { additiveHeaders } from "../custom-headers";
+
 // ---------------------------------------------------------------------------
 // Types describing the possibly-malformed response shapes we receive.
 //
@@ -124,8 +126,18 @@ type FetchFn = (url: string | URL | globalThis.Request, init?: RequestInit) => P
  *
  * @param providerName - Provider name for logging
  * @param apiKey - API key; when empty string, Authorization header is stripped
+ * @param customHeaders - Optional user-supplied headers to attach to every
+ *   request (e.g., enterprise gateway requirements like
+ *   `x-databricks-use-coding-agent-mode`). On this fetch path they are
+ *   additive only — SDK/provider-managed names are ignored, and a
+ *   customHeaders entry whose name collides with a header already populated
+ *   by the OpenAI SDK is silently skipped.
  */
-export function createOpenAICompatibleFetch(providerName: string, apiKey?: string): FetchFn {
+export function createOpenAICompatibleFetch(
+	providerName: string,
+	apiKey?: string,
+	customHeaders?: Record<string, string>,
+): FetchFn {
 	return async (url: string | URL | globalThis.Request, init?: RequestInit): Promise<Response> => {
 		const modifiedInit = { ...init };
 
@@ -134,6 +146,11 @@ export function createOpenAICompatibleFetch(providerName: string, apiKey?: strin
 			const headers = new Headers(modifiedInit.headers);
 			headers.delete("Authorization");
 			modifiedInit.headers = headers;
+		}
+
+		// Append customHeaders, but never overwrite a provider/SDK-managed header.
+		if (customHeaders && Object.keys(customHeaders).length > 0) {
+			modifiedInit.headers = additiveHeaders(modifiedInit.headers, customHeaders);
 		}
 
 		// Apply request body transforms and identify no-arg tools.

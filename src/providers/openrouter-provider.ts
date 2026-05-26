@@ -119,6 +119,6 @@ export function registerOpenRouterProvider(registry: ProviderRegistry, logger: L
 		if (credentials.type !== "apikey") {
 			throw new Error(`OpenRouter provider requires API key credentials, got: ${credentials.type}`);
 		}
-		return new OpenRouterClient(credentials.apiKey);
+		return new OpenRouterClient(credentials.apiKey, credentials.customHeaders);
 	});
 }

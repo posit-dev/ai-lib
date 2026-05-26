@@ -56,11 +56,17 @@ export function registerOpenAICompatibleProvider(registry: ProviderRegistry, log
 				`openai-compatible provider requires API key credentials, got: ${credentials.type}`,
 			);
 		}
+		// customHeaders are injected by the custom fetch wrapper; passing them
+		// to OpenAIClient's SDK `headers` option as well would be redundant.
 		return new OpenAIClient(
 			credentials.apiKey,
 			credentials.baseUrl,
 			"completions",
-			createOpenAICompatibleFetch("OpenAI Compatible", credentials.apiKey),
+			createOpenAICompatibleFetch(
+				"OpenAI Compatible",
+				credentials.apiKey,
+				credentials.customHeaders,
+			),
 		);
 	});
 }

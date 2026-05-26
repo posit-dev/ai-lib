@@ -6,6 +6,7 @@ import { createDeepSeek } from "@ai-sdk/deepseek";
 import type { ModelMessage } from "ai";
 import { streamText } from "ai";
 
+import { safeSdkCustomHeaders } from "../custom-headers";
 import type { StepLogger } from "../StepLogger";
 import type { AiToolWithJsonSchema, CancellationToken, LMStreamPart } from "../types";
 import { isThinkingEnabled } from "../utils";
@@ -54,10 +55,12 @@ function createFetchWithReasoningEffort(effort: string): typeof globalThis.fetch
 export class DeepSeekClient implements ModelClient {
 	private readonly apiKey: string;
 	private readonly baseURL?: string;
+	private readonly customHeaders?: Record<string, string>;
 
-	constructor(apiKey: string, baseURL?: string) {
+	constructor(apiKey: string, baseURL?: string, customHeaders?: Record<string, string>) {
 		this.apiKey = apiKey;
 		this.baseURL = baseURL;
+		this.customHeaders = customHeaders;
 	}
 
 	async chat(params: {
@@ -76,12 +79,14 @@ export class DeepSeekClient implements ModelClient {
 	}): Promise<AsyncIterable<LMStreamPart>> {
 		const thinkingOn = isThinkingEnabled(params.thinkingEffort);
 
+		const headers = safeSdkCustomHeaders(this.customHeaders);
 		const provider = createDeepSeek({
 			apiKey: this.apiKey,
 			...(this.baseURL && { baseURL: this.baseURL }),
 			...(thinkingOn && {
 				fetch: createFetchWithReasoningEffort(params.thinkingEffort!),
 			}),
+			...(headers && { headers }),
 		});
 
 		const model = provider.chat(params.model);

@@ -157,10 +157,20 @@ async function getMappedCredentials(
 			undefined;
 	}
 
+	// Read customHeaders from the same `authentication.<configKey>` namespace
+	// as baseUrl, so a provider's connection settings live in one place. Empty
+	// objects are normalized to undefined to match the rest of the pipeline.
+	const customHeadersRaw = vscode.workspace
+		.getConfiguration("authentication")
+		.get<Record<string, string>>(`${configKey}.customHeaders`);
+	const customHeaders =
+		customHeadersRaw && Object.keys(customHeadersRaw).length > 0 ? customHeadersRaw : undefined;
+
 	return {
 		type: "apikey",
 		apiKey: session.accessToken,
 		baseUrl,
+		customHeaders,
 	};
 }
 
@@ -204,8 +214,13 @@ for (const logicalId of MAPPED_PROVIDER_IDS) {
 }
 
 vscode.workspace.onDidChangeConfiguration((e) => {
+	// baseUrl and customHeaders both live under `authentication.<configKey>`
+	// for API key providers, so they share the same configKey → logicalIds map.
 	for (const [configKey, logicalIds] of BASE_URL_CONFIG_TO_LOGICAL) {
-		if (e.affectsConfiguration(`authentication.${configKey}.baseUrl`)) {
+		if (
+			e.affectsConfiguration(`authentication.${configKey}.baseUrl`) ||
+			e.affectsConfiguration(`authentication.${configKey}.customHeaders`)
+		) {
 			credentialChangeEmitter.fire(logicalIds);
 		}
 	}

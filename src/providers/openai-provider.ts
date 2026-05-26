@@ -119,6 +119,12 @@ export function registerOpenAIProvider(registry: ProviderRegistry, logger: Logge
 		if (credentials.type !== "apikey") {
 			throw new Error(`OpenAI provider requires API key credentials, got: ${credentials.type}`);
 		}
-		return new OpenAIClient(credentials.apiKey, credentials.baseUrl, "responses");
+		return new OpenAIClient(
+			credentials.apiKey,
+			credentials.baseUrl,
+			"responses",
+			undefined,
+			credentials.customHeaders,
+		);
 	});
 }

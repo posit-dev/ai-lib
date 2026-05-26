@@ -9,7 +9,8 @@
  * Used by: Anthropic, OpenAI, OpenRouter, Ollama (local), LM Studio (local)
  */
 
-import type { Logger, ModelInfo, ProviderCredentials } from "../types";
+import { additiveHeaderRecord } from "../custom-headers";
+import type { ApiKeyCredentials, Logger, ModelInfo, ProviderCredentials } from "../types";
 
 const DEFAULT_TTL = 60 * 60 * 1000; // 60 minutes
 
@@ -123,9 +124,10 @@ export function createCachedModelFetcher<T extends ProviderCredentials = Provide
 			const apiUrl = config.resolveUrl ? config.resolveUrl(typedCredentials) : config.apiUrl!;
 
 			config.logger.debug(`${logPrefix} Fetching models from API`);
-			const response = await fetch(apiUrl, {
-				headers: config.createHeaders(typedCredentials),
-			});
+			const apiKeyCreds = typedCredentials as Partial<ApiKeyCredentials>;
+			const providerHeaders = config.createHeaders(typedCredentials);
+			const headers = additiveHeaderRecord(providerHeaders, apiKeyCreds.customHeaders);
+			const response = await fetch(apiUrl, { headers });
 
 			if (!response.ok) {
 				throw new Error(`API returned ${response.status}`);

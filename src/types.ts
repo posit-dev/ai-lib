@@ -59,11 +59,22 @@ export type ProviderId = (typeof PROVIDER_IDS)[number];
 
 /**
  * API Key credentials (Anthropic, OpenAI, Gemini)
+ *
+ * customHeaders are user-supplied HTTP headers attached to every model
+ * discovery and chat request for this provider. Intended for additive
+ * enterprise-gateway headers (e.g. Databricks
+ * `x-databricks-use-coding-agent-mode`, tenancy or routing markers).
+ *
+ * Headers are additive only. SDK/provider-managed header names
+ * (`Authorization`, `x-api-key`, `anthropic-version`, `Content-Type`, etc.)
+ * are ignored, as are custom headers whose names collide with headers already
+ * populated by the provider-specific request path.
  */
 export interface ApiKeyCredentials {
 	type: "apikey";
 	apiKey: string;
 	baseUrl?: string;
+	customHeaders?: Record<string, string>;
 }
 
 /**

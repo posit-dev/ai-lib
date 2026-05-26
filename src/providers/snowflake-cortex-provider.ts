@@ -129,6 +129,6 @@ export function registerSnowflakeCortexProvider(registry: ProviderRegistry, logg
 		if (credentials.type !== "apikey") {
 			throw new Error(`Snowflake provider requires API key credentials, got: ${credentials.type}`);
 		}
-		return new SnowflakeClient(credentials.apiKey, credentials.baseUrl!);
+		return new SnowflakeClient(credentials.apiKey, credentials.baseUrl!, credentials.customHeaders);
 	});
 }

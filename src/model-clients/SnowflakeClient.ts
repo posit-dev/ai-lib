@@ -16,6 +16,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import type { ModelMessage } from "ai";
 import { streamText } from "ai";
 
+import { safeSdkCustomHeaders } from "../custom-headers";
 import type { StepLogger } from "../StepLogger";
 import type { AiToolWithJsonSchema, CancellationToken, LMStreamPart } from "../types";
 import { isClaudeModel, isThinkingEnabled } from "../utils";
@@ -30,10 +31,12 @@ import { createOpenAICompatibleFetch } from "./openai-compat-fetch";
 export class SnowflakeClient implements ModelClient {
 	private readonly bearerToken: string;
 	private readonly baseUrl: string;
+	private readonly customHeaders?: Record<string, string>;
 
-	constructor(bearerToken: string, baseUrl: string) {
+	constructor(bearerToken: string, baseUrl: string, customHeaders?: Record<string, string>) {
 		this.bearerToken = bearerToken;
 		this.baseUrl = baseUrl;
+		this.customHeaders = customHeaders;
 	}
 
 	async chat(params: {
@@ -72,9 +75,11 @@ export class SnowflakeClient implements ModelClient {
 		thinkingEffort?: string;
 		stepLoggers?: StepLogger[];
 	}): Promise<AsyncIterable<LMStreamPart>> {
+		const headers = safeSdkCustomHeaders(this.customHeaders);
 		const provider = createAnthropic({
 			authToken: this.bearerToken,
 			baseURL: this.baseUrl,
+			...(headers && { headers }),
 		});
 		const model = provider(params.model);
 
@@ -116,7 +121,7 @@ export class SnowflakeClient implements ModelClient {
 		const provider = createOpenAI({
 			apiKey: this.bearerToken || "sk-placeholder",
 			baseURL: this.baseUrl,
-			fetch: createOpenAICompatibleFetch("Snowflake", this.bearerToken),
+			fetch: createOpenAICompatibleFetch("Snowflake", this.bearerToken, this.customHeaders),
 		});
 		const model = provider.chat(params.model);
 

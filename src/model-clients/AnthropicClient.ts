@@ -12,6 +12,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import type { ModelMessage } from "ai";
 import { streamText } from "ai";
 
+import { safeSdkCustomHeaders } from "../custom-headers";
 import type { StepLogger } from "../StepLogger";
 import type { AiToolWithJsonSchema, CancellationToken, LMStreamPart } from "../types";
 import { isThinkingEnabled } from "../utils";
@@ -28,10 +29,12 @@ const WEB_SEARCH_MAX_USES = 5;
 export class AnthropicClient implements ModelClient {
 	private readonly apiKey: string;
 	private readonly baseURL?: string;
+	private readonly customHeaders?: Record<string, string>;
 
-	constructor(apiKey: string, baseURL?: string) {
+	constructor(apiKey: string, baseURL?: string, customHeaders?: Record<string, string>) {
 		this.apiKey = apiKey;
 		this.baseURL = baseURL;
+		this.customHeaders = customHeaders;
 	}
 
 	async chat(params: {
@@ -49,10 +52,11 @@ export class AnthropicClient implements ModelClient {
 		stepLoggers?: StepLogger[];
 		webSearchEnabled?: boolean;
 	}): Promise<AsyncIterable<LMStreamPart>> {
-		// Create Anthropic provider
+		const headers = safeSdkCustomHeaders(this.customHeaders);
 		const provider = createAnthropic({
 			apiKey: this.apiKey,
 			...(this.baseURL && { baseURL: this.baseURL }),
+			...(headers && { headers }),
 		});
 		const model = provider(params.model);
 

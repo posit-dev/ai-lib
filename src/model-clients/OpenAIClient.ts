@@ -12,6 +12,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import type { ModelMessage } from "ai";
 import { streamText } from "ai";
 
+import { safeSdkCustomHeaders } from "../custom-headers";
 import type { StepLogger } from "../StepLogger";
 import {
 	hasImagesInToolResults,
@@ -33,17 +34,20 @@ export class OpenAIClient implements ModelClient {
 	private readonly baseURL?: string;
 	private readonly apiMode: ApiMode;
 	private readonly customFetch?: typeof globalThis.fetch;
+	private readonly customHeaders?: Record<string, string>;
 
 	constructor(
 		apiKey?: string,
 		baseURL?: string,
 		apiMode: ApiMode = "completions",
 		customFetch?: typeof globalThis.fetch,
+		customHeaders?: Record<string, string>,
 	) {
 		this.apiKey = apiKey;
 		this.baseURL = baseURL;
 		this.apiMode = apiMode;
 		this.customFetch = customFetch;
+		this.customHeaders = customHeaders;
 	}
 
 	async chat(params: {
@@ -76,10 +80,12 @@ export class OpenAIClient implements ModelClient {
 						return globalThis.fetch(url, { ...init, headers });
 					}
 				: undefined);
+		const headers = safeSdkCustomHeaders(this.customHeaders);
 		const provider = createOpenAI({
 			apiKey: isEmptyKey ? "sk-placeholder" : this.apiKey,
 			...(this.baseURL && { baseURL: this.baseURL }),
 			...(fetchFn && { fetch: fetchFn }),
+			...(headers && { headers }),
 		});
 		const model =
 			this.apiMode === "responses" ? provider.responses(params.model) : provider.chat(params.model);

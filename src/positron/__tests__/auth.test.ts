@@ -668,4 +668,113 @@ describe("PositronCredentialProvider.onDidChangeCredentials", () => {
 
 		expect(callback).not.toHaveBeenCalled();
 	});
+
+	it("fires when authentication.<configKey>.customHeaders changes (configKey, with override)", () => {
+		const provider = new PositronCredentialProvider(mockLogger);
+		const callback = vi.fn();
+		provider.onDidChangeCredentials(callback);
+
+		// Anthropic uses configKey "anthropic" (CONFIG_KEY_OVERRIDES maps
+		// `anthropic-api` → `anthropic`), and customHeaders lives in the same
+		// `authentication.<configKey>` namespace as baseUrl.
+		configChangeHook.callback!({
+			affectsConfiguration: (section: string) =>
+				section === "authentication.anthropic.customHeaders",
+		});
+
+		expect(callback).toHaveBeenCalledWith(["anthropic"]);
+	});
+
+	it("fires when authentication.openai-api.customHeaders changes", () => {
+		const provider = new PositronCredentialProvider(mockLogger);
+		const callback = vi.fn();
+		provider.onDidChangeCredentials(callback);
+
+		// `openai` logical id maps to configKey `openai-api` (the auth provider
+		// id is used directly when no override exists).
+		configChangeHook.callback!({
+			affectsConfiguration: (section: string) =>
+				section === "authentication.openai-api.customHeaders",
+		});
+
+		expect(callback).toHaveBeenCalledWith(["openai"]);
+	});
+
+	it("fires when authentication.openai-compatible.customHeaders changes", () => {
+		const provider = new PositronCredentialProvider(mockLogger);
+		const callback = vi.fn();
+		provider.onDidChangeCredentials(callback);
+
+		configChangeHook.callback!({
+			affectsConfiguration: (section: string) =>
+				section === "authentication.openai-compatible.customHeaders",
+		});
+
+		expect(callback).toHaveBeenCalledWith(["openai-compatible"]);
+	});
+});
+
+describe("PositronCredentialProvider.getCredentials - customHeaders", () => {
+	let provider: InstanceType<typeof PositronCredentialProvider>;
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mockGetConfigValue.mockReturnValue(undefined);
+		provider = new PositronCredentialProvider(mockLogger);
+	});
+
+	it("reads customHeaders from authentication.<configKey>.customHeaders", async () => {
+		mockGetSession.mockResolvedValue(makeSession("sk-ant-test"));
+		mockGetConfigValue.mockImplementation((key: string) =>
+			key === "anthropic.customHeaders" ? { "x-tenancy": "team-42" } : undefined,
+		);
+
+		const result = await provider.getCredentials("anthropic");
+
+		expect(result).toEqual({
+			type: "apikey",
+			apiKey: "sk-ant-test",
+			baseUrl: undefined,
+			customHeaders: { "x-tenancy": "team-42" },
+		});
+	});
+
+	it("normalizes an empty customHeaders object to undefined", async () => {
+		mockGetSession.mockResolvedValue(makeSession("sk-ant-test"));
+		mockGetConfigValue.mockImplementation((key: string) =>
+			key === "anthropic.customHeaders" ? {} : undefined,
+		);
+
+		const result = await provider.getCredentials("anthropic");
+
+		expect(result).toEqual({
+			type: "apikey",
+			apiKey: "sk-ant-test",
+			baseUrl: undefined,
+			// Empty object collapsed to undefined so downstream code can
+			// short-circuit cleanly.
+			customHeaders: undefined,
+		});
+	});
+
+	it("uses the configKey alias for the customHeaders lookup (openai → openai-api)", async () => {
+		// `openai` logical id maps to authProviderId `openai-api`; no override
+		// is registered, so configKey is `openai-api`. The customHeaders
+		// lookup must use the configKey, matching baseUrl.
+		mockGetSession.mockResolvedValue(makeSession("sk-openai-test"));
+		mockGetConfigValue.mockImplementation((key: string) =>
+			key === "openai-api.customHeaders"
+				? { "x-databricks-use-coding-agent-mode": "true" }
+				: undefined,
+		);
+
+		const result = await provider.getCredentials("openai");
+
+		expect(result).toEqual({
+			type: "apikey",
+			apiKey: "sk-openai-test",
+			baseUrl: undefined,
+			customHeaders: { "x-databricks-use-coding-agent-mode": "true" },
+		});
+	});
 });
