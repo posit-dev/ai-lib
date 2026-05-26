@@ -1,6 +1,6 @@
 {
   "name": "ai-provider-bridge",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Platform-neutral provider infrastructure: registry, model clients, and credential access abstractions",
   "type": "module",
   "main": "./dist/index.js",
