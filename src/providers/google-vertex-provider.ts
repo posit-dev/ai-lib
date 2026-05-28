@@ -334,18 +334,19 @@ export function registerGoogleVertexProvider(
 					const errorMsg = error instanceof Error ? error.message : String(error);
 
 					if (isAuthError(error)) {
-						logger.error(
-							`[GoogleVertex] Credentials expired or missing. Run 'gcloud auth application-default login' to refresh. Error: ${errorMsg}`,
-						);
+						const isBrokeredAuth = Boolean(credentials.accessToken);
+						const authMessage = isBrokeredAuth
+							? "Google Cloud authentication expired or is unavailable. Reconnect Google Cloud auth in Positron, then click Refresh Models."
+							: "Google Cloud credentials expired or missing. Run 'gcloud auth application-default login' to refresh, then click Refresh Models.";
+						logger.error(`[GoogleVertex] ${authMessage} Error: ${errorMsg}`);
 
 						await callbacks?.onProviderStatusChange?.({
 							providerId: "google-vertex",
 							authMethodId: "google-cloud",
 							status: "auth_error",
 							error: {
-								code: "adc_expired",
-								message:
-									"Google Cloud credentials expired or missing. Run 'gcloud auth application-default login' to refresh, then click Refresh Models.",
+								code: isBrokeredAuth ? "google_cloud_auth_expired" : "adc_expired",
+								message: authMessage,
 								action: {
 									label: "Refresh Models",
 									commandId: NOTIFICATION_ACTIONS.REFRESH_MODELS,

@@ -2,7 +2,7 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import type { ProviderId } from "./types";
+import { PROVIDER_IDS, type ProviderId } from "./types";
 
 /**
  * Maps Posit Assistant logical provider IDs to Positron auth provider config.
@@ -30,21 +30,6 @@ export interface AuthProviderMapping {
 	fallbackScopes?: string[][];
 	credentialType: "apikey" | "oauth" | "aws-credentials" | "google-cloud";
 }
-
-/** Provider IDs that have auth mappings — public API for DirectModelService. */
-export const MAPPED_PROVIDER_IDS = [
-	"anthropic",
-	"positai",
-	"openai",
-	"gemini",
-	"openai-compatible",
-	"bedrock",
-	"ms-foundry",
-	"snowflake-cortex",
-	"copilot",
-	"deepseek",
-	"google-vertex",
-] satisfies readonly ProviderId[];
 
 /**
  * Confirmed provider mappings only.
@@ -75,12 +60,6 @@ export const PROVIDER_MAP: Partial<Record<ProviderId, AuthProviderMapping>> = {
 		scopes: [],
 		credentialType: "apikey",
 	},
-	deepseek: { authProviderId: "deepseek-api", scopes: [], credentialType: "apikey" },
-	"google-vertex": {
-		authProviderId: "google-cloud",
-		scopes: [],
-		credentialType: "google-cloud",
-	},
 	copilot: {
 		authProviderId: "github",
 		// Primary: the scope our `signInToCopilot` command requests. Preserves
@@ -95,4 +74,18 @@ export const PROVIDER_MAP: Partial<Record<ProviderId, AuthProviderMapping>> = {
 		fallbackScopes: [["read:user", "user:email", "repo", "workflow"], ["user:email"]],
 		credentialType: "apikey",
 	},
+	deepseek: { authProviderId: "deepseek-api", scopes: [], credentialType: "apikey" },
+	"google-vertex": {
+		authProviderId: "google-cloud",
+		scopes: [],
+		credentialType: "google-cloud",
+	},
 };
+
+function isProviderId(value: string): value is ProviderId {
+	return PROVIDER_IDS.some((id) => id === value);
+}
+
+/** Provider IDs that have auth mappings — public API for DirectModelService. */
+export const MAPPED_PROVIDER_IDS: readonly ProviderId[] =
+	Object.keys(PROVIDER_MAP).filter(isProviderId);

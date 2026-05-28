@@ -103,42 +103,42 @@ async function getMappedCredentials(
 
 	if (credentialType === "google-cloud") {
 		// The Positron auth ext brokers credentials and serializes
-		// {token, project, location} as JSON in session.accessToken.
-		// The token is then passed to the Vertex SDK via googleAuthOptions.authClient
-		// so the SDK does not have to resolve ADC itself.
-		let parsed: { token?: string; project?: string; location?: string };
-		try {
-			parsed = JSON.parse(session.accessToken);
-		} catch {
-			logger.debug(`[positron-ai] Failed to parse Google Cloud credentials JSON for ${providerId}`);
+		// {project, location, token?} as JSON in session.accessToken. When token
+		// is present, it is passed to the Vertex SDK via googleAuthOptions.authClient;
+		// otherwise the SDK falls back to ADC for Node-style environments.
+		const parsed = parseSessionJson(session, "Google Cloud", providerId, logger);
+		if (!parsed) {
 			return null;
 		}
 
-		if (!parsed.token || !parsed.project || !parsed.location) {
-			logger.debug(`[positron-ai] Google Cloud credentials missing token, project, or location`);
+		const project = getStringField(parsed, "project");
+		const location = getStringField(parsed, "location");
+		const accessToken = getStringField(parsed, "token");
+		if (!project || !location) {
+			logger.debug(`[positron-ai] Google Cloud credentials missing project or location`);
 			return null;
 		}
 
-		return {
+		const credentials: ProviderCredentials = {
 			type: "google-cloud",
-			project: parsed.project,
-			location: parsed.location,
-			accessToken: parsed.token,
+			project,
+			location,
 		};
+
+		return accessToken ? { ...credentials, accessToken } : credentials;
 	}
 
 	if (credentialType === "aws-credentials") {
 		// Parse JSON-serialized AWS credentials from auth session accessToken.
 		// The auth extension stores {accessKeyId, secretAccessKey, sessionToken}.
-		let parsed: { accessKeyId?: string; secretAccessKey?: string; sessionToken?: string };
-		try {
-			parsed = JSON.parse(session.accessToken);
-		} catch {
-			logger.debug(`[positron-ai] Failed to parse AWS credentials JSON for ${providerId}`);
+		const parsed = parseSessionJson(session, "AWS", providerId, logger);
+		if (!parsed) {
 			return null;
 		}
 
-		if (!parsed.accessKeyId || !parsed.secretAccessKey) {
+		const accessKeyId = getStringField(parsed, "accessKeyId");
+		const secretAccessKey = getStringField(parsed, "secretAccessKey");
+		if (!accessKeyId || !secretAccessKey) {
 			logger.debug(`[positron-ai] AWS credentials missing accessKeyId or secretAccessKey`);
 			return null;
 		}
@@ -152,9 +152,9 @@ async function getMappedCredentials(
 		return {
 			type: "aws-credentials",
 			region,
-			accessKeyId: parsed.accessKeyId,
-			secretAccessKey: parsed.secretAccessKey,
-			sessionToken: parsed.sessionToken,
+			accessKeyId,
+			secretAccessKey,
+			sessionToken: getStringField(parsed, "sessionToken"),
 		};
 	}
 
@@ -198,6 +198,27 @@ async function getMappedCredentials(
 		baseUrl,
 		customHeaders,
 	};
+}
+
+function parseSessionJson(
+	session: vscode.AuthenticationSession,
+	label: string,
+	providerId: ProviderId,
+	logger: Logger,
+): unknown | null {
+	try {
+		const parsed: unknown = JSON.parse(session.accessToken);
+		return parsed;
+	} catch {
+		logger.debug(`[positron-ai] Failed to parse ${label} credentials JSON for ${providerId}`);
+		return null;
+	}
+}
+
+function getStringField(value: unknown, field: string): string | undefined {
+	if (typeof value !== "object" || value === null) return undefined;
+	const fieldValue: unknown = Reflect.get(value, field);
+	return typeof fieldValue === "string" && fieldValue.length > 0 ? fieldValue : undefined;
 }
 
 // ---------------------------------------------------------------------------

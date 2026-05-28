@@ -298,7 +298,7 @@ describe("PositronCredentialProvider.getCredentials", () => {
 
 	// --- Google Cloud credentials (Vertex) ---
 
-	it("returns google-cloud credentials for google-vertex, parsing JSON accessToken", async () => {
+	it("returns google-cloud credentials for google-vertex, parsing JSON accessToken with brokered token", async () => {
 		const gcpCreds = JSON.stringify({
 			token: "test-token",
 			project: "my-gcp-project",
@@ -317,18 +317,25 @@ describe("PositronCredentialProvider.getCredentials", () => {
 		expect(mockGetSession).toHaveBeenCalledWith("google-cloud", [], { silent: true });
 	});
 
-	it("returns null for google-vertex when accessToken is not valid JSON", async () => {
-		mockGetSession.mockResolvedValue(makeSession("not-json"));
+	it("returns google-cloud credentials for google-vertex without token for ADC fallback", async () => {
+		const gcpCreds = JSON.stringify({
+			project: "my-gcp-project",
+			location: "us-central1",
+		});
+		mockGetSession.mockResolvedValue(makeSession(gcpCreds));
 
 		const result = await provider.getCredentials("google-vertex");
 
-		expect(result).toBeNull();
+		expect(result).toEqual({
+			type: "google-cloud",
+			project: "my-gcp-project",
+			location: "us-central1",
+		});
+		expect(mockGetSession).toHaveBeenCalledWith("google-cloud", [], { silent: true });
 	});
 
-	it("returns null for google-vertex when accessToken JSON lacks token", async () => {
-		mockGetSession.mockResolvedValue(
-			makeSession(JSON.stringify({ project: "my-gcp-project", location: "us-central1" })),
-		);
+	it("returns null for google-vertex when accessToken is not valid JSON", async () => {
+		mockGetSession.mockResolvedValue(makeSession("not-json"));
 
 		const result = await provider.getCredentials("google-vertex");
 
