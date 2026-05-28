@@ -72,39 +72,22 @@ function openaiModel(
  * Chat Completions API. We route them through the Messages API for
  * better feature support (thinking, tool use, images in tool results).
  * All other models use Chat Completions only.
+ *
+ * As of 2026-05-15, this is in the docs page referenced above:
+ * "Tool calling is supported for OpenAI and Claude models only."
+ * This means that all other models are unusable with Posit Assistant.
+ *
  */
 const SNOWFLAKE_MODELS: ModelInfo[] = [
 	// Claude models — Anthropic Messages API protocol
+	claudeModel("claude-opus-4-7", "Claude Opus 4.7"),
 	claudeModel("claude-sonnet-4-6", "Claude Sonnet 4.6"),
 	claudeModel("claude-opus-4-6", "Claude Opus 4.6"),
-	claudeModel("claude-sonnet-4-5", "Claude Sonnet 4.5"),
-	claudeModel("claude-opus-4-5", "Claude Opus 4.5"),
 	claudeModel("claude-haiku-4-5", "Claude Haiku 4.5"),
-	claudeModel("claude-4-sonnet", "Claude Sonnet 4"),
-	claudeModel("claude-4-opus", "Claude Opus 4"),
-	claudeModel("claude-3-7-sonnet", "Claude 3.7 Sonnet"),
 
 	// OpenAI models — Chat Completions API protocol
 	openaiModel("openai-gpt-5.2", "GPT-5.2", { supportsImages: true }),
 	openaiModel("openai-gpt-5.1", "GPT-5.1", { supportsImages: true }),
-	openaiModel("openai-gpt-5", "GPT-5", { supportsImages: true }),
-	openaiModel("openai-gpt-5-mini", "GPT-5 Mini", { supportsImages: true }),
-	openaiModel("openai-gpt-5-nano", "GPT-5 Nano", { supportsImages: true }),
-	openaiModel("openai-gpt-4.1", "GPT-4.1", { supportsImages: true }),
-	openaiModel("openai-gpt-oss-120b", "GPT OSS 120B"),
-
-	// Meta Llama models — Chat Completions API protocol
-	openaiModel("llama4-maverick", "Llama 4 Maverick", { supportsImages: true }),
-	openaiModel("llama3.1-8b", "Llama 3.1 8B"),
-	openaiModel("llama3.1-70b", "Llama 3.1 70B"),
-	openaiModel("llama3.1-405b", "Llama 3.1 405B"),
-	openaiModel("snowflake-llama-3.3-70b", "Snowflake Llama 3.3 70B"),
-
-	// Other models — Chat Completions API protocol
-	openaiModel("deepseek-r1", "DeepSeek R1"),
-	openaiModel("mistral-7b", "Mistral 7B", { maxInputTokens: 32_000 }),
-	openaiModel("mistral-large", "Mistral Large"),
-	openaiModel("mistral-large2", "Mistral Large 2"),
 ];
 
 export function registerSnowflakeCortexProvider(registry: ProviderRegistry, logger: Logger): void {
