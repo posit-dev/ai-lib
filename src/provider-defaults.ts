@@ -3,5 +3,5 @@
  *--------------------------------------------------------------------------------------------*/
 
 export const POSIT_AI_DEFAULTS = {
-	baseUrl: 'https://gateway.posit.ai',
+	baseUrl: "https://gateway.posit.ai",
 } as const;

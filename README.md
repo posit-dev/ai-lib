@@ -11,31 +11,31 @@ These rules keep the dependency graph clean:
 
 ## Entrypoints
 
-| Entrypoint | What it provides | Heavy deps? |
-|---|---|---|
-| `ai-provider-bridge` | `ProviderRegistry`, interfaces (`ModelClient`, `CredentialProvider`, `StepLogger`), `createCachedModelFetcher`, provider map, `LocalProviderManager` | No |
-| `ai-provider-bridge/providers` | `register*Provider()` functions, client classes, helpers | Yes (AI SDK packages) |
-| `ai-provider-bridge/providers-external` | Minimal provider set (external/OSS builds -- Posit AI only) | Minimal |
-| `ai-provider-bridge/positron` | `PositronCredentialProvider`, `VscodeLmClient`, `listVscodeLmModels()`, `fromAiMessages2()`, LM helpers | Yes (`vscode`) |
+| Entrypoint                              | What it provides                                                                                                                                     | Heavy deps?           |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| `ai-provider-bridge`                    | `ProviderRegistry`, interfaces (`ModelClient`, `CredentialProvider`, `StepLogger`), `createCachedModelFetcher`, provider map, `LocalProviderManager` | No                    |
+| `ai-provider-bridge/providers`          | `register*Provider()` functions, client classes, helpers                                                                                             | Yes (AI SDK packages) |
+| `ai-provider-bridge/providers-external` | Minimal provider set (external/OSS builds -- Posit AI only)                                                                                          | Minimal               |
+| `ai-provider-bridge/positron`           | `PositronCredentialProvider`, `VscodeLmClient`, `listVscodeLmModels()`, `fromAiMessages2()`, LM helpers                                              | Yes (`vscode`)        |
 
 ## Supported Providers
 
-| Provider | Client | Model Discovery |
-|----------|--------|-----------------|
-| Anthropic | AnthropicClient | Cached via API |
-| OpenAI | OpenAIClient | Cached via API |
-| AWS Bedrock | BedrockClient | Cached via API |
-| Google Gemini | GeminiClient | Cached via API |
-| Google Vertex AI | GoogleVertexClient | Cached via API |
-| GitHub Copilot | CopilotSdkClient | Via Copilot SDK |
-| DeepSeek | DeepSeekClient | Cached via API |
-| OpenRouter | OpenRouterClient | Cached via API |
-| Ollama (local) | OllamaClient | Cached via API |
-| LM Studio (local) | LMStudioClient | Cached via API |
-| Snowflake Cortex | SnowflakeClient | Static |
-| Posit AI | PositAiClient | Cached via API |
-| OpenAI-Compatible | OpenAIClient | User-configured |
-| Foundry | OpenAIClient | User-configured |
+| Provider          | Client             | Model Discovery |
+| ----------------- | ------------------ | --------------- |
+| Anthropic         | AnthropicClient    | Cached via API  |
+| OpenAI            | OpenAIClient       | Cached via API  |
+| AWS Bedrock       | BedrockClient      | Cached via API  |
+| Google Gemini     | GeminiClient       | Cached via API  |
+| Google Vertex AI  | GoogleVertexClient | Cached via API  |
+| GitHub Copilot    | CopilotSdkClient   | Via Copilot SDK |
+| DeepSeek          | DeepSeekClient     | Cached via API  |
+| OpenRouter        | OpenRouterClient   | Cached via API  |
+| Ollama (local)    | OllamaClient       | Cached via API  |
+| LM Studio (local) | LMStudioClient     | Cached via API  |
+| Snowflake Cortex  | SnowflakeClient    | Static          |
+| Posit AI          | PositAiClient      | Cached via API  |
+| OpenAI-Compatible | OpenAIClient       | User-configured |
+| Foundry           | OpenAIClient       | User-configured |
 
 ## API Reference
 
@@ -51,14 +51,14 @@ const registry = new ProviderRegistry(logger);
 
 #### Methods
 
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| `registerModelFetcher` | `(providerId: string, fetcher: ModelFetcher) => void` | Register a function that returns available models for a provider |
-| `registerClientFactory` | `(providerId: string, factory: ClientFactory) => void` | Register a function that creates a `ModelClient` for a provider |
-| `getModelsForProvider` | `(providerId: string, credentials: ProviderCredentials, metadata?) => Promise<ModelInfo[]>` | Fetch models (returns `[]` if provider not registered or fetch fails) |
-| `getClientForProvider` | `(providerId: string, credentials: ProviderCredentials) => ModelClient \| null` | Create a client (returns `null` if provider not registered) |
-| `clearAllModelCaches` | `() => void` | Clear all provider-level model caches (call on credential change) |
-| `clearModelCache` | `(providerId: string) => void` | Clear a single provider's model cache |
+| Method                  | Signature                                                                                   | Description                                                           |
+| ----------------------- | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `registerModelFetcher`  | `(providerId: string, fetcher: ModelFetcher) => void`                                       | Register a function that returns available models for a provider      |
+| `registerClientFactory` | `(providerId: string, factory: ClientFactory) => void`                                      | Register a function that creates a `ModelClient` for a provider       |
+| `getModelsForProvider`  | `(providerId: string, credentials: ProviderCredentials, metadata?) => Promise<ModelInfo[]>` | Fetch models (returns `[]` if provider not registered or fetch fails) |
+| `getClientForProvider`  | `(providerId: string, credentials: ProviderCredentials) => ModelClient \| null`             | Create a client (returns `null` if provider not registered)           |
+| `clearAllModelCaches`   | `() => void`                                                                                | Clear all provider-level model caches (call on credential change)     |
+| `clearModelCache`       | `(providerId: string) => void`                                                              | Clear a single provider's model cache                                 |
 
 #### Types
 
@@ -162,11 +162,7 @@ fetcher.clearCache?.();
 Manages endpoint configuration for local LLM providers (Ollama, LM Studio). Uses dependency injection for all I/O -- no platform-specific or `vscode` dependencies. Endpoints are stored in `~/.positai/settings.json` under `providers.{providerId}.endpoint` and cached in-memory for synchronous reads.
 
 ```ts
-import {
-  LocalProviderManager,
-  LOCAL_PROVIDER_IDS,
-  isLocalProviderId,
-} from "ai-provider-bridge";
+import { LocalProviderManager, LOCAL_PROVIDER_IDS, isLocalProviderId } from "ai-provider-bridge";
 
 // LOCAL_PROVIDER_IDS: readonly ["ollama", "lmstudio"]
 
@@ -238,10 +234,10 @@ The package provides built-in caching at multiple levels:
 
 ```ts
 // Models are cached automatically -- repeated calls use the cache
-const models = await registry.getModelsForProvider('anthropic', credentials);
+const models = await registry.getModelsForProvider("anthropic", credentials);
 
 // Force cache invalidation (e.g., when credentials change)
-registry.clearModelCache('anthropic');
+registry.clearModelCache("anthropic");
 
 // Or clear all provider caches at once
 registry.clearAllModelCaches();
@@ -283,8 +279,8 @@ A package that uses ai-provider-bridge to send LLM requests needs:
 {
   "dependencies": {
     "ai-provider-bridge": "*",
-    "ai": "^6.0.68" // Only if you reference ModelMessage or other ai types directly
-  }
+    "ai": "^6.0.68", // Only if you reference ModelMessage or other ai types directly
+  },
 }
 ```
 
@@ -295,29 +291,29 @@ If you import `ai-provider-bridge/providers` to register specific providers, the
   "dependencies": {
     "ai-provider-bridge": "*",
     // Only include the provider SDK(s) you use:
-    "@ai-sdk/anthropic": "^3.0.70",  // for registerAnthropicProvider
-    "@ai-sdk/openai": "^3.0.25",     // for registerOpenAIProvider
-    "@ai-sdk/google": "^3.0.20",     // for registerGeminiProvider
+    "@ai-sdk/anthropic": "^3.0.70", // for registerAnthropicProvider
+    "@ai-sdk/openai": "^3.0.25", // for registerOpenAIProvider
+    "@ai-sdk/google": "^3.0.20", // for registerGeminiProvider
     // etc.
-  }
+  },
 }
 ```
 
 ### Peer Dependency Matrix
 
-| Provider | Required peer deps |
-|----------|-------------------|
-| Anthropic | `@ai-sdk/anthropic` |
-| OpenAI | `@ai-sdk/openai` |
-| Bedrock | `@ai-sdk/amazon-bedrock`, `@aws-sdk/client-bedrock`, `@aws-sdk/credential-providers` |
-| Gemini | `@ai-sdk/google` |
-| Google Vertex | `@ai-sdk/google-vertex`, `google-auth-library` |
-| Copilot | `@github/copilot-sdk` |
-| DeepSeek | `@ai-sdk/deepseek` |
-| OpenRouter | `@openrouter/ai-sdk-provider` |
-| Ollama | `ai-sdk-ollama` |
-| OpenAI-Compatible | `@ai-sdk/openai-compatible` |
-| Positron entry point | `vscode` |
+| Provider             | Required peer deps                                                                   |
+| -------------------- | ------------------------------------------------------------------------------------ |
+| Anthropic            | `@ai-sdk/anthropic`                                                                  |
+| OpenAI               | `@ai-sdk/openai`                                                                     |
+| Bedrock              | `@ai-sdk/amazon-bedrock`, `@aws-sdk/client-bedrock`, `@aws-sdk/credential-providers` |
+| Gemini               | `@ai-sdk/google`                                                                     |
+| Google Vertex        | `@ai-sdk/google-vertex`, `google-auth-library`                                       |
+| Copilot              | `@github/copilot-sdk`                                                                |
+| DeepSeek             | `@ai-sdk/deepseek`                                                                   |
+| OpenRouter           | `@openrouter/ai-sdk-provider`                                                        |
+| Ollama               | `ai-sdk-ollama`                                                                      |
+| OpenAI-Compatible    | `@ai-sdk/openai-compatible`                                                          |
+| Positron entry point | `vscode`                                                                             |
 
 ## Usage Examples
 
@@ -438,10 +434,7 @@ Create a `ProviderRegistry`, register providers, and pass it to your platform's 
 
 ```ts
 import { ProviderRegistry } from "ai-provider-bridge";
-import {
-  registerAnthropicProvider,
-  registerOpenAIProvider,
-} from "ai-provider-bridge/providers";
+import { registerAnthropicProvider, registerOpenAIProvider } from "ai-provider-bridge/providers";
 
 // 1. Create registry
 const registry = new ProviderRegistry(logger);

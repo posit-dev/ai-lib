@@ -38,8 +38,9 @@ function isAuthError(error: unknown): boolean {
 	if (!(error instanceof Error)) return false;
 	const msg = error.message;
 	// google-auth-library: refresh token revoked or expired
-	if (msg.includes("invalid_grant") || msg.includes("Token has been expired or revoked"))
+	if (msg.includes("invalid_grant") || msg.includes("Token has been expired or revoked")) {
 		return true;
+	}
 	// google-auth-library: no ADC file found
 	if (msg.includes("Could not load the default credentials")) return true;
 	// Vertex API 401/403

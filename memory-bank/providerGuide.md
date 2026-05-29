@@ -100,15 +100,15 @@ If it is a local endpoint provider, add it to `LOCAL_PROVIDER_IDS` in `src/local
 
 ## Files Summary
 
-| File | Change |
-| ---- | ------ |
-| `src/types.ts` | Add to `PROVIDER_IDS` |
-| `src/model-clients/XyzClient.ts` | New client class |
-| `src/model-capabilities/xyz-helpers.ts` | Optional: capability inference helpers |
-| `src/providers/xyz-provider.ts` | New provider module |
-| `src/providers.ts` | Export new registration function + client |
-| `src/provider-map.ts` | Optional: add Positron auth mapping |
-| `src/positron/auth.ts` | Optional: add credential handling |
+| File                                    | Change                                    |
+| --------------------------------------- | ----------------------------------------- |
+| `src/types.ts`                          | Add to `PROVIDER_IDS`                     |
+| `src/model-clients/XyzClient.ts`        | New client class                          |
+| `src/model-capabilities/xyz-helpers.ts` | Optional: capability inference helpers    |
+| `src/providers/xyz-provider.ts`         | New provider module                       |
+| `src/providers.ts`                      | Export new registration function + client |
+| `src/provider-map.ts`                   | Optional: add Positron auth mapping       |
+| `src/positron/auth.ts`                  | Optional: add credential handling         |
 
 ## Thinking/Reasoning Support
 

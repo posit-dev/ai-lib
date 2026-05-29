@@ -29,12 +29,12 @@ ai-provider-bridge/
 
 ### Entrypoints
 
-| Entrypoint | What it provides | vscode dep? |
-|---|---|---|
-| `ai-provider-bridge` | ProviderRegistry, interfaces, types, cached model fetcher, provider map, LocalProviderManager | No |
-| `ai-provider-bridge/providers` | `register*Provider()` functions, all client classes | No |
-| `ai-provider-bridge/providers-external` | Minimal provider set (Posit AI only, for OSS/external builds) | No |
-| `ai-provider-bridge/positron` | PositronCredentialProvider, VscodeLmClient, message conversion utilities | **Yes** |
+| Entrypoint                              | What it provides                                                                              | vscode dep? |
+| --------------------------------------- | --------------------------------------------------------------------------------------------- | ----------- |
+| `ai-provider-bridge`                    | ProviderRegistry, interfaces, types, cached model fetcher, provider map, LocalProviderManager | No          |
+| `ai-provider-bridge/providers`          | `register*Provider()` functions, all client classes                                           | No          |
+| `ai-provider-bridge/providers-external` | Minimal provider set (Posit AI only, for OSS/external builds)                                 | No          |
+| `ai-provider-bridge/positron`           | PositronCredentialProvider, VscodeLmClient, message conversion utilities                      | **Yes**     |
 
 ### Key Invariants
 
@@ -84,6 +84,7 @@ The `/positron` entrypoint is the only place where `vscode` may be imported. All
 ### Provider Implementation
 
 When adding a new provider:
+
 1. Add the provider ID to `PROVIDER_IDS` in `src/types.ts`
 2. Create a client class in `src/model-clients/`
 3. Create a provider module in `src/providers/`
@@ -95,6 +96,7 @@ See `memory-bank/providerGuide.md` for the full step-by-step guide.
 ### Custom Headers
 
 New providers must support `customHeaders` from `ApiKeyCredentials`. The merging behavior varies by path:
+
 - **Model discovery**: additive only, provider headers win on collision
 - **Direct-SDK chat**: `customHeaders` clobbers on collision (passed last to SDK `headers` option)
 - **OpenAI-compatible fetch**: additive only, SDK headers win on collision
