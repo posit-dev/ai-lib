@@ -1,0 +1,24 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "useTabs": true,
+  "tabWidth": 2,
+  "printWidth": 100,
+  "sortImports": {
+    "groups": [
+      "builtin",
+      "external",
+      { "newlinesBetween": true },
+      ["internal", "parent", "sibling", "index", "unknown"]
+    ]
+  },
+  "sortPackageJson": false,
+  "ignorePatterns": [".claude/", "**/dist/", "**/*.tsbuildinfo", "**/*.html"],
+  "overrides": [
+    {
+      "files": ["*.json", "*.md", "*.yml", "*.yaml"],
+      "options": {
+        "useTabs": false
+      }
+    }
+  ]
+}

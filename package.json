@@ -46,7 +46,19 @@
     "clean": "rm -rf dist tsconfig.tsbuildinfo",
     "check-types": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "lint": "oxlint -c oxlint.config.json src",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
+    "hygiene": "tsx scripts/hygiene.ts",
+    "precommit": "lint-staged",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "**/*.{ts,tsx,js,jsx,css,md}": [
+      "oxfmt --check --no-error-on-unmatched-pattern",
+      "tsx scripts/hygiene.ts"
+    ]
   },
   "dependencies": {
     "ai": "^6.0.68"
@@ -131,6 +143,10 @@
     "ai-sdk-ollama": "^3.8.2",
     "esbuild": "^0.25.0",
     "google-auth-library": "^10.6.2",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
+    "oxfmt": "^0.41.0",
+    "oxlint": "^1.57.0",
     "tsx": "^4.20.6",
     "typescript": "^6.0.2",
     "vitest": "^3.2.1",
