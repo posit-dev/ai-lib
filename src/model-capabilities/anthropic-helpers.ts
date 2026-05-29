@@ -17,6 +17,7 @@ interface CapabilityRule {
 	match: RegExp;
 	family: string;
 	maxOutputTokens: number;
+	maxContextLength?: number; // defaults to 200_000 when omitted
 	thinkingEffortLevels?: string[];
 }
 
@@ -26,6 +27,13 @@ interface CapabilityRule {
  * dot-style (OpenRouter) version separators.
  */
 const CAPABILITY_RULES: CapabilityRule[] = [
+	{
+		match: /^claude-\w+-4[-.]8/,
+		family: "claude-4.8",
+		maxOutputTokens: 128_000,
+		maxContextLength: 1_000_000,
+		thinkingEffortLevels: ["off", "low", "medium", "high", "xhigh", "max"],
+	},
 	{
 		match: /^claude-\w+-4[-.]7/,
 		family: "claude-4.7",
@@ -87,7 +95,7 @@ export function getAnthropicModelCapabilities(modelId: string): Partial<ModelInf
 
 	return {
 		maxInputTokens: 200_000,
-		maxContextLength: 200_000,
+		maxContextLength: rule?.maxContextLength ?? 200_000,
 		maxOutputTokens: rule?.maxOutputTokens ?? DEFAULT_CLAUDE_MAX_OUTPUT,
 		supportsToolResultImages: true,
 		supportedInputMediaTypes: [
