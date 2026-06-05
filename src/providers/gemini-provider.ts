@@ -1,13 +1,17 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright (C) 2025 Posit Software, PBC. All rights reserved.
+ *  Copyright (C) 2025-2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
 import { getGeminiModelCapabilities } from "../model-capabilities/gemini-helpers";
 import { GeminiClient } from "../model-clients/GeminiClient";
 import type { Logger, ModelInfo } from "../types";
 import type { ApiKeyCredentials } from "../types";
+import { normalizeConfiguredBaseUrl, normalizeProviderBaseUrl } from "../utils";
 import { createCachedModelFetcher } from "./cached-model-fetcher";
 import type { ProviderRegistry } from "./ProviderRegistry";
+
+/** Gemini public API host. `@ai-sdk/google` expects baseURL to include `/v1beta`. */
+const GEMINI_HOST = "https://generativelanguage.googleapis.com";
 
 /** Default capabilities for unrecognized Gemini models */
 const GEMINI_DEFAULT_CAPABILITIES: Partial<ModelInfo> = {
@@ -62,9 +66,7 @@ export function registerGeminiProvider(registry: ProviderRegistry, logger: Logge
 			providerId: "gemini",
 			// Google requires API key in query string, not header
 			resolveUrl: (credentials) => {
-				const base = (
-					credentials.baseUrl ?? "https://generativelanguage.googleapis.com/v1beta"
-				).replace(/\/+$/, "");
+				const base = normalizeProviderBaseUrl(credentials.baseUrl, GEMINI_HOST, "v1beta");
 				const url = new URL("models", base + "/");
 				url.searchParams.set("key", credentials.apiKey);
 				return url.toString();
@@ -123,6 +125,10 @@ export function registerGeminiProvider(registry: ProviderRegistry, logger: Logge
 		if (credentials.type !== "apikey") {
 			throw new Error(`Gemini provider requires API key, got: ${credentials.type}`);
 		}
-		return new GeminiClient(credentials.apiKey, credentials.baseUrl, credentials.customHeaders);
+		return new GeminiClient(
+			credentials.apiKey,
+			normalizeConfiguredBaseUrl(credentials.baseUrl, GEMINI_HOST, "v1beta"),
+			credentials.customHeaders,
+		);
 	});
 }

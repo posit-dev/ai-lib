@@ -72,6 +72,56 @@ export function isAgreementRequiredBody(responseBody: string | undefined): boole
 }
 
 // ---------------------------------------------------------------------------
+// Base URL normalization
+// ---------------------------------------------------------------------------
+
+/**
+ * Normalize a configured base URL for an `@ai-sdk/*` provider, or return
+ * `undefined` when unset.
+ *
+ * `@ai-sdk/*` providers expect `baseURL` to already include the version segment
+ * (`/v1`, `/v1beta`) and append only the operation path, so a bare host like
+ * `https://api.anthropic.com` 404s. When the value is exactly the known host we
+ * add the version; any other host is left alone (custom proxies/gateways).
+ *
+ * Returning `undefined` when unset lets the SDK keep its default and base-URL
+ * env vars (`OPENAI_BASE_URL`, etc), which non-Positron hosts may rely on.
+ *
+ * @param host Known public API host, no trailing slash (e.g. `https://api.anthropic.com`).
+ * @param version Version segment to ensure, no slashes (e.g. `v1`, `v1beta`).
+ */
+export function normalizeConfiguredBaseUrl(
+	baseUrl: string | undefined,
+	host: string,
+	version: string,
+): string | undefined {
+	// undefined, empty, and whitespace-only all count as "unset".
+	const trimmed = baseUrl?.trim().replace(/\/+$/, "");
+	if (!trimmed) return undefined;
+
+	const hostTrimmed = host.replace(/\/+$/, "");
+	if (trimmed === hostTrimmed) {
+		return `${hostTrimmed}/${version}`;
+	}
+	return trimmed;
+}
+
+/**
+ * Like {@link normalizeConfiguredBaseUrl}, but falls back to the versioned
+ * default (`host/version`) when unset. For direct fetches (model discovery)
+ * that need a concrete URL and have no SDK env fallback to defer to.
+ */
+export function normalizeProviderBaseUrl(
+	baseUrl: string | undefined,
+	host: string,
+	version: string,
+): string {
+	return (
+		normalizeConfiguredBaseUrl(baseUrl, host, version) ?? `${host.replace(/\/+$/, "")}/${version}`
+	);
+}
+
+// ---------------------------------------------------------------------------
 // Path
 // ---------------------------------------------------------------------------
 

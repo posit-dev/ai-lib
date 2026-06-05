@@ -8,6 +8,9 @@ import type { ApiKeyCredentials, Logger, ModelInfo } from "../types";
 import { createCachedModelFetcher } from "./cached-model-fetcher";
 import type { ProviderRegistry } from "./ProviderRegistry";
 
+/** DeepSeek public API host. */
+const DEEPSEEK_HOST = "https://api.deepseek.com";
+
 interface DeepSeekModel {
 	id: string;
 	object: string;
@@ -48,7 +51,9 @@ export function registerDeepSeekProvider(registry: ProviderRegistry, logger: Log
 		createCachedModelFetcher<ApiKeyCredentials>({
 			providerId: "deepseek",
 			resolveUrl: (credentials) => {
-				const base = (credentials.baseUrl ?? "https://api.deepseek.com").replace(/\/+$/, "");
+				// DeepSeek accepts the host with or without `/v1`; keep the no-`/v1`
+				// default to match @ai-sdk/deepseek.
+				const base = (credentials.baseUrl?.trim() || DEEPSEEK_HOST).replace(/\/+$/, "");
 				return `${base}/models`;
 			},
 			hasCredentials: (credentials) => Boolean(credentials.apiKey),
@@ -66,6 +71,8 @@ export function registerDeepSeekProvider(registry: ProviderRegistry, logger: Log
 		if (credentials.type !== "apikey") {
 			throw new Error(`DeepSeek provider requires API key credentials, got: ${credentials.type}`);
 		}
-		return new DeepSeekClient(credentials.apiKey, credentials.baseUrl, credentials.customHeaders);
+		// undefined when unset so the SDK keeps its default.
+		const baseUrl = credentials.baseUrl?.trim().replace(/\/+$/, "") || undefined;
+		return new DeepSeekClient(credentials.apiKey, baseUrl, credentials.customHeaders);
 	});
 }

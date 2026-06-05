@@ -1,13 +1,17 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright (C) 2025 Posit Software, PBC. All rights reserved.
+ *  Copyright (C) 2025-2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
 import { getAnthropicModelCapabilities } from "../model-capabilities/anthropic-helpers";
 import { AnthropicClient } from "../model-clients/AnthropicClient";
 import type { Logger } from "../types";
 import type { ApiKeyCredentials } from "../types";
+import { normalizeConfiguredBaseUrl, normalizeProviderBaseUrl } from "../utils";
 import { createCachedModelFetcher } from "./cached-model-fetcher";
 import type { ProviderRegistry } from "./ProviderRegistry";
+
+/** Anthropic public API host. `@ai-sdk/anthropic` expects baseURL to include `/v1`. */
+const ANTHROPIC_HOST = "https://api.anthropic.com";
 
 export function registerAnthropicProvider(registry: ProviderRegistry, logger: Logger): void {
 	// Register model fetcher using cached utility
@@ -16,7 +20,7 @@ export function registerAnthropicProvider(registry: ProviderRegistry, logger: Lo
 		createCachedModelFetcher<ApiKeyCredentials>({
 			providerId: "anthropic",
 			resolveUrl: (credentials) => {
-				const base = (credentials.baseUrl ?? "https://api.anthropic.com/v1").replace(/\/+$/, "");
+				const base = normalizeProviderBaseUrl(credentials.baseUrl, ANTHROPIC_HOST, "v1");
 				return `${base}/models`;
 			},
 			hasCredentials: (credentials) => Boolean(credentials.apiKey),
@@ -63,6 +67,10 @@ export function registerAnthropicProvider(registry: ProviderRegistry, logger: Lo
 		if (credentials.type !== "apikey") {
 			throw new Error(`Anthropic provider requires API key credentials, got: ${credentials.type}`);
 		}
-		return new AnthropicClient(credentials.apiKey, credentials.baseUrl, credentials.customHeaders);
+		return new AnthropicClient(
+			credentials.apiKey,
+			normalizeConfiguredBaseUrl(credentials.baseUrl, ANTHROPIC_HOST, "v1"),
+			credentials.customHeaders,
+		);
 	});
 }

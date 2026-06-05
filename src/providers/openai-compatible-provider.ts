@@ -27,10 +27,10 @@ export function registerOpenAICompatibleProvider(registry: ProviderRegistry, log
 		createCachedModelFetcher<ApiKeyCredentials>({
 			providerId: "openai-compatible",
 			resolveUrl: (credentials) => {
-				const base = (credentials.baseUrl ?? "").replace(/\/+$/, "");
+				const base = (credentials.baseUrl?.trim() || "").replace(/\/+$/, "");
 				return new URL("models", base + "/").toString();
 			},
-			hasCredentials: (credentials) => Boolean(credentials.baseUrl),
+			hasCredentials: (credentials) => Boolean(credentials.baseUrl?.trim()),
 			createHeaders: (credentials): Record<string, string> =>
 				credentials.apiKey ? { Authorization: `Bearer ${credentials.apiKey}` } : {},
 			parseResponse: (data) => {
@@ -60,7 +60,7 @@ export function registerOpenAICompatibleProvider(registry: ProviderRegistry, log
 		// to OpenAIClient's SDK `headers` option as well would be redundant.
 		return new OpenAIClient(
 			credentials.apiKey,
-			credentials.baseUrl,
+			credentials.baseUrl?.trim(),
 			"completions",
 			createOpenAICompatibleFetch(
 				"OpenAI Compatible",
