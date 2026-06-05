@@ -62,6 +62,39 @@ npm run test:watch      # vitest watch mode
 npm run clean           # remove dist/ and build artifacts
 ```
 
+## Releasing
+
+Releases are **tag-driven**. This package is not published to npm; it is distributed as a
+GitHub Release tarball (`npm pack` output) that consumers install from. Pushing a tag matching
+`v*` triggers `.github/workflows/release.yml`, which runs `npm ci` -> `npm run build` ->
+`npm pack` and then creates a GitHub Release with the `.tgz` attached and auto-generated notes.
+
+To cut a release (example bumps to `0.0.8`):
+
+```bash
+# 1. Bump version in package.json AND package-lock.json (no git tag yet)
+npm version 0.0.8 --no-git-tag-version
+
+# 2. Commit the bump using the "Version X.Y.Z" convention
+git add package.json package-lock.json
+git commit -m "Version 0.0.8"
+
+# 3. Tag and push (the tag push is what triggers the Release workflow)
+git tag v0.0.8
+git push origin main
+git push origin v0.0.8
+```
+
+Notes:
+
+- The **tag push is the trigger** -- pushing `main` alone does not create a release.
+- Release notes are auto-generated via `gh release create --generate-notes`, which lists PRs
+  merged since the previous tag plus a Full Changelog compare link. Notes are generated only on
+  the **create** path; if the tag's release already exists, the workflow re-uploads the tarball
+  with `--clobber` and does not regenerate notes.
+- Because notes are built from merged PRs, land changes via PRs so they appear as line items.
+- Verify after pushing with `gh run watch` or `gh release view v0.0.8`.
+
 ## Architecture Principles
 
 - Modules should expose minimal APIs
