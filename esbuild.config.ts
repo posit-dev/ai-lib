@@ -21,7 +21,11 @@ const entrypoints = [
 	"src/positron/index.ts",
 ];
 
-const peerDeps = [
+// Kept out of the bundle and resolved from node_modules at runtime. The provider
+// SDKs are regular dependencies (installed transitively with the package); vscode
+// is a host-provided optional peer. Not inlined because several (e.g. @aws-sdk/*,
+// google-auth-library) bundle poorly.
+const externalDeps = [
 	"@ai-sdk/amazon-bedrock",
 	"@ai-sdk/anthropic",
 	"@ai-sdk/deepseek",
@@ -46,7 +50,7 @@ await build({
 	bundle: true,
 	format: "esm",
 	outdir: "dist",
-	external: [...peerDeps, ...nodeBuiltins],
+	external: [...externalDeps, ...nodeBuiltins],
 	platform: "node",
 	target: "es2022",
 	sourcemap: true,

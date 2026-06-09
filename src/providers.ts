@@ -29,6 +29,10 @@ export { registerOpenRouterProvider } from "./providers/openrouter-provider";
 export { registerPositAiProvider } from "./providers/positai-provider";
 export { registerSnowflakeCortexProvider } from "./providers/snowflake-cortex-provider";
 
+// Provider registration orchestrator
+export { registerAllProviders } from "./register-all-providers";
+export type { ProviderRegistrationConfig } from "./register-all-providers";
+
 // Bedrock SSO utilities
 export { isAwsSsoProfileConfigured, parseAwsConfig } from "./providers/bedrock-sso";
 

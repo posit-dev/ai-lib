@@ -48,16 +48,15 @@ Unless otherwise noted, provider counts below refer to the **internal build**. E
 
 In the internal build:
 
-- `PROVIDER_IDS` (in `src/types.ts`) contains **14** IDs
-- `register*Provider()` functions exist for all **14** providers
+- `PROVIDER_IDS` (in `src/types.ts`) is the single source of truth for valid provider IDs; a `register*Provider()` function exists for every entry.
 - `copilot` has a full SDK-based provider (`CopilotSdkClient`, `copilot-provider.ts`) in addition to the `vscode.lm` path in Positron
 
-Positron's direct path uses:
+Positron's direct path uses two derived sets, so the counts stay correct as providers are added:
 
-- `MAPPED_PROVIDER_IDS` = **10** auth-bridge providers
-- `LOCAL_PROVIDER_IDS` = **2** local providers
+- `MAPPED_PROVIDER_IDS` -- every provider that has a `PROVIDER_MAP` auth mapping (computed from `PROVIDER_MAP`)
+- `LOCAL_PROVIDER_IDS` -- the local, endpoint-based providers
 
-That gives Positron **12** direct providers:
+Positron's direct providers are the union of those two sets. Currently:
 
 - Mapped auth providers: `anthropic`, `positai`, `openai`, `gemini`, `google-vertex`, `openai-compatible`, `bedrock`, `ms-foundry`, `snowflake-cortex`, `copilot`, `deepseek`
 - Local providers: `ollama`, `lmstudio`
@@ -100,9 +99,17 @@ The `/positron` entrypoint exposes `VscodeLmClient` and `listVscodeLmModels()` -
 
 External builds alias provider files to their `-external` variants via the consuming application's build configuration:
 
-- `providers.ts` -> `providers-external.ts` -- only Posit AI provider
+- `providers.ts` -> `providers-external.ts` -- only Posit AI provider. This transitively swaps the registration orchestrator `register-all-providers.ts` -> `register-all-providers-external.ts`: the external orchestrator imports only `positai` plus the shared contract leaf (`provider-registration.ts`) and never references `register-all-providers.ts`, so the non-positai provider code and its SDKs never enter the external bundle. The bundle split is structural -- there is no cross-reference to regress -- so it needs no guard test.
 - `types.ts` -> `types-external.ts` -- only positai provider ID and notification actions
 - `local-providers.ts` -> `local-providers-external.ts` -- empty `LOCAL_PROVIDER_IDS` and no-op `LocalProviderManager`
+
+Both orchestrator variants share `src/provider-registration.ts`, which holds the `ProviderRegistrationConfig` interface, the `RegisterAllProviders` signature type, and the `isProviderAllowed` predicate -- so `allowedProviders` is honored identically and the two variants cannot drift in signature. Every member except the one-line `isProviderAllowed` is type-only (erased at build), so the leaf adds no runtime code to the external bundle.
+
+## Dependencies
+
+The bridge owns its provider SDKs: all of them are regular `dependencies`, so a consumer installs them transitively and only needs to declare `ai-provider-bridge` in its own `package.json`. The `ai` types in the public API (e.g. `ModelMessage` on `ModelClient.chat`) are re-exported from the root entrypoint for the same reason, so consumers do not import `ai` directly either. The SDKs are marked `external` in `esbuild.config.ts` so they resolve from `node_modules` rather than being inlined -- several (`@aws-sdk/*`, `google-auth-library`) bundle poorly. `vscode` is the only optional peer dependency (host-provided; imported solely by `/positron`).
+
+Trade-off: an external / positai-only build still _installs_ every SDK even though its bundle references only the Posit AI ones. The external **bundle** stays slim via the `-external` aliasing above; the external **install** is not slimmed -- that is the cost of letting consumers depend on `ai-provider-bridge` alone.
 
 ## Guidance for New Code
 

@@ -23,4 +23,8 @@ export {
 	testOpenAICompatibleProvider,
 } from "./providers/provider-test";
 
+// Provider registration orchestrator
+export { registerAllProviders } from "./register-all-providers-external";
+export type { ProviderRegistrationConfig } from "./register-all-providers-external";
+
 export { registerPositAiProvider };
