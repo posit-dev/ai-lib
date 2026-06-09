@@ -43,6 +43,7 @@
   "scripts": {
     "build": "tsx esbuild.config.ts && tsc -p . --emitDeclarationOnly --noCheck && tsc -p tsconfig.positron.json --emitDeclarationOnly",
     "build:unbundled": "tsc -p .",
+    "watch": "concurrently -n esbuild,dts,dts-positron \"tsx esbuild.config.ts --watch\" \"tsc -p . --emitDeclarationOnly --noCheck --watch --preserveWatchOutput\" \"tsc -p tsconfig.positron.json --emitDeclarationOnly --watch --preserveWatchOutput\" --clear-screen=false",
     "clean": "rm -rf dist tsconfig.tsbuildinfo",
     "check-types": "tsc --noEmit",
     "test": "vitest run",
@@ -90,6 +91,7 @@
     "@types/node": "22.x",
     "@types/vscode": "^1.100.0",
     "ai": "^6.0.189",
+    "concurrently": "^9.2.1",
     "esbuild": "^0.25.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",

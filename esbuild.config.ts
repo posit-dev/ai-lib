@@ -5,7 +5,9 @@
 import { rmSync } from "node:fs";
 import { builtinModules } from "node:module";
 
-import { build } from "esbuild";
+import { build, context } from "esbuild";
+
+const watch = process.argv.includes("--watch");
 
 rmSync("dist", { recursive: true, force: true });
 rmSync("tsconfig.tsbuildinfo", { force: true });
@@ -45,7 +47,7 @@ const externalDeps = [
 
 const nodeBuiltins = builtinModules.flatMap((m) => [m, `node:${m}`]);
 
-await build({
+const buildOptions = {
 	entryPoints: entrypoints,
 	bundle: true,
 	format: "esm",
@@ -55,4 +57,12 @@ await build({
 	target: "es2022",
 	sourcemap: true,
 	splitting: true,
-});
+} as const;
+
+if (watch) {
+	const ctx = await context(buildOptions);
+	await ctx.watch();
+	console.log("esbuild: watching for changes...");
+} else {
+	await build(buildOptions);
+}
