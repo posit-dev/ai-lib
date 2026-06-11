@@ -32,6 +32,39 @@ describe("getAnthropicModelCapabilities", () => {
 		});
 	});
 
+	describe("claude-fable-5 and claude-mythos-5", () => {
+		it("returns family claude-fable-5 with 1M context and 128k output", () => {
+			const caps = getAnthropicModelCapabilities("claude-fable-5");
+			expect(caps?.family).toBe("claude-fable-5");
+			expect(caps?.maxContextLength).toBe(1_000_000);
+			expect(caps?.maxOutputTokens).toBe(128_000);
+		});
+
+		it("returns family claude-mythos-5 with 1M context and 128k output", () => {
+			const caps = getAnthropicModelCapabilities("claude-mythos-5");
+			expect(caps?.family).toBe("claude-mythos-5");
+			expect(caps?.maxContextLength).toBe(1_000_000);
+			expect(caps?.maxOutputTokens).toBe(128_000);
+		});
+
+		it("offers adaptive thinking effort levels without 'off' (thinking always on)", () => {
+			expect(getAnthropicModelCapabilities("claude-fable-5")?.thinkingEffortLevels).toEqual([
+				"low",
+				"medium",
+				"high",
+				"xhigh",
+				"max",
+			]);
+			expect(getAnthropicModelCapabilities("claude-mythos-5")?.thinkingEffortLevels).toEqual([
+				"low",
+				"medium",
+				"high",
+				"xhigh",
+				"max",
+			]);
+		});
+	});
+
 	describe("claude-opus-4-7 regression — maxContextLength stays 200_000", () => {
 		it("returns maxContextLength 200_000 for 4.7", () => {
 			expect(getAnthropicModelCapabilities("claude-opus-4-7")?.maxContextLength).toBe(200_000);
