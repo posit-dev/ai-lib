@@ -38,7 +38,6 @@ export class LMStudioClient implements ModelClient {
 		cancellationToken: CancellationToken;
 		metadata?: {
 			sessionId?: string;
-			conversationId?: string;
 		};
 		stepLoggers?: StepLogger[];
 	}): Promise<AsyncIterable<LMStreamPart>> {

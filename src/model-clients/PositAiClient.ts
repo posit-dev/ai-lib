@@ -137,7 +137,6 @@ export class PositAiClient implements ModelClient {
 		thinkingEffort?: string;
 		metadata?: {
 			sessionId?: string;
-			conversationId?: string;
 		};
 		stepLoggers?: StepLogger[];
 		webSearchEnabled?: boolean;

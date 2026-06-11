@@ -60,7 +60,6 @@ export class OpenAIClient implements ModelClient {
 		thinkingEffort?: string;
 		metadata?: {
 			sessionId?: string;
-			conversationId?: string;
 		};
 		stepLoggers?: StepLogger[];
 	}): Promise<AsyncIterable<LMStreamPart>> {

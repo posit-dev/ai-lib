@@ -69,7 +69,6 @@ export class VscodeLmClient implements ModelClient {
 		cancellationToken: CancellationToken;
 		metadata?: {
 			sessionId?: string;
-			conversationId?: string;
 		};
 	}): Promise<AsyncIterable<LMStreamPart>> {
 		let messages = [...params.messages];

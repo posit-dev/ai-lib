@@ -673,13 +673,11 @@ class SessionDriver {
 const DEFAULT_CONVERSATION_KEY = "__default__";
 
 /** Exported for unit testing. Derives the per-conversation routing key. */
-export function conversationKeyFor(params: {
-	metadata?: { sessionId?: string; conversationId?: string };
-}): string {
-	// Prefer conversationId. The request loop sets `sessionId: conversationId`
-	// (see packages/core/src/request-loop/request-loop.ts) so the two usually
-	// coincide. The fallback keeps callers that omit metadata functional.
-	return params.metadata?.conversationId ?? params.metadata?.sessionId ?? DEFAULT_CONVERSATION_KEY;
+export function conversationKeyFor(params: { metadata?: { sessionId?: string } }): string {
+	// The agent loop sets `sessionId` to the conversation ID
+	// (see packages/core/src/agent-loop/agent-loop.ts). The fallback keeps
+	// callers that omit metadata functional.
+	return params.metadata?.sessionId ?? DEFAULT_CONVERSATION_KEY;
 }
 
 export class CopilotSdkClient implements ModelClient {
@@ -732,7 +730,7 @@ export class CopilotSdkClient implements ModelClient {
 		thinkingEffort?: string;
 		contextLength?: number;
 		webSearchEnabled?: boolean;
-		metadata?: { sessionId?: string; conversationId?: string };
+		metadata?: { sessionId?: string };
 		stepLoggers?: StepLogger[];
 	}): Promise<AsyncIterable<LMStreamPart>> {
 		await this.ensureStarted();

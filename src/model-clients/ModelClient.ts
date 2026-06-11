@@ -47,7 +47,6 @@ export interface ModelClient {
 		// provider contract; may be removed when this package is extracted.
 		metadata?: {
 			sessionId?: string;
-			conversationId?: string;
 		};
 		stepLoggers?: StepLogger[];
 	}): Promise<AsyncIterable<LMStreamPart>>;

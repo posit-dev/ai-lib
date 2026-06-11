@@ -79,7 +79,6 @@ export class OllamaClient implements ModelClient {
 		contextLength?: number;
 		metadata?: {
 			sessionId?: string;
-			conversationId?: string;
 		};
 		stepLoggers?: StepLogger[];
 	}): Promise<AsyncIterable<LMStreamPart>> {
