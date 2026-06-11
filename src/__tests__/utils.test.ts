@@ -4,7 +4,12 @@
 
 import { describe, expect, it } from "vitest";
 
-import { normalizeConfiguredBaseUrl, normalizeProviderBaseUrl } from "../utils";
+import {
+	buildSnowflakeCortexUrl,
+	buildSnowflakeCortexUrlFromHost,
+	normalizeConfiguredBaseUrl,
+	normalizeProviderBaseUrl,
+} from "../utils";
 
 describe("normalizeConfiguredBaseUrl", () => {
 	const HOST = "https://api.anthropic.com";
@@ -107,6 +112,20 @@ describe("normalizeProviderBaseUrl", () => {
 		const geminiHost = "https://generativelanguage.googleapis.com";
 		expect(normalizeProviderBaseUrl(geminiHost, geminiHost, "v1beta")).toBe(
 			"https://generativelanguage.googleapis.com/v1beta",
+		);
+	});
+});
+
+describe("buildSnowflakeCortexUrl", () => {
+	it("builds the Cortex URL from a full hostname", () => {
+		expect(buildSnowflakeCortexUrlFromHost("pl.example.privatelink.snowflakecomputing.com")).toBe(
+			"https://pl.example.privatelink.snowflakecomputing.com/api/v2/cortex/v1",
+		);
+	});
+
+	it("builds the Cortex URL from an account identifier", () => {
+		expect(buildSnowflakeCortexUrl("myorg-myaccount")).toBe(
+			"https://myorg-myaccount.snowflakecomputing.com/api/v2/cortex/v1",
 		);
 	});
 });

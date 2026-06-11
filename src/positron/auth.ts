@@ -4,20 +4,14 @@
 
 import * as vscode from "vscode";
 
+import {
+	CONFIG_KEY_OVERRIDES,
+	type CredentialConfig,
+	shapeCredentials,
+} from "../credential-shaping";
 import type { CredentialProvider, Disposable } from "../CredentialProvider";
 import { MAPPED_PROVIDER_IDS, PROVIDER_MAP } from "../provider-map";
 import type { Logger, ProviderId, ProviderCredentials } from "../types";
-import { buildSnowflakeCortexUrl } from "../utils";
-
-/**
- * Auth provider ID → VS Code settings config section.
- * Most providers use the auth provider ID directly; legacy `anthropic-api` maps to `anthropic`.
- */
-const CONFIG_KEY_OVERRIDES: Record<string, string> = {
-	"anthropic-api": "anthropic",
-	"ms-foundry": "foundry",
-	"snowflake-cortex": "snowflake",
-};
 
 /**
  * Try to get an auth session, normalizing expected failure modes to undefined.
@@ -71,7 +65,7 @@ async function getMappedCredentials(
 	const mapping = PROVIDER_MAP[providerId];
 	if (!mapping) return null;
 
-	const { authProviderId, scopes, fallbackScopes, credentialType } = mapping;
+	const { authProviderId, scopes, fallbackScopes } = mapping;
 
 	// silent and createIfNone are mutually exclusive overloads in the VS Code API.
 	// Prompt path: only the primary scopes trigger createIfNone so the
@@ -94,131 +88,40 @@ async function getMappedCredentials(
 
 	if (!session) return null;
 
-	if (credentialType === "oauth") {
-		return {
-			type: "oauth",
-			accessToken: session.accessToken,
-		};
-	}
+	// The vscode session lookup above is the only auth-host-bound half; the
+	// shaping below is pure and shared with Positron's headless facade.
+	return shapeCredentials(mapping, session.accessToken, vscodeCredentialConfig(), logger);
+}
 
-	if (credentialType === "google-cloud") {
-		// The Positron auth ext brokers credentials and serializes
-		// {project, location, token?} as JSON in session.accessToken. When token
-		// is present, it is passed to the Vertex SDK via googleAuthOptions.authClient;
-		// otherwise the SDK falls back to ADC for Node-style environments.
-		const parsed = parseSessionJson(session, "Google Cloud", providerId, logger);
-		if (!parsed) {
-			return null;
-		}
-
-		const project = getStringField(parsed, "project");
-		const location = getStringField(parsed, "location");
-		const accessToken = getStringField(parsed, "token");
-		if (!project || !location) {
-			logger.debug(`[positron-ai] Google Cloud credentials missing project or location`);
-			return null;
-		}
-
-		const credentials: ProviderCredentials = {
-			type: "google-cloud",
-			project,
-			location,
-		};
-
-		return accessToken ? { ...credentials, accessToken } : credentials;
-	}
-
-	if (credentialType === "aws-credentials") {
-		// Parse JSON-serialized AWS credentials from auth session accessToken.
-		// The auth extension stores {accessKeyId, secretAccessKey, sessionToken}.
-		const parsed = parseSessionJson(session, "AWS", providerId, logger);
-		if (!parsed) {
-			return null;
-		}
-
-		const accessKeyId = getStringField(parsed, "accessKeyId");
-		const secretAccessKey = getStringField(parsed, "secretAccessKey");
-		if (!accessKeyId || !secretAccessKey) {
-			logger.debug(`[positron-ai] AWS credentials missing accessKeyId or secretAccessKey`);
-			return null;
-		}
-
-		// Region is NOT in the auth session — read from VS Code settings, env var, or default.
-		const awsConfig = vscode.workspace
-			.getConfiguration("authentication.aws")
-			.get<Record<string, string>>("credentials");
-		const region = awsConfig?.AWS_REGION || process.env.AWS_REGION || "us-east-1";
-
-		return {
-			type: "aws-credentials",
-			region,
-			accessKeyId,
-			secretAccessKey,
-			sessionToken: getStringField(parsed, "sessionToken"),
-		};
-	}
-
-	// Read baseUrl from VS Code settings for API key providers.
-	// Config key mapping: most providers use auth provider ID directly;
-	// exceptions: `anthropic-api` → `anthropic`, `ms-foundry` → `foundry`, etc.
-	const configKey = CONFIG_KEY_OVERRIDES[authProviderId] ?? authProviderId;
-
-	let baseUrl: string | undefined;
-
-	if (providerId === "snowflake-cortex") {
-		// Snowflake URL is constructed from host (preferred, for private-link/RCR) or account name.
-		const snowflakeConfig = vscode.workspace
-			.getConfiguration("authentication.snowflake")
-			.get<Record<string, string>>("credentials");
-		const host = snowflakeConfig?.SNOWFLAKE_HOST || process.env.SNOWFLAKE_HOST;
-		const account = snowflakeConfig?.SNOWFLAKE_ACCOUNT || process.env.SNOWFLAKE_ACCOUNT;
-		if (host) {
-			baseUrl = `https://${host}/api/v2/cortex/v1`;
-		} else if (account) {
-			baseUrl = buildSnowflakeCortexUrl(account);
-		}
-	} else {
-		baseUrl =
-			vscode.workspace.getConfiguration("authentication").get<string>(`${configKey}.baseUrl`) ||
-			undefined;
-	}
-
-	// Read customHeaders from the same `authentication.<configKey>` namespace
-	// as baseUrl, so a provider's connection settings live in one place. Empty
-	// objects are normalized to undefined to match the rest of the pipeline.
-	const customHeadersRaw = vscode.workspace
-		.getConfiguration("authentication")
-		.get<Record<string, string>>(`${configKey}.customHeaders`);
-	const customHeaders =
-		customHeadersRaw && Object.keys(customHeadersRaw).length > 0 ? customHeadersRaw : undefined;
-
+/**
+ * A {@link CredentialConfig} backed by VS Code settings, with `process.env`
+ * fallbacks for the host environments (TUI / node) that set them. This is the
+ * config-reading half the bridge supplies to {@link shapeCredentials}.
+ */
+function vscodeCredentialConfig(): CredentialConfig {
 	return {
-		type: "apikey",
-		apiKey: session.accessToken,
-		baseUrl,
-		customHeaders,
+		getBaseUrl: (configKey) =>
+			vscode.workspace.getConfiguration("authentication").get<string>(`${configKey}.baseUrl`),
+		getCustomHeaders: (configKey) =>
+			vscode.workspace
+				.getConfiguration("authentication")
+				.get<Record<string, string>>(`${configKey}.customHeaders`),
+		getAwsRegion: () => {
+			const awsConfig = vscode.workspace
+				.getConfiguration("authentication.aws")
+				.get<Record<string, string>>("credentials");
+			return awsConfig?.AWS_REGION || process.env.AWS_REGION;
+		},
+		getSnowflake: () => {
+			const snowflakeConfig = vscode.workspace
+				.getConfiguration("authentication.snowflake")
+				.get<Record<string, string>>("credentials");
+			return {
+				host: snowflakeConfig?.SNOWFLAKE_HOST || process.env.SNOWFLAKE_HOST,
+				account: snowflakeConfig?.SNOWFLAKE_ACCOUNT || process.env.SNOWFLAKE_ACCOUNT,
+			};
+		},
 	};
-}
-
-function parseSessionJson(
-	session: vscode.AuthenticationSession,
-	label: string,
-	providerId: ProviderId,
-	logger: Logger,
-): unknown | null {
-	try {
-		const parsed: unknown = JSON.parse(session.accessToken);
-		return parsed;
-	} catch {
-		logger.debug(`[positron-ai] Failed to parse ${label} credentials JSON for ${providerId}`);
-		return null;
-	}
-}
-
-function getStringField(value: unknown, field: string): string | undefined {
-	if (typeof value !== "object" || value === null) return undefined;
-	const fieldValue: unknown = Reflect.get(value, field);
-	return typeof fieldValue === "string" && fieldValue.length > 0 ? fieldValue : undefined;
 }
 
 // ---------------------------------------------------------------------------

@@ -35,6 +35,11 @@
       "types": "./dist/positron/index.d.ts",
       "import": "./dist/positron/index.js",
       "default": "./dist/positron/index.js"
+    },
+    "./credential-shaping": {
+      "types": "./dist/credential-shaping.d.ts",
+      "import": "./dist/credential-shaping.js",
+      "default": "./dist/credential-shaping.js"
     }
   },
   "files": [
@@ -45,7 +50,7 @@
     "build:unbundled": "tsc -p .",
     "watch": "concurrently -n esbuild,dts,dts-positron \"tsx esbuild.config.ts --watch\" \"tsc -p . --emitDeclarationOnly --noCheck --watch --preserveWatchOutput\" \"tsc -p tsconfig.positron.json --emitDeclarationOnly --watch --preserveWatchOutput\" --clear-screen=false",
     "clean": "rm -rf dist tsconfig.tsbuildinfo",
-    "check-types": "tsc --noEmit",
+    "check-types": "tsc --noEmit && tsc -p tsconfig.node.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "oxlint -c oxlint.config.json src",

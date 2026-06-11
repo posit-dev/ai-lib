@@ -17,6 +17,7 @@ ai-provider-bridge/
 │   ├── positron/            # VS Code integration (/positron entrypoint)
 │   ├── types.ts             # PROVIDER_IDS, credential types, ProviderId
 │   ├── provider-map.ts      # PROVIDER_MAP (provider ID -> Positron auth config)
+│   ├── credential-shaping.ts # Pure shapeCredentials (browser-safe entrypoint)
 │   ├── local-providers.ts   # LocalProviderManager (Ollama, LM Studio)
 │   ├── custom-headers.ts    # Header merging/filtering for customHeaders
 │   └── index.ts             # Root entrypoint exports
@@ -35,6 +36,7 @@ ai-provider-bridge/
 | `ai-provider-bridge/providers`          | `register*Provider()` functions, all client classes                                           | No          |
 | `ai-provider-bridge/providers-external` | Minimal provider set (Posit AI only, for OSS/external builds)                                 | No          |
 | `ai-provider-bridge/positron`           | PositronCredentialProvider, VscodeLmClient, message conversion utilities                      | **Yes**     |
+| `ai-provider-bridge/credential-shaping` | Pure `shapeCredentials()` + `CredentialConfig` (browser-safe, for Positron's renderer facade) | No          |
 
 ### Key Invariants
 

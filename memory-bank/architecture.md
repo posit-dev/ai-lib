@@ -13,11 +13,12 @@ Unless otherwise noted, provider counts below refer to the **internal build**. E
 
 ## Entrypoints
 
-| Entrypoint                     | What it exports                                                                                                                                                        | vscode dependency? |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
-| `ai-provider-bridge`           | `ProviderRegistry`, `ModelClient` interface, `StepLogger` interface, `CredentialProvider` interface, `createCachedModelFetcher`, `PROVIDER_MAP`, `MAPPED_PROVIDER_IDS` | No                 |
-| `ai-provider-bridge/providers` | `register*Provider()` functions (14), all model client classes, AI SDK helpers, `openai-compat-fetch`, provider test utilities                                         | No                 |
-| `ai-provider-bridge/positron`  | `PositronCredentialProvider`, `VscodeLmClient`, `listVscodeLmModels()`, `fromAiMessages2()`, LM helpers, `isProviderId()`, `toProviderId()`                            | **Yes**            |
+| Entrypoint                              | What it exports                                                                                                                                                                         | vscode dependency? |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| `ai-provider-bridge`                    | `ProviderRegistry`, `ModelClient` interface, `StepLogger` interface, `CredentialProvider` interface, `createCachedModelFetcher`, `PROVIDER_MAP`, `MAPPED_PROVIDER_IDS`                  | No                 |
+| `ai-provider-bridge/providers`          | `register*Provider()` functions (14), all model client classes, AI SDK helpers, `openai-compat-fetch`, provider test utilities                                                          | No                 |
+| `ai-provider-bridge/positron`           | `PositronCredentialProvider`, `VscodeLmClient`, `listVscodeLmModels()`, `fromAiMessages2()`, LM helpers, `isProviderId()`, `toProviderId()`                                             | **Yes**            |
+| `ai-provider-bridge/credential-shaping` | `shapeCredentials()`, `CredentialConfig`, `CONFIG_KEY_OVERRIDES` -- pure credential shaping, browser-safe (no vscode, AI SDK, or node builtins); consumed by Positron's renderer facade | No                 |
 
 ## Invariants
 
@@ -35,6 +36,7 @@ Unless otherwise noted, provider counts below refer to the **internal build**. E
 | `src/model-clients/`               | Chat API clients (Anthropic, OpenAI, Gemini, Bedrock, Snowflake, Copilot SDK, DeepSeek, etc.) via AI SDK            | No            |
 | `src/model-capabilities/`          | Per-provider capability inference helpers (model ID to capabilities mapping)                                        | No            |
 | `src/provider-map.ts`              | `PROVIDER_MAP` and `MAPPED_PROVIDER_IDS` -- maps logical provider IDs to Positron auth provider config              | No            |
+| `src/credential-shaping.ts`        | `shapeCredentials()` -- pure token-to-`ProviderCredentials` shaping over an injected `CredentialConfig`             | No            |
 | `src/custom-headers.ts`            | Header merging/filtering utilities for custom HTTP headers                                                          | No            |
 | `src/positron/auth.ts`             | `PositronCredentialProvider` -- VS Code auth adapter implementing `CredentialProvider`                              | **Yes**       |
 | `src/positron/VscodeLmClient.ts`   | `VscodeLmClient` -- `ModelClient` implementation wrapping `vscode.LanguageModelChat`                                | **Yes**       |
@@ -64,6 +66,8 @@ Positron's direct providers are the union of those two sets. Currently:
 ## Credentials
 
 `ProviderCredentials` is a discriminated union (`apikey`, `oauth`, `local`, `aws-credentials`, `google-cloud`) produced by `CredentialProvider` implementations. Client factories receive the resolved credential object and use it to authenticate every model-discovery and chat request.
+
+Credential resolution is split in two halves: session lookup (vscode-bound, `src/positron/auth.ts`) obtains the raw auth token, and shaping (pure, `src/credential-shaping.ts`) turns that token plus `authentication.*` settings (read through an injected `CredentialConfig`) into `ProviderCredentials`. Positron's headless language-model facade reuses the shaping half with its own config adapter.
 
 **`ApiKeyCredentials.customHeaders`** -- Optional `Record<string, string>` of extra HTTP headers attached to every request for the provider. Intended for additive enterprise-gateway markers (e.g. Databricks `x-databricks-use-coding-agent-mode`, tenancy/routing headers). Precedence varies:
 

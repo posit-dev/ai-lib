@@ -51,11 +51,6 @@ vi.mock("vscode", () => ({
 	},
 }));
 
-vi.mock("../../utils", () => ({
-	buildSnowflakeCortexUrl: (account: string) =>
-		`https://${account}.snowflakecomputing.com/api/v2/cortex/v1`,
-}));
-
 const { PositronCredentialProvider } = await import("../auth");
 
 const mockLogger = {
