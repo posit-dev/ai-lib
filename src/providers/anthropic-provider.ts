@@ -4,7 +4,7 @@
 
 import { getAnthropicModelCapabilities } from "../model-capabilities/anthropic-helpers";
 import { AnthropicClient } from "../model-clients/AnthropicClient";
-import type { Logger } from "../types";
+import type { Logger, ModelInfo } from "../types";
 import type { ApiKeyCredentials } from "../types";
 import { normalizeConfiguredBaseUrl, normalizeProviderBaseUrl } from "../utils";
 import { createCachedModelFetcher } from "./cached-model-fetcher";
@@ -12,6 +12,45 @@ import type { ProviderRegistry } from "./ProviderRegistry";
 
 /** Anthropic public API host. `@ai-sdk/anthropic` expects baseURL to include `/v1`. */
 const ANTHROPIC_HOST = "https://api.anthropic.com";
+
+/**
+ * Models that are documented and usable but not yet returned by Anthropic's
+ * `/v1/models` endpoint. We surface them here so they appear in the selector;
+ * each entry is de-duplicated against the live list, so once the endpoint
+ * starts returning a model its real `display_name` takes over automatically.
+ */
+const SUPPLEMENTAL_MODELS: ReadonlyArray<{ id: string; name: string }> = [
+	{ id: "claude-fable-5", name: "Claude Fable 5" },
+];
+
+/** Build a `ModelInfo` for an Anthropic model, enriched with inferred capabilities. */
+function buildAnthropicModel(id: string, name: string): ModelInfo {
+	const capabilities = getAnthropicModelCapabilities(id);
+	return {
+		id,
+		name,
+		providerId: "anthropic",
+		vendor: "anthropic",
+		family: undefined,
+		maxInputTokens: 200000,
+		maxOutputTokens: 16000,
+		supportsTools: true,
+		supportsImages: true,
+		supportsToolResultImages: true,
+		supportedInputMediaTypes: [
+			"image/png",
+			"image/jpeg",
+			"image/gif",
+			"image/webp",
+			"application/pdf",
+		],
+		maxContextLength: 200000,
+		// Spread Anthropic capabilities (family, token limits, thinking effort)
+		...capabilities,
+		// Direct Anthropic models always support provider-native web search
+		supportsWebSearch: true,
+	};
+}
 
 export function registerAnthropicProvider(registry: ProviderRegistry, logger: Logger): void {
 	// Register model fetcher using cached utility
@@ -30,33 +69,17 @@ export function registerAnthropicProvider(registry: ProviderRegistry, logger: Lo
 			}),
 			parseResponse: (data: unknown) => {
 				const typedData = data as { data: Array<{ id: string; display_name: string }> };
-				return typedData.data.map((model) => {
-					const capabilities = getAnthropicModelCapabilities(model.id);
-					return {
-						id: model.id,
-						name: model.display_name,
-						providerId: "anthropic",
-						vendor: "anthropic",
-						family: undefined,
-						maxInputTokens: 200000,
-						maxOutputTokens: 16000,
-						supportsTools: true,
-						supportsImages: true,
-						supportsToolResultImages: true,
-						supportedInputMediaTypes: [
-							"image/png",
-							"image/jpeg",
-							"image/gif",
-							"image/webp",
-							"application/pdf",
-						],
-						maxContextLength: 200000,
-						// Spread Anthropic capabilities (family, token limits, thinking effort)
-						...capabilities,
-						// Direct Anthropic models always support provider-native web search
-						supportsWebSearch: true,
-					};
-				});
+				const models = typedData.data.map((model) =>
+					buildAnthropicModel(model.id, model.display_name),
+				);
+				// Append documented models the endpoint doesn't return yet, skipping
+				// any that the live list already includes.
+				for (const supplemental of SUPPLEMENTAL_MODELS) {
+					if (!models.some((model) => model.id === supplemental.id)) {
+						models.push(buildAnthropicModel(supplemental.id, supplemental.name));
+					}
+				}
+				return models;
 			},
 			fallbackModels: [],
 			logger,
