@@ -167,6 +167,15 @@ export class LocalProviderManager {
 		};
 	}
 
+	/**
+	 * Re-evaluate the feature gate and fire a change event for all local
+	 * provider IDs. Call this when the gate value may have changed via a
+	 * path that `watchEnabled` does not cover (e.g. settings.json edits).
+	 */
+	recheckEnabled(): void {
+		this.fireChange([...LOCAL_PROVIDER_IDS]);
+	}
+
 	/** Stop watchers and clear change callbacks. */
 	dispose(): void {
 		this.settingsWatcher?.dispose();

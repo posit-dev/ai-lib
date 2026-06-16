@@ -44,5 +44,6 @@ export class LocalProviderManager {
 	onDidChange(_callback: (providerIds: LocalProviderId[]) => void): Disposable {
 		return { dispose: () => {} };
 	}
+	recheckEnabled(): void {}
 	dispose(): void {}
 }
