@@ -65,13 +65,43 @@ describe("getAnthropicModelCapabilities", () => {
 		});
 	});
 
-	describe("claude-opus-4-7 regression — maxContextLength stays 200_000", () => {
-		it("returns maxContextLength 200_000 for 4.7", () => {
-			expect(getAnthropicModelCapabilities("claude-opus-4-7")?.maxContextLength).toBe(200_000);
-		});
+	describe("Opus 4.6 and 4.7 — 128k output, 1M context", () => {
+		for (const id of ["claude-opus-4-6", "claude-opus-4-7"]) {
+			it(`returns 128k output and 1M context for ${id}`, () => {
+				const caps = getAnthropicModelCapabilities(id);
+				expect(caps?.maxOutputTokens).toBe(128_000);
+				expect(caps?.maxContextLength).toBe(1_000_000);
+			});
+		}
+	});
 
-		it("returns maxContextLength 200_000 for 4.6", () => {
-			expect(getAnthropicModelCapabilities("claude-opus-4-6")?.maxContextLength).toBe(200_000);
+	describe("Sonnet 4.6 — 64k output, 1M context", () => {
+		it("caps output at 64k with a 1M context (shares the 4.6 version with Opus)", () => {
+			const caps = getAnthropicModelCapabilities("claude-sonnet-4-6");
+			expect(caps?.maxOutputTokens).toBe(64_000);
+			expect(caps?.maxContextLength).toBe(1_000_000);
+		});
+	});
+
+	describe("Haiku 4.5 — 64k output, 200k context", () => {
+		it("caps output at 64k with a 200k context", () => {
+			const caps = getAnthropicModelCapabilities("claude-haiku-4-5");
+			expect(caps?.maxOutputTokens).toBe(64_000);
+			expect(caps?.maxContextLength).toBe(200_000);
+		});
+	});
+
+	describe("maxInputTokens reserves the output budget", () => {
+		it("computes the input ceiling as context minus output", () => {
+			const caps = getAnthropicModelCapabilities("claude-opus-4-6");
+			expect(caps?.maxInputTokens).toBe(1_000_000 - 128_000);
+		});
+	});
+
+	describe("unrecognized Claude IDs fall back to a safe 64k default", () => {
+		it("returns 64k output for a Claude ID matching no rule", () => {
+			// A future/unknown claude-* ID that no rule matches yet.
+			expect(getAnthropicModelCapabilities("claude-opus-5")?.maxOutputTokens).toBe(64_000);
 		});
 	});
 
