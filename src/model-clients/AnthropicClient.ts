@@ -73,7 +73,15 @@ export class AnthropicClient implements ModelClient {
 		}
 
 		const providerOptions = isThinkingEnabled(params.thinkingEffort)
-			? { anthropic: { thinking: { type: "adaptive" as const }, effort: params.thinkingEffort } }
+			? {
+					anthropic: {
+						// `display: "summarized"` is required to receive thinking summary text.
+						// Opus 4.7+/Fable 5 default to `"omitted"`, which streams thinking blocks
+						// with only a signature and no text — so the UI shows no <thinking>.
+						thinking: { type: "adaptive", display: "summarized" },
+						effort: params.thinkingEffort,
+					},
+				}
 			: undefined;
 
 		// Stream the response

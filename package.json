@@ -67,11 +67,11 @@
     ]
   },
   "dependencies": {
-    "@ai-sdk/amazon-bedrock": "^4.0.64",
+    "@ai-sdk/amazon-bedrock": "^4.0.113",
     "@ai-sdk/anthropic": "^3.0.70",
     "@ai-sdk/deepseek": "^2.0.29",
     "@ai-sdk/google": "^3.0.20",
-    "@ai-sdk/google-vertex": "^4.0.80",
+    "@ai-sdk/google-vertex": "^4.0.142",
     "@ai-sdk/openai": "^3.0.25",
     "@ai-sdk/openai-compatible": "^2.0.42",
     "@aws-sdk/client-bedrock": "^3.981.0",
