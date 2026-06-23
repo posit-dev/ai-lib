@@ -194,13 +194,10 @@ export class PositAiClient implements ModelClient {
 			const providerOptions = isThinkingEnabled(params.thinkingEffort)
 				? {
 						anthropic: {
-							// NOTE: We deliberately do NOT send `display: "summarized"` here, unlike the
-							// direct Anthropic client. The Posit AI gateway rejects thinking properties
-							// outside its allowlist with HTTP 400 ("unexpected additional properties
-							// ['display']"). Until the gateway permits `display`, Claude thinking on
-							// Opus 4.7+/Fable 5 falls back to the `"omitted"` default — thinking blocks
-							// stream with only a signature and no text, so the UI shows no <thinking>.
-							thinking: { type: "adaptive" },
+							// `display: "summarized"` is required to receive thinking summary text.
+							// Opus 4.7+/Fable 5 default to `"omitted"`, which streams thinking blocks
+							// with only a signature and no text — so the UI shows no <thinking>.
+							thinking: { type: "adaptive", display: "summarized" },
 							effort: params.thinkingEffort,
 						},
 					}
