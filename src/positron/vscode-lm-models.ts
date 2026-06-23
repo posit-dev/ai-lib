@@ -123,6 +123,15 @@ export interface ListVscodeLmModelsOptions {
  * - Optional ProviderId filtering
  * - Model capability enrichment from provider-specific helpers
  *
+ * Note: this can reject. `vscode.lm.selectChatModels()` does not necessarily
+ * return an empty list when a registered LM provider is unusable — a provider
+ * can throw during model resolution (one plausible trigger is a Copilot LM
+ * provider's entitlement check when the user is signed into GitHub without a
+ * provisioned Copilot license). Callers must decide how to degrade (this leaf
+ * has no logger and so cannot decide the failure policy); both current callers
+ * catch and log, then fall back to an empty list so a broken vscode.lm source
+ * does not suppress other model sources.
+ *
  * @param options - Optional filtering options
  * @returns Array of ModelInfo for available models
  */
