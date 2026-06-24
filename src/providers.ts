@@ -64,7 +64,11 @@ export { CopilotSdkClient } from "./model-clients/CopilotSdkClient";
 export { BedrockClient, isAnthropicModel } from "./model-clients/BedrockClient";
 export type { BedrockClientConfig } from "./model-clients/BedrockClient";
 export { GeminiClient } from "./model-clients/GeminiClient";
-export { geminiThinkingConfig } from "./model-clients/GeminiClient";
+export {
+	buildInteractionsOptions,
+	extractPreviousInteractionId,
+	filterUnsignedReasoning,
+} from "./model-clients/GeminiClient";
 export {
 	getEffectiveLocation,
 	GoogleVertexClient,

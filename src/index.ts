@@ -58,7 +58,12 @@ export type { AuthProviderMapping } from "./provider-map";
 
 // Model capability inference
 export { getAnthropicModelCapabilities } from "./model-capabilities/anthropic-helpers";
-export { getGeminiModelCapabilities } from "./model-capabilities/gemini-helpers";
+export {
+	getGeminiModelCapabilities,
+	getGeminiInteractionsProfile,
+	isInteractionsEligible,
+} from "./model-capabilities/gemini-helpers";
+export type { GeminiInteractionsProfile } from "./model-capabilities/gemini-helpers";
 export {
 	getOpenAIModelCapabilities,
 	openaiMaxInputTokens,

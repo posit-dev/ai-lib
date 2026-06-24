@@ -2,7 +2,10 @@
  *  Copyright (C) 2025-2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { getGeminiModelCapabilities } from "../model-capabilities/gemini-helpers";
+import {
+	getGeminiModelCapabilities,
+	isInteractionsEligible,
+} from "../model-capabilities/gemini-helpers";
 import { GeminiClient } from "../model-clients/GeminiClient";
 import type { Logger, ModelInfo } from "../types";
 import type { ApiKeyCredentials } from "../types";
@@ -30,33 +33,35 @@ const GEMINI_DEFAULT_CAPABILITIES: Partial<ModelInfo> = {
 	maxOutputTokens: 65_536,
 };
 
-// Static fallback models - current as of October 2025
+// Static fallback models — only Interactions-eligible models.
 const GEMINI_FALLBACK: ModelInfo[] = [
 	{ id: "gemini-2.5-pro", name: "Gemini 2.5 Pro" },
 	{ id: "gemini-2.5-flash", name: "Gemini 2.5 Flash" },
-].map(({ id, name }) => {
-	const caps = {
-		...GEMINI_DEFAULT_CAPABILITIES,
-		...getGeminiModelCapabilities(id),
-	};
+]
+	.filter(({ id }) => isInteractionsEligible(id))
+	.map(({ id, name }) => {
+		const caps = {
+			...GEMINI_DEFAULT_CAPABILITIES,
+			...getGeminiModelCapabilities(id),
+		};
 
-	return {
-		id,
-		name,
-		providerId: "gemini",
-		vendor: "google",
-		family: caps.family,
-		maxInputTokens: caps.maxInputTokens!,
-		maxOutputTokens: caps.maxOutputTokens!,
-		supportsTools: caps.supportsTools!,
-		supportsImages: caps.supportsImages!,
-		supportedInputMediaTypes: caps.supportedInputMediaTypes,
-		supportsToolResultImages: caps.supportsToolResultImages!,
-		maxContextLength: caps.maxContextLength!,
-		thinkingEffortLevels: caps.thinkingEffortLevels,
-		supportsWebSearch: false,
-	};
-});
+		return {
+			id,
+			name,
+			providerId: "gemini",
+			vendor: "google",
+			family: caps.family,
+			maxInputTokens: caps.maxInputTokens!,
+			maxOutputTokens: caps.maxOutputTokens!,
+			supportsTools: caps.supportsTools!,
+			supportsImages: caps.supportsImages!,
+			supportedInputMediaTypes: caps.supportedInputMediaTypes,
+			supportsToolResultImages: caps.supportsToolResultImages!,
+			maxContextLength: caps.maxContextLength!,
+			thinkingEffortLevels: caps.thinkingEffortLevels,
+			supportsWebSearch: false,
+		};
+	});
 
 export function registerGeminiProvider(registry: ProviderRegistry, logger: Logger): void {
 	// Register model fetcher using cached utility
@@ -85,34 +90,42 @@ export function registerGeminiProvider(registry: ProviderRegistry, logger: Logge
 					}>;
 				};
 
-				return typedData.models
-					.filter((model) => model.name.includes("gemini"))
-					.map((model) => {
-						const modelId = model.name.replace("models/", "");
-						// Use helper for family, thinkingEffortLevels, and defaults;
-						// prefer API-returned token limits when available.
-						const caps = {
-							...GEMINI_DEFAULT_CAPABILITIES,
-							...getGeminiModelCapabilities(modelId),
-						};
+				return (
+					typedData.models
+						.filter((model) => model.name.includes("gemini"))
+						.map((model) => {
+							const modelId = model.name.replace("models/", "");
+							return { ...model, modelId };
+						})
+						// Fail-closed: only models with an explicit Interactions profile
+						.filter(({ modelId }) => isInteractionsEligible(modelId))
+						.map((model) => {
+							const { modelId } = model;
+							// Use helper for family, thinkingEffortLevels, and defaults;
+							// prefer API-returned token limits when available.
+							const caps = {
+								...GEMINI_DEFAULT_CAPABILITIES,
+								...getGeminiModelCapabilities(modelId),
+							};
 
-						return {
-							id: modelId,
-							name: model.displayName || model.name,
-							providerId: "gemini",
-							vendor: "google",
-							family: caps.family,
-							maxInputTokens: model.inputTokenLimit ?? caps.maxInputTokens!,
-							maxOutputTokens: model.outputTokenLimit ?? caps.maxOutputTokens!,
-							supportsTools: caps.supportsTools!,
-							supportsImages: caps.supportsImages!,
-							supportedInputMediaTypes: caps.supportedInputMediaTypes,
-							supportsToolResultImages: caps.supportsToolResultImages!,
-							maxContextLength: model.inputTokenLimit ?? caps.maxContextLength!,
-							thinkingEffortLevels: caps.thinkingEffortLevels,
-							supportsWebSearch: false,
-						};
-					});
+							return {
+								id: modelId,
+								name: model.displayName || model.name,
+								providerId: "gemini",
+								vendor: "google",
+								family: caps.family,
+								maxInputTokens: model.inputTokenLimit ?? caps.maxInputTokens!,
+								maxOutputTokens: model.outputTokenLimit ?? caps.maxOutputTokens!,
+								supportsTools: caps.supportsTools!,
+								supportsImages: caps.supportsImages!,
+								supportedInputMediaTypes: caps.supportedInputMediaTypes,
+								supportsToolResultImages: caps.supportsToolResultImages!,
+								maxContextLength: model.inputTokenLimit ?? caps.maxContextLength!,
+								thinkingEffortLevels: caps.thinkingEffortLevels,
+								supportsWebSearch: false,
+							};
+						})
+				);
 			},
 			fallbackModels: GEMINI_FALLBACK,
 			logger,
