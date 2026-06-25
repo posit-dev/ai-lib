@@ -312,6 +312,88 @@ describe("filterUnsignedReasoning", () => {
 		expect((content[0] as { type: string }).type).toBe("tool-call");
 	});
 
+	it("drops reasoning with empty-string google.signature", () => {
+		const messages: ModelMessage[] = [
+			{
+				role: "assistant",
+				content: [
+					{
+						type: "reasoning",
+						text: "summarized thought",
+						providerOptions: { google: { signature: "" } },
+					},
+					{ type: "text", text: "answer" },
+				],
+			},
+		];
+		const result = filterUnsignedReasoning(messages);
+		expect(result).toHaveLength(1);
+		const content = result[0].content as unknown[];
+		expect(content).toHaveLength(1);
+		expect((content[0] as { type: string }).type).toBe("text");
+	});
+
+	it("drops reasoning with null google.signature", () => {
+		const messages: ModelMessage[] = [
+			{
+				role: "assistant",
+				content: [
+					{
+						type: "reasoning",
+						text: "null-signed thought",
+						providerOptions: { google: { signature: null } },
+					},
+					{ type: "text", text: "answer" },
+				],
+			},
+		];
+		const result = filterUnsignedReasoning(messages);
+		expect(result).toHaveLength(1);
+		const content = result[0].content as unknown[];
+		expect(content).toHaveLength(1);
+		expect((content[0] as { type: string }).type).toBe("text");
+	});
+
+	it("drops reasoning with non-string google.signature", () => {
+		const messages: ModelMessage[] = [
+			{
+				role: "assistant",
+				content: [
+					{
+						type: "reasoning",
+						text: "numeric-signed thought",
+						providerOptions: { google: { signature: 12345 } },
+					},
+					{ type: "text", text: "answer" },
+				],
+			},
+		];
+		const result = filterUnsignedReasoning(messages);
+		expect(result).toHaveLength(1);
+		const content = result[0].content as unknown[];
+		expect(content).toHaveLength(1);
+		expect((content[0] as { type: string }).type).toBe("text");
+	});
+
+	it("retains reasoning with non-empty string google.signature", () => {
+		const messages: ModelMessage[] = [
+			{
+				role: "assistant",
+				content: [
+					{
+						type: "reasoning",
+						text: "properly signed",
+						providerOptions: { google: { signature: "valid-sig-abc123" } },
+					},
+					{ type: "text", text: "answer" },
+				],
+			},
+		];
+		const result = filterUnsignedReasoning(messages);
+		expect(result).toHaveLength(1);
+		expect((result[0].content as unknown[]).length).toBe(2);
+	});
+
 	it("handles string content (no parts to filter)", () => {
 		const messages: ModelMessage[] = [{ role: "assistant", content: "plain text response" }];
 		expect(filterUnsignedReasoning(messages)).toEqual(messages);
@@ -358,13 +440,22 @@ describe("buildInteractionsOptions", () => {
 		expect(result.google.previousInteractionId).toBe("prev-id");
 	});
 
-	it("includes thinkingSummaries when thinking is active", () => {
+	it("never emits thinkingSummaries (2.5 model)", () => {
 		const result = buildInteractionsOptions({
 			thinkingEffort: "high",
 			modelId: "gemini-2.5-pro",
 			previousInteractionId: null,
 		});
-		expect(result.google.thinkingSummaries).toBe("auto");
+		expect(result.google).not.toHaveProperty("thinkingSummaries");
+	});
+
+	it("never emits thinkingSummaries (3.x model)", () => {
+		const result = buildInteractionsOptions({
+			thinkingEffort: "high",
+			modelId: "gemini-3.5-flash",
+			previousInteractionId: null,
+		});
+		expect(result.google).not.toHaveProperty("thinkingSummaries");
 	});
 
 	describe("validates against per-model profile", () => {

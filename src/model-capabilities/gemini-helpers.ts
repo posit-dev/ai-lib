@@ -174,8 +174,6 @@ export function getGeminiModelCapabilities(modelId: string): Partial<ModelInfo> 
 export interface GeminiInteractionsProfile {
 	/** Valid wire-level thinkingLevel values for this model. */
 	thinkingLevels: readonly string[];
-	/** Whether summaries are supported. */
-	supportsSummaries: boolean;
 }
 
 /**
@@ -191,30 +189,18 @@ export interface GeminiInteractionsProfile {
  */
 const INTERACTIONS_PROFILES: ReadonlyMap<string, GeminiInteractionsProfile> = new Map([
 	// --- Gemini 2.5 (thinkingLevel: low/medium/high) ---
-	["gemini-2.5-pro", { thinkingLevels: ["low", "medium", "high"], supportsSummaries: true }],
-	["gemini-2.5-flash", { thinkingLevels: ["low", "medium", "high"], supportsSummaries: true }],
-	["gemini-2.5-flash-lite", { thinkingLevels: ["low", "medium", "high"], supportsSummaries: true }],
+	["gemini-2.5-pro", { thinkingLevels: ["low", "medium", "high"] }],
+	["gemini-2.5-flash", { thinkingLevels: ["low", "medium", "high"] }],
+	["gemini-2.5-flash-lite", { thinkingLevels: ["low", "medium", "high"] }],
 
 	// --- Gemini 3.x ---
-	[
-		"gemini-3-flash-preview",
-		{ thinkingLevels: ["minimal", "low", "medium", "high"], supportsSummaries: true },
-	],
-	[
-		"gemini-3.1-pro-preview",
-		{ thinkingLevels: ["low", "medium", "high"], supportsSummaries: true },
-	],
-	[
-		"gemini-3.1-flash-lite-preview",
-		{ thinkingLevels: ["minimal", "low", "medium", "high"], supportsSummaries: true },
-	],
+	["gemini-3-flash-preview", { thinkingLevels: ["minimal", "low", "medium", "high"] }],
+	["gemini-3.1-pro-preview", { thinkingLevels: ["low", "medium", "high"] }],
+	["gemini-3.1-flash-lite-preview", { thinkingLevels: ["minimal", "low", "medium", "high"] }],
 	// gemini-3.5-flash is in the SDK's GoogleInteractionsModelId union.
 	// The plan originally excluded it citing v1beta2 routing, but the SDK
 	// targets /v1beta and includes it, so we allowlist it here.
-	[
-		"gemini-3.5-flash",
-		{ thinkingLevels: ["minimal", "low", "medium", "high"], supportsSummaries: true },
-	],
+	["gemini-3.5-flash", { thinkingLevels: ["minimal", "low", "medium", "high"] }],
 ]);
 
 /**

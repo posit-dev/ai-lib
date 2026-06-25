@@ -20,7 +20,7 @@ import { streamText } from "ai";
 import { safeSdkCustomHeaders } from "../custom-headers";
 import { getGeminiInteractionsProfile } from "../model-capabilities/gemini-helpers";
 import type { StepLogger } from "../StepLogger";
-import type { AiToolWithJsonSchema, CancellationToken, LMStreamPart } from "../types";
+import type { AiToolWithJsonSchema, CancellationToken, Logger, LMStreamPart } from "../types";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
@@ -125,10 +125,14 @@ export function filterUnsignedReasoning(messages: readonly ModelMessage[]): Mode
 
 			const filtered = msg.content.filter((part) => {
 				if (part.type !== "reasoning") return true;
-				// Reasoning parts have providerOptions with provider-specific metadata
+				// Reasoning parts have providerOptions with provider-specific metadata.
+				// Google returns `signature: ""` for summarized thoughts and the SDK's
+				// input converter only guards `signature != null`, so empty strings pass
+				// through. Guard with a non-empty-string check to reject empty, null,
+				// undefined, and non-string signatures defensively.
 				const pOpts = (part as { providerOptions?: Record<string, unknown> }).providerOptions;
 				const google = pOpts?.google as Record<string, unknown> | undefined;
-				return google?.signature !== undefined;
+				return typeof google?.signature === "string" && google.signature !== "";
 			});
 
 			// If all parts were retained, return the original message
@@ -152,7 +156,12 @@ export function filterUnsignedReasoning(messages: readonly ModelMessage[]): Mode
  * - `store: true` always (stateful mode)
  * - `previousInteractionId` when chaining
  * - `thinkingLevel` validated against the per-model profile
- * - `thinkingSummaries: "auto"` when supported
+ *
+ * Note: `thinkingSummaries` is intentionally NOT set. Setting
+ * `thinkingSummaries: "auto"` poisons the server-side interaction state
+ * when tools are present, causing subsequent `function_result` continuations
+ * to be rejected with HTTP 400. See the upstream issue family in
+ * plans/2026-06-24-2301-gemini-thinking-summaries-fix.md.
  *
  * If `thinkingEffort` is `"off"` or `undefined`, `thinkingLevel` is omitted
  * entirely (the model uses its default). Note: on default-on models like
@@ -181,10 +190,6 @@ export function buildInteractionsOptions(params: {
 	if (thinkingEffort !== undefined && thinkingEffort !== "off" && profile) {
 		const validLevels = profile.thinkingLevels;
 		google.thinkingLevel = validLevels.includes(thinkingEffort) ? thinkingEffort : "medium";
-
-		if (profile.supportsSummaries) {
-			google.thinkingSummaries = "auto";
-		}
 	}
 
 	return { google };
@@ -219,6 +224,51 @@ function isExpiredInteractionError(error: unknown): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Diagnostics
+// ---------------------------------------------------------------------------
+
+/**
+ * Serialize an arbitrary stream/thrown error into a plain object that captures
+ * the fields we care about for diagnosing Interactions API failures.
+ *
+ * Two distinct error shapes show up in practice:
+ *  - `APICallError` (thrown / pre-stream): has `statusCode`, `responseBody`,
+ *    `data`, `url`.
+ *  - Streamed SSE error part: a plain `{ code, message }` object with NO
+ *    `statusCode`.
+ *
+ * We pull known fields explicitly and fall back to own-enumerable props so the
+ * log is useful regardless of shape.
+ */
+function serializeGeminiError(error: unknown): Record<string, unknown> {
+	if (APICallError.isInstance(error)) {
+		return {
+			kind: "APICallError",
+			name: error.name,
+			message: error.message,
+			statusCode: error.statusCode,
+			url: error.url,
+			responseBody: error.responseBody,
+			data: error.data,
+			isRetryable: error.isRetryable,
+		};
+	}
+	if (error && typeof error === "object") {
+		const out: Record<string, unknown> = { kind: "object" };
+		for (const key of Object.keys(error as Record<string, unknown>)) {
+			out[key] = (error as Record<string, unknown>)[key];
+		}
+		// `message`/`name` are often non-enumerable on Error instances.
+		if (error instanceof Error) {
+			out.name = error.name;
+			out.message = error.message;
+		}
+		return out;
+	}
+	return { kind: typeof error, value: String(error) };
+}
+
+// ---------------------------------------------------------------------------
 // Client
 // ---------------------------------------------------------------------------
 
@@ -226,11 +276,18 @@ export class GeminiClient implements ModelClient {
 	private readonly apiKey: string;
 	private readonly baseURL?: string;
 	private readonly customHeaders?: Record<string, string>;
+	private readonly logger?: Logger;
 
-	constructor(apiKey: string, baseURL?: string, customHeaders?: Record<string, string>) {
+	constructor(
+		apiKey: string,
+		baseURL?: string,
+		customHeaders?: Record<string, string>,
+		logger?: Logger,
+	) {
 		this.apiKey = apiKey;
 		this.baseURL = baseURL;
 		this.customHeaders = customHeaders;
+		this.logger = logger;
 	}
 
 	async chat(params: {
@@ -278,6 +335,21 @@ export class GeminiClient implements ModelClient {
 			modelId: params.model,
 			previousInteractionId,
 		});
+
+		// [diagnostics] Record the outgoing chaining decision so we can correlate
+		// it with any server rejection (400 invalid_argument / 404 not found).
+		this.logger?.debug(
+			"[GeminiClient] interactions request",
+			JSON.stringify({
+				model: params.model,
+				chaining: previousInteractionId !== null,
+				previousInteractionId,
+				deltaStartIndex,
+				totalMessages: params.messages.length,
+				requestMessageCount: requestMessages.length,
+				deltaRoles: requestMessages.map((m) => m.role),
+			}),
+		);
 
 		// Create abort controller with cleanup to prevent EventEmitter memory leaks
 		const { abortController, cleanup } = createAbortControllerFromToken(params.cancellationToken);
@@ -340,9 +412,34 @@ export class GeminiClient implements ModelClient {
 	): AsyncIterable<LMStreamPart> {
 		try {
 			for await (const chunk of stream) {
+				// [diagnostics] Provider errors surface as in-stream `error` parts
+				// (not thrown), which means the catch below never sees them. Log the
+				// raw shape here so we can see the real Google status/body and whether
+				// we were chaining when it failed.
+				if ((chunk as { type?: string }).type === "error") {
+					this.logger?.info(
+						"[GeminiClient] stream error part",
+						JSON.stringify({
+							wasChaining: Boolean(retryContext.providerOptions.google.previousInteractionId),
+							previousInteractionId:
+								retryContext.providerOptions.google.previousInteractionId ?? null,
+							error: serializeGeminiError((chunk as { error?: unknown }).error),
+						}),
+					);
+				}
 				yield chunk;
 			}
 		} catch (error) {
+			// [diagnostics] Thrown errors (typically pre-stream, e.g. a 404 on the
+			// initial request) land here. Capture the raw shape too.
+			this.logger?.info(
+				"[GeminiClient] stream threw",
+				JSON.stringify({
+					wasChaining: Boolean(retryContext.providerOptions.google.previousInteractionId),
+					previousInteractionId: retryContext.providerOptions.google.previousInteractionId ?? null,
+					error: serializeGeminiError(error),
+				}),
+			);
 			// Only retry expired-interaction errors with an active previousInteractionId
 			if (
 				!isExpiredInteractionError(error) ||

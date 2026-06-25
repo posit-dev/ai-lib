@@ -142,6 +142,7 @@ export function registerGeminiProvider(registry: ProviderRegistry, logger: Logge
 			credentials.apiKey,
 			normalizeConfiguredBaseUrl(credentials.baseUrl, GEMINI_HOST, "v1beta"),
 			credentials.customHeaders,
+			logger,
 		);
 	});
 }
