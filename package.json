@@ -1,12 +1,14 @@
 {
   "name": "posit-shared",
   "private": true,
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "type": "module",
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "clean": "npm run clean --workspaces --if-present",
-    "check-types": "npm run check-types --workspaces --if-present",
+    "check-types": "npm run check-types --workspaces --if-present && tsc -p typechecks/tsconfig.json",
     "test": "npm run test --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "format": "oxfmt",

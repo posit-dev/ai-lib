@@ -1,0 +1,63 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
+ *--------------------------------------------------------------------------------------------*/
+
+/**
+ * Enforcement merge.
+ *
+ * Deep-merges an enforced config fragment over user config per decisions #2/#3:
+ * - Objects: per-key merge (enforced keys win, user keys preserved).
+ * - Arrays: replace (v1 — enforced array replaces user array wholesale).
+ * - Primitives: enforced wins.
+ */
+
+import type { ProvidersConfig } from "./types";
+
+/**
+ * Deep-merge `enforced` over `user`, returning a new config object.
+ *
+ * Enforced keys are non-overridable — they always win over the same key in
+ * user config. User keys not present in enforced are preserved.
+ *
+ * @param user - The user's config from providers.json (validated).
+ * @param enforced - The enforced fragment from POSIT_GENAI_PROVIDERS_ENFORCED
+ *   (a partial ProvidersConfig).
+ * @returns Merged config where enforced keys take precedence.
+ */
+export function mergeEnforced(
+	user: ProvidersConfig,
+	enforced: Partial<ProvidersConfig>,
+): ProvidersConfig {
+	return deepMerge(user, enforced) as ProvidersConfig;
+}
+
+/**
+ * Recursive deep-merge. `override` values take precedence over `base`.
+ *
+ * Rules:
+ * - Plain objects: recurse per key.
+ * - Arrays: replace (override wins wholesale).
+ * - Primitives / null / undefined: override wins if present.
+ */
+function deepMerge(base: unknown, override: unknown): unknown {
+	// override not provided — keep base
+	if (override === undefined) {
+		return base;
+	}
+
+	// Both are plain objects — recurse
+	if (isPlainObject(base) && isPlainObject(override)) {
+		const result: Record<string, unknown> = { ...base };
+		for (const key of Object.keys(override)) {
+			result[key] = deepMerge(base[key], override[key]);
+		}
+		return result;
+	}
+
+	// Arrays, primitives, or type mismatch — override wins
+	return override;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+	return value !== null && typeof value === "object" && !Array.isArray(value);
+}

@@ -1,0 +1,14 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node"],
+    "rootDir": "..",
+    "paths": {
+      "ai-config": ["../packages/ai-config/src/index.ts"],
+      "ai-provider-bridge": ["../packages/ai-provider-bridge/src/index.ts"]
+    }
+  },
+  "include": ["./**/*.ts"],
+  "exclude": ["node_modules"]
+}
