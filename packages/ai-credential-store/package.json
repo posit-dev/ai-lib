@@ -11,8 +11,22 @@
     }
   },
   "scripts": {
-    "build": "echo 'ai-credential-store: no source yet'",
-    "clean": "rm -rf dist"
+    "build": "tsc -p .",
+    "watch": "tsc -p . --watch --preserveWatchOutput",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo",
+    "check-types": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "chokidar": "^5.0.0",
+    "proper-lockfile": "^4.1.2"
+  },
+  "devDependencies": {
+    "@types/node": "22.x",
+    "@types/proper-lockfile": "^4.1.4",
+    "typescript": "^6.0.2",
+    "vitest": "^3.2.1"
   },
   "repository": {
     "type": "git",
