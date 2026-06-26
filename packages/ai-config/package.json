@@ -15,8 +15,20 @@
     }
   },
   "scripts": {
-    "build": "echo 'ai-config: no source yet'",
-    "clean": "rm -rf dist"
+    "build": "tsc -p .",
+    "watch": "tsc -p . --watch --preserveWatchOutput",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo",
+    "check-types": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "22.x",
+    "typescript": "^6.0.2",
+    "vitest": "^3.2.1"
   },
   "repository": {
     "type": "git",
