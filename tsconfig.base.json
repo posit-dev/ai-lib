@@ -12,12 +12,6 @@
     "noUncheckedSideEffectImports": true,
     "declaration": true,
     "declarationMap": true,
-    "sourceMap": true,
-    "rootDir": "src",
-    "outDir": "dist",
-    "composite": true,
-    "types": ["node"]
-  },
-  "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts"]
+    "sourceMap": true
+  }
 }

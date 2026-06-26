@@ -1,0 +1,116 @@
+{
+  "name": "ai-provider-bridge",
+  "version": "0.0.10",
+  "description": "Platform-neutral provider infrastructure: registry, model clients, and credential access abstractions",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./local-providers": {
+      "types": "./dist/local-providers.d.ts",
+      "import": "./dist/local-providers.js",
+      "default": "./dist/local-providers.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "import": "./dist/types.js",
+      "default": "./dist/types.js"
+    },
+    "./providers": {
+      "types": "./dist/providers.d.ts",
+      "import": "./dist/providers.js",
+      "default": "./dist/providers.js"
+    },
+    "./providers-external": {
+      "types": "./dist/providers-external.d.ts",
+      "import": "./dist/providers-external.js",
+      "default": "./dist/providers-external.js"
+    },
+    "./positron": {
+      "types": "./dist/positron/index.d.ts",
+      "import": "./dist/positron/index.js",
+      "default": "./dist/positron/index.js"
+    },
+    "./credential-shaping": {
+      "types": "./dist/credential-shaping.d.ts",
+      "import": "./dist/credential-shaping.js",
+      "default": "./dist/credential-shaping.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsx esbuild.config.ts && tsc -p . --emitDeclarationOnly --noCheck && tsc -p tsconfig.positron.json --emitDeclarationOnly",
+    "build:unbundled": "tsc -p .",
+    "watch": "concurrently -n esbuild,dts,dts-positron \"tsx esbuild.config.ts --watch\" \"tsc -p . --emitDeclarationOnly --noCheck --watch --preserveWatchOutput\" \"tsc -p tsconfig.positron.json --emitDeclarationOnly --watch --preserveWatchOutput\" --clear-screen=false",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo",
+    "check-types": "tsc --noEmit && tsc -p tsconfig.node.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "oxlint -c oxlint.config.json src",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
+    "hygiene": "tsx scripts/hygiene.ts",
+    "precommit": "lint-staged",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "**/*.{ts,tsx,js,jsx,css,md}": [
+      "oxfmt --check --no-error-on-unmatched-pattern",
+      "tsx scripts/hygiene.ts"
+    ]
+  },
+  "dependencies": {
+    "@ai-sdk/amazon-bedrock": "^4.0.113",
+    "@ai-sdk/anthropic": "^3.0.70",
+    "@ai-sdk/deepseek": "^2.0.29",
+    "@ai-sdk/google": "^3.0.82",
+    "@ai-sdk/google-vertex": "^4.0.142",
+    "@ai-sdk/openai": "^3.0.25",
+    "@ai-sdk/openai-compatible": "^2.0.42",
+    "@aws-sdk/client-bedrock": "^3.981.0",
+    "@aws-sdk/credential-providers": "^3.981.0",
+    "@github/copilot-sdk": "^0.2.2",
+    "@openrouter/ai-sdk-provider": "^2.8.0",
+    "ai": "^6.0.68",
+    "ai-sdk-ollama": "^3.8.2",
+    "google-auth-library": "^10.5.0"
+  },
+  "peerDependencies": {
+    "vscode": "^1.100.0"
+  },
+  "peerDependenciesMeta": {
+    "vscode": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@smithy/eventstream-codec": "^4.3.3",
+    "@smithy/util-utf8": "^4.3.3",
+    "@types/node": "22.x",
+    "@types/vscode": "^1.100.0",
+    "ai": "^6.0.189",
+    "concurrently": "^9.2.1",
+    "esbuild": "^0.25.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
+    "oxfmt": "^0.41.0",
+    "oxlint": "^1.57.0",
+    "tsx": "^4.20.6",
+    "typescript": "^6.0.2",
+    "vitest": "^3.2.1",
+    "whatwg-fetch": "^3.6.20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/posit-dev/ai-provider-bridge",
+    "directory": "packages/ai-provider-bridge"
+  },
+  "license": "MIT"
+}

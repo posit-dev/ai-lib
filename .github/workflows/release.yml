@@ -19,19 +19,19 @@ jobs:
 
       - run: npm ci
 
-      - run: npm run build
+      - run: npm run build -w ai-provider-bridge
 
-      - run: npm pack
+      - run: npm pack -w ai-provider-bridge
 
       - name: Create or update GitHub Release with tarball
         run: |
           if gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
             gh release upload "${{ github.ref_name }}" \
-              ./ai-provider-bridge-*.tgz \
+              ./packages/ai-provider-bridge/ai-provider-bridge-*.tgz \
               --clobber
           else
             gh release create "${{ github.ref_name }}" \
-              ./ai-provider-bridge-*.tgz \
+              ./packages/ai-provider-bridge/ai-provider-bridge-*.tgz \
               --title "${{ github.ref_name }}" \
               --generate-notes
           fi

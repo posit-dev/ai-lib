@@ -1,0 +1,22 @@
+{
+  "name": "ai-credential-store",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Generic typed key-value secret store on disk with atomic writes, secure permissions, cross-process locking, and file watching",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "echo 'ai-credential-store: no source yet'",
+    "clean": "rm -rf dist"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/posit-dev/ai-provider-bridge",
+    "directory": "packages/ai-credential-store"
+  }
+}

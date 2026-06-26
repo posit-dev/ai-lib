@@ -1,0 +1,26 @@
+{
+  "name": "ai-config",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Cross-product AI configuration: schema, validation, merge/resolution, and file load/watch/write for ~/.posit/genai/",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./node": {
+      "types": "./dist/node/index.d.ts",
+      "import": "./dist/node/index.js"
+    }
+  },
+  "scripts": {
+    "build": "echo 'ai-config: no source yet'",
+    "clean": "rm -rf dist"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/posit-dev/ai-provider-bridge",
+    "directory": "packages/ai-config"
+  }
+}
