@@ -26,6 +26,7 @@ import type {
 	providersConfigSchema,
 	providersMapSchema,
 } from "./schema";
+import { isBuiltinProviderId, RESERVED_PROVIDER_KEYS } from "./vocabulary";
 import type { BuiltinProviderId, ClientKind, Protocol } from "./vocabulary";
 
 // ---------------------------------------------------------------------------
@@ -78,10 +79,19 @@ export type ResolvedProviderId = BuiltinProviderId | CustomProviderId;
 
 /**
  * Mint a `CustomProviderId` from a string. This is the **one** sanctioned
- * place that produces the branded type — call it only after validating the
- * id against built-in and reserved-key collision rules.
+ * place that produces the branded type. Validates the id against built-in
+ * and reserved-key collision rules; throws if the id is invalid.
  */
 export function mintCustomProviderId(id: string): CustomProviderId {
+	if (!id) {
+		throw new Error("Custom provider id must be a non-empty string.");
+	}
+	if (isBuiltinProviderId(id)) {
+		throw new Error(`Custom provider id "${id}" collides with a built-in provider id.`);
+	}
+	if ((RESERVED_PROVIDER_KEYS as readonly string[]).includes(id)) {
+		throw new Error(`Custom provider id "${id}" is a reserved key.`);
+	}
 	return id as CustomProviderId;
 }
 
@@ -149,6 +159,7 @@ export interface ModelInfoLike {
 	maxInputTokens?: number;
 	maxOutputTokens?: number;
 	protocol?: string;
+	baseUrl?: string;
 	supportsTools: boolean;
 	supportsImages: boolean;
 	supportsToolResultImages: boolean;
@@ -158,10 +169,23 @@ export interface ModelInfoLike {
 }
 
 /**
- * The names of ModelInfoLike fields that can appear in model overrides.
- * Used by the shape guard to verify these stay a subset of bridge ModelInfo.
+ * Output of `resolveModels()` — a model with resolved routing information.
+ * Extends the input model with the protocol and endpoint resolved from the
+ * full provider + model config context.
  */
-export const MODEL_OVERRIDE_FIELD_NAMES = [
+export interface ResolvedModelInfo extends ModelInfoLike {
+	/** Wire protocol resolved from model → provider → undefined. */
+	readonly resolvedProtocol: Protocol | undefined;
+	/** Base URL resolved from model → provider endpoints → provider baseUrl → undefined. */
+	readonly resolvedBaseUrl: string | undefined;
+}
+
+/**
+ * Model metadata field names that appear in overrides AND map to bridge
+ * ModelInfo fields. Used by the shape guard to verify these stay a subset
+ * of bridge ModelInfo keys.
+ */
+export const MODEL_METADATA_FIELD_NAMES = [
 	"name",
 	"family",
 	"maxContextLength",
@@ -175,6 +199,14 @@ export const MODEL_OVERRIDE_FIELD_NAMES = [
 	"supportsWebSearch",
 	"thinkingEffortLevels",
 ] as const;
+
+/**
+ * Routing-only field names that appear in model overrides/custom definitions
+ * but do NOT correspond to bridge ModelInfo fields. These are config-layer
+ * routing concerns (endpoint selection) resolved by the pipeline, not model
+ * metadata. Not checked by the shape guard.
+ */
+export const MODEL_ROUTING_FIELD_NAMES = ["baseUrl"] as const;
 
 // ---------------------------------------------------------------------------
 // Platform baseline

@@ -3,27 +3,13 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * Protocol and endpoint resolution helpers.
+ * Endpoint resolution helper.
  *
- * Internal to the catalog builder and `resolveModels` — not part of the
- * public API surface.
+ * Internal to the catalog builder and `resolveModels`.
  */
 
-import type { ModelOverride, ResolvedConnection } from "./types";
+import type { ResolvedConnection } from "./types";
 import type { Protocol } from "./vocabulary";
-
-/**
- * Resolve the wire protocol for a model.
- *
- * Precedence: model override protocol → provider protocol → undefined
- * (provider/bridge decides).
- */
-export function resolveProtocol(
-	modelOverride: Pick<ModelOverride, "protocol"> | undefined,
-	providerConnection: ResolvedConnection | undefined,
-): Protocol | undefined {
-	return modelOverride?.protocol ?? providerConnection?.protocol ?? undefined;
-}
 
 /**
  * Resolve the base URL / endpoint for a model + protocol combination.

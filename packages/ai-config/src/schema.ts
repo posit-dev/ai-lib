@@ -45,6 +45,7 @@ export const modelOverrideSchema = z
 		maxInputTokens: z.number().int().positive().optional(),
 		maxOutputTokens: z.number().int().positive().optional(),
 		protocol: protocolSchema.optional(),
+		baseUrl: z.string().optional(),
 		supportsTools: z.boolean().optional(),
 		supportsImages: z.boolean().optional(),
 		supportsToolResultImages: z.boolean().optional(),

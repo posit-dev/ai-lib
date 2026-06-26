@@ -13,9 +13,16 @@
  * when the constraint is violated, then assigns that to a variable typed as
  * `true`. If the constraint holds, the conditional resolves to `true` and the
  * assignment succeeds; if it fails, you get a type error.
+ *
+ * STATUS: provider-id and model-override-field guards are active. Protocol and
+ * client-kind guards are deferred to Phase 4, which widens the bridge's
+ * protocol enum from `"anthropic" | "openai"` to the richer set that
+ * ai-config already defines. Until then, a protocol guard would always fail
+ * because the bridge and ai-config intentionally diverge (ai-config defines
+ * the target state; the bridge hasn't caught up yet).
  */
 
-import type { BUILTIN_PROVIDER_IDS, MODEL_OVERRIDE_FIELD_NAMES } from "ai-config";
+import type { BUILTIN_PROVIDER_IDS, MODEL_METADATA_FIELD_NAMES } from "ai-config";
 import type { PROVIDER_IDS, ModelInfo } from "ai-provider-bridge";
 
 // ---------------------------------------------------------------------------
@@ -50,13 +57,31 @@ type AllKeysOf<A extends readonly string[], T> = A[number] extends keyof T ? tru
 const _providerIdsMatch: TupleEqual<typeof BUILTIN_PROVIDER_IDS, typeof PROVIDER_IDS> = true;
 
 // ---------------------------------------------------------------------------
-// Assertion 2: MODEL_OVERRIDE_FIELD_NAMES ⊆ keyof ModelInfo
+// Assertion 2: MODEL_METADATA_FIELD_NAMES ⊆ keyof ModelInfo
 //
-// Every field ai-config allows in model overrides must exist on the bridge's
-// ModelInfo. If the bridge renames or removes a field, this fails.
+// Every metadata field ai-config allows in model overrides must exist on the
+// bridge's ModelInfo. Routing-only fields (baseUrl) are intentionally excluded
+// — they are config-layer routing concerns, not ModelInfo properties.
+// Note: this checks field *names* only, not that their types match — the
+// bridge's ModelInfo.protocol is `"anthropic" | "openai"` while ai-config
+// accepts the wider Protocol enum. Type compatibility is deferred to Phase 4
+// when the bridge widens its protocol type.
 // ---------------------------------------------------------------------------
 
-const _overrideFieldsSubset: AllKeysOf<typeof MODEL_OVERRIDE_FIELD_NAMES, ModelInfo> = true;
+const _overrideFieldsSubset: AllKeysOf<typeof MODEL_METADATA_FIELD_NAMES, ModelInfo> = true;
+
+// ---------------------------------------------------------------------------
+// TODO (Phase 4): Protocol and client-kind compatibility guards
+//
+// Once the bridge widens ModelInfo.protocol from `"anthropic" | "openai"` to
+// the richer enum (Phase 4), add:
+//
+// - Assertion 3: ai-config PROTOCOL_VALUES ⊆ bridge's protocol union
+// - Assertion 4: ai-config CLIENT_KIND_VALUES elements map to bridge clients
+//
+// These cannot be written today because the bridge hasn't widened yet — the
+// two packages intentionally diverge (ai-config defines the target state).
+// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Suppress unused-variable warnings

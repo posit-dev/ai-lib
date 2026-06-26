@@ -30,7 +30,11 @@ export type { BuiltinProviderId, ClientKind, Protocol, ReservedProviderKey } fro
 export { providersConfigSchema } from "./schema";
 
 // --- Types (inferred + catalog) --------------------------------------------
-export { mintCustomProviderId, MODEL_OVERRIDE_FIELD_NAMES } from "./types";
+export {
+	mintCustomProviderId,
+	MODEL_METADATA_FIELD_NAMES,
+	MODEL_ROUTING_FIELD_NAMES,
+} from "./types";
 export type {
 	BuiltinProviderBlock,
 	CustomModel,
@@ -44,6 +48,7 @@ export type {
 	ProvidersConfig,
 	ProvidersMap,
 	ResolvedConnection,
+	ResolvedModelInfo,
 	ResolvedProvider,
 	ResolvedProviderId,
 } from "./types";

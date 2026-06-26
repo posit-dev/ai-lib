@@ -11,6 +11,7 @@
  */
 
 import type { ResolvedConnection } from "./types";
+import type { BuiltinProviderId } from "./vocabulary";
 
 /** Posit AI gateway defaults. */
 export const POSIT_AI_DEFAULTS = {
@@ -46,7 +47,9 @@ export const GOOGLE_VERTEX_DEFAULTS = {
  * Map of built-in provider id → connection defaults.
  * Only providers that need non-empty defaults appear here.
  */
-export const PROVIDER_CONNECTION_DEFAULTS: Readonly<Record<string, ResolvedConnection>> = {
+export const PROVIDER_CONNECTION_DEFAULTS: Readonly<
+	Partial<Record<BuiltinProviderId, ResolvedConnection>>
+> = {
 	positai: POSIT_AI_DEFAULTS,
 	ollama: OLLAMA_DEFAULTS,
 	lmstudio: LMSTUDIO_DEFAULTS,

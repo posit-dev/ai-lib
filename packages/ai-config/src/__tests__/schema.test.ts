@@ -89,6 +89,23 @@ describe("providersConfigSchema", () => {
 		expect(result.success).toBe(true);
 	});
 
+	it("accepts baseUrl in model overrides", () => {
+		const result = providersConfigSchema.safeParse({
+			providers: {
+				anthropic: {
+					models: {
+						overrides: {
+							"claude-sonnet-4-5": {
+								baseUrl: "https://override.example.com",
+							},
+						},
+					},
+				},
+			},
+		});
+		expect(result.success).toBe(true);
+	});
+
 	it("accepts per-protocol endpoints", () => {
 		const result = providersConfigSchema.safeParse({
 			providers: {
