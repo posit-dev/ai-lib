@@ -16,6 +16,7 @@ import { resolveEnabled } from "../resolve-enabled";
 import type {
 	BuiltinProviderBlock,
 	CustomProviderEntry,
+	EnforcedProvidersMap,
 	PlatformBaseline,
 	ProvidersConfig,
 	ProvidersMap,
@@ -23,8 +24,38 @@ import type {
 	ResolvedProvider,
 } from "../types";
 import { mintCustomProviderId } from "../types";
-import { BUILTIN_PROVIDER_IDS, isBuiltinProviderId } from "../vocabulary";
+import { BUILTIN_PROVIDER_IDS } from "../vocabulary";
 import type { BuiltinProviderId, ClientKind } from "../vocabulary";
+
+// ---------------------------------------------------------------------------
+// Built-in provider id → client kind mapping
+// ---------------------------------------------------------------------------
+
+/**
+ * Maps each built-in provider id to the bridge `ClientKind` that implements
+ * it. Most are identity mappings, but some differ:
+ * - `bedrock` → `aws` (the client speaks AWS Bedrock)
+ * - `snowflake-cortex` → `snowflake` (the client speaks Snowflake Cortex)
+ *
+ * The `satisfies` constraint ensures a compile error if a built-in id is
+ * added without a corresponding client-kind entry.
+ */
+const BUILTIN_CLIENT_KIND = {
+	positai: "positai",
+	anthropic: "anthropic",
+	copilot: "copilot",
+	openai: "openai",
+	bedrock: "aws",
+	gemini: "gemini",
+	openrouter: "openrouter",
+	"google-vertex": "google-vertex",
+	ollama: "ollama",
+	lmstudio: "lmstudio",
+	"openai-compatible": "openai-compatible",
+	"snowflake-cortex": "snowflake",
+	"ms-foundry": "ms-foundry",
+	deepseek: "deepseek",
+} as const satisfies Record<BuiltinProviderId, ClientKind>;
 
 /**
  * Build the resolved provider catalog from the (already-enforced) config
@@ -36,7 +67,7 @@ import type { BuiltinProviderId, ClientKind } from "../vocabulary";
  */
 export function buildCatalog(
 	mergedConfig: ProvidersConfig,
-	enforcedProviders: ProvidersMap | undefined,
+	enforcedProviders: EnforcedProvidersMap | undefined,
 	baseline: PlatformBaseline,
 ): readonly ResolvedProvider[] {
 	const providers = mergedConfig.providers;
@@ -50,7 +81,7 @@ export function buildCatalog(
 
 		catalog.push({
 			id,
-			clientKind: id as ClientKind,
+			clientKind: BUILTIN_CLIENT_KIND[id],
 			enabled,
 			connection,
 			models: block?.models,

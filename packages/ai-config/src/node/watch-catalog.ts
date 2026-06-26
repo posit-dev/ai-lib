@@ -167,6 +167,27 @@ export function watchResolvedProviderCatalog(
 // ---------------------------------------------------------------------------
 
 /**
+ * Compact comparison record for a single provider entry.
+ * Grouping the four fields into one record lets us diff additions, removals,
+ * and per-field changes in a single pass with no special-case branches.
+ */
+interface ProviderSignature {
+	enabled: boolean;
+	clientKind: string;
+	connection: string; // JSON-serialized for comparison
+	models: string; // JSON-serialized for comparison
+}
+
+function toSignature(p: ResolvedProvider): ProviderSignature {
+	return {
+		enabled: p.enabled,
+		clientKind: p.clientKind,
+		connection: JSON.stringify(p.connection),
+		models: JSON.stringify(p.models),
+	};
+}
+
+/**
  * Diff two catalogs and return change flags. Returns `undefined` if the
  * previous catalog is unknown (initial load — no diff possible).
  */
@@ -183,41 +204,34 @@ function diffCatalogs(
 	let connectionChanged = false;
 	let modelsChanged = false;
 
-	// Build lookup by id
-	const prevById = new Map(previous.map((p) => [p.id as string, p]));
-	const currById = new Map(current.map((p) => [p.id as string, p]));
+	// Build signature lookups by id
+	const prevById = new Map(previous.map((p) => [p.id as string, toSignature(p)]));
+	const currById = new Map(current.map((p) => [p.id as string, toSignature(p)]));
 
-	// Check for changes and additions
-	for (const [id, curr] of currById) {
+	// Collect all provider ids from both catalogs
+	const allIds = new Set([...prevById.keys(), ...currById.keys()]);
+
+	for (const id of allIds) {
 		const prev = prevById.get(id);
-		if (!prev) {
-			// New provider — everything changed
+		const curr = currById.get(id);
+
+		if (!prev || !curr) {
+			// Provider added or removed — all categories change
 			enabledChanged = true;
 			connectionChanged = true;
 			modelsChanged = true;
-			break;
+			continue;
 		}
 
+		// Compare each field group
 		if (prev.enabled !== curr.enabled) {
 			enabledChanged = true;
 		}
-		if (!shallowConnectionEqual(prev.connection, curr.connection)) {
+		if (prev.clientKind !== curr.clientKind || prev.connection !== curr.connection) {
 			connectionChanged = true;
 		}
-		if (!jsonEqual(prev.models, curr.models)) {
+		if (prev.models !== curr.models) {
 			modelsChanged = true;
-		}
-	}
-
-	// Check for removals
-	if (!enabledChanged) {
-		for (const id of prevById.keys()) {
-			if (!currById.has(id)) {
-				enabledChanged = true;
-				connectionChanged = true;
-				modelsChanged = true;
-				break;
-			}
 		}
 	}
 
@@ -232,21 +246,4 @@ function diffCatalogs(
 		connectionChanged,
 		modelsChanged,
 	};
-}
-
-/**
- * Shallow equality check for connection config.
- */
-function shallowConnectionEqual(
-	a: ResolvedProvider["connection"],
-	b: ResolvedProvider["connection"],
-): boolean {
-	return jsonEqual(a, b);
-}
-
-/**
- * JSON-based deep equality. Good enough for small config objects.
- */
-function jsonEqual(a: unknown, b: unknown): boolean {
-	return JSON.stringify(a) === JSON.stringify(b);
 }

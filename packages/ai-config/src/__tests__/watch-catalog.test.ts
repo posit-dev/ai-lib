@@ -122,6 +122,50 @@ describe("watchResolvedProviderCatalog", () => {
 		expect(changes.length).toBe(countAfterDispose);
 	});
 
+	it("should fire connectionChanged when custom provider type changes", async () => {
+		const configPath = path.join(tempDir, "providers.json");
+		await writeConfig(configPath, {
+			providers: {
+				custom: {
+					"my-gateway": {
+						type: "openai-compatible",
+						baseUrl: "https://gw.example.com",
+					},
+				},
+			},
+		});
+
+		const changes: ProviderCatalogChange[] = [];
+		const watcher = watchResolvedProviderCatalog((change) => changes.push(change), {
+			baseline: STANDALONE_BASELINE,
+			configPath,
+			logger: mockLogger,
+		});
+
+		await new Promise((resolve) => setTimeout(resolve, 500));
+
+		// Change the client kind (type) of the custom provider
+		await writeConfig(configPath, {
+			providers: {
+				custom: {
+					"my-gateway": {
+						type: "anthropic",
+						baseUrl: "https://gw.example.com",
+					},
+				},
+			},
+		});
+
+		await new Promise((resolve) => setTimeout(resolve, 600));
+
+		watcher.dispose();
+
+		expect(changes.length).toBeGreaterThanOrEqual(1);
+		const lastChange = changes[changes.length - 1];
+		// A type change is a connection-level change (different client needed)
+		expect(lastChange.connectionChanged).toBe(true);
+	});
+
 	it("should include the full catalog in change events", async () => {
 		const configPath = path.join(tempDir, "providers.json");
 		await writeConfig(configPath, {});

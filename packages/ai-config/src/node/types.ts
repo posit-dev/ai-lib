@@ -6,7 +6,12 @@
  * Types specific to the node (filesystem) entry of ai-config.
  */
 
-import type { PlatformBaseline, ProvidersConfig, ResolvedProvider } from "../types";
+import type {
+	EnforcedProvidersConfig,
+	PlatformBaseline,
+	ProvidersConfig,
+	ResolvedProvider,
+} from "../types";
 
 // ---------------------------------------------------------------------------
 // Load options
@@ -114,8 +119,9 @@ export interface LoggerLike {
 export interface EnforcedConfig {
 	/** The user's config as written in the file (validated). */
 	readonly userConfig: ProvidersConfig;
-	/** The enforced config from the env var (if any). */
-	readonly enforcedConfig: Partial<ProvidersConfig> | undefined;
+	/** The enforced config from the env var (if any). Custom entries have
+	 * `type` optional; the merged result is re-validated with the full schema. */
+	readonly enforcedConfig: EnforcedProvidersConfig | undefined;
 	/** The final merged config (enforced over user). */
 	readonly mergedConfig: ProvidersConfig;
 }

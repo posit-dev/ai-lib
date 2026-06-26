@@ -27,7 +27,7 @@ export {
 export type { BuiltinProviderId, ClientKind, Protocol, ReservedProviderKey } from "./vocabulary";
 
 // --- Schema ----------------------------------------------------------------
-export { providersConfigSchema } from "./schema";
+export { enforcedProvidersConfigSchema, providersConfigSchema } from "./schema";
 
 // --- Types (inferred + catalog) --------------------------------------------
 export {
@@ -41,6 +41,8 @@ export type {
 	CustomProviderId,
 	CustomProviderEntry,
 	DefaultBlock,
+	EnforcedProvidersConfig,
+	EnforcedProvidersMap,
 	ModelInfoLike,
 	ModelOverride,
 	ModelsBlock,

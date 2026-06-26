@@ -11,7 +11,7 @@
  * - Primitives: enforced wins.
  */
 
-import type { ProvidersConfig } from "./types";
+import type { EnforcedProvidersConfig, ProvidersConfig } from "./types";
 
 /**
  * Deep-merge `enforced` over `user`, returning a new config object.
@@ -20,13 +20,14 @@ import type { ProvidersConfig } from "./types";
  * user config. User keys not present in enforced are preserved.
  *
  * @param user - The user's config from providers.json (validated).
- * @param enforced - The enforced fragment from POSIT_GENAI_PROVIDERS_ENFORCED
- *   (a partial ProvidersConfig).
+ * @param enforced - The enforced fragment from POSIT_GENAI_PROVIDERS_ENFORCED.
+ *   Uses `EnforcedProvidersConfig` where custom entry `type` is optional so
+ *   admins can enforce individual keys without repeating the full entry.
  * @returns Merged config where enforced keys take precedence.
  */
 export function mergeEnforced(
 	user: ProvidersConfig,
-	enforced: Partial<ProvidersConfig>,
+	enforced: EnforcedProvidersConfig,
 ): ProvidersConfig {
 	return deepMerge(user, enforced) as ProvidersConfig;
 }

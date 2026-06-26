@@ -221,6 +221,127 @@ describe("loadResolvedProviderCatalog", () => {
 				expect.stringContaining("Failed to parse TEST_ENFORCED"),
 			);
 		});
+
+		it("enforced fragment can disable a custom provider without specifying type", async () => {
+			// An admin can enforce `providers.custom.my-gateway.enabled = false`
+			// without repeating the required `type` field, as long as the user
+			// config already defines the full custom entry.
+			const configPath = await writeConfig(tempDir, {
+				providers: {
+					custom: {
+						"my-gateway": {
+							type: "openai-compatible",
+							baseUrl: "https://my-gateway.example.com",
+							enabled: true,
+						},
+					},
+				},
+			});
+
+			vi.stubEnv(
+				"TEST_ENFORCED",
+				JSON.stringify({
+					providers: {
+						custom: {
+							"my-gateway": { enabled: false },
+						},
+					},
+				}),
+			);
+
+			const catalog = await loadResolvedProviderCatalog({
+				baseline: STANDALONE_BASELINE,
+				configPath,
+				enforcedEnvVar: "TEST_ENFORCED",
+				logger: mockLogger,
+			});
+
+			const gateway = findProvider(catalog, "my-gateway");
+			expect(gateway?.enabled).toBe(false);
+			// Connection config should still be present from user config
+			expect(gateway?.connection.baseUrl).toBe("https://my-gateway.example.com");
+		});
+
+		it("enforced-only custom entry without type degrades to user config", async () => {
+			// If the enforced fragment introduces a custom provider without `type`
+			// and the user config doesn't define it either, the merged result is
+			// invalid. The enforced fragment should be ignored with a warning.
+			const configPath = await writeConfig(tempDir, {
+				providers: {
+					anthropic: { enabled: true },
+				},
+			});
+
+			vi.stubEnv(
+				"TEST_ENFORCED",
+				JSON.stringify({
+					providers: {
+						custom: {
+							"env-only-gateway": { enabled: false },
+						},
+					},
+				}),
+			);
+
+			const catalog = await loadResolvedProviderCatalog({
+				baseline: STANDALONE_BASELINE,
+				configPath,
+				enforcedEnvVar: "TEST_ENFORCED",
+				logger: mockLogger,
+			});
+
+			// Should fall back to user config (no custom provider)
+			expect(catalog.length).toBe(14);
+			expect(findProvider(catalog, "env-only-gateway")).toBeUndefined();
+			expect(mockLogger.warn).toHaveBeenCalledWith(
+				expect.stringContaining("invalid merged result"),
+			);
+		});
+	});
+
+	// ========================================================================
+	// Client kind mapping (must-fix: id ≠ clientKind for some built-ins)
+	// ========================================================================
+
+	describe("client kind mapping", () => {
+		it("should map bedrock to aws client kind", async () => {
+			const configPath = await writeConfig(tempDir, {});
+
+			const catalog = await loadResolvedProviderCatalog({
+				baseline: STANDALONE_BASELINE,
+				configPath,
+				logger: mockLogger,
+			});
+
+			expect(findProvider(catalog, "bedrock")?.clientKind).toBe("aws");
+		});
+
+		it("should map snowflake-cortex to snowflake client kind", async () => {
+			const configPath = await writeConfig(tempDir, {});
+
+			const catalog = await loadResolvedProviderCatalog({
+				baseline: STANDALONE_BASELINE,
+				configPath,
+				logger: mockLogger,
+			});
+
+			expect(findProvider(catalog, "snowflake-cortex")?.clientKind).toBe("snowflake");
+		});
+
+		it("should use identity mapping for providers where id matches client kind", async () => {
+			const configPath = await writeConfig(tempDir, {});
+
+			const catalog = await loadResolvedProviderCatalog({
+				baseline: STANDALONE_BASELINE,
+				configPath,
+				logger: mockLogger,
+			});
+
+			expect(findProvider(catalog, "anthropic")?.clientKind).toBe("anthropic");
+			expect(findProvider(catalog, "openai")?.clientKind).toBe("openai");
+			expect(findProvider(catalog, "positai")?.clientKind).toBe("positai");
+			expect(findProvider(catalog, "ollama")?.clientKind).toBe("ollama");
+		});
 	});
 
 	// ========================================================================

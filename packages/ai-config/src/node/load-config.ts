@@ -13,8 +13,8 @@
 import { promises as fs } from "fs";
 
 import { mergeEnforced } from "../enforce";
-import { providersConfigSchema } from "../schema";
-import type { ProvidersConfig } from "../types";
+import { enforcedProvidersConfigSchema, providersConfigSchema } from "../schema";
+import type { EnforcedProvidersConfig, ProvidersConfig } from "../types";
 import { ENFORCED_ENV_VAR, PROVIDERS_CONFIG_PATH } from "./paths";
 import type { EnforcedConfig, LoggerLike } from "./types";
 
@@ -45,9 +45,26 @@ export async function loadProvidersConfig(opts?: {
 	const enforcedConfig = readEnforcedFragment(enforcedEnvVar, logger);
 
 	// 3. Merge enforced over user
-	const mergedConfig = enforcedConfig ? mergeEnforced(userConfig, enforcedConfig) : userConfig;
+	if (!enforcedConfig) {
+		return { userConfig, enforcedConfig: undefined, mergedConfig: userConfig };
+	}
 
-	return { userConfig, enforcedConfig, mergedConfig };
+	const mergeCandidate = mergeEnforced(userConfig, enforcedConfig);
+
+	// 4. Re-validate merged result with the full schema. The enforced
+	// fragment uses a relaxed schema (custom entry `type` optional), so the
+	// merge can produce an invalid config — e.g. a custom entry with no
+	// `type`. Custom-name collision checks also only run on the full schema.
+	// On failure, ignore the enforced fragment and fall back to user config.
+	const mergeResult = providersConfigSchema.safeParse(mergeCandidate);
+	if (!mergeResult.success) {
+		logger?.warn(
+			`[ai-config] Enforced config produces an invalid merged result: ${formatZodErrors(mergeResult.error)}. Ignoring enforced config.`,
+		);
+		return { userConfig, enforcedConfig: undefined, mergedConfig: userConfig };
+	}
+
+	return { userConfig, enforcedConfig, mergedConfig: mergeResult.data };
 }
 
 // ---------------------------------------------------------------------------
@@ -99,11 +116,16 @@ async function readAndValidateConfig(
 /**
  * Read the enforced fragment from an environment variable.
  * Returns `undefined` if the variable is not set or contains invalid JSON/schema.
+ *
+ * Uses `enforcedProvidersConfigSchema` which relaxes the custom entry `type`
+ * field to optional, so an admin can enforce a single key on a custom provider
+ * (e.g. `providers.custom.foo.enabled`) without repeating `type`. The merged
+ * result is re-validated with the full schema before being returned.
  */
 function readEnforcedFragment(
 	envVarName: string,
 	logger: LoggerLike | undefined,
-): Partial<ProvidersConfig> | undefined {
+): EnforcedProvidersConfig | undefined {
 	const envValue = process.env[envVarName];
 	if (!envValue) {
 		return undefined;
@@ -119,8 +141,9 @@ function readEnforcedFragment(
 		return undefined;
 	}
 
-	// Validate with the same schema (partial — enforced is a fragment)
-	const result = providersConfigSchema.safeParse(parsed);
+	// Validate with the relaxed enforced schema (custom entry `type` not
+	// required — the full schema is checked on the merged result)
+	const result = enforcedProvidersConfigSchema.safeParse(parsed);
 	if (!result.success) {
 		logger?.warn(
 			`[ai-config] Validation errors in ${envVarName}: ${formatZodErrors(result.error)}. Ignoring enforced config.`,

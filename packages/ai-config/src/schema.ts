@@ -180,6 +180,25 @@ export const customProviderEntrySchema = z
 	.strict();
 
 // ---------------------------------------------------------------------------
+// Enforced custom provider entry (relaxed `type`)
+// ---------------------------------------------------------------------------
+
+/**
+ * Relaxed variant of `customProviderEntrySchema` for enforced fragments.
+ * The only difference is that `type` is optional, so an admin can enforce
+ * a single key on an existing custom provider (e.g.
+ * `providers.custom.my-gateway.enabled = false`) should not need to repeat
+ * the required `type` field. Full-schema validation happens on the **merged**
+ * result, not on the fragment.
+ */
+export const enforcedCustomProviderEntrySchema = z
+	.object({
+		type: clientKindSchema.optional(),
+		...connectionFields,
+	})
+	.strict();
+
+// ---------------------------------------------------------------------------
 // Top-level `providers` map
 // ---------------------------------------------------------------------------
 
@@ -199,6 +218,25 @@ export const providersMapSchema = z
 		...builtinProviderKeys,
 		default: defaultBlockSchema.optional(),
 		custom: z.record(z.string(), customProviderEntrySchema).optional(),
+	})
+	.strict();
+
+/**
+ * Relaxed variant of `providersMapSchema` for enforced fragments.
+ * Uses `enforcedCustomProviderEntrySchema` so `type` is not required.
+ */
+const enforcedBuiltinProviderKeys = Object.fromEntries(
+	BUILTIN_PROVIDER_IDS.map((id) => [id, builtinProviderBlockSchema.optional()]),
+) as Record<
+	(typeof BUILTIN_PROVIDER_IDS)[number],
+	z.ZodOptional<typeof builtinProviderBlockSchema>
+>;
+
+export const enforcedProvidersMapSchema = z
+	.object({
+		...enforcedBuiltinProviderKeys,
+		default: defaultBlockSchema.optional(),
+		custom: z.record(z.string(), enforcedCustomProviderEntrySchema).optional(),
 	})
 	.strict();
 
@@ -235,3 +273,16 @@ export const providersConfigSchema = z
 			}
 		}
 	});
+
+/**
+ * Relaxed schema for enforced config fragments. Used to validate the
+ * `POSIT_GENAI_PROVIDERS_ENFORCED` env var. Custom provider entries do NOT
+ * require the `type` field — full validation happens on the merged result.
+ */
+export const enforcedProvidersConfigSchema = z
+	.object({
+		$schema: z.string().optional(),
+		version: z.literal(1).optional(),
+		providers: enforcedProvidersMapSchema.optional(),
+	})
+	.strict();

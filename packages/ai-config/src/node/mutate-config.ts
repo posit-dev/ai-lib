@@ -90,8 +90,11 @@ async function performLockedMutation(
 	// Ensure directory exists
 	await fs.mkdir(dir, { recursive: true });
 
-	// Ensure the config file exists (lockfile requires it)
-	await ensureFileExists(configPath);
+	// Race-safe file creation: exclusive `wx` flag ensures only one writer
+	// creates the file; all others see EEXIST and proceed to lock.
+	// This prevents the race where two first-time writers both observe ENOENT,
+	// one locks+writes the real config, and the other clobbers it with `{}`.
+	await raceSafeEnsureFile(configPath);
 
 	let release: (() => Promise<void>) | undefined;
 	try {
@@ -182,17 +185,27 @@ async function atomicWrite(configPath: string, data: ProvidersConfig): Promise<v
 	}
 }
 
-async function ensureFileExists(configPath: string): Promise<void> {
-	try {
-		await fs.access(configPath);
-	} catch {
-		// File doesn't exist — create it with empty config
-		const dir = path.dirname(configPath);
-		await fs.mkdir(dir, { recursive: true });
-		await fs.writeFile(configPath, JSON.stringify({}, null, 2), {
-			encoding: "utf-8",
-			mode: 0o644,
-		});
+/**
+ * Race-safe file creation using the exclusive `wx` flag. If the file already
+ * exists, the EEXIST error is silently ignored. This prevents a TOCTOU race
+ * where two concurrent callers both observe ENOENT and then one clobbers the
+ * other's completed write with an empty `{}`.
+ */
+async function raceSafeEnsureFile(configPath: string): Promise<void> {
+	const fd = await fs.open(configPath, "wx", 0o644).catch((error) => {
+		if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+			return undefined; // Already exists — nothing to do
+		}
+		throw error;
+	});
+	if (fd) {
+		// We created the file — write the empty config and close.
+		// Wrap in try/finally so an I/O error cannot leak the descriptor.
+		try {
+			await fd.writeFile(JSON.stringify({}, null, 2), "utf-8");
+		} finally {
+			await fd.close();
+		}
 	}
 }
 

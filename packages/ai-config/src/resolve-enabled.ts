@@ -9,7 +9,13 @@
  * Consumers read enabled-ness off each `ResolvedProvider` in the catalog.
  */
 
-import type { BuiltinProviderBlock, DefaultBlock, PlatformBaseline, ProvidersMap } from "./types";
+import type {
+	BuiltinProviderBlock,
+	DefaultBlock,
+	EnforcedProvidersMap,
+	PlatformBaseline,
+	ProvidersMap,
+} from "./types";
 
 /**
  * Resolve the enabled state for a single provider id.
@@ -21,11 +27,14 @@ import type { BuiltinProviderBlock, DefaultBlock, PlatformBaseline, ProvidersMap
  * 4. User `providers.default.enabled`
  * 5. Platform baseline per-provider override
  * 6. Platform baseline `defaultEnabled`
+ *
+ * The enforced providers map uses a relaxed type where custom entry `type`
+ * is optional. Only `enabled` is read here.
  */
 export function resolveEnabled(
 	providerId: string,
 	userProviders: ProvidersMap | undefined,
-	enforcedProviders: ProvidersMap | undefined,
+	enforcedProviders: ProvidersMap | EnforcedProvidersMap | undefined,
 	baseline: PlatformBaseline,
 ): boolean {
 	// 1. Enforced per-provider
@@ -65,9 +74,12 @@ export function resolveEnabled(
 /**
  * Get a provider block from the providers map. Works for both built-in ids
  * (direct keys) and custom ids (under `providers.custom`).
+ *
+ * Accepts both full and enforced (relaxed `type`) maps since only `enabled`
+ * is read from the result.
  */
 function getProviderBlock(
-	providers: ProvidersMap | undefined,
+	providers: ProvidersMap | EnforcedProvidersMap | undefined,
 	providerId: string,
 ): BuiltinProviderBlock | { enabled?: boolean } | undefined {
 	if (!providers) {
@@ -89,6 +101,8 @@ function getProviderBlock(
 	return providers.custom?.[providerId];
 }
 
-function getDefaultBlock(providers: ProvidersMap | undefined): DefaultBlock | undefined {
+function getDefaultBlock(
+	providers: ProvidersMap | EnforcedProvidersMap | undefined,
+): DefaultBlock | undefined {
 	return providers?.default;
 }

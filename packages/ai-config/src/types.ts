@@ -21,6 +21,8 @@ import type {
 	customModelSchema,
 	customProviderEntrySchema,
 	defaultBlockSchema,
+	enforcedProvidersConfigSchema,
+	enforcedProvidersMapSchema,
 	modelOverrideSchema,
 	modelsBlockSchema,
 	providersConfigSchema,
@@ -56,6 +58,20 @@ export type CustomModel = z.infer<typeof customModelSchema>;
 
 /** Per-provider model selection block. */
 export type ModelsBlock = z.infer<typeof modelsBlockSchema>;
+
+/**
+ * Enforced config type. Identical to `ProvidersConfig` except custom provider
+ * entries have `type` optional, so an admin can enforce a single key without
+ * repeating the full entry. The merged result is re-validated with the full
+ * schema before use.
+ */
+export type EnforcedProvidersConfig = z.infer<typeof enforcedProvidersConfigSchema>;
+
+/**
+ * Enforced providers map. Identical to `ProvidersMap` except custom entries
+ * have `type` optional.
+ */
+export type EnforcedProvidersMap = z.infer<typeof enforcedProvidersMapSchema>;
 
 // ---------------------------------------------------------------------------
 // Branded custom provider id
