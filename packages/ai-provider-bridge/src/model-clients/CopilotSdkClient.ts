@@ -29,10 +29,9 @@ import { CopilotClient, defineTool, approveAll } from "@github/copilot-sdk";
 import type { CopilotSession, Tool as CopilotTool } from "@github/copilot-sdk";
 import type { ModelMessage, FinishReason, LanguageModelUsage } from "ai";
 
-import type { StepLogger } from "../StepLogger";
 import type { AiToolWithJsonSchema, CancellationToken, LMStreamPart, Logger } from "../types";
 import { startCopilotCliServer, type CopilotCliServer } from "./copilot-cli-server";
-import type { ModelClient } from "./ModelClient";
+import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 
 // ---------------------------------------------------------------------------
 // Prompt helpers
@@ -720,19 +719,7 @@ export class CopilotSdkClient implements ModelClient {
 		return this.startPromise;
 	}
 
-	async chat(params: {
-		model: string;
-		messages: ModelMessage[];
-		systemPrompt?: string;
-		maxOutputTokens?: number;
-		tools?: Record<string, AiToolWithJsonSchema>;
-		cancellationToken: CancellationToken;
-		thinkingEffort?: string;
-		contextLength?: number;
-		webSearchEnabled?: boolean;
-		metadata?: { sessionId?: string };
-		stepLoggers?: StepLogger[];
-	}): Promise<AsyncIterable<LMStreamPart>> {
+	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {
 		await this.ensureStarted();
 
 		const key = conversationKeyFor(params);

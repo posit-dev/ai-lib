@@ -3,19 +3,17 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
-import type { ModelMessage } from "ai";
 import { streamText } from "ai";
 
 import { safeSdkCustomHeaders } from "../custom-headers";
-import type { StepLogger } from "../StepLogger";
-import type { AiToolWithJsonSchema, CancellationToken, LMStreamPart } from "../types";
+import type { LMStreamPart } from "../types";
 import { isThinkingEnabled } from "../utils";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
 	createStepLogger,
 } from "./ai-sdk-helpers";
-import type { ModelClient } from "./ModelClient";
+import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 
 type OpenRouterReasoningSettings = { effort: "high" | "medium" | "low" | "none" };
 
@@ -45,19 +43,7 @@ export class OpenRouterClient implements ModelClient {
 		this.customHeaders = customHeaders;
 	}
 
-	async chat(params: {
-		model: string;
-		messages: ModelMessage[];
-		systemPrompt?: string;
-		maxOutputTokens?: number;
-		tools?: Record<string, AiToolWithJsonSchema>;
-		cancellationToken: CancellationToken;
-		thinkingEffort?: string;
-		metadata?: {
-			sessionId?: string;
-		};
-		stepLoggers?: StepLogger[];
-	}): Promise<AsyncIterable<LMStreamPart>> {
+	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {
 		const headers = safeSdkCustomHeaders(this.customHeaders);
 		const provider = createOpenRouter({
 			apiKey: this.apiKey,

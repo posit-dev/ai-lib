@@ -13,19 +13,18 @@
 import { createVertex } from "@ai-sdk/google-vertex";
 import { createVertexAnthropic } from "@ai-sdk/google-vertex/anthropic";
 import type { LanguageModelV3 } from "@ai-sdk/provider";
-import type { ModelMessage } from "ai";
 import { streamText } from "ai";
 import { OAuth2Client } from "google-auth-library";
 
-import type { StepLogger } from "../StepLogger";
-import type { AiToolWithJsonSchema, CancellationToken, LMStreamPart } from "../types";
+import type { LMStreamPart, Protocol } from "../types";
+import { normalizeProtocol } from "../types";
 import { isThinkingEnabled } from "../utils";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
 	createStepLogger,
 } from "./ai-sdk-helpers";
-import type { ModelClient } from "./ModelClient";
+import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 
 /**
  * Check if a Vertex model ID refers to an Anthropic partner model.
@@ -70,20 +69,17 @@ export class GoogleVertexClient implements ModelClient {
 		return { authClient };
 	}
 
-	async chat(params: {
-		model: string;
-		messages: ModelMessage[];
-		systemPrompt?: string;
-		maxOutputTokens?: number;
-		tools?: Record<string, AiToolWithJsonSchema>;
-		cancellationToken: CancellationToken;
-		thinkingEffort?: string;
-		metadata?: {
-			sessionId?: string;
-		};
-		stepLoggers?: StepLogger[];
-	}): Promise<AsyncIterable<LMStreamPart>> {
-		const model = this.createModel(params.model);
+	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {
+		const normalizedProtocol = normalizeProtocol(params.protocol);
+		if (
+			normalizedProtocol &&
+			normalizedProtocol !== "anthropic-messages" &&
+			normalizedProtocol !== "google-generative"
+		) {
+			throw new Error(`Unsupported protocol for Google Vertex: ${normalizedProtocol}`);
+		}
+
+		const model = this.createModel(params.model, normalizedProtocol);
 
 		// Create abort controller with cleanup to prevent EventEmitter memory leaks
 		const { abortController, cleanup } = createAbortControllerFromToken(params.cancellationToken);
@@ -94,8 +90,12 @@ export class GoogleVertexClient implements ModelClient {
 		// Note: Gemini thinking on Vertex requires `providerOptions.vertex` (not `google`),
 		// but the Vertex provider does not yet expose thinkingEffortLevels for Gemini models,
 		// so that path is not wired up here.
+		const isAnthropic = normalizedProtocol
+			? normalizedProtocol === "anthropic-messages"
+			: isVertexAnthropicModel(params.model);
+
 		const providerOptions =
-			isThinkingEnabled(params.thinkingEffort) && isVertexAnthropicModel(params.model)
+			isThinkingEnabled(params.thinkingEffort) && isAnthropic
 				? {
 						anthropic: {
 							// `display: "summarized"` is required to receive thinking summary text.
@@ -129,12 +129,28 @@ export class GoogleVertexClient implements ModelClient {
 	 * Route to appropriate AI SDK provider by model family.
 	 * - Anthropic models -> createVertexAnthropic (native Anthropic API through Vertex)
 	 * - Gemini models -> createVertex (Google Generative AI through Vertex)
+	 *
+	 * When an explicit `protocol` is provided, it takes precedence over both
+	 * the model-ID heuristic for SDK selection AND the location heuristic:
+	 * `"anthropic-messages"` routes to global (matching recognized Anthropic
+	 * partner models), even if the model ID doesn't match the
+	 * `isVertexAnthropicModel()` pattern.
 	 */
-	private createModel(modelId: string): LanguageModelV3 {
-		const location = getEffectiveLocation(modelId, this.config.location);
+	private createModel(modelId: string, protocol?: Protocol): LanguageModelV3 {
 		const googleAuthOptions = this.googleAuthOptions();
 
-		if (isVertexAnthropicModel(modelId)) {
+		const useAnthropicApi = protocol
+			? protocol === "anthropic-messages"
+			: isVertexAnthropicModel(modelId);
+
+		// Location: explicit Anthropic protocol → global (same as recognized
+		// partner models), otherwise fall through to the model-ID heuristic.
+		const location =
+			useAnthropicApi && protocol === "anthropic-messages"
+				? "global"
+				: getEffectiveLocation(modelId, this.config.location);
+
+		if (useAnthropicApi) {
 			return createVertexAnthropic({
 				project: this.config.project,
 				location,

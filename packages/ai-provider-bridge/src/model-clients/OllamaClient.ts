@@ -10,23 +10,21 @@
  * that are not available through the OpenAI-compatible endpoint.
  */
 
-import type { ModelMessage } from "ai";
 import { streamText } from "ai";
 import { createOllama } from "ai-sdk-ollama";
 
-import type { StepLogger } from "../StepLogger";
 import {
 	hasImagesInToolResults,
 	transformToolResultImagesForCompletions,
 } from "../tool-result-images";
-import type { AiToolWithJsonSchema, CancellationToken, LMStreamPart } from "../types";
+import type { LMStreamPart } from "../types";
 import { isThinkingEnabled } from "../utils";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
 	createStepLogger,
 } from "./ai-sdk-helpers";
-import type { ModelClient } from "./ModelClient";
+import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 
 /** The `think` parameter type accepted by Ollama's native API. */
 type OllamaThinkParam = boolean | "low" | "medium" | "high";
@@ -68,22 +66,10 @@ export class OllamaClient implements ModelClient {
 		this.endpoint = endpoint.endsWith("/") ? endpoint.slice(0, -1) : endpoint;
 	}
 
-	async chat(params: {
-		model: string;
-		messages: ModelMessage[];
-		systemPrompt?: string;
-		maxOutputTokens?: number;
-		tools?: Record<string, AiToolWithJsonSchema>;
-		cancellationToken: CancellationToken;
-		thinkingEffort?: string;
-		contextLength?: number;
-		metadata?: {
-			sessionId?: string;
-		};
-		stepLoggers?: StepLogger[];
-	}): Promise<AsyncIterable<LMStreamPart>> {
+	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {
 		// Create Ollama provider pointing at the server root
-		const provider = createOllama({ baseURL: this.endpoint });
+		const effectiveBaseUrl = params.baseUrl ?? this.endpoint;
+		const provider = createOllama({ baseURL: effectiveBaseUrl });
 
 		// Build model settings
 		const think = ollamaThinkParam(params.thinkingEffort);

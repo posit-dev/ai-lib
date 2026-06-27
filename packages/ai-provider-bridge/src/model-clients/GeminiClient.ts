@@ -19,14 +19,13 @@ import { streamText } from "ai";
 
 import { safeSdkCustomHeaders } from "../custom-headers";
 import { getGeminiInteractionsProfile } from "../model-capabilities/gemini-helpers";
-import type { StepLogger } from "../StepLogger";
-import type { AiToolWithJsonSchema, CancellationToken, Logger, LMStreamPart } from "../types";
+import type { AiToolWithJsonSchema, LMStreamPart, Logger } from "../types";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
 	createStepLogger,
 } from "./ai-sdk-helpers";
-import type { ModelClient } from "./ModelClient";
+import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 
 // ---------------------------------------------------------------------------
 // Interaction ID extraction (compaction-aware)
@@ -290,24 +289,13 @@ export class GeminiClient implements ModelClient {
 		this.logger = logger;
 	}
 
-	async chat(params: {
-		model: string;
-		messages: ModelMessage[];
-		systemPrompt?: string;
-		maxOutputTokens?: number;
-		tools?: Record<string, AiToolWithJsonSchema>;
-		cancellationToken: CancellationToken;
-		thinkingEffort?: string;
-		metadata?: {
-			sessionId?: string;
-		};
-		stepLoggers?: StepLogger[];
-	}): Promise<AsyncIterable<LMStreamPart>> {
+	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {
 		// Create Google Generative AI provider
+		const effectiveBaseUrl = params.baseUrl ?? this.baseURL;
 		const headers = safeSdkCustomHeaders(this.customHeaders);
 		const provider = createGoogleGenerativeAI({
 			apiKey: this.apiKey,
-			...(this.baseURL && { baseURL: this.baseURL }),
+			...(effectiveBaseUrl && { baseURL: effectiveBaseUrl }),
 			...(headers && { headers }),
 		});
 

@@ -15,22 +15,21 @@
 
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import type { ModelMessage } from "ai";
 import { streamText } from "ai";
 
-import type { StepLogger } from "../StepLogger";
 import {
 	hasImagesInToolResults,
 	transformToolResultImagesForCompletions,
 } from "../tool-result-images";
-import type { AiToolWithJsonSchema, CancellationToken, LMStreamPart, Logger } from "../types";
+import type { LMStreamPart, Logger } from "../types";
+import { normalizeProtocol } from "../types";
 import { isAgreementRequiredBody, isClaudeModel, isThinkingEnabled, joinPath } from "../utils";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
 	createStepLogger,
 } from "./ai-sdk-helpers";
-import type { ModelClient } from "./ModelClient";
+import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 
 /**
  * Custom fetch wrapper that replaces x-api-key header with Authorization: Bearer
@@ -127,24 +126,16 @@ export class PositAiClient implements ModelClient {
 		this.logger = logger;
 	}
 
-	async chat(params: {
-		model: string;
-		messages: ModelMessage[];
-		systemPrompt?: string;
-		maxOutputTokens?: number;
-		tools?: Record<string, AiToolWithJsonSchema>;
-		cancellationToken: CancellationToken;
-		thinkingEffort?: string;
-		metadata?: {
-			sessionId?: string;
-		};
-		stepLoggers?: StepLogger[];
-		webSearchEnabled?: boolean;
-		requiresChatTemplateKwargs?: boolean;
-	}): Promise<AsyncIterable<LMStreamPart>> {
-		// Infer protocol from model ID: Claude models use Anthropic Messages API,
-		// all others use OpenAI Chat Completions API.
-		const protocol = isClaudeModel(params.model) ? "anthropic" : "openai";
+	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {
+		// Normalize protocol from params or infer from model ID:
+		// Claude models use Anthropic Messages API, all others use OpenAI Chat Completions API.
+		const normalizedProtocol = params.protocol
+			? normalizeProtocol(params.protocol)
+			: isClaudeModel(params.model)
+				? "anthropic-messages"
+				: "openai-chat";
+
+		const effectiveBaseUrl = params.baseUrl ?? this.baseURL;
 
 		// Build headers combining static User-Agent and per-request Session-Id
 		const headers: Record<string, string> = {
@@ -190,7 +181,7 @@ export class PositAiClient implements ModelClient {
 		// Create abort controller with cleanup to prevent EventEmitter memory leaks
 		const { abortController, cleanup } = createAbortControllerFromToken(params.cancellationToken);
 
-		if (protocol === "anthropic") {
+		if (normalizedProtocol === "anthropic-messages") {
 			const providerOptions = isThinkingEnabled(params.thinkingEffort)
 				? {
 						anthropic: {
@@ -206,7 +197,7 @@ export class PositAiClient implements ModelClient {
 			// Use Anthropic provider with OAuth authentication
 			const provider = createAnthropic({
 				apiKey: this.accessToken, // Required for SDK initialization, not used in header
-				baseURL: joinPath(this.baseURL, "/anthropic/v1"),
+				baseURL: joinPath(effectiveBaseUrl, "/anthropic/v1"),
 				fetch: authenticatedFetch,
 			});
 			const model = provider(params.model);
@@ -235,14 +226,14 @@ export class PositAiClient implements ModelClient {
 			});
 
 			return convertAiSdkStreamToPlatform(result.fullStream, cleanup);
-		} else if (protocol === "openai") {
+		} else if (normalizedProtocol === "openai-chat") {
 			const useChatTemplateKwargs =
 				params.requiresChatTemplateKwargs && isThinkingEnabled(params.thinkingEffort);
 
 			// Use OpenAI-compatible provider with OAuth authentication
 			const provider = createOpenAICompatible({
 				name: "positai",
-				baseURL: joinPath(this.baseURL, "/openai/v1"),
+				baseURL: joinPath(effectiveBaseUrl, "/openai/v1"),
 				fetch: authenticatedFetch,
 				...(useChatTemplateKwargs && {
 					transformRequestBody: (body: Record<string, unknown>) => ({
@@ -275,7 +266,7 @@ export class PositAiClient implements ModelClient {
 			return convertAiSdkStreamToPlatform(result.fullStream, cleanup);
 		} else {
 			cleanup();
-			throw new Error(`Unsupported protocol: ${protocol}`);
+			throw new Error(`Unsupported protocol for Posit AI: ${normalizedProtocol}`);
 		}
 	}
 }

@@ -131,6 +131,55 @@ export type ProviderCredentials =
 	| GoogleCloudCredentials;
 
 // ============================================================================
+// Wire Protocol
+// ============================================================================
+
+/**
+ * API wire-protocol values. Each selects the message/request format the
+ * runtime speaks to a model.
+ *
+ * - `"anthropic-messages"` — Anthropic Messages API format
+ * - `"openai-chat"` — OpenAI Chat Completions API format
+ * - `"openai-responses"` — OpenAI Responses API format
+ * - `"bedrock-converse"` — AWS Bedrock Converse API format
+ * - `"google-generative"` — Google Generative AI (Gemini) API format
+ */
+export type Protocol =
+	| "anthropic-messages"
+	| "openai-chat"
+	| "openai-responses"
+	| "bedrock-converse"
+	| "google-generative";
+
+/**
+ * Legacy protocol values. Accepted on `ModelInfo.protocol` for backward
+ * compatibility — existing consumer code (Positron model overrides, core
+ * tests, TUI inspect bridge, Snowflake static catalog) still produces these.
+ *
+ * Use {@link normalizeProtocol} to convert to the canonical `Protocol` form
+ * at the routing boundary. Consumers should migrate to the new values in
+ * Phase 5/6.
+ *
+ * @deprecated Prefer the richer `Protocol` values instead.
+ */
+export type LegacyProtocol = "anthropic" | "openai";
+
+/**
+ * Normalize a protocol value, mapping legacy bridge values to the canonical
+ * `Protocol` enum. Returns `undefined` when `protocol` is `undefined`.
+ *
+ * Multi-protocol clients should call this on the incoming `params.protocol`
+ * (or fallback-inferred value) before routing, so both legacy and new values
+ * resolve to the same codepath.
+ */
+export function normalizeProtocol(protocol: string | undefined): Protocol | undefined {
+	if (protocol === undefined) return undefined;
+	if (protocol === "anthropic") return "anthropic-messages";
+	if (protocol === "openai") return "openai-chat";
+	return protocol as Protocol;
+}
+
+// ============================================================================
 // Model Info
 // ============================================================================
 
@@ -180,11 +229,22 @@ export interface ModelInfo {
 	/**
 	 * API protocol used to communicate with this model, for this specific provider.
 	 * For providers that support multiple protocols, like Posit AI or Bedrock.
-	 * - "anthropic": Anthropic Messages API format
-	 * - "openai": OpenAI Chat Completions API format
-	 * If not specified, provider determines the protocol
+	 *
+	 * Canonical values (prefer these):
+	 * - `"anthropic-messages"` — Anthropic Messages API format
+	 * - `"openai-chat"` — OpenAI Chat Completions API format
+	 * - `"openai-responses"` — OpenAI Responses API format
+	 * - `"bedrock-converse"` — AWS Bedrock Converse API format
+	 * - `"google-generative"` — Google Generative AI (Gemini) API format
+	 *
+	 * Legacy values (deprecated, accepted for backward compatibility):
+	 * - `"anthropic"` — equivalent to `"anthropic-messages"`
+	 * - `"openai"` — equivalent to `"openai-chat"`
+	 *
+	 * Use {@link normalizeProtocol} to convert to canonical form at the
+	 * routing boundary. If not specified, the provider determines the protocol.
 	 */
-	protocol?: "anthropic" | "openai";
+	protocol?: Protocol | LegacyProtocol;
 
 	// Capability fields (all optional for backward compatibility)
 	supportsTools: boolean;

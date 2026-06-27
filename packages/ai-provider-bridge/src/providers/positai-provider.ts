@@ -55,20 +55,32 @@ type PositAiModelFetcher = ((
 };
 
 /**
- * Map API protocol string to internal protocol type
+ * Map API protocol string from the Posit AI /models endpoint to the canonical
+ * Protocol enum. The upstream gateway already returns values like
+ * `"anthropic-messages"`, `"openai-chat"`, `"openai-responses"`.
+ *
+ * Only protocols that `PositAiClient` can actually handle are mapped; others
+ * return `undefined` so the client falls back to model-id inference. In
+ * particular, `"openai-responses"` is NOT mapped here because the client
+ * uses `@ai-sdk/openai-compatible` which has no Responses API path — surfacing
+ * the value would let the model be selected but fail at chat time.
  */
-function mapProtocol(apiProtocol: string): "anthropic" | "openai" | undefined {
-	if (apiProtocol === "anthropic-messages") return "anthropic";
-	if (apiProtocol.startsWith("openai-")) return "openai";
+function mapProtocol(apiProtocol: string): "anthropic-messages" | "openai-chat" | undefined {
+	if (apiProtocol === "anthropic-messages") return "anthropic-messages";
+	if (apiProtocol === "openai-chat") return "openai-chat";
 	return undefined;
 }
 
 /**
- * Infer vendor from protocol
+ * Infer vendor from the raw API protocol string (not the mapped one).
+ * This ensures vendor is correctly derived even when `mapProtocol()` returns
+ * `undefined` for a protocol the client can't handle yet (e.g.
+ * `"openai-responses"` — still an OpenAI-family model for display purposes).
  */
-function inferVendor(protocol: "anthropic" | "openai" | undefined): string {
-	if (protocol === "anthropic") return "anthropic";
-	if (protocol === "openai") return "openai";
+function inferVendor(apiProtocol: string | undefined): string {
+	if (!apiProtocol) return "unknown";
+	if (apiProtocol.startsWith("anthropic")) return "anthropic";
+	if (apiProtocol.startsWith("openai")) return "openai";
 	return "unknown";
 }
 
@@ -143,7 +155,7 @@ export function registerPositAiProvider(
 				data.chat.map((model) => {
 					const apiProtocol = model.endpoints?.[0]?.protocol;
 					const protocol = apiProtocol ? mapProtocol(apiProtocol) : undefined;
-					const vendor = inferVendor(protocol);
+					const vendor = inferVendor(apiProtocol);
 					const capabilities = getPositAiModelCapabilities(model.id);
 
 					return {
@@ -168,7 +180,7 @@ export function registerPositAiProvider(
 						maxContextLength: model.max_context_length ?? capabilities?.maxContextLength ?? 200000,
 						maxInputTokens: model.max_context_length ?? capabilities?.maxInputTokens ?? 200000,
 						// Only Anthropic-protocol models support provider-native web search
-						supportsWebSearch: protocol === "anthropic",
+						supportsWebSearch: protocol === "anthropic-messages",
 					};
 				}),
 			);

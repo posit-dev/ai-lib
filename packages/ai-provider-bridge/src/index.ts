@@ -5,7 +5,7 @@
 // ai-provider-bridge - Platform-neutral provider infrastructure
 
 // Provider-domain types (owned by this package)
-export { NOTIFICATION_ACTIONS, PROVIDER_IDS } from "./types";
+export { NOTIFICATION_ACTIONS, normalizeProtocol, PROVIDER_IDS } from "./types";
 export type {
 	AiToolWithJsonSchema,
 	ApiKeyCredentials,
@@ -13,6 +13,7 @@ export type {
 	CancellationToken,
 	Event,
 	GoogleCloudCredentials,
+	LegacyProtocol,
 	LMStreamPart,
 	LocalCredentials,
 	Logger,
@@ -21,6 +22,7 @@ export type {
 	OAuthCredentials,
 	PositAiAuthMetadata,
 	PositAiModelFetchState,
+	Protocol,
 	ProviderId,
 	ProviderCredentials,
 } from "./types";
@@ -29,8 +31,8 @@ export type {
 export { ProviderRegistry } from "./providers/ProviderRegistry";
 export type { ClientFactory, ModelFetcher } from "./providers/ProviderRegistry";
 
-// ModelClient interface
-export type { ModelClient } from "./model-clients/ModelClient";
+// ModelClient interface and shared params type
+export type { ModelClient, ModelClientChatParams } from "./model-clients/ModelClient";
 
 // AI SDK types surfaced through the bridge so consumers can use the public API
 // without importing `ai` directly: `ModelMessage` appears in ModelClient.chat's

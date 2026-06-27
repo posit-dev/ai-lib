@@ -9,11 +9,9 @@
  * so we delegate to OpenAIClient with configured endpoint URL.
  */
 
-import type { ModelMessage } from "ai";
-
-import type { StepLogger } from "../StepLogger";
-import type { AiToolWithJsonSchema, CancellationToken, LMStreamPart } from "../types";
-import type { ModelClient } from "./ModelClient";
+import type { LMStreamPart } from "../types";
+import { normalizeProtocol } from "../types";
+import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 import { OpenAIClient } from "./OpenAIClient";
 
 export class LMStudioClient implements ModelClient {
@@ -29,19 +27,18 @@ export class LMStudioClient implements ModelClient {
 		this.openaiClient = new OpenAIClient("lmstudio", baseURL, "completions");
 	}
 
-	async chat(params: {
-		model: string;
-		messages: ModelMessage[];
-		systemPrompt?: string;
-		maxOutputTokens?: number;
-		tools?: Record<string, AiToolWithJsonSchema>;
-		cancellationToken: CancellationToken;
-		metadata?: {
-			sessionId?: string;
-		};
-		stepLoggers?: StepLogger[];
-	}): Promise<AsyncIterable<LMStreamPart>> {
-		// Delegate to OpenAI client
-		return this.openaiClient.chat(params);
+	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {
+		// LM Studio only supports the Chat Completions API. Reject any
+		// explicit protocol that would route to an unsupported API.
+		const normalized = normalizeProtocol(params.protocol);
+		if (normalized && normalized !== "openai-chat") {
+			throw new Error(
+				`Unsupported protocol for LM Studio: ${normalized}. LM Studio only supports openai-chat (Chat Completions API).`,
+			);
+		}
+
+		// Delegate to OpenAI client, stripping protocol so the constructor-
+		// time completions mode is used (not overridden by params.protocol).
+		return this.openaiClient.chat({ ...params, protocol: undefined });
 	}
 }

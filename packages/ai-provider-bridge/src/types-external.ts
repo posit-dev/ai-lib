@@ -25,6 +25,7 @@ export type {
 	CancellationToken,
 	Event,
 	GoogleCloudCredentials,
+	LegacyProtocol,
 	LMStreamPart,
 	LocalCredentials,
 	Logger,
@@ -33,9 +34,13 @@ export type {
 	OAuthCredentials,
 	PositAiAuthMetadata,
 	PositAiModelFetchState,
+	Protocol,
 	ProviderId,
 	ProviderCredentials,
 } from "./types";
+
+// Runtime re-exports
+export { normalizeProtocol } from "./types";
 
 /**
  * Provider IDs — external builds only include positai.

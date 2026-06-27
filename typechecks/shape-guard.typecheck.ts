@@ -14,16 +14,13 @@
  * `true`. If the constraint holds, the conditional resolves to `true` and the
  * assignment succeeds; if it fails, you get a type error.
  *
- * STATUS: provider-id and model-override-field guards are active. Protocol and
- * client-kind guards are deferred to Phase 4, which widens the bridge's
- * protocol enum from `"anthropic" | "openai"` to the richer set that
- * ai-config already defines. Until then, a protocol guard would always fail
- * because the bridge and ai-config intentionally diverge (ai-config defines
- * the target state; the bridge hasn't caught up yet).
+ * STATUS: provider-id, model-override-field, and protocol guards are active.
+ * Client-kind guard is deferred to Phase 4.5, which introduces the bridge-side
+ * client-kind vocabulary alongside the instantiate-by-type client path.
  */
 
-import type { BUILTIN_PROVIDER_IDS, MODEL_METADATA_FIELD_NAMES } from "ai-config";
-import type { PROVIDER_IDS, ModelInfo } from "ai-provider-bridge";
+import type { BUILTIN_PROVIDER_IDS, MODEL_METADATA_FIELD_NAMES, PROTOCOL_VALUES } from "ai-config";
+import type { ModelInfo, Protocol, PROVIDER_IDS } from "ai-provider-bridge";
 
 // ---------------------------------------------------------------------------
 // Helper types
@@ -46,6 +43,11 @@ type TupleEqual<A extends readonly string[], B extends readonly string[]> = [
 /** True if every element of string tuple A is a key of object type T. */
 type AllKeysOf<A extends readonly string[], T> = A[number] extends keyof T ? true : never;
 
+/** True if every element of string tuple A is assignable to type T. */
+type TupleValuesAssignableTo<A extends readonly string[], T extends string> = A[number] extends T
+	? true
+	: never;
+
 // ---------------------------------------------------------------------------
 // Assertion 1: BUILTIN_PROVIDER_IDS ≡ PROVIDER_IDS
 //
@@ -62,25 +64,28 @@ const _providerIdsMatch: TupleEqual<typeof BUILTIN_PROVIDER_IDS, typeof PROVIDER
 // Every metadata field ai-config allows in model overrides must exist on the
 // bridge's ModelInfo. Routing-only fields (baseUrl) are intentionally excluded
 // — they are config-layer routing concerns, not ModelInfo properties.
-// Note: this checks field *names* only, not that their types match — the
-// bridge's ModelInfo.protocol is `"anthropic" | "openai"` while ai-config
-// accepts the wider Protocol enum. Type compatibility is deferred to Phase 4
-// when the bridge widens its protocol type.
 // ---------------------------------------------------------------------------
 
 const _overrideFieldsSubset: AllKeysOf<typeof MODEL_METADATA_FIELD_NAMES, ModelInfo> = true;
 
 // ---------------------------------------------------------------------------
-// TODO (Phase 4): Protocol and client-kind compatibility guards
+// Assertion 3: PROTOCOL_VALUES ⊆ Protocol
 //
-// Once the bridge widens ModelInfo.protocol from `"anthropic" | "openai"` to
-// the richer enum (Phase 4), add:
+// Every protocol value ai-config defines must be assignable to the bridge's
+// Protocol type. This ensures the two packages' protocol enums stay in sync.
+// The bridge's Protocol type is the canonical definition; ai-config mirrors it.
+// ---------------------------------------------------------------------------
+
+const _protocolValuesSubset: TupleValuesAssignableTo<typeof PROTOCOL_VALUES, Protocol> = true;
+
+// ---------------------------------------------------------------------------
+// TODO (Phase 4.5): Client-kind compatibility guard
 //
-// - Assertion 3: ai-config PROTOCOL_VALUES ⊆ bridge's protocol union
+// The bridge does not yet own a CLIENT_KIND_VALUES vocabulary or expose a
+// client-kind type. Phase 4.5 introduces the instantiate-by-type client path
+// alongside a bridge-side client-kind vocabulary. Once that lands, add:
+//
 // - Assertion 4: ai-config CLIENT_KIND_VALUES elements map to bridge clients
-//
-// These cannot be written today because the bridge hasn't widened yet — the
-// two packages intentionally diverge (ai-config defines the target state).
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
@@ -89,3 +94,4 @@ const _overrideFieldsSubset: AllKeysOf<typeof MODEL_METADATA_FIELD_NAMES, ModelI
 
 void _providerIdsMatch;
 void _overrideFieldsSubset;
+void _protocolValuesSubset;

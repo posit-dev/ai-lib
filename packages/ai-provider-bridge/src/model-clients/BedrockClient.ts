@@ -14,18 +14,17 @@ import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { createBedrockAnthropic } from "@ai-sdk/amazon-bedrock/anthropic";
 import type { LanguageModelV3 } from "@ai-sdk/provider";
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
-import type { ModelMessage } from "ai";
 import { streamText } from "ai";
 
-import type { StepLogger } from "../StepLogger";
-import type { AiToolWithJsonSchema, CancellationToken, LMStreamPart } from "../types";
+import type { LMStreamPart, Protocol } from "../types";
+import { normalizeProtocol } from "../types";
 import { isThinkingEnabled } from "../utils";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
 	createStepLogger,
 } from "./ai-sdk-helpers";
-import type { ModelClient } from "./ModelClient";
+import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 
 /**
  * Check if a Bedrock model ID refers to an Anthropic model.
@@ -51,29 +50,33 @@ export class BedrockClient implements ModelClient {
 		this.config = config;
 	}
 
-	async chat(params: {
-		model: string;
-		messages: ModelMessage[];
-		systemPrompt?: string;
-		maxOutputTokens?: number;
-		tools?: Record<string, AiToolWithJsonSchema>;
-		cancellationToken: CancellationToken;
-		thinkingEffort?: string;
-		metadata?: {
-			sessionId?: string;
-		};
-		stepLoggers?: StepLogger[];
-	}): Promise<AsyncIterable<LMStreamPart>> {
-		const model = this.createModel(params.model);
+	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {
+		const normalizedProtocol = normalizeProtocol(params.protocol);
+
+		if (
+			normalizedProtocol &&
+			normalizedProtocol !== "anthropic-messages" &&
+			normalizedProtocol !== "bedrock-converse"
+		) {
+			throw new Error(`Unsupported protocol for Bedrock: ${normalizedProtocol}`);
+		}
+
+		const model = this.createModel(params.model, normalizedProtocol);
 
 		// Create abort controller with cleanup to prevent EventEmitter memory leaks
 		const { abortController, cleanup } = createAbortControllerFromToken(params.cancellationToken);
+
+		// Determine whether to use Anthropic-style provider options.
+		// Respect explicit protocol when set; otherwise fall back to model-ID heuristic.
+		const isAnthropic = normalizedProtocol
+			? normalizedProtocol === "anthropic-messages"
+			: isAnthropicModel(params.model);
 
 		// For Anthropic models on Bedrock, pass thinking config via providerOptions.
 		// The createBedrockAnthropic provider uses AnthropicMessagesLanguageModel internally,
 		// so it accepts the same `anthropic` provider options as the direct Anthropic provider.
 		const providerOptions =
-			isThinkingEnabled(params.thinkingEffort) && isAnthropicModel(params.model)
+			isThinkingEnabled(params.thinkingEffort) && isAnthropic
 				? {
 						anthropic: {
 							// `display: "summarized"` is required to receive thinking summary text.
@@ -110,8 +113,11 @@ export class BedrockClient implements ModelClient {
 	 *   through Bedrock) for full feature parity including prompt caching via
 	 *   `providerOptions.anthropic.cacheControl`.
 	 * - All other models use `createAmazonBedrock` (Converse API).
+	 *
+	 * When an explicit `protocol` is provided, it takes precedence over the
+	 * model-ID heuristic.
 	 */
-	private createModel(modelId: string): LanguageModelV3 {
+	private createModel(modelId: string, protocol?: Protocol): LanguageModelV3 {
 		const useManualKeys = this.config.accessKeyId && this.config.secretAccessKey;
 
 		const credentialConfig = useManualKeys
@@ -128,7 +134,11 @@ export class BedrockClient implements ModelClient {
 					}),
 				};
 
-		if (isAnthropicModel(modelId)) {
+		const useAnthropicApi = protocol
+			? protocol === "anthropic-messages"
+			: isAnthropicModel(modelId);
+
+		if (useAnthropicApi) {
 			return createBedrockAnthropic({
 				region: this.config.region,
 				...credentialConfig,

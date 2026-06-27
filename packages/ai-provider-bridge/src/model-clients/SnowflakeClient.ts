@@ -13,19 +13,18 @@
 
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
-import type { ModelMessage } from "ai";
 import { streamText } from "ai";
 
 import { safeSdkCustomHeaders } from "../custom-headers";
-import type { StepLogger } from "../StepLogger";
-import type { AiToolWithJsonSchema, CancellationToken, LMStreamPart } from "../types";
+import type { LMStreamPart } from "../types";
+import { normalizeProtocol } from "../types";
 import { isClaudeModel, isThinkingEnabled } from "../utils";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
 	createStepLogger,
 } from "./ai-sdk-helpers";
-import type { ModelClient } from "./ModelClient";
+import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 import { createOpenAICompatibleFetch } from "./openai-compat-fetch";
 
 export class SnowflakeClient implements ModelClient {
@@ -39,45 +38,42 @@ export class SnowflakeClient implements ModelClient {
 		this.customHeaders = customHeaders;
 	}
 
-	async chat(params: {
-		model: string;
-		messages: ModelMessage[];
-		systemPrompt?: string;
-		maxOutputTokens?: number;
-		tools?: Record<string, AiToolWithJsonSchema>;
-		cancellationToken: CancellationToken;
-		thinkingEffort?: string;
-		metadata?: {
-			sessionId?: string;
-		};
-		stepLoggers?: StepLogger[];
-	}): Promise<AsyncIterable<LMStreamPart>> {
-		// Infer protocol from model ID: Claude models use Anthropic Messages API,
-		// all others use OpenAI Chat Completions API.
-		if (isClaudeModel(params.model)) {
-			return this.chatAnthropic(params);
+	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {
+		const effectiveBaseUrl = params.baseUrl ?? this.baseUrl;
+
+		// When an explicit protocol is provided, normalize and route on it.
+		if (params.protocol) {
+			const normalizedProtocol = normalizeProtocol(params.protocol);
+			switch (normalizedProtocol) {
+				case "anthropic-messages":
+					return this.chatAnthropic(params, effectiveBaseUrl);
+				case "openai-chat":
+					return this.chatOpenAI(params, effectiveBaseUrl);
+				default:
+					throw new Error(`Unsupported protocol for Snowflake: ${normalizedProtocol}`);
+			}
 		}
-		return this.chatOpenAI(params);
+
+		// Fallback: infer protocol from model ID. Claude models use Anthropic
+		// Messages API, all others use OpenAI Chat Completions API.
+		if (isClaudeModel(params.model)) {
+			return this.chatAnthropic(params, effectiveBaseUrl);
+		}
+		return this.chatOpenAI(params, effectiveBaseUrl);
 	}
 
 	/**
 	 * Anthropic Messages API path for Claude models.
 	 * Uses `authToken` to send `Authorization: Bearer` (not `x-api-key`).
 	 */
-	private async chatAnthropic(params: {
-		model: string;
-		messages: ModelMessage[];
-		systemPrompt?: string;
-		maxOutputTokens?: number;
-		tools?: Record<string, AiToolWithJsonSchema>;
-		cancellationToken: CancellationToken;
-		thinkingEffort?: string;
-		stepLoggers?: StepLogger[];
-	}): Promise<AsyncIterable<LMStreamPart>> {
+	private async chatAnthropic(
+		params: ModelClientChatParams,
+		baseUrl: string,
+	): Promise<AsyncIterable<LMStreamPart>> {
 		const headers = safeSdkCustomHeaders(this.customHeaders);
 		const provider = createAnthropic({
 			authToken: this.bearerToken,
-			baseURL: this.baseUrl,
+			baseURL: baseUrl,
 			...(headers && { headers }),
 		});
 		const model = provider(params.model);
@@ -115,19 +111,13 @@ export class SnowflakeClient implements ModelClient {
 	 * OpenAI Chat Completions API path for non-Claude models.
 	 * Uses the shared compat fetch wrapper for streaming response fixes.
 	 */
-	private async chatOpenAI(params: {
-		model: string;
-		messages: ModelMessage[];
-		systemPrompt?: string;
-		maxOutputTokens?: number;
-		tools?: Record<string, AiToolWithJsonSchema>;
-		cancellationToken: CancellationToken;
-		thinkingEffort?: string;
-		stepLoggers?: StepLogger[];
-	}): Promise<AsyncIterable<LMStreamPart>> {
+	private async chatOpenAI(
+		params: ModelClientChatParams,
+		baseUrl: string,
+	): Promise<AsyncIterable<LMStreamPart>> {
 		const provider = createOpenAI({
 			apiKey: this.bearerToken || "sk-placeholder",
-			baseURL: this.baseUrl,
+			baseURL: baseUrl,
 			fetch: createOpenAICompatibleFetch("Snowflake", this.bearerToken, this.customHeaders),
 		});
 		const model = provider.chat(params.model);

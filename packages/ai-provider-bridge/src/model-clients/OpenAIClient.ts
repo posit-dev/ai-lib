@@ -9,23 +9,22 @@
  */
 
 import { createOpenAI } from "@ai-sdk/openai";
-import type { ModelMessage } from "ai";
 import { streamText } from "ai";
 
 import { safeSdkCustomHeaders } from "../custom-headers";
-import type { StepLogger } from "../StepLogger";
 import {
 	hasImagesInToolResults,
 	transformToolResultImagesForCompletions,
 } from "../tool-result-images";
-import type { AiToolWithJsonSchema, CancellationToken, LMStreamPart } from "../types";
+import type { LMStreamPart } from "../types";
+import { normalizeProtocol } from "../types";
 import { isThinkingEnabled } from "../utils";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
 	createStepLogger,
 } from "./ai-sdk-helpers";
-import type { ModelClient } from "./ModelClient";
+import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 
 type ApiMode = "completions" | "responses";
 
@@ -50,19 +49,25 @@ export class OpenAIClient implements ModelClient {
 		this.customHeaders = customHeaders;
 	}
 
-	async chat(params: {
-		model: string;
-		messages: ModelMessage[];
-		systemPrompt?: string;
-		maxOutputTokens?: number;
-		tools?: Record<string, AiToolWithJsonSchema>;
-		cancellationToken: CancellationToken;
-		thinkingEffort?: string;
-		metadata?: {
-			sessionId?: string;
-		};
-		stepLoggers?: StepLogger[];
-	}): Promise<AsyncIterable<LMStreamPart>> {
+	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {
+		const normalizedProtocol = normalizeProtocol(params.protocol);
+
+		// Determine API mode: explicit protocol → override; absent → constructor default
+		let effectiveApiMode: ApiMode;
+		if (normalizedProtocol) {
+			if (normalizedProtocol === "openai-chat") {
+				effectiveApiMode = "completions";
+			} else if (normalizedProtocol === "openai-responses") {
+				effectiveApiMode = "responses";
+			} else {
+				throw new Error(`Unsupported protocol for OpenAI: ${normalizedProtocol}`);
+			}
+		} else {
+			effectiveApiMode = this.apiMode;
+		}
+
+		const effectiveBaseUrl = params.baseUrl ?? this.baseURL;
+
 		// Create OpenAI provider.
 		// When apiKey === "" (openai-compatible unauthenticated endpoints), pass a
 		// placeholder to prevent the SDK falling back to OPENAI_API_KEY env var, and
@@ -82,19 +87,21 @@ export class OpenAIClient implements ModelClient {
 		const headers = safeSdkCustomHeaders(this.customHeaders);
 		const provider = createOpenAI({
 			apiKey: isEmptyKey ? "sk-placeholder" : this.apiKey,
-			...(this.baseURL && { baseURL: this.baseURL }),
+			...(effectiveBaseUrl && { baseURL: effectiveBaseUrl }),
 			...(fetchFn && { fetch: fetchFn }),
 			...(headers && { headers }),
 		});
 		const model =
-			this.apiMode === "responses" ? provider.responses(params.model) : provider.chat(params.model);
+			effectiveApiMode === "responses"
+				? provider.responses(params.model)
+				: provider.chat(params.model);
 
 		// Create abort controller with cleanup to prevent EventEmitter memory leaks
 		const { abortController, cleanup } = createAbortControllerFromToken(params.cancellationToken);
 
 		// Transform tool result images for completions API (doesn't support images in tool results)
 		let messagesToSend = params.messages;
-		if (this.apiMode === "completions" && hasImagesInToolResults(params.messages)) {
+		if (effectiveApiMode === "completions" && hasImagesInToolResults(params.messages)) {
 			messagesToSend = transformToolResultImagesForCompletions(params.messages);
 		}
 
