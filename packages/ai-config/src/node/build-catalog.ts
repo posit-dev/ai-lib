@@ -26,6 +26,7 @@ import type {
 import { mintCustomProviderId } from "../types";
 import { BUILTIN_PROVIDER_IDS } from "../vocabulary";
 import type { BuiltinProviderId, ClientKind } from "../vocabulary";
+import type { LoggerLike } from "./types";
 
 // ---------------------------------------------------------------------------
 // Built-in provider id → client kind mapping
@@ -69,6 +70,7 @@ export function buildCatalog(
 	mergedConfig: ProvidersConfig,
 	enforcedProviders: EnforcedProvidersMap | undefined,
 	baseline: PlatformBaseline,
+	options?: { external?: boolean; logger?: LoggerLike },
 ): readonly ResolvedProvider[] {
 	const providers = mergedConfig.providers;
 	const catalog: ResolvedProvider[] = [];
@@ -90,19 +92,28 @@ export function buildCatalog(
 
 	// 2. Custom providers (from providers.custom map)
 	const customEntries = providers?.custom;
-	if (customEntries) {
-		for (const [name, entry] of Object.entries(customEntries)) {
-			const customId = mintCustomProviderId(name);
-			const enabled = resolveEnabled(name, providers, enforcedProviders, baseline);
-			const connection = resolveConnectionFromBlock(entry);
+	if (customEntries && Object.keys(customEntries).length > 0) {
+		if (options?.external) {
+			// External builds alias non-positai client code out of the bundle.
+			// Custom provider entries would fail at runtime, so skip them.
+			options.logger?.warn(
+				`[ai-config] External build: ignoring ${Object.keys(customEntries).length} ` +
+					`custom provider(s) in providers.custom (not supported in external builds)`,
+			);
+		} else {
+			for (const [name, entry] of Object.entries(customEntries)) {
+				const customId = mintCustomProviderId(name);
+				const enabled = resolveEnabled(name, providers, enforcedProviders, baseline);
+				const connection = resolveConnectionFromBlock(entry);
 
-			catalog.push({
-				id: customId,
-				clientKind: entry.type,
-				enabled,
-				connection,
-				models: entry.models,
-			});
+				catalog.push({
+					id: customId,
+					clientKind: entry.type,
+					enabled,
+					connection,
+					models: entry.models,
+				});
+			}
 		}
 	}
 

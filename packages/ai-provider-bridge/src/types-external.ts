@@ -37,6 +37,7 @@ export type {
 	Protocol,
 	ProviderId,
 	ProviderCredentials,
+	ResolvedProviderId,
 } from "./types";
 
 // Runtime re-exports

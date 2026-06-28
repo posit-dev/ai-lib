@@ -25,6 +25,7 @@ export type {
 	Protocol,
 	ProviderId,
 	ProviderCredentials,
+	ResolvedProviderId,
 } from "./types";
 
 // Core provider infrastructure

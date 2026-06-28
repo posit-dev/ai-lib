@@ -67,6 +67,7 @@
     ]
   },
   "dependencies": {
+    "ai-config": "*",
     "@ai-sdk/amazon-bedrock": "^4.0.113",
     "@ai-sdk/anthropic": "^3.0.70",
     "@ai-sdk/deepseek": "^2.0.29",

@@ -22,6 +22,8 @@
  */
 
 import type * as ai from "ai";
+import type { ResolvedProviderId } from "ai-config";
+export type { ResolvedProviderId };
 
 // ============================================================================
 // Provider IDs
@@ -204,7 +206,7 @@ export interface ModelInfo {
 	name: string;
 
 	/** Which provider offers this model */
-	providerId: ProviderId;
+	providerId: ResolvedProviderId;
 
 	/** Who created the model (may differ from provider) */
 	vendor: string;

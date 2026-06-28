@@ -13,8 +13,33 @@
  * 2. Registering a client factory (function that creates a ModelClient)
  */
 
+import type { ClientKind } from "ai-config";
+
 import type { ModelClient } from "../model-clients/ModelClient";
-import type { Logger, ModelInfo, ProviderCredentials } from "../types";
+import type { Logger, ModelInfo, ProviderId, ProviderCredentials } from "../types";
+
+// ---------------------------------------------------------------------------
+// Client-kind → factory-id mapping
+// ---------------------------------------------------------------------------
+
+/**
+ * Non-identity client-kind → factory-id mappings. Client kinds not listed
+ * here resolve to a factory registered under the same name (identity).
+ *
+ * These exist because some built-in providers register their factory under
+ * the provider id (e.g. "bedrock"), but the corresponding client kind uses
+ * a different label (e.g. "aws"). Custom providers declare a `type` (client
+ * kind), so we need to resolve it to the factory registration key.
+ */
+const CLIENT_KIND_TO_FACTORY_ID: Partial<Record<ClientKind, ProviderId>> = {
+	aws: "bedrock",
+	snowflake: "snowflake-cortex",
+};
+
+/** Resolve the factory registration key for a given client kind. */
+function resolveFactoryId(clientKind: ClientKind): string {
+	return CLIENT_KIND_TO_FACTORY_ID[clientKind] ?? clientKind;
+}
 
 /**
  * Function that fetches models for a provider
@@ -155,5 +180,39 @@ export class ProviderRegistry {
 		}
 
 		return factory(credentials);
+	}
+
+	/**
+	 * Get client for a provider, falling back to a client-kind lookup for
+	 * custom providers that have no direct factory registration.
+	 *
+	 * For built-in providers, this behaves identically to `getClientForProvider`.
+	 * For custom providers whose `providerId` is not in the factory map, it
+	 * resolves the `clientKind` to the corresponding built-in factory via
+	 * `CLIENT_KIND_TO_FACTORY_ID` (non-identity mappings) or identity.
+	 *
+	 * @param providerId - Provider ID (built-in or custom)
+	 * @param credentials - Provider credentials
+	 * @param clientKind - Client kind for fallback resolution (from catalog)
+	 * @returns ModelClient or null
+	 */
+	getClientForProviderOrKind(
+		providerId: string,
+		credentials: ProviderCredentials,
+		clientKind?: ClientKind,
+	): ModelClient | null {
+		// Try direct registration first (built-ins and any manually registered)
+		const directFactory = this.clientFactories.get(providerId);
+		if (directFactory) return directFactory(credentials);
+
+		// Fall back to clientKind → factory id mapping
+		if (clientKind) {
+			const factoryId = resolveFactoryId(clientKind);
+			const kindFactory = this.clientFactories.get(factoryId);
+			if (kindFactory) return kindFactory(credentials);
+		}
+
+		this.logger.warn(`No client factory for ${providerId} (clientKind: ${clientKind})`);
+		return null;
 	}
 }

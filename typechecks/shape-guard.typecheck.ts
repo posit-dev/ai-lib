@@ -19,7 +19,12 @@
  * client-kind vocabulary alongside the instantiate-by-type client path.
  */
 
-import type { BUILTIN_PROVIDER_IDS, MODEL_METADATA_FIELD_NAMES, PROTOCOL_VALUES } from "ai-config";
+import type {
+	BUILTIN_PROVIDER_IDS,
+	CLIENT_KIND_VALUES,
+	MODEL_METADATA_FIELD_NAMES,
+	PROTOCOL_VALUES,
+} from "ai-config";
 import type { ModelInfo, Protocol, PROVIDER_IDS } from "ai-provider-bridge";
 
 // ---------------------------------------------------------------------------
@@ -79,14 +84,41 @@ const _overrideFieldsSubset: AllKeysOf<typeof MODEL_METADATA_FIELD_NAMES, ModelI
 const _protocolValuesSubset: TupleValuesAssignableTo<typeof PROTOCOL_VALUES, Protocol> = true;
 
 // ---------------------------------------------------------------------------
-// TODO (Phase 4.5): Client-kind compatibility guard
+// Assertion 4: CLIENT_KIND_VALUES ⊆ PROVIDER_IDS ∪ non-identity mappings
 //
-// The bridge does not yet own a CLIENT_KIND_VALUES vocabulary or expose a
-// client-kind type. Phase 4.5 introduces the instantiate-by-type client path
-// alongside a bridge-side client-kind vocabulary. Once that lands, add:
+// Every client-kind value from ai-config must resolve to a factory registered
+// under a built-in provider id. Non-identity entries in
+// CLIENT_KIND_TO_FACTORY_ID (aws→bedrock, snowflake→snowflake-cortex) map to
+// the corresponding provider id. Identity entries are provider ids themselves.
+// This assertion verifies that every client kind is either:
+// (a) a built-in provider id (identity mapping), or
+// (b) a known non-identity key whose target is a built-in provider id.
 //
-// - Assertion 4: ai-config CLIENT_KIND_VALUES elements map to bridge clients
+// Since both CLIENT_KIND_TO_FACTORY_ID and PROVIDER_IDS are maintained in the
+// bridge package, a divergence here means a client kind was added without a
+// factory registration.
 // ---------------------------------------------------------------------------
+
+/**
+ * Non-identity client-kind → provider-id mappings.
+ * Must be kept in sync with CLIENT_KIND_TO_FACTORY_ID in ProviderRegistry.ts.
+ */
+type NonIdentityClientKinds = "aws" | "snowflake";
+type NonIdentityTargets = "bedrock" | "snowflake-cortex";
+
+// Verify non-identity targets are valid provider ids
+const _nonIdentityTargetsAreProviderIds: TupleValuesAssignableTo<
+	readonly [NonIdentityTargets],
+	(typeof PROVIDER_IDS)[number]
+> = true;
+
+// Every client kind is either a provider id or a non-identity key
+type AllClientKindsCovered = (typeof CLIENT_KIND_VALUES)[number] extends
+	| (typeof PROVIDER_IDS)[number]
+	| NonIdentityClientKinds
+	? true
+	: never;
+const _clientKindsCovered: AllClientKindsCovered = true;
 
 // ---------------------------------------------------------------------------
 // Suppress unused-variable warnings
@@ -95,3 +127,5 @@ const _protocolValuesSubset: TupleValuesAssignableTo<typeof PROTOCOL_VALUES, Pro
 void _providerIdsMatch;
 void _overrideFieldsSubset;
 void _protocolValuesSubset;
+void _nonIdentityTargetsAreProviderIds;
+void _clientKindsCovered;
