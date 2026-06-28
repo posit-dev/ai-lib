@@ -188,33 +188,40 @@ export class SingleFileStore {
 
 		let watcher: FSWatcher | undefined;
 
-		// Ensure the file exists before starting the watcher
-		void this.ensureFileExists().then(() => {
-			if (disposed) return;
+		// Ensure the file exists before starting the watcher.
+		// Catch initialization failures so the promise rejection is never unhandled.
+		void this.ensureFileExists()
+			.then(() => {
+				if (disposed) return;
 
-			watcher = chokidarWatch(this.filePath, {
-				persistent: true,
-				ignoreInitial: true,
-				awaitWriteFinish: {
-					stabilityThreshold: 100,
-					pollInterval: 50,
-				},
+				watcher = chokidarWatch(this.filePath, {
+					persistent: true,
+					ignoreInitial: true,
+					awaitWriteFinish: {
+						stabilityThreshold: 100,
+						pollInterval: 50,
+					},
+				});
+
+				// Use 'all' event and filter to handle both 'change' and 'add' events
+				// (atomic writes use temp file + rename, which may emit 'add' instead of 'change')
+				watcher.on("all", (eventName) => {
+					if (eventName === "change" || eventName === "add") {
+						debouncedHandler();
+					}
+				});
+
+				watcher.on("error", (error) => {
+					this.logger?.warn(`[SingleFileStore] File watcher error: ${error}`);
+				});
+
+				this.logger?.debug(`[SingleFileStore] Started watching: ${this.filePath}`);
+			})
+			.catch((error) => {
+				this.logger?.warn(
+					`[SingleFileStore] Failed to initialize file watcher for ${this.filePath}: ${error instanceof Error ? error.message : String(error)}`,
+				);
 			});
-
-			// Use 'all' event and filter to handle both 'change' and 'add' events
-			// (atomic writes use temp file + rename, which may emit 'add' instead of 'change')
-			watcher.on("all", (eventName) => {
-				if (eventName === "change" || eventName === "add") {
-					debouncedHandler();
-				}
-			});
-
-			watcher.on("error", (error) => {
-				this.logger?.warn(`[SingleFileStore] File watcher error: ${error}`);
-			});
-
-			this.logger?.debug(`[SingleFileStore] Started watching: ${this.filePath}`);
-		});
 
 		return {
 			dispose: () => {
