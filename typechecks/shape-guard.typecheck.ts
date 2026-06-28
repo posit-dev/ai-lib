@@ -14,9 +14,8 @@
  * `true`. If the constraint holds, the conditional resolves to `true` and the
  * assignment succeeds; if it fails, you get a type error.
  *
- * STATUS: provider-id, model-override-field, and protocol guards are active.
- * Client-kind guard is deferred to Phase 4.5, which introduces the bridge-side
- * client-kind vocabulary alongside the instantiate-by-type client path.
+ * STATUS: provider-id, model-override-field, protocol, and client-kind guards
+ * are all active.
  */
 
 import type {
@@ -25,7 +24,13 @@ import type {
 	MODEL_METADATA_FIELD_NAMES,
 	PROTOCOL_VALUES,
 } from "ai-config";
-import type { ModelInfo, Protocol, PROVIDER_IDS } from "ai-provider-bridge";
+import type {
+	ModelInfo,
+	NonIdentityClientKind,
+	NonIdentityFactoryId,
+	Protocol,
+	PROVIDER_IDS,
+} from "ai-provider-bridge";
 
 // ---------------------------------------------------------------------------
 // Helper types
@@ -99,23 +104,18 @@ const _protocolValuesSubset: TupleValuesAssignableTo<typeof PROTOCOL_VALUES, Pro
 // factory registration.
 // ---------------------------------------------------------------------------
 
-/**
- * Non-identity client-kind → provider-id mappings.
- * Must be kept in sync with CLIENT_KIND_TO_FACTORY_ID in ProviderRegistry.ts.
- */
-type NonIdentityClientKinds = "aws" | "snowflake";
-type NonIdentityTargets = "bedrock" | "snowflake-cortex";
+// 4a: Non-identity factory targets are valid provider ids.
+// NonIdentityFactoryId is derived from NON_IDENTITY_MAPPING in ProviderRegistry
+// (the single source of truth for the client-kind → factory-id mapping).
+const _nonIdentityTargetsAreProviderIds: NonIdentityFactoryId extends (typeof PROVIDER_IDS)[number]
+	? true
+	: never = true;
 
-// Verify non-identity targets are valid provider ids
-const _nonIdentityTargetsAreProviderIds: TupleValuesAssignableTo<
-	readonly [NonIdentityTargets],
-	(typeof PROVIDER_IDS)[number]
-> = true;
-
-// Every client kind is either a provider id or a non-identity key
+// 4b: Every client kind is either a provider id (identity) or a non-identity key.
+// NonIdentityClientKind is derived from NON_IDENTITY_MAPPING in ProviderRegistry.
 type AllClientKindsCovered = (typeof CLIENT_KIND_VALUES)[number] extends
 	| (typeof PROVIDER_IDS)[number]
-	| NonIdentityClientKinds
+	| NonIdentityClientKind
 	? true
 	: never;
 const _clientKindsCovered: AllClientKindsCovered = true;

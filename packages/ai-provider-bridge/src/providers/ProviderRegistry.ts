@@ -23,22 +23,44 @@ import type { Logger, ModelInfo, ProviderId, ProviderCredentials } from "../type
 // ---------------------------------------------------------------------------
 
 /**
- * Non-identity client-kind → factory-id mappings. Client kinds not listed
- * here resolve to a factory registered under the same name (identity).
+ * Non-identity client-kind → factory-id mapping table.
  *
- * These exist because some built-in providers register their factory under
- * the provider id (e.g. "bedrock"), but the corresponding client kind uses
- * a different label (e.g. "aws"). Custom providers declare a `type` (client
- * kind), so we need to resolve it to the factory registration key.
+ * **Single source of truth.** The resolver (`resolveFactoryId`) and the
+ * shape guard (`NON_IDENTITY_CLIENT_KINDS`, `NON_IDENTITY_FACTORY_IDS`)
+ * are all derived from this one constant. Add new non-identity entries
+ * here and everything else updates automatically.
+ *
+ * Client kinds not listed here resolve to a factory registered under the
+ * same name (identity). These non-identity entries exist because some
+ * built-in providers register their factory under the provider id
+ * (e.g. "bedrock"), but the corresponding client kind uses a different
+ * label (e.g. "aws").
  */
-const CLIENT_KIND_TO_FACTORY_ID: Partial<Record<ClientKind, ProviderId>> = {
-	aws: "bedrock",
-	snowflake: "snowflake-cortex",
-};
+export const NON_IDENTITY_MAPPING = [
+	["aws", "bedrock"],
+	["snowflake", "snowflake-cortex"],
+] as const satisfies ReadonlyArray<readonly [ClientKind, ProviderId]>;
+
+/**
+ * Non-identity client-kind keys — derived from `NON_IDENTITY_MAPPING` at
+ * the type level. The shape guard uses this to verify every ai-config
+ * `ClientKind` resolves to a registered factory.
+ */
+export type NonIdentityClientKind = (typeof NON_IDENTITY_MAPPING)[number][0];
+
+/**
+ * Non-identity factory ids — derived from `NON_IDENTITY_MAPPING` at the
+ * type level. The shape guard uses this to verify the targets are valid
+ * provider ids.
+ */
+export type NonIdentityFactoryId = (typeof NON_IDENTITY_MAPPING)[number][1];
+
+/** Lookup map built from the canonical table. */
+const CLIENT_KIND_TO_FACTORY_ID = new Map<string, string>(NON_IDENTITY_MAPPING);
 
 /** Resolve the factory registration key for a given client kind. */
 function resolveFactoryId(clientKind: ClientKind): string {
-	return CLIENT_KIND_TO_FACTORY_ID[clientKind] ?? clientKind;
+	return CLIENT_KIND_TO_FACTORY_ID.get(clientKind) ?? clientKind;
 }
 
 /**

@@ -29,8 +29,13 @@ export type {
 } from "./types";
 
 // Core provider infrastructure
-export { ProviderRegistry } from "./providers/ProviderRegistry";
-export type { ClientFactory, ModelFetcher } from "./providers/ProviderRegistry";
+export { NON_IDENTITY_MAPPING, ProviderRegistry } from "./providers/ProviderRegistry";
+export type {
+	ClientFactory,
+	ModelFetcher,
+	NonIdentityClientKind,
+	NonIdentityFactoryId,
+} from "./providers/ProviderRegistry";
 
 // ModelClient interface and shared params type
 export type { ModelClient, ModelClientChatParams } from "./model-clients/ModelClient";
