@@ -8,7 +8,9 @@
 // (ai-provider-bridge) since they have no vscode dependency.
 
 // Auth adapter
-export { PositronCredentialProvider } from "./auth";
+export { createVscodeCredentialConfig, PositronCredentialProvider } from "./auth";
+export { CONFIG_KEY_OVERRIDES } from "../credential-shaping";
+export type { CredentialConfig } from "../credential-shaping";
 
 // VS Code LM client (ModelClient implementation wrapping vscode.lm)
 export { VscodeLmClient } from "./VscodeLmClient";

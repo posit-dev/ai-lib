@@ -55,12 +55,15 @@ async function tryGetSession(
  * @param providerId - Posit Assistant logical provider ID (ProviderId)
  * @param options.prompt - If true, prompt user to sign in if no session exists.
  *                         Default: false (silent check only).
+ * @param credentialConfigFactory - Factory for CredentialConfig. Defaults to
+ *   createVscodeCredentialConfig() which reads from VS Code settings.
  * @returns Credentials, or null if not available
  */
 async function getMappedCredentials(
 	providerId: ProviderId,
 	logger: Logger,
 	options?: { prompt?: boolean },
+	credentialConfigFactory: () => CredentialConfig = createVscodeCredentialConfig,
 ): Promise<ProviderCredentials | null> {
 	const mapping = PROVIDER_MAP[providerId];
 	if (!mapping) return null;
@@ -90,7 +93,7 @@ async function getMappedCredentials(
 
 	// The vscode session lookup above is the only auth-host-bound half; the
 	// shaping below is pure and shared with Positron's headless facade.
-	return shapeCredentials(mapping, session.accessToken, vscodeCredentialConfig(), logger);
+	return shapeCredentials(mapping, session.accessToken, credentialConfigFactory(), logger);
 }
 
 /**
@@ -98,7 +101,7 @@ async function getMappedCredentials(
  * fallbacks for the host environments (TUI / node) that set them. This is the
  * config-reading half the bridge supplies to {@link shapeCredentials}.
  */
-function vscodeCredentialConfig(): CredentialConfig {
+export function createVscodeCredentialConfig(): CredentialConfig {
 	return {
 		getBaseUrl: (configKey) =>
 			vscode.workspace.getConfiguration("authentication").get<string>(`${configKey}.baseUrl`),
@@ -212,17 +215,24 @@ function onMappedCredentialsChanged(callback: (providerIds: ProviderId[]) => voi
  */
 export class PositronCredentialProvider implements CredentialProvider {
 	private readonly logger: Logger;
+	private readonly credentialConfigFactory: () => CredentialConfig;
 
-	constructor(logger: Logger) {
+	constructor(logger: Logger, credentialConfigFactory?: () => CredentialConfig) {
 		this.logger = logger;
+		this.credentialConfigFactory = credentialConfigFactory ?? createVscodeCredentialConfig;
 	}
 
 	getCredentials(providerId: ProviderId): Promise<ProviderCredentials | null> {
-		return getMappedCredentials(providerId, this.logger);
+		return getMappedCredentials(providerId, this.logger, undefined, this.credentialConfigFactory);
 	}
 
 	getCredentialsWithPrompt(providerId: ProviderId): Promise<ProviderCredentials | null> {
-		return getMappedCredentials(providerId, this.logger, { prompt: true });
+		return getMappedCredentials(
+			providerId,
+			this.logger,
+			{ prompt: true },
+			this.credentialConfigFactory,
+		);
 	}
 
 	onDidChangeCredentials(callback: (providerIds: ProviderId[]) => void): Disposable {
