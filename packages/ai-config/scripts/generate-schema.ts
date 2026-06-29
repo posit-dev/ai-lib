@@ -130,6 +130,61 @@ function removeDefaultFieldsFromRequired(schema: JSONSchema): JSONSchema {
 	return result;
 }
 
+/**
+ * Remove `required` arrays from record-style schemas.
+ *
+ * Zod v4's `toJSONSchema()` erroneously adds a `required` array to
+ * `z.record(enumSchema, valueSchema.optional())` schemas, listing all enum
+ * values as required even though the values are optional. Record schemas are
+ * identified by having `propertyNames` or `additionalProperties` but no
+ * explicit `properties` object.
+ *
+ * NOTE: duplicated in @assistant/node (packages/node/src/config/schemaUtils.ts).
+ * ai-config cannot import @assistant/node; keep in sync manually.
+ */
+function removeRecordRequiredFields(schema: JSONSchema): JSONSchema {
+	if (typeof schema === "boolean") {
+		return schema;
+	}
+
+	const result: JSONSchemaObject = { ...schema };
+
+	// Record schemas: have propertyNames/additionalProperties but no properties
+	if (
+		result.required &&
+		!result.properties &&
+		(result.propertyNames || result.additionalProperties)
+	) {
+		delete result.required;
+	}
+
+	// Recursively process nested schemas
+	if (result.properties) {
+		const processed: Record<string, JSONSchema> = {};
+		for (const key of Object.keys(result.properties)) {
+			processed[key] = removeRecordRequiredFields(result.properties[key]);
+		}
+		result.properties = processed;
+	}
+
+	if (result.items !== undefined) {
+		if (Array.isArray(result.items)) {
+			result.items = result.items.map((item: JSONSchema) => removeRecordRequiredFields(item));
+		} else {
+			result.items = removeRecordRequiredFields(result.items);
+		}
+	}
+
+	if (
+		result.additionalProperties !== undefined &&
+		typeof result.additionalProperties !== "boolean"
+	) {
+		result.additionalProperties = removeRecordRequiredFields(result.additionalProperties);
+	}
+
+	return result;
+}
+
 // ---------------------------------------------------------------------------
 // Generation
 // ---------------------------------------------------------------------------
@@ -143,7 +198,8 @@ async function generateSchema() {
 	try {
 		const jsonSchema = z.toJSONSchema(providersConfigSchema);
 
-		const cleanedSchema = removeDefaultFieldsFromRequired(jsonSchema);
+		let cleanedSchema = removeDefaultFieldsFromRequired(jsonSchema);
+		cleanedSchema = removeRecordRequiredFields(cleanedSchema);
 
 		const schemaWithMetadata = {
 			...cleanedSchema,

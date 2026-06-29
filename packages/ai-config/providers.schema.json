@@ -57,13 +57,6 @@
                 ],
                 "type": "string"
               },
-              "required": [
-                "anthropic-messages",
-                "openai-chat",
-                "openai-responses",
-                "bedrock-converse",
-                "google-generative"
-              ],
               "type": "object"
             },
             "googleCloud": {
@@ -175,7 +168,10 @@
                   "type": "array"
                 },
                 "discovery": {
-                  "enum": ["auto", "off"],
+                  "enum": [
+                    "auto",
+                    "off"
+                  ],
                   "type": "string"
                 },
                 "overrides": {
@@ -338,13 +334,6 @@
                 ],
                 "type": "string"
               },
-              "required": [
-                "anthropic-messages",
-                "openai-chat",
-                "openai-responses",
-                "bedrock-converse",
-                "google-generative"
-              ],
               "type": "object"
             },
             "googleCloud": {
@@ -456,7 +445,10 @@
                   "type": "array"
                 },
                 "discovery": {
-                  "enum": ["auto", "off"],
+                  "enum": [
+                    "auto",
+                    "off"
+                  ],
                   "type": "string"
                 },
                 "overrides": {
@@ -619,13 +611,6 @@
                 ],
                 "type": "string"
               },
-              "required": [
-                "anthropic-messages",
-                "openai-chat",
-                "openai-responses",
-                "bedrock-converse",
-                "google-generative"
-              ],
               "type": "object"
             },
             "googleCloud": {
@@ -737,7 +722,10 @@
                   "type": "array"
                 },
                 "discovery": {
-                  "enum": ["auto", "off"],
+                  "enum": [
+                    "auto",
+                    "off"
+                  ],
                   "type": "string"
                 },
                 "overrides": {
@@ -901,13 +889,6 @@
                   ],
                   "type": "string"
                 },
-                "required": [
-                  "anthropic-messages",
-                  "openai-chat",
-                  "openai-responses",
-                  "bedrock-converse",
-                  "google-generative"
-                ],
                 "type": "object"
               },
               "googleCloud": {
@@ -1019,7 +1000,10 @@
                     "type": "array"
                   },
                   "discovery": {
-                    "enum": ["auto", "off"],
+                    "enum": [
+                      "auto",
+                      "off"
+                    ],
                     "type": "string"
                   },
                   "overrides": {
@@ -1152,7 +1136,9 @@
                 "type": "string"
               }
             },
-            "required": ["type"],
+            "required": [
+              "type"
+            ],
             "type": "object"
           },
           "propertyNames": {
@@ -1207,13 +1193,6 @@
                 ],
                 "type": "string"
               },
-              "required": [
-                "anthropic-messages",
-                "openai-chat",
-                "openai-responses",
-                "bedrock-converse",
-                "google-generative"
-              ],
               "type": "object"
             },
             "googleCloud": {
@@ -1325,7 +1304,10 @@
                   "type": "array"
                 },
                 "discovery": {
-                  "enum": ["auto", "off"],
+                  "enum": [
+                    "auto",
+                    "off"
+                  ],
                   "type": "string"
                 },
                 "overrides": {
@@ -1497,13 +1479,6 @@
                 ],
                 "type": "string"
               },
-              "required": [
-                "anthropic-messages",
-                "openai-chat",
-                "openai-responses",
-                "bedrock-converse",
-                "google-generative"
-              ],
               "type": "object"
             },
             "googleCloud": {
@@ -1615,7 +1590,10 @@
                   "type": "array"
                 },
                 "discovery": {
-                  "enum": ["auto", "off"],
+                  "enum": [
+                    "auto",
+                    "off"
+                  ],
                   "type": "string"
                 },
                 "overrides": {
@@ -1778,13 +1756,6 @@
                 ],
                 "type": "string"
               },
-              "required": [
-                "anthropic-messages",
-                "openai-chat",
-                "openai-responses",
-                "bedrock-converse",
-                "google-generative"
-              ],
               "type": "object"
             },
             "googleCloud": {
@@ -1896,7 +1867,10 @@
                   "type": "array"
                 },
                 "discovery": {
-                  "enum": ["auto", "off"],
+                  "enum": [
+                    "auto",
+                    "off"
+                  ],
                   "type": "string"
                 },
                 "overrides": {
@@ -2059,13 +2033,6 @@
                 ],
                 "type": "string"
               },
-              "required": [
-                "anthropic-messages",
-                "openai-chat",
-                "openai-responses",
-                "bedrock-converse",
-                "google-generative"
-              ],
               "type": "object"
             },
             "googleCloud": {
@@ -2177,7 +2144,10 @@
                   "type": "array"
                 },
                 "discovery": {
-                  "enum": ["auto", "off"],
+                  "enum": [
+                    "auto",
+                    "off"
+                  ],
                   "type": "string"
                 },
                 "overrides": {
@@ -2340,13 +2310,6 @@
                 ],
                 "type": "string"
               },
-              "required": [
-                "anthropic-messages",
-                "openai-chat",
-                "openai-responses",
-                "bedrock-converse",
-                "google-generative"
-              ],
               "type": "object"
             },
             "googleCloud": {
@@ -2458,7 +2421,10 @@
                   "type": "array"
                 },
                 "discovery": {
-                  "enum": ["auto", "off"],
+                  "enum": [
+                    "auto",
+                    "off"
+                  ],
                   "type": "string"
                 },
                 "overrides": {
@@ -2621,13 +2587,6 @@
                 ],
                 "type": "string"
               },
-              "required": [
-                "anthropic-messages",
-                "openai-chat",
-                "openai-responses",
-                "bedrock-converse",
-                "google-generative"
-              ],
               "type": "object"
             },
             "googleCloud": {
@@ -2739,7 +2698,10 @@
                   "type": "array"
                 },
                 "discovery": {
-                  "enum": ["auto", "off"],
+                  "enum": [
+                    "auto",
+                    "off"
+                  ],
                   "type": "string"
                 },
                 "overrides": {
@@ -2902,13 +2864,6 @@
                 ],
                 "type": "string"
               },
-              "required": [
-                "anthropic-messages",
-                "openai-chat",
-                "openai-responses",
-                "bedrock-converse",
-                "google-generative"
-              ],
               "type": "object"
             },
             "googleCloud": {
@@ -3020,7 +2975,10 @@
                   "type": "array"
                 },
                 "discovery": {
-                  "enum": ["auto", "off"],
+                  "enum": [
+                    "auto",
+                    "off"
+                  ],
                   "type": "string"
                 },
                 "overrides": {
@@ -3183,13 +3141,6 @@
                 ],
                 "type": "string"
               },
-              "required": [
-                "anthropic-messages",
-                "openai-chat",
-                "openai-responses",
-                "bedrock-converse",
-                "google-generative"
-              ],
               "type": "object"
             },
             "googleCloud": {
@@ -3301,7 +3252,10 @@
                   "type": "array"
                 },
                 "discovery": {
-                  "enum": ["auto", "off"],
+                  "enum": [
+                    "auto",
+                    "off"
+                  ],
                   "type": "string"
                 },
                 "overrides": {
@@ -3464,13 +3418,6 @@
                 ],
                 "type": "string"
               },
-              "required": [
-                "anthropic-messages",
-                "openai-chat",
-                "openai-responses",
-                "bedrock-converse",
-                "google-generative"
-              ],
               "type": "object"
             },
             "googleCloud": {
@@ -3582,7 +3529,10 @@
                   "type": "array"
                 },
                 "discovery": {
-                  "enum": ["auto", "off"],
+                  "enum": [
+                    "auto",
+                    "off"
+                  ],
                   "type": "string"
                 },
                 "overrides": {
@@ -3745,13 +3695,6 @@
                 ],
                 "type": "string"
               },
-              "required": [
-                "anthropic-messages",
-                "openai-chat",
-                "openai-responses",
-                "bedrock-converse",
-                "google-generative"
-              ],
               "type": "object"
             },
             "googleCloud": {
@@ -3863,7 +3806,10 @@
                   "type": "array"
                 },
                 "discovery": {
-                  "enum": ["auto", "off"],
+                  "enum": [
+                    "auto",
+                    "off"
+                  ],
                   "type": "string"
                 },
                 "overrides": {
@@ -4026,13 +3972,6 @@
                 ],
                 "type": "string"
               },
-              "required": [
-                "anthropic-messages",
-                "openai-chat",
-                "openai-responses",
-                "bedrock-converse",
-                "google-generative"
-              ],
               "type": "object"
             },
             "googleCloud": {
@@ -4144,7 +4083,10 @@
                   "type": "array"
                 },
                 "discovery": {
-                  "enum": ["auto", "off"],
+                  "enum": [
+                    "auto",
+                    "off"
+                  ],
                   "type": "string"
                 },
                 "overrides": {

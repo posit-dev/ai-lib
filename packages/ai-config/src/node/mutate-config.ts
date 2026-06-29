@@ -96,7 +96,7 @@ async function performLockedMutation(
 	// creates the file; all others see EEXIST and proceed to lock.
 	// This prevents the race where two first-time writers both observe ENOENT,
 	// one locks+writes the real config, and the other clobbers it with `{}`.
-	await raceSafeEnsureFile(configPath, logger);
+	const fileCreated = await raceSafeEnsureFile(configPath, logger);
 
 	let release: (() => Promise<void>) | undefined;
 	try {
@@ -108,7 +108,18 @@ async function performLockedMutation(
 		const current = await readCurrentConfig(configPath, logger);
 
 		// Apply mutation
-		const updated = await mutator(current);
+		let updated = await mutator(current);
+
+		// If we just created the file, inject seed metadata ($schema, version)
+		// into the first mutation result so mutators don't need to preserve them.
+		// This is seed-only — subsequent mutations pass through whatever the
+		// user/mutator wrote. If a user later removes $schema, that's their choice.
+		if (fileCreated && updated.$schema === undefined) {
+			updated = { $schema: "./providers.schema.json", ...updated };
+		}
+		if (fileCreated && updated.version === undefined) {
+			updated = { ...updated, version: PROVIDERS_CONFIG_VERSION };
+		}
 
 		// Validate the result
 		const result = providersConfigSchema.safeParse(updated);
@@ -196,11 +207,15 @@ async function atomicWrite(configPath: string, data: ProvidersConfig): Promise<v
  * On file creation, seeds the file with `$schema` and `version` fields, and
  * best-effort copies `providers.schema.json` alongside the config file for
  * editor validation/autocomplete.
+ *
+ * @returns `true` if this call created the file (first write), `false` if
+ * it already existed. The caller uses this to inject seed metadata into
+ * the first mutation result.
  */
 async function raceSafeEnsureFile(
 	configPath: string,
 	logger: LoggerLike | undefined,
-): Promise<void> {
+): Promise<boolean> {
 	const fd = await fs.open(configPath, "wx", 0o644).catch((error) => {
 		if ((error as NodeJS.ErrnoException).code === "EEXIST") {
 			return undefined; // Already exists — nothing to do
@@ -225,7 +240,9 @@ async function raceSafeEnsureFile(
 		// file, permissions), log but don't fail — the schema hint is a
 		// nice-to-have, not a correctness requirement.
 		await copySchemaFile(configPath, logger);
+		return true;
 	}
+	return false;
 }
 
 /**
