@@ -7,7 +7,7 @@
  *
  * These are defined locally (not imported from ai-provider-bridge) so ai-config
  * remains a dependency-light leaf. A compile-time shape guard in
- * posit-shared/typechecks/ asserts these stay compatible with the bridge.
+ * ai-lib/typechecks/ asserts these stay compatible with the bridge.
  */
 
 // ---------------------------------------------------------------------------
