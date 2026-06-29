@@ -46,5 +46,6 @@ export async function loadResolvedProviderCatalog(
 	return buildCatalog(mergedConfig, enforcedConfig?.providers, opts.baseline, {
 		external: opts.external,
 		logger: opts.logger,
+		envVars: opts.envVars,
 	});
 }

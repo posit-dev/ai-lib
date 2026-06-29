@@ -29,6 +29,55 @@ import type { BuiltinProviderId, ClientKind } from "../vocabulary";
 import type { LoggerLike } from "./types";
 
 // ---------------------------------------------------------------------------
+// Non-secret connection env var mappings
+// ---------------------------------------------------------------------------
+
+/**
+ * Maps environment variable names to non-secret connection fields for
+ * built-in providers. Env vars have the highest precedence in the
+ * connection resolution chain: env > file (providers.json) > defaults.
+ *
+ * Only non-secret connection config goes here. Secret env vars (API keys,
+ * AWS secret keys) are handled by the separate `envCredentialResolver` in
+ * `@assistant/node`.
+ */
+interface ConnectionEnvMapping {
+	baseUrl?: string;
+	endpoint?: string;
+	oauth?: { host?: string; clientId?: string; scope?: string };
+	aws?: { region?: string; profile?: string };
+	googleCloud?: { project?: string; location?: string };
+}
+
+const CONNECTION_ENV_MAPPINGS: Readonly<Record<string, ConnectionEnvMapping>> = {
+	anthropic: { baseUrl: "ANTHROPIC_BASE_URL" },
+	openai: { baseUrl: "OPENAI_BASE_URL" },
+	gemini: { baseUrl: "GEMINI_BASE_URL" },
+	positai: {
+		baseUrl: "POSITAI_BASE_URL",
+		oauth: {
+			host: "POSITAI_AUTH_HOST",
+			clientId: "POSITAI_CLIENT_ID",
+			scope: "POSITAI_SCOPE",
+		},
+	},
+	openrouter: { baseUrl: "OPENROUTER_BASE_URL" },
+	ollama: { endpoint: "OLLAMA_ENDPOINT" },
+	lmstudio: { endpoint: "LMSTUDIO_ENDPOINT" },
+	bedrock: { aws: { region: "AWS_REGION", profile: "AWS_PROFILE" } },
+	"google-vertex": {
+		googleCloud: {
+			project: "GOOGLE_CLOUD_PROJECT",
+			location: "GOOGLE_CLOUD_LOCATION",
+		},
+	},
+	"openai-compatible": { baseUrl: "OPENAI_COMPATIBLE_BASE_URL" },
+	"ms-foundry": { baseUrl: "MS_FOUNDRY_BASE_URL" },
+	"snowflake-cortex": { baseUrl: "SNOWFLAKE_BASE_URL" },
+	deepseek: { baseUrl: "DEEPSEEK_BASE_URL" },
+};
+
+// ---------------------------------------------------------------------------
 // Built-in provider id → client kind mapping
 // ---------------------------------------------------------------------------
 
@@ -70,16 +119,22 @@ export function buildCatalog(
 	mergedConfig: ProvidersConfig,
 	enforcedProviders: EnforcedProvidersMap | undefined,
 	baseline: PlatformBaseline,
-	options?: { external?: boolean; logger?: LoggerLike },
+	options?: {
+		external?: boolean;
+		logger?: LoggerLike;
+		/** Environment variables for non-secret connection overlay (defaults to process.env). */
+		envVars?: Record<string, string | undefined>;
+	},
 ): readonly ResolvedProvider[] {
 	const providers = mergedConfig.providers;
 	const catalog: ResolvedProvider[] = [];
+	const envVars = options?.envVars ?? process.env;
 
 	// 1. Built-in providers
 	for (const id of BUILTIN_PROVIDER_IDS) {
 		const block = getBuiltinBlock(providers, id);
 		const enabled = resolveEnabled(id, providers, enforcedProviders, baseline);
-		const connection = resolveConnection(id, block);
+		const connection = applyEnvOverlay(id, resolveConnection(id, block), envVars);
 
 		catalog.push({
 			id,
@@ -212,4 +267,93 @@ function mergeOptionalSection<T extends Record<string, unknown>>(
 		return defaults;
 	}
 	return { ...defaults, ...block };
+}
+
+// ---------------------------------------------------------------------------
+// Environment variable overlay
+// ---------------------------------------------------------------------------
+
+/**
+ * Apply non-secret connection env vars on top of the resolved connection.
+ * Env vars have the highest precedence: env > file (providers.json) > defaults.
+ *
+ * Only overrides fields where the corresponding env var is set (non-empty).
+ */
+function applyEnvOverlay(
+	providerId: string,
+	connection: ResolvedConnection,
+	envVars: Record<string, string | undefined>,
+): ResolvedConnection {
+	const mapping = CONNECTION_ENV_MAPPINGS[providerId];
+	if (!mapping) return connection;
+
+	let result = connection;
+	let changed = false;
+
+	// Top-level scalar fields
+	if (mapping.baseUrl) {
+		const val = envVars[mapping.baseUrl];
+		if (val) {
+			result = changed ? result : { ...result };
+			result.baseUrl = val;
+			changed = true;
+		}
+	}
+	if (mapping.endpoint) {
+		const val = envVars[mapping.endpoint];
+		if (val) {
+			result = changed ? result : { ...result };
+			result.endpoint = val;
+			changed = true;
+		}
+	}
+
+	// Nested sections — only override fields where the env var is set
+	if (mapping.oauth) {
+		const overlay = readEnvSection(mapping.oauth, envVars);
+		if (overlay) {
+			result = changed ? result : { ...result };
+			result.oauth = result.oauth ? { ...result.oauth, ...overlay } : overlay;
+			changed = true;
+		}
+	}
+	if (mapping.aws) {
+		const overlay = readEnvSection(mapping.aws, envVars);
+		if (overlay) {
+			result = changed ? result : { ...result };
+			result.aws = result.aws ? { ...result.aws, ...overlay } : overlay;
+			changed = true;
+		}
+	}
+	if (mapping.googleCloud) {
+		const overlay = readEnvSection(mapping.googleCloud, envVars);
+		if (overlay) {
+			result = changed ? result : { ...result };
+			result.googleCloud = result.googleCloud ? { ...result.googleCloud, ...overlay } : overlay;
+			changed = true;
+		}
+	}
+
+	return result;
+}
+
+/**
+ * Read a nested env-mapping section (e.g. `{ host: "ENV_VAR_NAME", ... }`)
+ * and return an object with only the fields whose env vars are set.
+ * Returns `undefined` if no env vars in the section are set.
+ */
+function readEnvSection<T extends Record<string, string | undefined>>(
+	mapping: T,
+	envVars: Record<string, string | undefined>,
+): Record<string, string> | undefined {
+	let result: Record<string, string> | undefined;
+	for (const [field, envVarName] of Object.entries(mapping)) {
+		if (!envVarName) continue;
+		const val = envVars[envVarName];
+		if (val) {
+			result ??= {};
+			result[field] = val;
+		}
+	}
+	return result;
 }

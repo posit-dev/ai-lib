@@ -52,6 +52,13 @@ export interface LoadCatalogOptions {
 	 * external builds is enforced at the bundler aliasing layer.
 	 */
 	readonly external?: boolean;
+
+	/**
+	 * Environment variables for non-secret connection overlay.
+	 * Env vars have highest precedence: env > file > defaults.
+	 * Defaults to `process.env` when omitted. Useful for testing.
+	 */
+	readonly envVars?: Record<string, string | undefined>;
 }
 
 /**

@@ -136,6 +136,7 @@ export function watchResolvedProviderCatalog(
 			const newCatalog = buildCatalog(mergedConfig, enforcedConfig?.providers, opts.baseline, {
 				external: opts.external,
 				logger: opts.logger,
+				envVars: opts.envVars,
 			});
 
 			const change = diffCatalogs(previousCatalog, newCatalog);
