@@ -12,9 +12,12 @@
     "./node": {
       "types": "./dist/node/index.d.ts",
       "import": "./dist/node/index.js"
-    }
+    },
+    "./providers.schema.json": "./providers.schema.json"
   },
   "scripts": {
+    "generate-schema": "tsx scripts/generate-schema.ts",
+    "prebuild": "npm run generate-schema",
     "build": "tsc -p .",
     "watch": "tsc -p . --watch --preserveWatchOutput",
     "clean": "rm -rf dist tsconfig.tsbuildinfo",

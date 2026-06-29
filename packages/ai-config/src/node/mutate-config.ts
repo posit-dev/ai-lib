@@ -14,10 +14,12 @@
  */
 
 import { promises as fs } from "fs";
+import { createRequire } from "module";
 import * as path from "path";
 
 import lockfile from "proper-lockfile";
 
+import { PROVIDERS_CONFIG_VERSION } from "../index";
 import { providersConfigSchema } from "../schema";
 import type { ProvidersConfig } from "../types";
 import { PROVIDERS_CONFIG_PATH } from "./paths";
@@ -94,7 +96,7 @@ async function performLockedMutation(
 	// creates the file; all others see EEXIST and proceed to lock.
 	// This prevents the race where two first-time writers both observe ENOENT,
 	// one locks+writes the real config, and the other clobbers it with `{}`.
-	await raceSafeEnsureFile(configPath);
+	await raceSafeEnsureFile(configPath, logger);
 
 	let release: (() => Promise<void>) | undefined;
 	try {
@@ -190,8 +192,15 @@ async function atomicWrite(configPath: string, data: ProvidersConfig): Promise<v
  * exists, the EEXIST error is silently ignored. This prevents a TOCTOU race
  * where two concurrent callers both observe ENOENT and then one clobbers the
  * other's completed write with an empty `{}`.
+ *
+ * On file creation, seeds the file with `$schema` and `version` fields, and
+ * best-effort copies `providers.schema.json` alongside the config file for
+ * editor validation/autocomplete.
  */
-async function raceSafeEnsureFile(configPath: string): Promise<void> {
+async function raceSafeEnsureFile(
+	configPath: string,
+	logger: LoggerLike | undefined,
+): Promise<void> {
 	const fd = await fs.open(configPath, "wx", 0o644).catch((error) => {
 		if ((error as NodeJS.ErrnoException).code === "EEXIST") {
 			return undefined; // Already exists — nothing to do
@@ -199,13 +208,41 @@ async function raceSafeEnsureFile(configPath: string): Promise<void> {
 		throw error;
 	});
 	if (fd) {
-		// We created the file — write the empty config and close.
+		// We created the file — write the seeded config and close.
 		// Wrap in try/finally so an I/O error cannot leak the descriptor.
+		const seed = {
+			$schema: "./providers.schema.json",
+			version: PROVIDERS_CONFIG_VERSION,
+		};
 		try {
-			await fd.writeFile(JSON.stringify({}, null, 2), "utf-8");
+			await fd.writeFile(JSON.stringify(seed, null, 2), "utf-8");
 		} finally {
 			await fd.close();
 		}
+
+		// Best-effort: copy providers.schema.json alongside the config file.
+		// This enables editor validation/autocomplete. If it fails (missing
+		// file, permissions), log but don't fail — the schema hint is a
+		// nice-to-have, not a correctness requirement.
+		await copySchemaFile(configPath, logger);
+	}
+}
+
+/**
+ * Best-effort copy of providers.schema.json from the ai-config package into
+ * the same directory as the config file. Uses the package export to resolve
+ * the source path.
+ */
+async function copySchemaFile(configPath: string, logger: LoggerLike | undefined): Promise<void> {
+	try {
+		// Resolve the schema file from the package export
+		const require = createRequire(import.meta.url);
+		const schemaSource = require.resolve("ai-config/providers.schema.json");
+		const schemaTarget = path.join(path.dirname(configPath), "providers.schema.json");
+		await fs.copyFile(schemaSource, schemaTarget);
+		logger?.debug("[ai-config] Copied providers.schema.json to config directory");
+	} catch (error) {
+		logger?.warn(`[ai-config] Could not copy providers.schema.json: ${errorMessage(error)}`);
 	}
 }
 

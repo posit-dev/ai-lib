@@ -2,13 +2,17 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
+import { fork } from "child_process";
 import { promises as fs } from "fs";
 import * as os from "os";
 import * as path from "path";
+import { fileURLToPath } from "url";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SingleFileStore } from "../SingleFileStore";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const mockLogger = {
 	debug: vi.fn(),
@@ -296,6 +300,95 @@ describe("SingleFileStore", () => {
 			await new Promise((resolve) => setTimeout(resolve, 500));
 
 			expect(handler).not.toHaveBeenCalled();
+		});
+	});
+
+	// ========================================================================
+	// Cross-process lock contention
+	// ========================================================================
+
+	describe("cross-process withLock contention", () => {
+		it("should retry and acquire lock after child process releases", async () => {
+			const storePath = path.join(tempDir, "data.json");
+			// Ensure the store file exists
+			await store.set("init", true);
+
+			// Fork a child that holds the lock and waits for a release signal
+			const helperScript = path.join(__dirname, "helpers", "lock-holder.ts");
+			const child = fork(helperScript, [storePath], {
+				execArgv: ["--import", "tsx"],
+				stdio: ["pipe", "pipe", "pipe", "ipc"],
+			});
+
+			// Wait for child to acquire the lock
+			const childReady = new Promise<void>((resolve, reject) => {
+				const timeout = setTimeout(
+					() => reject(new Error("Child did not acquire lock in time")),
+					5000,
+				);
+				child.on("message", (msg) => {
+					if (msg === "lock-acquired") {
+						clearTimeout(timeout);
+						resolve();
+					}
+				});
+				child.on("error", (err) => {
+					clearTimeout(timeout);
+					reject(err);
+				});
+			});
+
+			await childReady;
+
+			// Now try to acquire the lock from the parent — it should retry
+			// while the child holds it. Tell the child to release after a
+			// short delay so the parent eventually acquires.
+			setTimeout(() => child.send("release"), 200);
+
+			const result = await store.withLock(async () => {
+				return "parent-acquired";
+			});
+
+			expect(result).toBe("parent-acquired");
+
+			// Clean up child
+			await new Promise<void>((resolve) => {
+				child.on("exit", () => resolve());
+				setTimeout(() => {
+					child.kill();
+					resolve();
+				}, 2000);
+			});
+		}, 10000);
+	});
+
+	// ========================================================================
+	// Atomic-rename watch
+	// ========================================================================
+
+	describe("atomic-rename watch", () => {
+		it("should fire watcher on temp-file + rename (atomic write pattern)", async () => {
+			const storePath = path.join(tempDir, "data.json");
+			// Ensure the file exists first
+			await store.set("initial", "value");
+
+			const handler = vi.fn();
+			const watcher = store.watch(handler);
+
+			// Wait for watcher to initialize
+			await new Promise((resolve) => setTimeout(resolve, 300));
+
+			// Simulate the atomic write pattern: write to temp file, then rename
+			const tempFile = `${storePath}.tmp.${process.pid}`;
+			await fs.writeFile(tempFile, JSON.stringify({ atomicWrite: true }));
+			await fs.rename(tempFile, storePath);
+
+			// Wait for debounced handler (200ms debounce + margin)
+			await new Promise((resolve) => setTimeout(resolve, 500));
+
+			expect(handler).toHaveBeenCalled();
+
+			watcher.dispose();
 		});
 	});
 
