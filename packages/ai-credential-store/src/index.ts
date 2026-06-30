@@ -20,4 +20,5 @@
  */
 
 export { SingleFileStore } from "./SingleFileStore";
+export { createDefaultStore, getDefaultStorePath } from "./defaults";
 export type { Disposable, LoggerLike, SingleFileStoreConfig } from "./types";

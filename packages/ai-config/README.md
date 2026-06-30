@@ -20,6 +20,184 @@ The three filesystem seams (`ai-config/node`):
 - **`mutateProvidersConfig(mutator, opts)`** — cross-process-safe read-modify-write.
 - **`watchResolvedProviderCatalog(handler, opts)`** — emits typed `ProviderCatalogChange` events (`enabledChanged`, `connectionChanged`, `modelsChanged`).
 
+## API Reference
+
+### Pure entry (`ai-config`)
+
+No filesystem access — safe in browsers, tests, and any JS runtime.
+
+#### Vocabulary
+
+```ts
+import {
+  BUILTIN_PROVIDER_IDS, // readonly tuple of built-in provider ids
+  PROTOCOL_VALUES, // readonly tuple of wire protocols
+  CLIENT_KIND_VALUES, // readonly tuple of client implementation kinds
+  RESERVED_PROVIDER_KEYS, // ["default", "custom"]
+  isBuiltinProviderId, // (value: string) => value is BuiltinProviderId
+} from "ai-config";
+
+import type { BuiltinProviderId, Protocol, ClientKind, ReservedProviderKey } from "ai-config";
+```
+
+`isBuiltinProviderId(value)` is a type guard that narrows an arbitrary string to `BuiltinProviderId`. These constants are the shared vocabulary kept in sync with `ai-provider-bridge` by the [shape guard](../../typechecks).
+
+#### Schemas & validation
+
+```ts
+import { providersConfigSchema, enforcedProvidersConfigSchema } from "ai-config";
+
+// Validate a parsed providers.json object:
+const config = providersConfigSchema.parse(rawJson);
+
+// The enforced variant relaxes custom-entry `type` to optional:
+const enforced = enforcedProvidersConfigSchema.parse(rawFragment);
+```
+
+Both are Zod schemas. `providersConfigSchema` is the source of truth for the on-disk format and for the generated `providers.schema.json`. `enforcedProvidersConfigSchema` is the relaxed variant used to validate the `POSIT_GENAI_PROVIDERS_ENFORCED` fragment before merging.
+
+#### Types
+
+| Type                                               | Description                                                                           |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `ProvidersConfig`                                  | Root config — the complete `providers.json` file.                                     |
+| `ProvidersMap`                                     | The `providers` map inside the config.                                                |
+| `BuiltinProviderBlock`                             | A built-in provider block (no `type` field).                                          |
+| `CustomProviderEntry`                              | A user-defined provider entry (`type` required).                                      |
+| `DefaultBlock`                                     | The `providers.default` baseline block.                                               |
+| `ModelsBlock`                                      | Per-provider model-selection block (`discovery`/`allow`/`deny`/`overrides`/`custom`). |
+| `ModelOverride`                                    | Partial model-metadata patch (for `overrides`).                                       |
+| `CustomModel`                                      | Complete custom-model definition (for the `custom` array).                            |
+| `EnforcedProvidersConfig` / `EnforcedProvidersMap` | Relaxed variants where custom-entry `type` is optional.                               |
+| `ResolvedProvider`                                 | A uniform resolved catalog entry (see below).                                         |
+| `ResolvedConnection`                               | Non-secret connection config resolved from a provider block.                          |
+| `ResolvedProviderId`                               | `BuiltinProviderId \| CustomProviderId`.                                              |
+| `CustomProviderId`                                 | A branded custom id, produced only by `mintCustomProviderId()`.                       |
+| `ModelInfoLike` / `ResolvedModelInfo`              | Input/output shapes for `resolveModels()`.                                            |
+| `PlatformBaseline`                                 | How a platform expresses enablement defaults.                                         |
+
+```ts
+interface ResolvedProvider {
+  readonly id: ResolvedProviderId;
+  readonly clientKind: ClientKind; // client implementation to instantiate
+  readonly enabled: boolean; // after all precedence layers
+  readonly connection: ResolvedConnection;
+  readonly models: ModelsBlock | undefined;
+}
+```
+
+`ResolvedProvider` deliberately does **not** carry discovered models — those need credentials and a runtime fetcher that `ai-config` cannot hold. Use `resolveModels()` for that step.
+
+#### `mintCustomProviderId(id: string): CustomProviderId`
+
+The one sanctioned producer of the branded `CustomProviderId`. Validates the id against built-in and reserved-key collisions; **throws** if the id is empty, collides with a built-in id, or is a reserved key (`default`, `custom`).
+
+#### `mergeEnforced(user, enforced): ProvidersConfig`
+
+Deep-merges an enforced fragment over user config: objects merge per key (enforced wins), arrays replace wholesale, primitives override. Returns a new config object; the caller re-validates the result with `providersConfigSchema`.
+
+#### `resolveModels(modelsBlock, discovered, providerConnection?): ResolvedModelInfo[]`
+
+The one resolver that stays public because it needs runtime-discovered models.
+
+```ts
+function resolveModels(
+  modelsBlock: ModelsBlock | undefined,
+  discovered: readonly ModelInfoLike[],
+  providerConnection?: ResolvedConnection,
+): ResolvedModelInfo[];
+```
+
+Pipeline: start from discovered + custom models → apply `overrides` by id → filter to `allow` (exclusive allowlist, when non-empty) → subtract `deny` (always wins) → resolve each survivor's protocol and base URL. Routing precedence is user-configured (override/custom) → provider config → discovered-model inference. Each result gains `resolvedProtocol` and `resolvedBaseUrl`.
+
+#### Defaults
+
+```ts
+import {
+  PROVIDER_CONNECTION_DEFAULTS, // map: provider id -> default connection
+  POSIT_AI_DEFAULTS,
+  OLLAMA_DEFAULTS,
+  LMSTUDIO_DEFAULTS,
+  BEDROCK_DEFAULTS,
+  GOOGLE_VERTEX_DEFAULTS,
+} from "ai-config";
+```
+
+Built-in default connection config (base URLs, endpoints) applied as the lowest precedence layer beneath the file and env-var overlays.
+
+---
+
+### Node entry (`ai-config/node`)
+
+Re-exports everything above, and adds the filesystem seams. Requires Node.
+
+#### Paths
+
+```ts
+import { GENAI_CONFIG_DIR, PROVIDERS_CONFIG_PATH } from "ai-config/node";
+// ~/.posit/genai  and  ~/.posit/genai/providers.json
+```
+
+#### `loadResolvedProviderCatalog(opts): Promise<readonly ResolvedProvider[]>`
+
+The single read seam. Loads the file (missing → `{}`), merges the enforced fragment, applies the platform baseline, and returns the resolved catalog. The read path degrades gracefully — malformed/missing files log a warning and fall back rather than throwing.
+
+```ts
+const catalog = await loadResolvedProviderCatalog({
+  baseline: { defaultEnabled: true },
+});
+```
+
+`LoadCatalogOptions`:
+
+| Field                 | Description                                                               |
+| --------------------- | ------------------------------------------------------------------------- |
+| `baseline` (required) | `PlatformBaseline` — enablement defaults for this platform.               |
+| `configPath?`         | Override the file path (testing).                                         |
+| `enforcedEnvVar?`     | Override the enforced env-var name (testing).                             |
+| `envVars?`            | Source for the non-secret connection overlay (defaults to `process.env`). |
+| `external?`           | Reject `providers.custom` entries (external builds).                      |
+| `logger?`             | `LoggerLike` for diagnostics/validation warnings.                         |
+
+#### `mutateProvidersConfig(mutator, opts?): Promise<void>`
+
+Cross-process-safe read-modify-write. The `mutator` receives the current validated config and returns the new one. Returning the same object is a valid no-op (the write still happens; it's idempotent). The seam owns all write safety: `proper-lockfile` locking with stale reclamation, an in-process serialization queue per path, race-safe first creation (`wx`), atomic temp-file-plus-rename writes, and seed-metadata (`$schema`, `version`) injection on first creation.
+
+```ts
+await mutateProvidersConfig((current) => ({
+  ...current,
+  providers: {
+    ...current.providers,
+    anthropic: { ...current.providers?.anthropic, enabled: true },
+  },
+}));
+```
+
+`MutateConfigOptions`: `configPath?`, `logger?`.
+
+#### `watchResolvedProviderCatalog(handler, opts): Disposable`
+
+The single watch seam. Debounced (~300ms), ancestor-aware `fs.watch` that reloads, diffs against the previous catalog, and invokes `handler` only when something actually changed. Returns a `Disposable` — call `.dispose()` to stop.
+
+```ts
+const sub = watchResolvedProviderCatalog(
+  (change) => {
+    if (change.enabledChanged) reregisterProviders(change.catalog);
+    if (change.connectionChanged) invalidateModelCaches(change.catalog);
+    if (change.modelsChanged) refreshModelLists(change.catalog);
+  },
+  { baseline: { defaultEnabled: true } },
+);
+// later:
+sub.dispose();
+```
+
+`WatchCatalogOptions` extends `LoadCatalogOptions`. The `ProviderCatalogChange` event carries the full new `catalog` plus the three boolean flags shown above.
+
+#### Node-only types
+
+`LoadCatalogOptions`, `MutateConfigOptions`, `WatchCatalogOptions`, `ProviderCatalogChange`, `Disposable`, `LoggerLike`.
+
 ## `providers.json` shape
 
 ```jsonc

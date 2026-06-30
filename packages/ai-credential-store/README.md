@@ -8,14 +8,33 @@ This package is part of the [`ai-lib`](../../README.md) monorepo and is a **stan
 
 ## Usage
 
+### Default path (recommended)
+
+The package owns a canonical default path for Posit AI credential storage: `~/.posit/genai/auth/data.json`.
+
+```ts
+import { createDefaultStore, getDefaultStorePath } from "ai-credential-store";
+
+const store = createDefaultStore(logger); // ~/.posit/genai/auth/data.json
+const path = getDefaultStorePath(); // inspect the default path
+```
+
+### Custom path
+
+For non-default locations (tests, migration stores), use the `SingleFileStore` constructor directly:
+
 ```ts
 import { SingleFileStore } from "ai-credential-store";
 
 const store = new SingleFileStore(
-  { filePath: "/abs/path/to/store.json" }, // caller chooses the path; the store owns no default
+  { filePath: "/abs/path/to/store.json" },
   logger, // optional { debug, warn }
 );
+```
 
+### API
+
+```ts
 // Typed reads/writes — generics live on the methods, not the class.
 await store.set("auth:positai:oauth", { token: "..." });
 const creds = await store.get<{ token: string }>("auth:positai:oauth");
@@ -47,12 +66,65 @@ Keys are **opaque strings**. A `namespace:key` convention (e.g. `auth:positai:oa
 
 ## API
 
-| Export                  | Kind  | Notes                                         |
-| ----------------------- | ----- | --------------------------------------------- |
-| `SingleFileStore`       | class | `constructor(config, logger?)`; methods above |
-| `SingleFileStoreConfig` | type  | `{ filePath: string }` (absolute path)        |
-| `LoggerLike`            | type  | `{ debug(...), warn(...) }`                   |
-| `Disposable`            | type  | `{ dispose(): void }` (returned by `watch`)   |
+| Export                  | Kind     | Notes                                                            |
+| ----------------------- | -------- | ---------------------------------------------------------------- |
+| `SingleFileStore`       | class    | `constructor(config, logger?)`; methods above                    |
+| `createDefaultStore`    | function | `(logger?) → SingleFileStore` at `~/.posit/genai/auth/data.json` |
+| `getDefaultStorePath`   | function | `() → string` — canonical default file path                      |
+| `SingleFileStoreConfig` | type     | `{ filePath: string }` (absolute path)                           |
+| `LoggerLike`            | type     | `{ debug(...), warn(...) }`                                      |
+| `Disposable`            | type     | `{ dispose(): void }` (returned by `watch`)                      |
+
+### Method reference
+
+All reads and writes are `async`. Value types are generic per call site — the store itself never sees concrete credential shapes.
+
+#### `get<T>(key): Promise<T | undefined>`
+
+Read a single value. Returns `undefined` if the key is absent. The caller supplies `T`; the store does not validate that the stored bytes match it, so treat `T` as an assertion about what you wrote.
+
+```ts
+const oauth = await store.get<{ token: string }>("auth:positai:oauth");
+```
+
+#### `keys(): Promise<string[]>`
+
+Return all keys currently in the store (insertion order not guaranteed).
+
+#### `set<T>(key, value): Promise<void>`
+
+Write a value, replacing any existing one. Serialized through the in-process write mutex, so concurrent `set`/`delete`/`clear` calls within a process apply as ordered read-modify-write steps rather than racing. Persisted atomically (temp file + `rename`).
+
+#### `delete(key): Promise<void>`
+
+Remove a key. No-op if absent. Goes through the same write mutex and atomic write as `set`.
+
+#### `clear(): Promise<void>`
+
+Replace the entire store with `{}`. Same write-mutex/atomic-write guarantees.
+
+#### `withLock<T>(fn): Promise<T>`
+
+Run `fn` while holding a **cross-process** lock on the store file, and return its result. The store owns the lock primitive; the **caller chooses the scope** — wrap a whole multi-step critical section (read → compute → write) so another process can't interleave between your steps:
+
+```ts
+await store.withLock(async () => {
+  const current = (await store.get<Record<string, unknown>>("key")) ?? {};
+  await store.set("key", { ...current, updated: true });
+});
+```
+
+Backed by `proper-lockfile` with stale-lock reclamation (a lock held >10s is considered stale, so a crashed holder can't deadlock the file). Note this is a _different_ layer from the in-process mutex that guards individual writes — `withLock` is what you reach for when a sequence of operations must be atomic across processes.
+
+#### `watch(handler): Disposable`
+
+Invoke `handler` whenever the file changes on disk (e.g. another process wrote it). Returns a `Disposable`; call `.dispose()` to stop. Debounced 200ms and uses chokidar's `awaitWriteFinish`, listening to both `change` and `add` so the temp-file-plus-rename write pattern is detected reliably. The handler takes no arguments — re-read via `get`/`keys` to pick up the new state.
+
+```ts
+const sub = store.watch(() => reloadCredentials());
+// later:
+sub.dispose();
+```
 
 ## Development
 

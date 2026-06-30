@@ -27,14 +27,32 @@ type parameters, so the store has zero knowledge of what it holds.
 
 ## Public API
 
-Single entrypoint (`ai-credential-store`), exporting one class and three types:
+Single entrypoint (`ai-credential-store`), exporting one class, two factory
+helpers, and three types:
 
 ```ts
 export { SingleFileStore } from "./SingleFileStore";
+export { createDefaultStore, getDefaultStorePath } from "./defaults";
 export type { Disposable, LoggerLike, SingleFileStoreConfig } from "./types";
 ```
 
-`SingleFileStore` is constructed with a config and an optional logger:
+### Default path convention
+
+The package owns the canonical default credential store path:
+`~/.posit/genai/auth/data.json`. Consumers that want the standard location use
+the convenience helpers:
+
+```ts
+import { createDefaultStore, getDefaultStorePath } from "ai-credential-store";
+
+const store = createDefaultStore(logger); // ~/.posit/genai/auth/data.json
+const path = getDefaultStorePath(); // inspect the path
+```
+
+### Custom path
+
+For non-default locations (tests, migration stores pointing at old paths), use
+the `SingleFileStore` constructor directly:
 
 ```ts
 constructor(config: SingleFileStoreConfig, logger?: LoggerLike)
@@ -114,9 +132,10 @@ JSON, 2-space indented, a flat object keyed by the opaque key strings:
 }
 ```
 
-The location is **fully caller-controlled** via `config.filePath` (an absolute
-path); the store defines no default. On first access `ensureFileExists()` creates
-the parent directories (`0o700`) and an empty `{}` file (`0o600`).
+The canonical default location is `~/.posit/genai/auth/data.json`, owned by
+`getDefaultStorePath()`. Custom paths are supported via `config.filePath` (an
+absolute path). On first access `ensureFileExists()` creates the parent
+directories (`0o700`) and an empty `{}` file (`0o600`).
 
 ## Code Layout
 
@@ -124,6 +143,7 @@ the parent directories (`0o700`) and an empty `{}` file (`0o600`).
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/types.ts`           | `SingleFileStoreConfig`, `LoggerLike` (minimal `debug`/`warn`), `Disposable`                                                             |
 | `src/SingleFileStore.ts` | The store: read/write/lock/watch + private helpers (`writeStore`, `readStore`, `withWriteLock`, `ensureFileExists`, `ensurePermissions`) |
+| `src/defaults.ts`        | `getDefaultStorePath()` and `createDefaultStore()` — canonical default path convention                                                   |
 | `src/index.ts`           | Root entrypoint exports                                                                                                                  |
 
 ## Invariants & Design Decisions
