@@ -1,6 +1,7 @@
 ---
-title: Package Architecture
+title: ai-provider-bridge Architecture
 description: Architecture of ai-provider-bridge -- entrypoints, invariants, code layout, credential system, and VS Code LM integration.
+package: ai-provider-bridge
 ---
 
 # Package Architecture

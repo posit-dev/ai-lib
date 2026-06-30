@@ -1,6 +1,7 @@
 ---
 title: Provider Implementation Guide
 description: Step-by-step guide for adding new LLM providers to ai-provider-bridge.
+package: ai-provider-bridge
 ---
 
 # Provider Implementation Guide

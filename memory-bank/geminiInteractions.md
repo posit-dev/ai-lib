@@ -1,6 +1,7 @@
 ---
 title: Gemini Interactions API
 description: Stateful chaining design, unsigned-reasoning filtering, and known API gotchas for the Gemini Interactions path.
+package: ai-provider-bridge
 ---
 
 # Gemini Interactions API

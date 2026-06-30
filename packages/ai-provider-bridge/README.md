@@ -2,6 +2,8 @@
 
 Platform-neutral provider infrastructure for AI model access: registry, model clients, credential abstractions, and provider registration functions, with no dependency on VS Code or Node platform services.
 
+This package is one of three in the [`ai-lib`](../../README.md) monorepo. It depends on its sibling [`ai-config`](../ai-config) for shared vocabulary types (`ResolvedProviderId`, `ClientKind`); the two are kept in sync by a compile-time [shape guard](../../typechecks) rather than a runtime import. It does not depend on `ai-credential-store`.
+
 ## Package Boundaries
 
 These rules keep the dependency graph clean:
@@ -17,6 +19,9 @@ These rules keep the dependency graph clean:
 | `ai-provider-bridge/providers`          | `register*Provider()` functions, client classes, helpers                                                                                             | Yes (AI SDK packages) |
 | `ai-provider-bridge/providers-external` | Minimal provider set (external/OSS builds -- Posit AI only)                                                                                          | Minimal               |
 | `ai-provider-bridge/positron`           | `PositronCredentialProvider`, `VscodeLmClient`, `listVscodeLmModels()`, `fromAiMessages2()`, LM helpers                                              | Yes (`vscode`)        |
+| `ai-provider-bridge/credential-shaping` | Pure `shapeCredentials()` + `CredentialConfig` + `CONFIG_KEY_OVERRIDES` -- browser-safe (no `vscode`, AI SDK, or node builtins)                      | No                    |
+
+`./types` and `./local-providers` are also exposed as granular subpath exports (for consumers that want just those modules without pulling the root entrypoint).
 
 ## Supported Providers
 
@@ -159,7 +164,7 @@ fetcher.clearCache?.();
 
 ### LocalProviderManager
 
-Manages endpoint configuration for local LLM providers (Ollama, LM Studio). Uses dependency injection for all I/O -- no platform-specific or `vscode` dependencies. Endpoints are stored in `~/.positai/settings.json` under `providers.{providerId}.endpoint` and cached in-memory for synchronous reads.
+Manages endpoint configuration for local LLM providers (Ollama, LM Studio). Uses dependency injection for all I/O -- no platform-specific or `vscode` dependencies. The manager owns no file path: the consumer supplies `readSettings` / `mutateSettings` / `watchSettings` callbacks (endpoints live under a `providers.{providerId}.endpoint` key in whatever store the consumer injects), and the manager caches them in-memory for synchronous reads.
 
 ```ts
 import { LocalProviderManager, LOCAL_PROVIDER_IDS, isLocalProviderId } from "ai-provider-bridge";
@@ -201,9 +206,10 @@ Static mapping of provider IDs to Positron auth provider configuration. Exported
 ```ts
 import { PROVIDER_MAP, MAPPED_PROVIDER_IDS } from "ai-provider-bridge";
 
-// MAPPED_PROVIDER_IDS: readonly ProviderId[]
-// e.g. ["anthropic", "positai", "openai", "gemini", "openai-compatible",
-//        "bedrock", "ms-foundry", "snowflake-cortex"]
+// MAPPED_PROVIDER_IDS: readonly ProviderId[] (derived from PROVIDER_MAP)
+// e.g. ["anthropic", "positai", "openai", "gemini", "google-vertex",
+//        "openai-compatible", "bedrock", "ms-foundry", "snowflake-cortex",
+//        "copilot", "deepseek"]
 
 // PROVIDER_MAP: Partial<Record<ProviderId, AuthProviderMapping>>
 // Each entry has: { authProviderId, scopes, credentialType }
@@ -273,35 +279,24 @@ The `ai` package is a regular dependency (bundled), so consumers don't need to i
 
 ### Consumer `package.json`
 
-A package that uses ai-provider-bridge to send LLM requests needs:
+The provider SDKs are regular **dependencies** of this package, so they install transitively -- a consumer only declares `ai-provider-bridge` and gets every provider's SDK without listing them:
 
 ```jsonc
 {
   "dependencies": {
     "ai-provider-bridge": "*",
-    "ai": "^6.0.68", // Only if you reference ModelMessage or other ai types directly
+    "ai": "^6.0.68", // Only if you reference ModelMessage or other `ai` types directly
   },
 }
 ```
 
-If you import `ai-provider-bridge/providers` to register specific providers, the corresponding AI SDK provider packages must also be installed. These are listed as optional peer dependencies:
+`vscode` is the package's only (optional) peer dependency -- host-provided, and needed only if you import the `/positron` entrypoint.
 
-```jsonc
-{
-  "dependencies": {
-    "ai-provider-bridge": "*",
-    // Only include the provider SDK(s) you use:
-    "@ai-sdk/anthropic": "^3.0.70", // for registerAnthropicProvider
-    "@ai-sdk/openai": "^3.0.25", // for registerOpenAIProvider
-    "@ai-sdk/google": "^3.0.20", // for registerGeminiProvider
-    // etc.
-  },
-}
-```
+### Provider SDK Matrix
 
-### Peer Dependency Matrix
+Informational -- which SDK backs each provider's client. These are bundled (regular dependencies); you do **not** need to install them yourself.
 
-| Provider             | Required peer deps                                                                   |
+| Provider             | Backing SDK(s)                                                                       |
 | -------------------- | ------------------------------------------------------------------------------------ |
 | Anthropic            | `@ai-sdk/anthropic`                                                                  |
 | OpenAI               | `@ai-sdk/openai`                                                                     |
@@ -313,7 +308,7 @@ If you import `ai-provider-bridge/providers` to register specific providers, the
 | OpenRouter           | `@openrouter/ai-sdk-provider`                                                        |
 | Ollama               | `ai-sdk-ollama`                                                                      |
 | OpenAI-Compatible    | `@ai-sdk/openai-compatible`                                                          |
-| Positron entry point | `vscode`                                                                             |
+| Positron entry point | `vscode` (peer)                                                                      |
 
 ## Usage Examples
 
