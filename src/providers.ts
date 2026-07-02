@@ -3,12 +3,9 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * Provider entry point (Internal Build Variant)
+ * Provider entry point
  *
  * Re-exports all provider registration functions and client implementations.
- * External builds swap to providers-external.ts via bundler aliasing.
- *
- * SYNC NOTE: The exported API surface must stay in sync with providers-external.ts.
  */
 
 // Provider registration functions

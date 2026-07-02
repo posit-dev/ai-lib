@@ -15,11 +15,8 @@ rmSync("tsconfig.tsbuildinfo", { force: true });
 const entrypoints = [
 	"src/index.ts",
 	"src/local-providers.ts",
-	"src/local-providers-external.ts",
 	"src/types.ts",
-	"src/types-external.ts",
 	"src/providers.ts",
-	"src/providers-external.ts",
 	"src/positron/index.ts",
 	"src/credential-shaping.ts",
 ];

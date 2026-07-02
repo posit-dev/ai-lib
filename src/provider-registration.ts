@@ -3,18 +3,8 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * Shared contract for the provider-registration orchestrator.
- *
- * The internal (register-all-providers.ts) and external (register-all-providers-external.ts)
- * build variants both depend on this leaf -- and on nothing of each other's. That is the whole
- * point: the external variant must never import the internal one, or esbuild would drag every
- * provider SDK into the lightweight external bundle. Housing the config interface, the
- * orchestrator signature, and the allow-list predicate here lets both variants share one
- * definition without a cross-reference.
- *
- * Only `isProviderAllowed` is runtime code (a one-liner). Every other import below is
- * `import type`, which esbuild erases, so this leaf contributes no SDK/runtime code to the
- * external bundle.
+ * Shared contract for the provider-registration orchestrator (register-all-providers.ts):
+ * the config interface, the orchestrator signature type, and the allow-list predicate.
  */
 
 import type { BedrockProviderCallbacks } from "./providers/bedrock-provider";
@@ -39,9 +29,7 @@ export interface ProviderRegistrationConfig {
 }
 
 /**
- * Shared signature for the registration orchestrator. Both build variants annotate their
- * `registerAllProviders` export with this, so the compiler -- not a comment -- prevents the
- * internal and external functions from drifting in arity or return type.
+ * Signature for the registration orchestrator. `registerAllProviders` is annotated with this.
  */
 export type RegisterAllProviders = (
 	registry: ProviderRegistry,

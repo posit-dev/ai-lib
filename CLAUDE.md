@@ -34,7 +34,6 @@ ai-provider-bridge/
 | --------------------------------------- | --------------------------------------------------------------------------------------------- | ----------- |
 | `ai-provider-bridge`                    | ProviderRegistry, interfaces, types, cached model fetcher, provider map, LocalProviderManager | No          |
 | `ai-provider-bridge/providers`          | `register*Provider()` functions, all client classes                                           | No          |
-| `ai-provider-bridge/providers-external` | Minimal provider set (Posit AI only, for OSS/external builds)                                 | No          |
 | `ai-provider-bridge/positron`           | PositronCredentialProvider, VscodeLmClient, message conversion utilities                      | **Yes**     |
 | `ai-provider-bridge/credential-shaping` | Pure `shapeCredentials()` + `CredentialConfig` (browser-safe, for Positron's renderer facade) | No          |
 
@@ -42,15 +41,6 @@ ai-provider-bridge/
 
 - Root entrypoint must NOT import `vscode` -- only `/positron` may
 - This package must NOT depend on any consumer package -- the dependency arrow is one-way inward
-- External builds alias `providers.ts`, `types.ts`, and `local-providers.ts` to `-external` variants (positai only)
-
-### Internal/External Build Variants
-
-External builds alias provider files to their `-external` variants via the consuming application's build configuration:
-
-- `providers.ts` -> `providers-external.ts` -- only Posit AI provider (keeps non-positai provider code and SDK dependencies out of the bundle)
-- `types.ts` -> `types-external.ts` -- only positai provider ID and notification actions
-- `local-providers.ts` -> `local-providers-external.ts` -- empty `LOCAL_PROVIDER_IDS` and no-op `LocalProviderManager`
 
 ## Key Commands
 
@@ -146,7 +136,6 @@ The `memory-bank/` directory contains architectural documentation with YAML fron
   - Package architecture, entrypoints, invariants, code layout
   - Credential system and custom headers precedence rules
   - VS Code Language Model (vscode.lm) integration
-  - Internal/external build variant details
 
 - `./memory-bank/providerGuide.md`
   - Step-by-step guide for adding new providers

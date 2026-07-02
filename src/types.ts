@@ -15,10 +15,6 @@
  * modifying type shapes, consider whether the change could affect serialized
  * data. See StoredProviderCredentials in NodeAuthService.ts for the correct
  * pattern: define the disk format independently, convert at the boundary.
- *
- * SYNC NOTE: types-external.ts re-exports all *types* unchanged and only
- * narrows the runtime PROVIDER_IDS tuple. If you add a new type here,
- * add a `export type { ... }` line there too.
  */
 
 import type * as ai from "ai";

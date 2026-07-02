@@ -11,12 +11,11 @@ These rules keep the dependency graph clean:
 
 ## Entrypoints
 
-| Entrypoint                              | What it provides                                                                                                                                     | Heavy deps?           |
-| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
-| `ai-provider-bridge`                    | `ProviderRegistry`, interfaces (`ModelClient`, `CredentialProvider`, `StepLogger`), `createCachedModelFetcher`, provider map, `LocalProviderManager` | No                    |
-| `ai-provider-bridge/providers`          | `register*Provider()` functions, client classes, helpers                                                                                             | Yes (AI SDK packages) |
-| `ai-provider-bridge/providers-external` | Minimal provider set (external/OSS builds -- Posit AI only)                                                                                          | Minimal               |
-| `ai-provider-bridge/positron`           | `PositronCredentialProvider`, `VscodeLmClient`, `listVscodeLmModels()`, `fromAiMessages2()`, LM helpers                                              | Yes (`vscode`)        |
+| Entrypoint                     | What it provides                                                                                                                                     | Heavy deps?           |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| `ai-provider-bridge`           | `ProviderRegistry`, interfaces (`ModelClient`, `CredentialProvider`, `StepLogger`), `createCachedModelFetcher`, provider map, `LocalProviderManager` | No                    |
+| `ai-provider-bridge/providers` | `register*Provider()` functions, client classes, helpers                                                                                             | Yes (AI SDK packages) |
+| `ai-provider-bridge/positron`  | `PositronCredentialProvider`, `VscodeLmClient`, `listVscodeLmModels()`, `fromAiMessages2()`, LM helpers                                              | Yes (`vscode`)        |
 
 ## Supported Providers
 
@@ -517,14 +516,6 @@ The `/positron` entrypoint also exports message conversion utilities:
 - **`fromAiMessages2()`** -- converts AI SDK `ModelMessage[]` to `LanguageModelChatMessage2[]`
 - **`hasAnthropicCacheControl()` / `setAnthropicCacheControl()`** -- cache marker helpers
 - **LM part helpers** -- `isCacheBreakpointPart()`, `cacheBreakpointPart()`, type guards
-
-## Internal / External Build Variants
-
-External builds alias provider files to their `-external` variants via the consuming monorepo's build configuration:
-
-- `providers.ts` -> `providers-external.ts` -- only Posit AI provider (keeps non-positai provider code and SDK dependencies out of the bundle)
-- `types.ts` -> `types-external.ts` -- only positai provider ID and notification actions
-- `local-providers.ts` -> `local-providers-external.ts` -- empty `LOCAL_PROVIDER_IDS` and no-op `LocalProviderManager` (excludes Ollama/LM Studio)
 
 ## Adding a New Provider
 

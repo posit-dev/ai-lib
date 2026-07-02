@@ -26,11 +26,6 @@
       "import": "./dist/providers.js",
       "default": "./dist/providers.js"
     },
-    "./providers-external": {
-      "types": "./dist/providers-external.d.ts",
-      "import": "./dist/providers-external.js",
-      "default": "./dist/providers-external.js"
-    },
     "./positron": {
       "types": "./dist/positron/index.d.ts",
       "import": "./dist/positron/index.js",
