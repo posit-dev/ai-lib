@@ -1,0 +1,204 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
+ *--------------------------------------------------------------------------------------------*/
+
+/**
+ * Positron credential Backend — wraps `vscode.authentication`.
+ *
+ * Resolves runtime credentials for mapped (non-local) providers from Positron's
+ * auth system, shaping the raw session token via the pure `/types`
+ * {@link shapeCredentials}. It has **no** OAuth device-flow hooks: Positron's
+ * auth extension owns the sign-in flow, so OAuth providers (e.g. positai)
+ * resolve through {@link Backend.getCredentials} directly.
+ *
+ * The provider map is **injected** (from the bridge's `PROVIDER_MAP`) so this
+ * entry carries no `ai-provider-bridge` import. Only `vscode` + `/types` + the
+ * root {@link Backend} type.
+ *
+ * Ported from `ai-provider-bridge/positron/auth.ts`; Phase 7 repoints Positron
+ * consumers here and removes the bridge copy.
+ */
+
+import * as vscode from "vscode";
+
+import type { Backend, OAuthBackendHooks } from "../Backend";
+import type { Disposable } from "../CredentialProvider";
+import type { AuthProviderMapping, CredentialConfig, Logger, ProviderCredentials } from "../types";
+import { CONFIG_KEY_OVERRIDES, shapeCredentials } from "../types";
+
+/** A provider-id → auth mapping table (injected from the bridge's PROVIDER_MAP). */
+export type ProviderMap = Readonly<Record<string, AuthProviderMapping | undefined>>;
+
+/**
+ * A {@link Backend} that additionally exposes a prompting credential lookup
+ * (Positron's deliberate sign-in UX) and lifecycle disposal for its vscode
+ * listeners. It never carries {@link OAuthBackendHooks}.
+ */
+export interface PositronBackend extends Backend {
+	oauth?: never;
+	/** Like getCredentials, but prompts the user to sign in when no session exists. */
+	getCredentialsWithPrompt(providerId: string): Promise<ProviderCredentials | null>;
+	/** Dispose the vscode change listeners. */
+	dispose(): void;
+}
+
+export interface CreatePositronBackendOptions {
+	logger: Logger;
+	/** Provider-id → auth mapping (the bridge's PROVIDER_MAP). */
+	providerMap: ProviderMap;
+	/** CredentialConfig factory; defaults to {@link createVscodeCredentialConfig}. */
+	credentialConfigFactory?: () => CredentialConfig;
+}
+
+/**
+ * A {@link CredentialConfig} backed by VS Code settings, with `process.env`
+ * fallbacks for host environments (TUI / node) that set them.
+ */
+export function createVscodeCredentialConfig(): CredentialConfig {
+	return {
+		getBaseUrl: (configKey) =>
+			vscode.workspace.getConfiguration("authentication").get<string>(`${configKey}.baseUrl`),
+		getCustomHeaders: (configKey) =>
+			vscode.workspace
+				.getConfiguration("authentication")
+				.get<Record<string, string>>(`${configKey}.customHeaders`),
+		getAwsRegion: () => {
+			const awsConfig = vscode.workspace
+				.getConfiguration("authentication.aws")
+				.get<Record<string, string>>("credentials");
+			return awsConfig?.AWS_REGION || process.env.AWS_REGION;
+		},
+		getSnowflake: () => {
+			const snowflakeConfig = vscode.workspace
+				.getConfiguration("authentication.snowflake")
+				.get<Record<string, string>>("credentials");
+			return {
+				host: snowflakeConfig?.SNOWFLAKE_HOST || process.env.SNOWFLAKE_HOST,
+				account: snowflakeConfig?.SNOWFLAKE_ACCOUNT || process.env.SNOWFLAKE_ACCOUNT,
+			};
+		},
+	};
+}
+
+/**
+ * Try to get an auth session, normalizing expected failure modes to undefined.
+ */
+async function tryGetSession(
+	authProviderId: string,
+	scopes: string[],
+	options: { silent: true } | { createIfNone: true },
+	logger: Logger,
+): Promise<vscode.AuthenticationSession | undefined> {
+	try {
+		return await vscode.authentication.getSession(authProviderId, scopes, options);
+	} catch (err) {
+		logger.debug(
+			`[ai-credentials/positron] Auth session unavailable for ${authProviderId}: ${err}`,
+		);
+		return undefined;
+	}
+}
+
+/** Build a Positron {@link Backend} over the injected provider map. */
+export function createPositronBackend(options: CreatePositronBackendOptions): PositronBackend {
+	const { logger, providerMap } = options;
+	const credentialConfigFactory = options.credentialConfigFactory ?? createVscodeCredentialConfig;
+
+	const mappedProviderIds = Object.keys(providerMap).filter((id) => providerMap[id] !== undefined);
+
+	async function getMappedCredentials(
+		providerId: string,
+		prompt: boolean,
+	): Promise<ProviderCredentials | null> {
+		const mapping = providerMap[providerId];
+		if (!mapping) return null;
+
+		const { authProviderId, scopes, fallbackScopes } = mapping;
+
+		let session: vscode.AuthenticationSession | undefined;
+		if (prompt) {
+			session = await tryGetSession(authProviderId, scopes, { createIfNone: true }, logger);
+		} else {
+			session = await tryGetSession(authProviderId, scopes, { silent: true }, logger);
+			if (!session && fallbackScopes) {
+				for (const fb of fallbackScopes) {
+					session = await tryGetSession(authProviderId, fb, { silent: true }, logger);
+					if (session) break;
+				}
+			}
+		}
+
+		if (!session) return null;
+		return shapeCredentials(mapping, session.accessToken, credentialConfigFactory(), logger);
+	}
+
+	// --- Credential change events -------------------------------------------
+	const emitter = new vscode.EventEmitter<string[]>();
+
+	// Reverse map: auth provider id -> logical provider ids.
+	const authToLogical = new Map<string, string[]>();
+	for (const logicalId of mappedProviderIds) {
+		const mapping = providerMap[logicalId];
+		if (!mapping) continue;
+		const list = authToLogical.get(mapping.authProviderId) ?? [];
+		list.push(logicalId);
+		authToLogical.set(mapping.authProviderId, list);
+	}
+
+	// Config-key -> logical ids, for baseUrl/customHeaders changes on api-key providers.
+	const baseUrlConfigToLogical = new Map<string, string[]>();
+	for (const logicalId of mappedProviderIds) {
+		const mapping = providerMap[logicalId];
+		if (!mapping || mapping.credentialType !== "apikey") continue;
+		const configKey = CONFIG_KEY_OVERRIDES[mapping.authProviderId] ?? mapping.authProviderId;
+		const list = baseUrlConfigToLogical.get(configKey) ?? [];
+		list.push(logicalId);
+		baseUrlConfigToLogical.set(configKey, list);
+	}
+
+	const sessionSub = vscode.authentication.onDidChangeSessions((e) => {
+		const logicalIds = authToLogical.get(e.provider.id);
+		if (logicalIds) emitter.fire(logicalIds);
+	});
+
+	const configSub = vscode.workspace.onDidChangeConfiguration((e) => {
+		for (const [configKey, logicalIds] of baseUrlConfigToLogical) {
+			if (
+				e.affectsConfiguration(`authentication.${configKey}.baseUrl`) ||
+				e.affectsConfiguration(`authentication.${configKey}.customHeaders`)
+			) {
+				emitter.fire(logicalIds);
+			}
+		}
+
+		if (e.affectsConfiguration("authentication.positai.baseUrl") && providerMap.positai) {
+			emitter.fire(["positai"]);
+		}
+		if (e.affectsConfiguration("authentication.aws.credentials") && providerMap.bedrock) {
+			emitter.fire(["bedrock"]);
+		}
+		if (
+			e.affectsConfiguration("authentication.snowflake.credentials") &&
+			providerMap["snowflake-cortex"]
+		) {
+			emitter.fire(["snowflake-cortex"]);
+		}
+	});
+
+	function onDidChangeCredentials(callback: (providerIds: string[]) => void): Disposable {
+		return emitter.event(callback);
+	}
+
+	function dispose(): void {
+		sessionSub.dispose();
+		configSub.dispose();
+		emitter.dispose();
+	}
+
+	return {
+		getCredentials: (providerId: string) => getMappedCredentials(providerId, false),
+		getCredentialsWithPrompt: (providerId: string) => getMappedCredentials(providerId, true),
+		onDidChangeCredentials,
+		dispose,
+	};
+}

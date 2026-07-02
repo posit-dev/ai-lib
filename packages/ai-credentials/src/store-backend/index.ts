@@ -14,9 +14,13 @@
  * from `@assistant/*`. This ensures standalone consumers (Notebooks) can
  * resolve credentials without depending on the assistant monorepo.
  *
- * The full store-backed backend (store → env → null resolution, persisted →
- * runtime mapping) lands in Phase 4.
+ * The store-backed backend (store → env → null resolution, persisted → runtime
+ * mapping, and the option-B OAuth hooks) is `createStoreBackend`.
  */
+
+// Store-backed credential Backend
+export { createStoreBackend } from "./StoreBackend";
+export type { AuthMethodDescriptor, CreateStoreBackendOptions } from "./StoreBackend";
 
 // StoredProviderCredentials — on-disk format + Zod schema
 export {

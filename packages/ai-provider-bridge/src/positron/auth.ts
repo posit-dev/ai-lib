@@ -9,7 +9,7 @@ import {
 	type CredentialConfig,
 	shapeCredentials,
 } from "../credential-shaping";
-import type { CredentialProvider, Disposable } from "../CredentialProvider";
+import type { Disposable } from "../CredentialProvider";
 import { MAPPED_PROVIDER_IDS, PROVIDER_MAP } from "../provider-map";
 import type { Logger, ProviderId, ProviderCredentials } from "../types";
 
@@ -212,8 +212,15 @@ function onMappedCredentialsChanged(callback: (providerIds: ProviderId[]) => voi
  * Wraps vscode.authentication.getSession() and config-based credential resolution.
  * Local providers (Ollama, LM Studio) are NOT covered — they remain in the
  * Positron extension's own code.
+ *
+ * NOTE (Phase 4): the canonical Positron credential backend now lives in
+ * `ai-credentials/positron`. This class is retained until Phase 7 repoints
+ * Positron consumers onto that backend; it no longer declares
+ * `implements CredentialProvider` because that root interface was widened to
+ * the full resolver surface (getAccessToken/startDeviceAuth), which the
+ * vscode-backed provider does not implement (Positron owns OAuth sign-in).
  */
-export class PositronCredentialProvider implements CredentialProvider {
+export class PositronCredentialProvider {
 	private readonly logger: Logger;
 	private readonly credentialConfigFactory: () => CredentialConfig;
 
