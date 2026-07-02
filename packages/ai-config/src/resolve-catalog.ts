@@ -114,7 +114,8 @@ export interface ResolveProviderCatalogOptions {
  * Resolve an ordered stack of config sources + platform baseline into the
  * full resolved provider catalog.
  *
- * Precedence is applied in one place:
+ * A straightforward pipeline: **sort by precedence → recover a valid stack →
+ * build the catalog.** Precedence lives in one place:
  * - **Connection / model policy:** sources are deep-merged from lowest →
  *   highest precedence, so higher sources win per key. The sealed `enforced`
  *   source is merged **last**, so its keys can never be overridden.
@@ -123,18 +124,9 @@ export interface ResolveProviderCatalogOptions {
  *   highest → lowest, preserving "id beats default" within each layer (see
  *   {@link resolveEnabled}). The enforced layer is on top.
  *
- * **Invalid-source tolerance.** Structural validity is a property of the whole
- * source *set*, not the merge order — a relaxed fragment may legitimately omit
- * a custom entry's `type` when **any** other source (higher or lower) supplies
- * it. So the full stack is validated first; a lower `default`/`host` partial
- * completed by a higher `user` source (and vice versa) stays valid. Only when
- * the full merge is genuinely invalid (a custom entry no source completes) are
- * offending **relaxed** overlays dropped one at a time — never the authoritative
- * `user` source — preferring a single removal that restores validity so an
- * unrelated valid overlay (e.g. a `host` source below a bad `enforced` overlay,
- * or a good `enforced` above a bad `default`) is preserved. Connection and
- * enablement use the identical kept-source order, so a dropped source never
- * contributes to either.
+ * Invalid-source recovery (dropping overlays that no source completes) is
+ * isolated in {@link recoverValidStack}; connection and enablement both use
+ * its kept-source order, so a dropped source never contributes to either.
  */
 export function resolveProviderCatalog(
 	opts: ResolveProviderCatalogOptions,
@@ -145,25 +137,52 @@ export function resolveProviderCatalog(
 	// is stable, so same-kind sources keep their array order (earlier wins).
 	const highestFirst = [...sources].sort((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind]);
 
-	// Validate the full stack first. If it's invalid, drop offending relaxed
-	// overlays until it validates (see doc comment).
+	const { kept, config } = recoverValidStack(highestFirst, logger);
+
+	const enabledLayers = kept.map<EnablementLayer>((s) => s.config.providers);
+	return buildCatalog(config, enabledLayers, baseline, { external, logger, envVars });
+}
+
+// ---------------------------------------------------------------------------
+// Invalid-source recovery
+// ---------------------------------------------------------------------------
+
+/** The largest valid sub-stack plus its validated merged config. */
+export interface RecoveredStack {
+	/** Kept sources, highest precedence first. */
+	readonly kept: readonly ProviderConfigSource[];
+	/** The validated merged config for the kept sources. */
+	readonly config: ProvidersConfig;
+}
+
+/**
+ * Recover the largest valid stack from `highestFirst` (highest precedence
+ * first).
+ *
+ * Structural validity is a property of the whole source *set*, not the merge
+ * order — a relaxed fragment may legitimately omit a custom entry's `type`
+ * when **any** other source (higher or lower) supplies it. So the full stack
+ * is validated first; a lower `default`/`host` partial completed by a higher
+ * `user` source (and vice versa) stays valid.
+ *
+ * Only when the full merge is genuinely invalid (a custom entry no source
+ * completes) are offending **relaxed** overlays dropped one at a time — never
+ * the authoritative `user` source, which is validated at read time and is
+ * always valid alone. Each iteration {@link chooseDroppedSource | chooses}
+ * which overlay to drop, then re-validates, until the stack is valid.
+ */
+export function recoverValidStack(
+	highestFirst: readonly ProviderConfigSource[],
+	logger?: LoggerLike,
+): RecoveredStack {
 	let kept = highestFirst;
 	let resolved = mergeAndValidate(kept);
 
 	while (!resolved.success) {
-		// The `user` source is validated at read time, so it is always valid on
-		// its own and is never dropped; only relaxed overlays are candidates.
-		const relaxedLowestFirst = kept.filter((s) => s.kind !== "user").reverse();
-		if (relaxedLowestFirst.length === 0) {
+		const victim = chooseDroppedSource(kept);
+		if (!victim) {
 			break; // Defensive: user alone always validates.
 		}
-
-		// Prefer a single removal that restores validity (keeps unrelated valid
-		// overlays); otherwise drop the lowest-precedence relaxed overlay and
-		// re-check.
-		const victim =
-			relaxedLowestFirst.find((s) => mergeAndValidate(without(kept, s)).success) ??
-			relaxedLowestFirst[0];
 
 		logger?.warn(
 			`[ai-config] Config source ${describeSource(victim)} produces an invalid merged result: ${formatZodErrors(resolved.error)}. Ignoring this source.`,
@@ -172,10 +191,33 @@ export function resolveProviderCatalog(
 		resolved = mergeAndValidate(kept);
 	}
 
-	const resolvedConfig: ProvidersConfig = resolved.success ? resolved.data : {};
-	const enabledLayers = kept.map<EnablementLayer>((s) => s.config.providers);
+	return { kept, config: resolved.success ? resolved.data : {} };
+}
 
-	return buildCatalog(resolvedConfig, enabledLayers, baseline, { external, logger, envVars });
+/**
+ * Choose which relaxed overlay to drop from an invalid stack.
+ *
+ * The `user` source is never a candidate (it is authoritative and valid on its
+ * own). Among the relaxed overlays, prefer a **single** removal that restores
+ * validity — so an unrelated valid overlay (e.g. a `host` below a bad
+ * `enforced`, or a good `enforced` above a bad `default`) is preserved. If no
+ * single removal fixes the stack (multiple uncompletable overlays), drop the
+ * **lowest-precedence** relaxed overlay and let the caller iterate. Returns
+ * `undefined` when there are no relaxed overlays left to drop.
+ */
+function chooseDroppedSource(
+	highestFirst: readonly ProviderConfigSource[],
+): ProviderConfigSource | undefined {
+	// Lowest precedence first, so a preferred single-removal fix and the
+	// last-resort drop both bias toward keeping higher-precedence sources.
+	const relaxedLowestFirst = highestFirst.filter((s) => s.kind !== "user").reverse();
+	if (relaxedLowestFirst.length === 0) {
+		return undefined;
+	}
+	return (
+		relaxedLowestFirst.find((s) => mergeAndValidate(without(highestFirst, s)).success) ??
+		relaxedLowestFirst[0]
+	);
 }
 
 // ---------------------------------------------------------------------------

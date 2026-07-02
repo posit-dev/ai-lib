@@ -5,7 +5,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { ProviderConfigSource } from "../resolve-catalog";
-import { resolveProviderCatalog } from "../resolve-catalog";
+import { recoverValidStack, resolveProviderCatalog } from "../resolve-catalog";
 import type { PlatformBaseline, ResolvedProvider } from "../types";
 
 const STANDALONE: PlatformBaseline = { defaultEnabled: true };
@@ -242,5 +242,64 @@ describe("resolveProviderCatalog — same-kind ordering", () => {
 
 		expect(find(catalog, "anthropic")?.connection.baseUrl).toBe("https://first.example.com");
 		expect(find(catalog, "anthropic")?.enabled).toBe(true);
+	});
+});
+
+describe("recoverValidStack — choose dropped source", () => {
+	/** Custom entry with no `type` — uncompletable unless another source supplies it. */
+	const badCustom = (name: string): ProviderConfigSource["config"] => ({
+		providers: { custom: { [name]: { enabled: false } } },
+	});
+
+	function keptKinds(sources: readonly ProviderConfigSource[]): string[] {
+		return sources.map((s) => s.kind);
+	}
+
+	it("keeps the whole stack when the full merge is valid", () => {
+		const sources = [
+			source("enforced", { providers: { anthropic: { enabled: false } } }),
+			source("user", { providers: {} }),
+			source("host", { providers: { openai: { enabled: true } } }),
+		];
+		const { kept, config } = recoverValidStack(sources);
+		expect(keptKinds(kept)).toEqual(["enforced", "user", "host"]);
+		expect(config.providers?.anthropic?.enabled).toBe(false);
+	});
+
+	it("drops the single offending overlay, preserving unrelated valid overlays", () => {
+		// enforced is the culprit; user + host must survive.
+		const sources = [
+			source("enforced", badCustom("ghost")),
+			source("user", { providers: {} }),
+			source("host", { providers: { anthropic: { enabled: false } } }),
+		];
+		const { kept } = recoverValidStack(sources);
+		expect(keptKinds(kept)).toEqual(["user", "host"]);
+	});
+
+	it("does not over-remove: keeps a good enforced above a bad default", () => {
+		// The bad source is the lower `default`; the higher `enforced` is fine.
+		const sources = [
+			source("enforced", { providers: { anthropic: { baseUrl: "https://a.example.com" } } }),
+			source("user", { providers: {} }),
+			source("default", badCustom("ghost")),
+		];
+		const { kept } = recoverValidStack(sources);
+		expect(keptKinds(kept)).toEqual(["enforced", "user"]);
+	});
+
+	it("drops multiple uncompletable overlays, keeping the authoritative user source", () => {
+		// No single removal fixes it; both relaxed overlays must go.
+		const sources = [
+			source("enforced", badCustom("ghost-a")),
+			source("user", { providers: { anthropic: { enabled: true } } }),
+			source("default", badCustom("ghost-b")),
+		];
+		const logger = { debug: vi.fn(), warn: vi.fn() };
+		const { kept, config } = recoverValidStack(sources, logger);
+		expect(keptKinds(kept)).toEqual(["user"]);
+		expect(config.providers?.anthropic?.enabled).toBe(true);
+		// A warning was emitted for each dropped source.
+		expect(logger.warn).toHaveBeenCalledTimes(2);
 	});
 });
