@@ -244,4 +244,38 @@ describe("createCredentialProvider — startDeviceAuth", () => {
 		expect(hooks.tokens?.accessToken).toBe("device-tok");
 		expect(hooks.readyCount).toBe(1);
 	});
+
+	it("persists polling_error when the token endpoint returns a malformed body", async () => {
+		const badBody: Response = {
+			ok: false,
+			status: 400,
+			json: async () => {
+				throw new SyntaxError("Unexpected token < in JSON");
+			},
+			text: async () => "<html>gateway error</html>",
+		} as Response;
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce(
+				okJson({
+					user_code: "WXYZ",
+					verification_uri: "https://auth.test/device",
+					verification_uri_complete: "https://auth.test/device?code=WXYZ",
+					device_code: "dev-123",
+					interval: 1,
+					expires_in: 900,
+				}),
+			)
+			.mockResolvedValueOnce(badBody);
+		vi.stubGlobal("fetch", fetchMock);
+
+		const hooks = makeOAuthHooks(null);
+		const provider = createCredentialProvider({ backend: makeBackend(async () => null, hooks) });
+
+		await provider.startDeviceAuth("positai");
+		await vi.advanceTimersByTimeAsync(1000);
+
+		expect(hooks.error).toBe("polling_error");
+		expect(hooks.tokens).toBeNull();
+	});
 });

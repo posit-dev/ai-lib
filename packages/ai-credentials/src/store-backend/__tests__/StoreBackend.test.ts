@@ -138,6 +138,46 @@ describe("createStoreBackend", () => {
 		});
 	});
 
+	describe("Zod validation (Phase 0 #5 runtime guard)", () => {
+		it("parses a tolerant legacy record (subset of fields) unchanged", async () => {
+			// Legacy api-key record with no `configured`/`authenticated` flags.
+			await store.set(storageKeyFor("anthropic", "apikey"), {
+				apiKeyAuth: { apiKey: "sk-legacy" },
+			});
+			const backend = createStoreBackend({ store, resolveAuthMethod, env: {} });
+			expect(await backend.getCredentials("anthropic")).toEqual({
+				type: "apikey",
+				apiKey: "sk-legacy",
+				baseUrl: undefined,
+			});
+		});
+
+		it("drops a structurally invalid record (apiKeyAuth missing required apiKey)", async () => {
+			// Missing the required `apiKey` string → schema rejects the record.
+			await store.set(storageKeyFor("anthropic", "apikey"), {
+				apiKeyAuth: { baseUrl: "https://gw.example" },
+			});
+			const backend = createStoreBackend({
+				store,
+				resolveAuthMethod,
+				env: { ANTHROPIC_API_KEY: "sk-env" },
+			});
+			// Invalid record ignored → falls through to env fallback.
+			expect(await backend.getCredentials("anthropic")).toEqual({
+				type: "apikey",
+				apiKey: "sk-env",
+			});
+		});
+
+		it("drops an invalid record with no env fallback → null", async () => {
+			await store.set(storageKeyFor("bedrock", "aws-credentials"), {
+				awsAuth: { accessKeyId: "AK" }, // missing required `region`
+			});
+			const backend = createStoreBackend({ store, resolveAuthMethod, env: {} });
+			expect(await backend.getCredentials("bedrock")).toBeNull();
+		});
+	});
+
 	describe("oauth hooks", () => {
 		const oauthConfigForProvider = () => ({
 			authHost: "auth.test",
@@ -201,6 +241,33 @@ describe("createStoreBackend", () => {
 			expect(await oauth.readTokens("positai")).toBeNull();
 			const stored = await store.get<StoredProviderCredentials>(storageKeyFor("positai", "oauth"));
 			expect(stored?.error).toBe("access_denied");
+		});
+
+		it("readTokens ignores a record marked authenticated:false with stale tokenData", async () => {
+			// Legacy refresh-failure shape: authenticated flipped to false but
+			// oauthAuth.tokenData left in place. Must NOT be treated as usable.
+			await store.set<StoredProviderCredentials>(storageKeyFor("positai", "oauth"), {
+				authenticated: false,
+				error: "refresh_failed",
+				oauthAuth: {
+					tokenData: {
+						accessToken: "stale",
+						refreshToken: "rt",
+						expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+						tokenType: "Bearer",
+						scope: "prism",
+					},
+					expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+					scope: "prism",
+				},
+			});
+			const backend = createStoreBackend({
+				store,
+				resolveAuthMethod,
+				oauthConfigForProvider,
+				env: {},
+			});
+			expect(await backend.oauth?.readTokens("positai")).toBeNull();
 		});
 	});
 

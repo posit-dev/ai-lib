@@ -207,7 +207,10 @@ export class OAuthEngine {
 				await this.sleep(currentInterval);
 				if (controller.signal.aborted) break;
 
-				let response: Response;
+				// The whole request/response handling is wrapped so that fetch
+				// failures AND malformed/non-JSON bodies (`response.json()` throws)
+				// both persist a status the UI/auth layer can surface, rather than
+				// escaping to the fire-and-forget caller with no persisted error.
 				try {
 					const params = new URLSearchParams({
 						scope: config.scope,
@@ -215,42 +218,43 @@ export class OAuthEngine {
 						grant_type: "urn:ietf:params:oauth:grant-type:device_code",
 						device_code: deviceCode,
 					});
-					response = await fetch(tokenUrl, {
+					const response = await fetch(tokenUrl, {
 						method: "POST",
 						headers: { "Content-Type": "application/x-www-form-urlencoded" },
 						body: params.toString(),
 						signal: controller.signal,
 					});
-				} catch (error) {
-					if (error instanceof Error && error.name === "AbortError") break;
-					await this.hooks.persistError(providerId, "polling_error");
-					break;
-				}
 
-				if (response.ok) {
-					const tokenData = (await response.json()) as TokenResponse;
-					await this.hooks.persistTokens(providerId, tokenResponseToTokenData(tokenData));
-					this.hooks.notifyReady(providerId);
-					break;
-				}
-
-				if (response.status === 400) {
-					const errorData = (await response.json()) as { error: string };
-					const errorCode = errorData.error;
-					if (errorCode === "authorization_pending") {
-						continue;
-					} else if (errorCode === "slow_down") {
-						currentInterval += 5000;
-						continue;
-					} else if (errorCode === "expired_token" || errorCode === "access_denied") {
-						await this.hooks.persistError(providerId, errorCode);
-						break;
-					} else {
-						await this.hooks.persistError(providerId, `auth_error_${errorCode}`);
+					if (response.ok) {
+						const tokenData = (await response.json()) as TokenResponse;
+						await this.hooks.persistTokens(providerId, tokenResponseToTokenData(tokenData));
+						this.hooks.notifyReady(providerId);
 						break;
 					}
-				} else {
-					await this.hooks.persistError(providerId, `network_error_${response.status}`);
+
+					if (response.status === 400) {
+						const errorData = (await response.json()) as { error: string };
+						const errorCode = errorData.error;
+						if (errorCode === "authorization_pending") {
+							continue;
+						} else if (errorCode === "slow_down") {
+							currentInterval += 5000;
+							continue;
+						} else if (errorCode === "expired_token" || errorCode === "access_denied") {
+							await this.hooks.persistError(providerId, errorCode);
+							break;
+						} else {
+							await this.hooks.persistError(providerId, `auth_error_${errorCode}`);
+							break;
+						}
+					} else {
+						await this.hooks.persistError(providerId, `network_error_${response.status}`);
+						break;
+					}
+				} catch (error) {
+					if (error instanceof Error && error.name === "AbortError") break;
+					// Network failure or malformed token-endpoint body.
+					await this.hooks.persistError(providerId, "polling_error");
 					break;
 				}
 			}

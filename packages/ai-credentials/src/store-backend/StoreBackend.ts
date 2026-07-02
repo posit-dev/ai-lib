@@ -32,7 +32,10 @@ import type { SingleFileStore } from "../store";
 import type { Logger, ProviderCredentials, TokenData } from "../types";
 import { storageKeyFor } from "../types";
 import { resolveCredentialsFromEnv } from "./envCredentialResolver";
-import type { StoredProviderCredentials } from "./StoredProviderCredentials";
+import {
+	storedProviderCredentialsSchema,
+	type StoredProviderCredentials,
+} from "./StoredProviderCredentials";
 
 /** Auth descriptor for a provider (injected — derived from registry/catalog). */
 export interface AuthMethodDescriptor {
@@ -80,6 +83,27 @@ export function createStoreBackend(options: CreateStoreBackendOptions): Backend 
 		logger,
 	} = options;
 
+	/**
+	 * Read a credential record and validate it against the tolerant Zod schema
+	 * (Phase 0 #5 runtime guard). Legacy records — which populate only a subset
+	 * of fields — parse unchanged; structurally invalid records (e.g. an
+	 * `apiKeyAuth` missing its required `apiKey`) are dropped rather than flowing
+	 * out as credentials or into OAuth refresh. Returns undefined when the key is
+	 * absent or the record fails validation.
+	 */
+	async function readRecord(key: string): Promise<StoredProviderCredentials | undefined> {
+		const raw = await store.get<unknown>(key);
+		if (raw === undefined) return undefined;
+		const parsed = storedProviderCredentialsSchema.safeParse(raw);
+		if (!parsed.success) {
+			logger?.warn(
+				`[ai-credentials/store-backend] Ignoring malformed credential record at ${key}: ${parsed.error.message}`,
+			);
+			return undefined;
+		}
+		return parsed.data;
+	}
+
 	async function getCredentials(providerId: string): Promise<ProviderCredentials | null> {
 		const descriptor = resolveAuthMethod(providerId);
 		if (!descriptor) return null;
@@ -88,9 +112,7 @@ export function createStoreBackend(options: CreateStoreBackendOptions): Backend 
 		// OAuth is resolved by the root state machine via the oauth hooks, not here.
 		if (authMethodId === "oauth") return null;
 
-		const stored = await store.get<StoredProviderCredentials>(
-			storageKeyFor(providerId, authMethodId),
-		);
+		const stored = await readRecord(storageKeyFor(providerId, authMethodId));
 
 		if (stored) {
 			if (authMethodId === "apikey" && stored.apiKeyAuth) {
@@ -155,8 +177,12 @@ export function createStoreBackend(options: CreateStoreBackendOptions): Backend 
 			configForProvider: oauthConfigForProvider,
 
 			async readTokens(providerId: string): Promise<StoredOAuthTokens | null> {
-				const stored = await store.get<StoredProviderCredentials>(oauthKey(providerId));
-				const tokenData = stored?.oauthAuth?.tokenData;
+				const stored = await readRecord(oauthKey(providerId));
+				// Gate on authenticated: a refresh-failure record can keep stale
+				// `oauthAuth.tokenData` while marked `authenticated: false`; those
+				// tokens must not be treated as usable material.
+				if (!stored || stored.authenticated !== true) return null;
+				const tokenData = stored.oauthAuth?.tokenData;
 				if (!tokenData) return null;
 				return {
 					accessToken: tokenData.accessToken,
