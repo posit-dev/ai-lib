@@ -168,7 +168,10 @@
                   "type": "array"
                 },
                 "discovery": {
-                  "enum": ["auto", "off"],
+                  "enum": [
+                    "auto",
+                    "off"
+                  ],
                   "type": "string"
                 },
                 "overrides": {
@@ -442,7 +445,10 @@
                   "type": "array"
                 },
                 "discovery": {
-                  "enum": ["auto", "off"],
+                  "enum": [
+                    "auto",
+                    "off"
+                  ],
                   "type": "string"
                 },
                 "overrides": {
@@ -716,7 +722,10 @@
                   "type": "array"
                 },
                 "discovery": {
-                  "enum": ["auto", "off"],
+                  "enum": [
+                    "auto",
+                    "off"
+                  ],
                   "type": "string"
                 },
                 "overrides": {
@@ -991,7 +1000,10 @@
                     "type": "array"
                   },
                   "discovery": {
-                    "enum": ["auto", "off"],
+                    "enum": [
+                      "auto",
+                      "off"
+                    ],
                     "type": "string"
                   },
                   "overrides": {
@@ -1124,7 +1136,9 @@
                 "type": "string"
               }
             },
-            "required": ["type"],
+            "required": [
+              "type"
+            ],
             "type": "object"
           },
           "propertyNames": {
@@ -1290,7 +1304,10 @@
                   "type": "array"
                 },
                 "discovery": {
-                  "enum": ["auto", "off"],
+                  "enum": [
+                    "auto",
+                    "off"
+                  ],
                   "type": "string"
                 },
                 "overrides": {
@@ -1573,7 +1590,10 @@
                   "type": "array"
                 },
                 "discovery": {
-                  "enum": ["auto", "off"],
+                  "enum": [
+                    "auto",
+                    "off"
+                  ],
                   "type": "string"
                 },
                 "overrides": {
@@ -1847,7 +1867,10 @@
                   "type": "array"
                 },
                 "discovery": {
-                  "enum": ["auto", "off"],
+                  "enum": [
+                    "auto",
+                    "off"
+                  ],
                   "type": "string"
                 },
                 "overrides": {
@@ -2121,7 +2144,10 @@
                   "type": "array"
                 },
                 "discovery": {
-                  "enum": ["auto", "off"],
+                  "enum": [
+                    "auto",
+                    "off"
+                  ],
                   "type": "string"
                 },
                 "overrides": {
@@ -2395,7 +2421,10 @@
                   "type": "array"
                 },
                 "discovery": {
-                  "enum": ["auto", "off"],
+                  "enum": [
+                    "auto",
+                    "off"
+                  ],
                   "type": "string"
                 },
                 "overrides": {
@@ -2669,7 +2698,10 @@
                   "type": "array"
                 },
                 "discovery": {
-                  "enum": ["auto", "off"],
+                  "enum": [
+                    "auto",
+                    "off"
+                  ],
                   "type": "string"
                 },
                 "overrides": {
@@ -2943,7 +2975,10 @@
                   "type": "array"
                 },
                 "discovery": {
-                  "enum": ["auto", "off"],
+                  "enum": [
+                    "auto",
+                    "off"
+                  ],
                   "type": "string"
                 },
                 "overrides": {
@@ -3217,7 +3252,10 @@
                   "type": "array"
                 },
                 "discovery": {
-                  "enum": ["auto", "off"],
+                  "enum": [
+                    "auto",
+                    "off"
+                  ],
                   "type": "string"
                 },
                 "overrides": {
@@ -3491,7 +3529,10 @@
                   "type": "array"
                 },
                 "discovery": {
-                  "enum": ["auto", "off"],
+                  "enum": [
+                    "auto",
+                    "off"
+                  ],
                   "type": "string"
                 },
                 "overrides": {
@@ -3765,7 +3806,10 @@
                   "type": "array"
                 },
                 "discovery": {
-                  "enum": ["auto", "off"],
+                  "enum": [
+                    "auto",
+                    "off"
+                  ],
                   "type": "string"
                 },
                 "overrides": {
@@ -4039,7 +4083,10 @@
                   "type": "array"
                 },
                 "discovery": {
-                  "enum": ["auto", "off"],
+                  "enum": [
+                    "auto",
+                    "off"
+                  ],
                   "type": "string"
                 },
                 "overrides": {

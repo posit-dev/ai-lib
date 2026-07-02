@@ -12,7 +12,13 @@
     ]
   },
   "sortPackageJson": false,
-  "ignorePatterns": [".claude/", "**/dist/", "**/*.tsbuildinfo", "**/*.html"],
+  "ignorePatterns": [
+    ".claude/",
+    "**/dist/",
+    "**/*.tsbuildinfo",
+    "**/*.html",
+    "packages/ai-config/providers.schema.json"
+  ],
   "overrides": [
     {
       "files": ["*.json", "*.md", "*.yml", "*.yaml"],
