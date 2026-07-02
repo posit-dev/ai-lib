@@ -24,6 +24,7 @@ import type {
 	MODEL_METADATA_FIELD_NAMES,
 	PROTOCOL_VALUES,
 } from "ai-config";
+import type { SUPPORTED_CUSTOM_CLIENT_KIND_VALUES } from "ai-credentials/types";
 import type {
 	ModelInfo,
 	NonIdentityClientKind,
@@ -121,6 +122,20 @@ type AllClientKindsCovered = (typeof CLIENT_KIND_VALUES)[number] extends
 const _clientKindsCovered: AllClientKindsCovered = true;
 
 // ---------------------------------------------------------------------------
+// Assertion 5: SUPPORTED_CUSTOM_CLIENT_KIND_VALUES ⊆ CLIENT_KIND_VALUES
+//
+// Every supported custom client kind in ai-credentials must be a valid
+// client kind from ai-config. This enforces the no-import-edge pattern: the
+// values are plain string literals, and this guard ensures they stay in sync
+// with the CLIENT_KIND_VALUES enum.
+// ---------------------------------------------------------------------------
+
+const _customClientKindsCovered: TupleSubset<
+	typeof SUPPORTED_CUSTOM_CLIENT_KIND_VALUES,
+	typeof CLIENT_KIND_VALUES
+> = true;
+
+// ---------------------------------------------------------------------------
 // Suppress unused-variable warnings
 // ---------------------------------------------------------------------------
 
@@ -129,3 +144,4 @@ void _overrideFieldsSubset;
 void _protocolValuesSubset;
 void _nonIdentityTargetsAreProviderIds;
 void _clientKindsCovered;
+void _customClientKindsCovered;

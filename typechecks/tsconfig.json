@@ -6,6 +6,8 @@
     "rootDir": "..",
     "paths": {
       "ai-config": ["../packages/ai-config/src/index.ts"],
+      "ai-credentials": ["../packages/ai-credentials/src/index.ts"],
+      "ai-credentials/types": ["../packages/ai-credentials/src/types/index.ts"],
       "ai-provider-bridge": ["../packages/ai-provider-bridge/src/index.ts"]
     }
   },
