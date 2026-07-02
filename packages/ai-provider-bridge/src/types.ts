@@ -25,6 +25,16 @@ import type * as ai from "ai";
 import type { ResolvedProviderId } from "ai-config";
 export type { ResolvedProviderId };
 
+// Credential types re-exported from ai-credentials/types (single source of truth)
+export type {
+	ApiKeyCredentials,
+	AwsCredentials,
+	GoogleCloudCredentials,
+	LocalCredentials,
+	OAuthCredentials,
+	ProviderCredentials,
+} from "ai-credentials/types";
+
 // ============================================================================
 // Provider IDs
 // ============================================================================
@@ -54,83 +64,6 @@ export const PROVIDER_IDS = [
  * Type for provider IDs - derived from PROVIDER_IDS tuple for type safety.
  */
 export type ProviderId = (typeof PROVIDER_IDS)[number];
-
-// ============================================================================
-// Credentials
-// ============================================================================
-
-/**
- * API Key credentials (Anthropic, OpenAI, Gemini)
- *
- * customHeaders are user-supplied HTTP headers attached to every model
- * discovery and chat request for this provider. Intended for additive
- * enterprise-gateway headers (e.g. Databricks
- * `x-databricks-use-coding-agent-mode`, tenancy or routing markers).
- *
- * Headers are additive only. SDK/provider-managed header names
- * (`Authorization`, `x-api-key`, `anthropic-version`, `Content-Type`, etc.)
- * are ignored, as are custom headers whose names collide with headers already
- * populated by the provider-specific request path.
- */
-export interface ApiKeyCredentials {
-	type: "apikey";
-	apiKey: string;
-	baseUrl?: string;
-	customHeaders?: Record<string, string>;
-}
-
-/**
- * OAuth credentials (Posit AI)
- */
-export interface OAuthCredentials {
-	type: "oauth";
-	accessToken: string;
-}
-
-/**
- * Local server credentials (Ollama, LM Studio)
- */
-export interface LocalCredentials {
-	type: "local";
-	endpoint: string;
-}
-
-/**
- * AWS credentials (Amazon Bedrock)
- */
-export interface AwsCredentials {
-	type: "aws-credentials";
-	region: string;
-	profile?: string;
-	accessKeyId?: string;
-	secretAccessKey?: string;
-	sessionToken?: string;
-}
-
-/**
- * Google Cloud credentials (Vertex AI).
- *
- * `accessToken` is supplied by credential brokers (e.g. Positron auth ext) so
- * the SDK can authenticate without calling ADC itself. Standalone/node/TUI
- * leave it undefined and let google-auth-library resolve ADC.
- */
-export interface GoogleCloudCredentials {
-	type: "google-cloud";
-	project: string;
-	location: string;
-	accessToken?: string;
-}
-
-/**
- * Credentials for authenticating with a provider.
- * Discriminated union based on the 'type' field.
- */
-export type ProviderCredentials =
-	| ApiKeyCredentials
-	| OAuthCredentials
-	| LocalCredentials
-	| AwsCredentials
-	| GoogleCloudCredentials;
 
 // ============================================================================
 // Wire Protocol
@@ -357,10 +290,5 @@ export type NotificationActionId = (typeof NOTIFICATION_ACTIONS)[keyof typeof NO
 // Logger
 // ============================================================================
 
-export interface Logger {
-	info(message: string, ...args: unknown[]): void;
-	warn(message: string, ...args: unknown[]): void;
-	error(message: string, ...args: unknown[]): void;
-	debug(message: string, ...args: unknown[]): void;
-	trace(message: string, ...args: unknown[]): void;
-}
+// Re-exported from ai-credentials/types (single source of truth)
+export type { Logger } from "ai-credentials/types";

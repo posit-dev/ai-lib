@@ -14,7 +14,7 @@ an effective provider catalog, and the filesystem seams that load, watch, and
 mutate the file safely across processes.
 
 It is a dependency-light leaf: it does **not** import `ai-provider-bridge` or
-`ai-credential-store`. Compatibility with the bridge's vocabulary is enforced at
+`ai-credentials`. Compatibility with the bridge's vocabulary is enforced at
 compile time by a shape guard (see [Shape Guard](#shape-guard)), not by an
 import edge.
 

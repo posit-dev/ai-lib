@@ -1,13 +1,25 @@
 {
-  "name": "ai-credential-store",
+  "name": "ai-credentials",
   "version": "0.0.1",
   "private": true,
-  "description": "Generic typed key-value secret store on disk with atomic writes, secure permissions, cross-process locking, and file watching",
+  "description": "Credential types, shaping, and generic secret store for Posit AI products",
   "type": "module",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./types": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/types/index.js"
+    },
+    "./store": {
+      "types": "./dist/store/index.d.ts",
+      "import": "./dist/store/index.js"
+    },
+    "./positron": {
+      "types": "./dist/positron/index.d.ts",
+      "import": "./dist/positron/index.js"
     }
   },
   "scripts": {
@@ -31,6 +43,6 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/posit-dev/ai-provider-bridge",
-    "directory": "packages/ai-credential-store"
+    "directory": "packages/ai-credentials"
   }
 }

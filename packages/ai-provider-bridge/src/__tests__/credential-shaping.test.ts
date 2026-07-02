@@ -174,20 +174,38 @@ describe("shapeCredentials", () => {
 });
 
 describe("credential-shaping stays browser-safe", () => {
-	// This module is imported into Positron's renderer (browser layer), so its
-	// runtime graph must carry no vscode, AI-SDK, or node-builtin dependency.
-	// `./utils` is the only non-type import and is itself dependency-free; the
-	// rest are `import type` (erased). A new value import here would trip this.
-	it("has exactly one runtime import: the pure URL helper", () => {
+	// The bridge's credential-shaping.ts is now a thin re-export shim that
+	// delegates to ai-credentials/types. The real purity invariant lives in
+	// ai-credentials; we guard both files here.
+
+	it("bridge shim only re-exports from ai-credentials/types", () => {
 		const source = readFileSync(resolve(HERE, "../credential-shaping.ts"), "utf-8");
 		const valueImports = [
-			// import/export ... from "x" (re-exports count; `import type`/`export type` are erased)
 			...source.matchAll(/^(?:import|export)\s+(?!type\b)[^;]*?from\s+"([^"]+)";/gm),
-			// bare side-effect imports: import "x";
 			...source.matchAll(/^import\s+"([^"]+)";/gm),
 		].map((m) => m[1]);
+		expect(valueImports).toEqual(["ai-credentials/types"]);
+		expect(source).not.toMatch(/\bimport\s*\(/);
+	});
+
+	it("ai-credentials/types/credential-shaping.ts has only local relative imports", () => {
+		// The actual implementation must carry no vscode, AI-SDK, or Node-builtin
+		// dependency. Its only runtime imports should be sibling modules within
+		// the types/ directory (local relative paths starting with "./").
+		const credentialsTypesDir = resolve(HERE, "../../../ai-credentials/src/types");
+		const source = readFileSync(resolve(credentialsTypesDir, "credential-shaping.ts"), "utf-8");
+		const valueImports = [
+			...source.matchAll(/^(?:import|export)\s+(?!type\b)[^;]*?from\s+"([^"]+)";/gm),
+			...source.matchAll(/^import\s+"([^"]+)";/gm),
+		].map((m) => m[1]);
+
+		// All runtime imports must be local relative paths
+		for (const imp of valueImports) {
+			expect(imp).toMatch(/^\.\//);
+		}
+		// Specifically: it imports the URL helper from ./utils
 		expect(valueImports).toEqual(["./utils"]);
-		// dynamic import() would also add a runtime edge
+		// No dynamic imports
 		expect(source).not.toMatch(/\bimport\s*\(/);
 	});
 });

@@ -18,6 +18,7 @@
  */
 
 // Re-export all types unchanged (type-only imports are erased)
+// Credential types sourced from ai-credentials/types via ./types re-exports
 export type {
 	AiToolWithJsonSchema,
 	ApiKeyCredentials,

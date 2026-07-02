@@ -1,55 +1,83 @@
 ---
-title: ai-credential-store Architecture
-description: Architecture of ai-credential-store -- a generic typed single-file KV store with atomic writes, cross-process locking, secure permissions, and file watching.
-package: ai-credential-store
+title: ai-credentials Architecture
+description: Architecture of ai-credentials -- credential types, shaping, and a generic typed single-file KV store with atomic writes, cross-process locking, secure permissions, and file watching.
+package: ai-credentials
 ---
 
-# ai-credential-store Architecture
+# ai-credentials Architecture
 
 ## Overview
 
-`ai-credential-store` is a generic, typed key-value store backed by a single
-JSON file on disk. It is built for small amounts of sensitive data (credentials,
-OAuth tokens, API keys), and its value proposition is the disk-I/O hard parts:
-atomic writes, cross-process locking, secure file permissions, and file
-watching.
+`ai-credentials` provides browser-safe credential types and shaping logic, plus
+a generic typed key-value secret store for disk persistence. It serves as the
+single source of truth for credential interfaces (`ProviderCredentials`,
+`ApiKeyCredentials`, etc.) and the `shapeCredentials()` function that transforms
+raw auth tokens into provider-ready credential objects.
 
 It is a **leaf** package: it imports nothing from `ai-config`,
 `ai-provider-bridge`, or any host application, and the two sibling packages do
-not import it. Its only runtime dependencies are `chokidar` (watching) and
-`proper-lockfile` (cross-process locking). Host applications (e.g. the main
-monorepo's Node auth service) are the consumers.
+not import it (they re-export from it). Its only runtime dependencies are
+`chokidar` (watching) and `proper-lockfile` (cross-process locking), used by the
+`/store` entrypoint. The `/types` entrypoint is fully browser-safe with zero
+platform dependencies.
+
+## Entrypoints
+
+| Entrypoint                | Purpose                                                                           | Browser-safe? |
+| ------------------------- | --------------------------------------------------------------------------------- | ------------- |
+| `ai-credentials`          | Stub root entry (Phase 4: CredentialProvider interface + factory)                 | Yes           |
+| `ai-credentials/types`    | Credential interfaces, `shapeCredentials()`, `AuthProviderMapping`, `Logger`      | **Yes**       |
+| `ai-credentials/store`    | `SingleFileStore` class, `createDefaultStore`, `getDefaultStorePath`, store types | No (Node FS)  |
+| `ai-credentials/positron` | Stub entry (Phase 4: vscode.authentication backend)                               | N/A           |
+
+### `/types` — Browser-safe credential types and shaping
+
+The types entrypoint is the canonical home for credential type definitions and
+the pure `shapeCredentials()` function. It has **no imports** from `vscode`,
+`@ai-sdk/*`, `@aws-sdk/*`, `ai`, Node builtins (`fs`, `path`, `os`),
+`@assistant/*`, `ai-config`, or sibling entrypoints (`../store/`).
+
+```ts
+import type { ProviderCredentials, ApiKeyCredentials } from "ai-credentials/types";
+import { shapeCredentials, CONFIG_KEY_OVERRIDES } from "ai-credentials/types";
+import type { AuthProviderMapping, CredentialConfig, Logger } from "ai-credentials/types";
+import { buildSnowflakeCortexUrl } from "ai-credentials/types";
+```
+
+`ai-provider-bridge` re-exports these types from its own entrypoints, so
+existing consumers of `ai-provider-bridge` continue to work unchanged.
+
+### `/store` — Generic secret store
+
+The store entrypoint provides a typed key-value store backed by a single JSON
+file on disk. It is built for small amounts of sensitive data (credentials,
+OAuth tokens, API keys).
 
 **The store owns where and how bytes hit disk; it does not own credential
 meaning.** OAuth semantics, provider grouping, and auth status stay with the
 caller. Values are fully generic — callers supply their own types via method
-type parameters, so the store has zero knowledge of what it holds.
-
-## Public API
-
-Single entrypoint (`ai-credential-store`), exporting one class, two factory
-helpers, and three types:
+type parameters.
 
 ```ts
-export { SingleFileStore } from "./SingleFileStore";
-export { createDefaultStore, getDefaultStorePath } from "./defaults";
-export type { Disposable, LoggerLike, SingleFileStoreConfig } from "./types";
+import { createDefaultStore, getDefaultStorePath } from "ai-credentials/store";
+import { SingleFileStore } from "ai-credentials/store";
+import type { LoggerLike, Disposable, SingleFileStoreConfig } from "ai-credentials/store";
 ```
 
-### Default path convention
+#### Default path convention
 
 The package owns the canonical default credential store path:
 `~/.posit/genai/auth/data.json`. Consumers that want the standard location use
 the convenience helpers:
 
 ```ts
-import { createDefaultStore, getDefaultStorePath } from "ai-credential-store";
+import { createDefaultStore, getDefaultStorePath } from "ai-credentials/store";
 
 const store = createDefaultStore(logger); // ~/.posit/genai/auth/data.json
 const path = getDefaultStorePath(); // inspect the path
 ```
 
-### Custom path
+#### Custom path
 
 For non-default locations (tests, migration stores pointing at old paths), use
 the `SingleFileStore` constructor directly:
@@ -139,19 +167,30 @@ directories (`0o700`) and an empty `{}` file (`0o600`).
 
 ## Code Layout
 
-| Location                 | What it does                                                                                                                             |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/types.ts`           | `SingleFileStoreConfig`, `LoggerLike` (minimal `debug`/`warn`), `Disposable`                                                             |
-| `src/SingleFileStore.ts` | The store: read/write/lock/watch + private helpers (`writeStore`, `readStore`, `withWriteLock`, `ensureFileExists`, `ensurePermissions`) |
-| `src/defaults.ts`        | `getDefaultStorePath()` and `createDefaultStore()` — canonical default path convention                                                   |
-| `src/index.ts`           | Root entrypoint exports                                                                                                                  |
+| Location                          | What it does                                                                                                                             |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/types/credentials.ts`        | `ApiKeyCredentials`, `OAuthCredentials`, `LocalCredentials`, `AwsCredentials`, `GoogleCloudCredentials`, `ProviderCredentials` union     |
+| `src/types/credential-shaping.ts` | `shapeCredentials()`, `CredentialConfig`, `CONFIG_KEY_OVERRIDES`, `AuthProviderMapping`                                                  |
+| `src/types/logger.ts`             | `Logger` interface (5-method: info, warn, error, debug, trace)                                                                           |
+| `src/types/utils.ts`              | `buildSnowflakeCortexUrl()`, `buildSnowflakeCortexUrlFromHost()` — pure URL helpers                                                      |
+| `src/types/index.ts`              | `/types` entrypoint — re-exports everything from the above                                                                               |
+| `src/store/types.ts`              | `SingleFileStoreConfig`, `LoggerLike` (minimal `debug`/`warn`), `Disposable`                                                             |
+| `src/store/SingleFileStore.ts`    | The store: read/write/lock/watch + private helpers (`writeStore`, `readStore`, `withWriteLock`, `ensureFileExists`, `ensurePermissions`) |
+| `src/store/defaults.ts`           | `getDefaultStorePath()` and `createDefaultStore()` — canonical default path convention                                                   |
+| `src/store/index.ts`              | `/store` entrypoint exports                                                                                                              |
+| `src/index.ts`                    | Root entrypoint (stub for Phase 4)                                                                                                       |
+| `src/positron/index.ts`           | `/positron` entrypoint (stub for Phase 4)                                                                                                |
 
 ## Invariants & Design Decisions
 
-- **Leaf dependency** — no imports from sibling packages or host apps; runtime
-  deps limited to `chokidar` + `proper-lockfile`.
-- **Generic, not opinionated** — types live on `get`/`set`, not the class; the
-  store has no notion of credentials, providers, or schemas.
+- **Leaf dependency** — no imports from sibling packages or host apps.
+- **`/types` is browser-safe** — zero platform, Node, or SDK dependencies. Only
+  local relative imports.
+- **`/store` is Node-only** — uses `fs`, `path`, `os`, `chokidar`, `proper-lockfile`.
+- **`/types` and `/store` do not cross-import** — they are independent entrypoints
+  with no internal dependency edges.
+- **Generic, not opinionated** — store types live on `get`/`set`, not the class;
+  the store has no notion of credentials, providers, or schemas.
 - **Keys are opaque** — namespacing is a convention, not enforced.
 - **Atomic writes via temp + rename**, PID-suffixed to avoid cross-process
   collisions.

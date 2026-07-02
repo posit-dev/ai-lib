@@ -8,16 +8,16 @@ This file provides guidance to AI agents working in the `ai-lib` repository (Git
 
 The repo is consumed as a **git submodule** (`packages/ai-lib`) by the Posit Assistant monorepo, where all three packages are built from source as workspaces (resolved via `"<pkg>": "*"`), not installed from published tarballs.
 
-| Package               | Purpose                                                                                                                  |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `ai-provider-bridge`  | LLM provider infra: plugin registry, model clients (14 providers), credential abstractions, and a Positron VS Code layer |
-| `ai-config`           | `~/.posit/genai/providers.json` schema, validation, defaults, and the load → enforce → build → watch resolution pipeline |
-| `ai-credential-store` | Generic typed single-file KV store (atomic writes, cross-process locking, secure permissions, file watching)             |
+| Package              | Purpose                                                                                                                  |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `ai-provider-bridge` | LLM provider infra: plugin registry, model clients (14 providers), credential abstractions, and a Positron VS Code layer |
+| `ai-config`          | `~/.posit/genai/providers.json` schema, validation, defaults, and the load → enforce → build → watch resolution pipeline |
+| `ai-credentials`     | Generic typed single-file KV store (atomic writes, cross-process locking, secure permissions, file watching)             |
 
 ### Dependency relationships
 
-- `ai-provider-bridge` depends on `ai-config` (`"ai-config": "*"`, resolves to the workspace) so `ai-config` builds first.
-- `ai-config` and `ai-credential-store` are standalone leaves — neither depends on a sibling.
+- `ai-provider-bridge` depends on `ai-config` and `ai-credentials` (`"ai-config": "*"`, `"ai-credentials": "*"`, resolve to workspaces) so both build first.
+- `ai-config` and `ai-credentials` are standalone leaves — neither depends on a sibling.
 - `ai-config` and `ai-provider-bridge` share a vocabulary (provider IDs, protocols, client kinds), but with **no import edge** between them. A compile-time **shape guard** in `typechecks/` keeps them compatible (see [Shape Guard](#shape-guard-cross-package-vocabulary-compatibility)).
 
 ### Project Structure
@@ -27,7 +27,7 @@ ai-lib/
 ├── packages/
 │   ├── ai-provider-bridge/   # LLM provider infra (esbuild-bundled; vscode peer dep)
 │   ├── ai-config/            # providers.json schema + resolution pipeline (zod)
-│   └── ai-credential-store/  # generic typed single-file KV store
+│   └── ai-credentials/  # generic typed single-file KV store
 ├── typechecks/               # cross-package compile-time shape guards (ai-config ↔ ai-provider-bridge)
 ├── memory-bank/              # repo-wide architectural documentation
 ├── .github/workflows/        # ci.yml, release.yml
@@ -73,11 +73,14 @@ packages/ai-provider-bridge/src/
 | `ai-config/node`                  | The pure entry plus filesystem seams: `loadResolvedProviderCatalog`, `mutateProvidersConfig`, `watchResolvedProviderCatalog`, path constants | Yes          |
 | `ai-config/providers.schema.json` | Generated JSON Schema for editor validation/autocomplete of `providers.json`                                                                 | No           |
 
-**`ai-credential-store`**
+**`ai-credentials`**
 
-| Entrypoint            | What it provides                                                                         |
-| --------------------- | ---------------------------------------------------------------------------------------- |
-| `ai-credential-store` | `SingleFileStore` class plus `SingleFileStoreConfig` / `LoggerLike` / `Disposable` types |
+| Entrypoint                | What it provides                                                                         |
+| ------------------------- | ---------------------------------------------------------------------------------------- |
+| `ai-credentials`          | Stub root entry (Phase 4: CredentialProvider interface + factory)                        |
+| `ai-credentials/types`    | Browser-safe credential types, `shapeCredentials()`, `AuthProviderMapping`, `Logger`     |
+| `ai-credentials/store`    | `SingleFileStore` class plus `SingleFileStoreConfig` / `LoggerLike` / `Disposable` types |
+| `ai-credentials/positron` | Stub entry (Phase 4: vscode.authentication backend)                                      |
 
 ### Key Invariants
 
@@ -101,13 +104,13 @@ npm run format         # oxfmt
 npm run format:check   # oxfmt --check
 ```
 
-Target a single workspace with `-w`, e.g. `npm run build -w ai-provider-bridge`, `npm test -w ai-config`, `npm run check-types -w ai-credential-store`.
+Target a single workspace with `-w`, e.g. `npm run build -w ai-provider-bridge`, `npm test -w ai-config`, `npm run check-types -w ai-credentials`.
 
 Per-package build notes:
 
 - **`ai-provider-bridge`**: `npm run build` runs esbuild bundling + declaration emit; `npm run build:unbundled` is tsc-only (debugging); `npm run watch` runs the esbuild + dts watchers.
 - **`ai-config`**: plain `tsc -p .`, with a `prebuild` that regenerates `providers.schema.json` from the Zod schemas (`npm run generate-schema`).
-- **`ai-credential-store`**: plain `tsc -p .`.
+- **`ai-credentials`**: plain `tsc -p .`. Multi-entrypoint: `/types` (browser-safe credentials + shaping), `/store` (SingleFileStore), `/positron` (stub).
 
 ### Shape Guard (cross-package vocabulary compatibility)
 
@@ -133,7 +136,7 @@ External builds alias `ai-provider-bridge` provider files to their `-external` v
 
 Consumers pick up changes primarily by **updating the git-submodule pin** (gitlink) in the Posit Assistant monorepo — there is no install from a registry.
 
-Separately, a **tag-driven** GitHub Release publishes an `ai-provider-bridge` tarball. Pushing a tag matching `v*` triggers `.github/workflows/release.yml`, which runs `npm ci` -> `npm run build -w ai-provider-bridge` -> `npm pack -w ai-provider-bridge` and creates (or updates) a GitHub Release with the `.tgz` attached. Only `ai-provider-bridge` is packed; `ai-config` and `ai-credential-store` are consumed via the submodule/workspace, not released as tarballs.
+Separately, a **tag-driven** GitHub Release publishes an `ai-provider-bridge` tarball. Pushing a tag matching `v*` triggers `.github/workflows/release.yml`, which runs `npm ci` -> `npm run build -w ai-provider-bridge` -> `npm pack -w ai-provider-bridge` and creates (or updates) a GitHub Release with the `.tgz` attached. Only `ai-provider-bridge` is packed; `ai-config` and `ai-credentials` are consumed via the submodule/workspace, not released as tarballs.
 
 To cut a release (example bumps `ai-provider-bridge` to `0.0.11`):
 
@@ -205,7 +208,7 @@ See `src/custom-headers.ts` for shared utilities.
 
 ## Memory Bank
 
-The `memory-bank/` directory is a **single, repo-wide** documentation set covering all three packages in this monorepo (`ai-provider-bridge`, `ai-config`, `ai-credential-store`). Each file has YAML frontmatter with `title`, `description`, and a `package` field naming which package it documents (so a reader can tell scope at a glance). Read relevant documents before making significant changes:
+The `memory-bank/` directory is a **single, repo-wide** documentation set covering all three packages in this monorepo (`ai-provider-bridge`, `ai-config`, `ai-credentials`). Each file has YAML frontmatter with `title`, `description`, and a `package` field naming which package it documents (so a reader can tell scope at a glance). Read relevant documents before making significant changes:
 
 **`ai-provider-bridge`**
 
@@ -231,7 +234,7 @@ The `memory-bank/` directory is a **single, repo-wide** documentation set coveri
   - The load → enforce → build → watch resolution pipeline
   - File I/O seams (load/mutate/watch) and the bridge vocabulary shape guard
 
-**`ai-credential-store`**
+**`ai-credentials`**
 
 - `./memory-bank/aiCredentialStore.md`
   - The generic typed single-file KV store (`SingleFileStore`)

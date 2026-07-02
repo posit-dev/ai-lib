@@ -4,24 +4,22 @@ A small monorepo of platform-neutral packages that provide the LLM provider infr
 
 ## Packages
 
-| Package                                               | Description                                                                                                              |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| [`ai-provider-bridge`](packages/ai-provider-bridge)   | LLM provider infra: plugin registry, model clients (14 providers), credential abstractions, and a Positron VS Code layer |
-| [`ai-config`](packages/ai-config)                     | `~/.posit/genai/providers.json` schema, validation, defaults, and the load → enforce → build → watch resolution pipeline |
-| [`ai-credential-store`](packages/ai-credential-store) | Generic typed single-file KV store: atomic writes, cross-process locking, secure permissions, file watching              |
+| Package                                             | Description                                                                                                              |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| [`ai-provider-bridge`](packages/ai-provider-bridge) | LLM provider infra: plugin registry, model clients (14 providers), credential abstractions, and a Positron VS Code layer |
+| [`ai-config`](packages/ai-config)                   | `~/.posit/genai/providers.json` schema, validation, defaults, and the load → enforce → build → watch resolution pipeline |
+| [`ai-credentials`](packages/ai-credentials)         | Credential types, shaping, and generic typed single-file KV store (atomic writes, cross-process locking, file watching)  |
 
 ## Dependency graph
 
 ```
-ai-config ──► ai-provider-bridge
+ai-config ──► ai-provider-bridge ◄── ai-credentials
                     ▲
         (host applications depend on these packages, never the reverse)
-
-ai-credential-store   (standalone leaf — no sibling depends on it)
 ```
 
-- `ai-provider-bridge` depends on `ai-config` (`"ai-config": "*"`), so `ai-config` builds first.
-- `ai-config` and `ai-credential-store` are standalone leaves.
+- `ai-provider-bridge` depends on `ai-config` and `ai-credentials` (`"ai-config": "*"`, `"ai-credentials": "*"`), so both build first.
+- `ai-config` and `ai-credentials` are standalone leaves — neither depends on a sibling.
 - `ai-config` and `ai-provider-bridge` share a vocabulary (provider IDs, protocols, client kinds) **without importing each other** — a compile-time [shape guard](typechecks) keeps them compatible.
 
 ## Repository layout
@@ -31,7 +29,7 @@ ai-lib/
 ├── packages/
 │   ├── ai-provider-bridge/   # LLM provider infra (esbuild-bundled; vscode peer dep)
 │   ├── ai-config/            # providers.json schema + resolution pipeline (zod)
-│   └── ai-credential-store/  # generic typed single-file KV store
+│   └── ai-credentials/       # credential types + shaping + generic KV store
 ├── typechecks/               # cross-package compile-time shape guards
 ├── memory-bank/              # repo-wide architectural documentation
 ├── .github/workflows/        # ci.yml, release.yml
@@ -57,7 +55,7 @@ Target a single workspace with `-w`, e.g. `npm run build -w ai-provider-bridge`,
 
 ## Releasing
 
-`ai-provider-bridge` is published as a tag-driven GitHub Release tarball: pushing a `v*` tag triggers `.github/workflows/release.yml`, which builds and `npm pack`s the bridge and attaches the `.tgz`. `ai-config` and `ai-credential-store` are consumed via the submodule/workspace, not released as tarballs. See [`CLAUDE.md`](CLAUDE.md) for the full release procedure.
+`ai-provider-bridge` is published as a tag-driven GitHub Release tarball: pushing a `v*` tag triggers `.github/workflows/release.yml`, which builds and `npm pack`s the bridge and attaches the `.tgz`. `ai-config` and `ai-credentials` are consumed via the submodule/workspace, not released as tarballs. See [`CLAUDE.md`](CLAUDE.md) for the full release procedure.
 
 ## Documentation
 
