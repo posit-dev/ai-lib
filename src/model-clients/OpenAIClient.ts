@@ -58,6 +58,7 @@ export class OpenAIClient implements ModelClient {
 		tools?: Record<string, AiToolWithJsonSchema>;
 		cancellationToken: CancellationToken;
 		thinkingEffort?: string;
+		supportsImages?: boolean;
 		metadata?: {
 			sessionId?: string;
 		};
@@ -95,7 +96,10 @@ export class OpenAIClient implements ModelClient {
 		// Transform tool result images for completions API (doesn't support images in tool results)
 		let messagesToSend = params.messages;
 		if (this.apiMode === "completions" && hasImagesInToolResults(params.messages)) {
-			messagesToSend = transformToolResultImagesForCompletions(params.messages);
+			messagesToSend = transformToolResultImagesForCompletions(
+				params.messages,
+				params.supportsImages ?? false,
+			);
 		}
 
 		// Stream the response

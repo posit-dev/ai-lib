@@ -77,6 +77,7 @@ export class OllamaClient implements ModelClient {
 		cancellationToken: CancellationToken;
 		thinkingEffort?: string;
 		contextLength?: number;
+		supportsImages?: boolean;
 		metadata?: {
 			sessionId?: string;
 		};
@@ -100,7 +101,10 @@ export class OllamaClient implements ModelClient {
 		// Transform tool result images (Ollama's native API has the same limitation)
 		let messagesToSend = params.messages;
 		if (hasImagesInToolResults(params.messages)) {
-			messagesToSend = transformToolResultImagesForCompletions(params.messages);
+			messagesToSend = transformToolResultImagesForCompletions(
+				params.messages,
+				params.supportsImages ?? false,
+			);
 		}
 
 		// Stream the response

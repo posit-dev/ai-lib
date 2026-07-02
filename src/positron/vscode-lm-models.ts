@@ -160,7 +160,7 @@ export async function listVscodeLmModels(
 			maxInputTokens: caps?.maxInputTokens ?? model.maxInputTokens,
 			maxOutputTokens: caps?.maxOutputTokens, // Not available in VS Code API
 			supportsTools: true,
-			supportsImages: true,
+			supportsImages: caps?.supportsImages ?? true,
 			supportedInputMediaTypes: caps?.supportedInputMediaTypes,
 			supportsToolResultImages: caps?.supportsToolResultImages ?? false,
 			supportsWebSearch: false,

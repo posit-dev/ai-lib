@@ -135,6 +135,7 @@ export class PositAiClient implements ModelClient {
 		tools?: Record<string, AiToolWithJsonSchema>;
 		cancellationToken: CancellationToken;
 		thinkingEffort?: string;
+		supportsImages?: boolean;
 		metadata?: {
 			sessionId?: string;
 		};
@@ -257,7 +258,10 @@ export class PositAiClient implements ModelClient {
 			// images in tool results)
 			let messagesToSend = params.messages;
 			if (hasImagesInToolResults(params.messages)) {
-				messagesToSend = transformToolResultImagesForCompletions(params.messages);
+				messagesToSend = transformToolResultImagesForCompletions(
+					params.messages,
+					params.supportsImages ?? false,
+				);
 			}
 
 			const result = streamText({
