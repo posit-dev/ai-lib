@@ -168,6 +168,61 @@ describe("resolveProviderCatalog — invalid merge tolerance", () => {
 	});
 });
 
+describe("resolveProviderCatalog — cross-layer custom completion", () => {
+	it("keeps a lower partial custom source completed by a higher source", () => {
+		const logger = { debug: vi.fn(), warn: vi.fn() };
+		const catalog = resolveProviderCatalog({
+			sources: [
+				// user (higher) supplies the required `type` + baseUrl.
+				source("user", {
+					providers: {
+						custom: { gateway: { type: "openai-compatible", baseUrl: "https://gw.example.com" } },
+					},
+				}),
+				// default (lower) supplies only enabled=false — valid ONLY because
+				// user completes the entry's `type` in the full stack.
+				source("default", { providers: { custom: { gateway: { enabled: false } } } }),
+			],
+			baseline: STANDALONE,
+			envVars: {},
+			logger,
+		});
+
+		const gw = find(catalog, "gateway");
+		expect(gw).toBeDefined();
+		expect(gw?.clientKind).toBe("openai-compatible");
+		expect(gw?.connection.baseUrl).toBe("https://gw.example.com");
+		// The lower layer's intended default (enabled=false) is honored, not lost.
+		expect(gw?.enabled).toBe(false);
+		// Nothing was dropped, so no invalid-source warning.
+		expect(logger.warn).not.toHaveBeenCalled();
+	});
+
+	it("keeps a higher partial custom source completed by a lower source", () => {
+		const logger = { debug: vi.fn(), warn: vi.fn() };
+		const catalog = resolveProviderCatalog({
+			sources: [
+				// enforced (higher) sets only enabled — no `type`.
+				source("enforced", { providers: { custom: { gateway: { enabled: false } } } }),
+				// user (lower) supplies the required `type`.
+				source("user", {
+					providers: { custom: { gateway: { type: "openai-compatible" } } },
+				}),
+			],
+			baseline: STANDALONE,
+			envVars: {},
+			logger,
+		});
+
+		const gw = find(catalog, "gateway");
+		expect(gw).toBeDefined();
+		expect(gw?.clientKind).toBe("openai-compatible");
+		// enforced's enabled=false wins (sealed, above user).
+		expect(gw?.enabled).toBe(false);
+		expect(logger.warn).not.toHaveBeenCalled();
+	});
+});
+
 describe("resolveProviderCatalog — same-kind ordering", () => {
 	it("earlier array entry wins among sources of the same kind (connection + enablement)", () => {
 		const catalog = resolveProviderCatalog({

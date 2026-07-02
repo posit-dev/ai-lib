@@ -119,18 +119,22 @@ export interface ResolveProviderCatalogOptions {
  *   highest precedence, so higher sources win per key. The sealed `enforced`
  *   source is merged **last**, so its keys can never be overridden.
  *   `customHeaders` merge per leaf-key; `allow`/`deny` arrays replace wholesale.
- * - **Enablement:** resolved from the accepted per-source `providers` maps
- *   ordered highest → lowest, preserving "id beats default" within each layer
- *   (see {@link resolveEnabled}). The enforced layer is on top.
+ * - **Enablement:** resolved from the kept per-source `providers` maps ordered
+ *   highest → lowest, preserving "id beats default" within each layer (see
+ *   {@link resolveEnabled}). The enforced layer is on top.
  *
- * **Invalid-source tolerance.** Sources are folded lowest → highest and the
- * accumulated config is validated after each one. A source whose contribution
- * makes the merge structurally invalid (e.g. a relaxed fragment introduces a
- * custom entry with no `type` that no lower source completes) is dropped with
- * a warning; **every other valid source is preserved** — so a valid `host`
- * source is not erased by an invalid `enforced`/`default` overlay above it.
- * Connection and enablement use the identical accepted-source order, so a
- * dropped source never contributes to either.
+ * **Invalid-source tolerance.** Structural validity is a property of the whole
+ * source *set*, not the merge order — a relaxed fragment may legitimately omit
+ * a custom entry's `type` when **any** other source (higher or lower) supplies
+ * it. So the full stack is validated first; a lower `default`/`host` partial
+ * completed by a higher `user` source (and vice versa) stays valid. Only when
+ * the full merge is genuinely invalid (a custom entry no source completes) are
+ * offending **relaxed** overlays dropped one at a time — never the authoritative
+ * `user` source — preferring a single removal that restores validity so an
+ * unrelated valid overlay (e.g. a `host` source below a bad `enforced` overlay,
+ * or a good `enforced` above a bad `default`) is preserved. Connection and
+ * enablement use the identical kept-source order, so a dropped source never
+ * contributes to either.
  */
 export function resolveProviderCatalog(
 	opts: ResolveProviderCatalogOptions,
@@ -141,33 +145,35 @@ export function resolveProviderCatalog(
 	// is stable, so same-kind sources keep their array order (earlier wins).
 	const highestFirst = [...sources].sort((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind]);
 
-	// Fold lowest → highest precedence, validating after each source so the
-	// sealed enforced source (rank 0) is applied last and an individually-bad
-	// overlay is dropped without discarding the other sources.
-	let mergedValid: EnforcedProvidersConfig = {};
-	let resolvedConfig: ProvidersConfig = {};
-	const accepted = new Set<ProviderConfigSource>();
+	// Validate the full stack first. If it's invalid, drop offending relaxed
+	// overlays until it validates (see doc comment).
+	let kept = highestFirst;
+	let resolved = mergeAndValidate(kept);
 
-	for (let i = highestFirst.length - 1; i >= 0; i--) {
-		const source = highestFirst[i];
-		const candidate = mergeConfigFragments(mergedValid, source.config);
-		const parsed = providersConfigSchema.safeParse(candidate);
-		if (parsed.success) {
-			mergedValid = candidate;
-			resolvedConfig = parsed.data;
-			accepted.add(source);
-		} else {
-			logger?.warn(
-				`[ai-config] Config source ${describeSource(source)} produces an invalid merged result: ${formatZodErrors(parsed.error)}. Ignoring this source.`,
-			);
+	while (!resolved.success) {
+		// The `user` source is validated at read time, so it is always valid on
+		// its own and is never dropped; only relaxed overlays are candidates.
+		const relaxedLowestFirst = kept.filter((s) => s.kind !== "user").reverse();
+		if (relaxedLowestFirst.length === 0) {
+			break; // Defensive: user alone always validates.
 		}
+
+		// Prefer a single removal that restores validity (keeps unrelated valid
+		// overlays); otherwise drop the lowest-precedence relaxed overlay and
+		// re-check.
+		const victim =
+			relaxedLowestFirst.find((s) => mergeAndValidate(without(kept, s)).success) ??
+			relaxedLowestFirst[0];
+
+		logger?.warn(
+			`[ai-config] Config source ${describeSource(victim)} produces an invalid merged result: ${formatZodErrors(resolved.error)}. Ignoring this source.`,
+		);
+		kept = without(kept, victim);
+		resolved = mergeAndValidate(kept);
 	}
 
-	// Enablement layers from the accepted sources, in the same highest-first
-	// order used for the merge, so connection and enablement never disagree.
-	const enabledLayers = highestFirst
-		.filter((s) => accepted.has(s))
-		.map<EnablementLayer>((s) => s.config.providers);
+	const resolvedConfig: ProvidersConfig = resolved.success ? resolved.data : {};
+	const enabledLayers = kept.map<EnablementLayer>((s) => s.config.providers);
 
 	return buildCatalog(resolvedConfig, enabledLayers, baseline, { external, logger, envVars });
 }
@@ -175,6 +181,27 @@ export function resolveProviderCatalog(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Fold a highest-first source list from lowest → highest precedence into a
+ * single config and validate it with the full schema.
+ */
+function mergeAndValidate(
+	highestFirst: readonly ProviderConfigSource[],
+): ReturnType<typeof providersConfigSchema.safeParse> {
+	let merged: EnforcedProvidersConfig = {};
+	for (let i = highestFirst.length - 1; i >= 0; i--) {
+		merged = mergeConfigFragments(merged, highestFirst[i].config);
+	}
+	return providersConfigSchema.safeParse(merged);
+}
+
+function without(
+	sources: readonly ProviderConfigSource[],
+	victim: ProviderConfigSource,
+): ProviderConfigSource[] {
+	return sources.filter((s) => s !== victim);
+}
 
 function describeSource(source: ProviderConfigSource): string {
 	return source.label ? `"${source.label}" (${source.kind})` : source.kind;
