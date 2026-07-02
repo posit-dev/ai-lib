@@ -123,13 +123,13 @@ describe("resolveProviderCatalog — sealed enforced overlay", () => {
 	});
 });
 
-describe("resolveProviderCatalog — invalid merge fallback", () => {
-	it("drops overlays and falls back to the user source on invalid merged result", () => {
+describe("resolveProviderCatalog — invalid merge tolerance", () => {
+	it("drops only the offending overlay, keeping other valid sources", () => {
 		const logger = { debug: vi.fn(), warn: vi.fn() };
 		const catalog = resolveProviderCatalog({
 			sources: [
 				// enforced introduces a custom entry with no `type`; no other source
-				// supplies it → merged full-schema validation fails.
+				// supplies it → this source's merge is invalid and it is dropped.
 				source("enforced", { providers: { custom: { "ghost-gw": { enabled: false } } } }),
 				source("user", { providers: { anthropic: { enabled: true } } }),
 			],
@@ -143,5 +143,49 @@ describe("resolveProviderCatalog — invalid merge fallback", () => {
 		expect(find(catalog, "ghost-gw")).toBeUndefined();
 		expect(find(catalog, "anthropic")?.enabled).toBe(true);
 		expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("invalid merged result"));
+	});
+
+	it("an invalid enforced/default source does not erase a valid host source", () => {
+		const logger = { debug: vi.fn(), warn: vi.fn() };
+		const catalog = resolveProviderCatalog({
+			sources: [
+				// Invalid overlay (custom without type) — must be dropped alone.
+				source("enforced", { providers: { custom: { ghost: { enabled: false } } } }),
+				source("user", { providers: {} }),
+				// A valid host source (e.g. Positron authentication.*) sits below
+				// enforced; it must survive the enforced source being dropped.
+				source("host", { providers: { anthropic: { enabled: false } } }),
+			],
+			baseline: STANDALONE,
+			envVars: {},
+			logger,
+		});
+
+		expect(find(catalog, "ghost")).toBeUndefined();
+		// The host source's decision is preserved (user is silent on anthropic).
+		expect(find(catalog, "anthropic")?.enabled).toBe(false);
+		expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("invalid merged result"));
+	});
+});
+
+describe("resolveProviderCatalog — same-kind ordering", () => {
+	it("earlier array entry wins among sources of the same kind (connection + enablement)", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				// Two host sources; the earlier one should win for both connection
+				// and enablement.
+				source("host", {
+					providers: { anthropic: { enabled: true, baseUrl: "https://first.example.com" } },
+				}),
+				source("host", {
+					providers: { anthropic: { enabled: false, baseUrl: "https://second.example.com" } },
+				}),
+			],
+			baseline: STANDALONE,
+			envVars: {},
+		});
+
+		expect(find(catalog, "anthropic")?.connection.baseUrl).toBe("https://first.example.com");
+		expect(find(catalog, "anthropic")?.enabled).toBe(true);
 	});
 });

@@ -126,13 +126,20 @@ export function buildCatalog(
 	options?: {
 		external?: boolean;
 		logger?: LoggerLike;
-		/** Environment variables for non-secret connection overlay (defaults to process.env). */
+		/**
+		 * Environment variables for the non-secret connection overlay. Pure —
+		 * defaults to `{}` (no overlay) when omitted, never `process.env`. Node
+		 * callers inject `process.env` explicitly.
+		 */
 		envVars?: Record<string, string | undefined>;
 	},
 ): readonly ResolvedProvider[] {
 	const providers = mergedConfig.providers;
 	const catalog: ResolvedProvider[] = [];
-	const envVars = options?.envVars ?? process.env;
+	// This builder is part of the PURE entry — never reach for `process.env`
+	// here (a browser/renderer/notebooks caller may have no `process`). Node
+	// callers inject `process.env` via the ai-config/node seams.
+	const envVars = options?.envVars ?? {};
 
 	// 1. Built-in providers
 	for (const id of BUILTIN_PROVIDER_IDS) {

@@ -47,11 +47,11 @@ export { GENAI_CONFIG_DIR, PROVIDERS_CONFIG_PATH } from "./paths";
 export { loadResolvedProviderCatalog } from "./load-catalog";
 
 // --- Source assembly (file + env fragments → ProviderConfigSource[]) -------
-export { loadConfigSources, readEnvFragment, readFileConfig } from "./load-config";
+// The deep seam is `loadConfigSources` + `resolveProviderCatalog`; the raw
+// file/env readers stay internal so callers can't recreate source-assembly or
+// fallback policy outside ai-config.
+export { loadConfigSources } from "./load-config";
 export type { LoadConfigSourcesOptions } from "./load-config";
-
-// --- Env var names ---------------------------------------------------------
-export { DEFAULT_ENV_VAR, ENFORCED_ENV_VAR } from "./paths";
 
 // --- Write seam ------------------------------------------------------------
 export { mutateProvidersConfig } from "./mutate-config";

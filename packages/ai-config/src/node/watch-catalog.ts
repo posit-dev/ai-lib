@@ -77,7 +77,9 @@ export function watchResolvedProviderCatalog(
 				sources,
 				baseline: opts.baseline,
 				external: opts.external,
-				envVars: opts.envVars,
+				// Node seam: inject the resolved env (process.env by default) so
+				// the pure resolver stays free of Node globals.
+				envVars: env,
 				logger,
 			});
 

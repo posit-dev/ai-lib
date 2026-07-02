@@ -80,7 +80,9 @@ export interface ProviderConfigSource {
 export interface ResolveProviderCatalogOptions {
 	/**
 	 * The config sources to fold, in any order. The resolver sorts them by
-	 * `kind` rank — array position does not matter.
+	 * `kind` rank, so precedence between *different* kinds is independent of
+	 * array position. Among sources of the **same** kind, the sort is stable —
+	 * the earlier array entry takes precedence.
 	 */
 	readonly sources: readonly ProviderConfigSource[];
 
@@ -93,7 +95,10 @@ export interface ResolveProviderCatalogOptions {
 	/**
 	 * Environment variables for the non-secret connection overlay.
 	 * Env vars have highest precedence: env > file > defaults.
-	 * Defaults to `process.env` inside the builder when omitted.
+	 *
+	 * This is a **pure** function: when omitted it defaults to `{}` (no env
+	 * overlay), never `process.env`. Node callers that want the process
+	 * environment inject it explicitly (the `ai-config/node` seams do).
 	 */
 	readonly envVars?: Record<string, string | undefined>;
 
@@ -114,54 +119,66 @@ export interface ResolveProviderCatalogOptions {
  *   highest precedence, so higher sources win per key. The sealed `enforced`
  *   source is merged **last**, so its keys can never be overridden.
  *   `customHeaders` merge per leaf-key; `allow`/`deny` arrays replace wholesale.
- * - **Enablement:** resolved from the per-source `providers` maps ordered
- *   highest → lowest, preserving "id beats default" within each layer (see
- *   {@link resolveEnabled}). The enforced layer is on top.
+ * - **Enablement:** resolved from the accepted per-source `providers` maps
+ *   ordered highest → lowest, preserving "id beats default" within each layer
+ *   (see {@link resolveEnabled}). The enforced layer is on top.
  *
- * If the merged config is structurally invalid (e.g. an enforced/default
- * fragment introduces a custom entry with no `type` that no other source
- * supplies), the overlays are dropped with a warning and the catalog falls
- * back to the validated `user` source alone.
+ * **Invalid-source tolerance.** Sources are folded lowest → highest and the
+ * accumulated config is validated after each one. A source whose contribution
+ * makes the merge structurally invalid (e.g. a relaxed fragment introduces a
+ * custom entry with no `type` that no lower source completes) is dropped with
+ * a warning; **every other valid source is preserved** — so a valid `host`
+ * source is not erased by an invalid `enforced`/`default` overlay above it.
+ * Connection and enablement use the identical accepted-source order, so a
+ * dropped source never contributes to either.
  */
 export function resolveProviderCatalog(
 	opts: ResolveProviderCatalogOptions,
 ): readonly ResolvedProvider[] {
 	const { sources, baseline, external, envVars, logger } = opts;
 
-	// Order sources by precedence rank (highest precedence first).
+	// Order sources by precedence rank (highest precedence first). Array.sort
+	// is stable, so same-kind sources keep their array order (earlier wins).
 	const highestFirst = [...sources].sort((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind]);
 
-	// Fold configs lowest → highest precedence so higher sources win per key
-	// and the sealed enforced source (rank 0) is applied last.
-	let merged: EnforcedProvidersConfig = {};
+	// Fold lowest → highest precedence, validating after each source so the
+	// sealed enforced source (rank 0) is applied last and an individually-bad
+	// overlay is dropped without discarding the other sources.
+	let mergedValid: EnforcedProvidersConfig = {};
+	let resolvedConfig: ProvidersConfig = {};
+	const accepted = new Set<ProviderConfigSource>();
+
 	for (let i = highestFirst.length - 1; i >= 0; i--) {
-		merged = mergeConfigFragments(merged, highestFirst[i].config);
+		const source = highestFirst[i];
+		const candidate = mergeConfigFragments(mergedValid, source.config);
+		const parsed = providersConfigSchema.safeParse(candidate);
+		if (parsed.success) {
+			mergedValid = candidate;
+			resolvedConfig = parsed.data;
+			accepted.add(source);
+		} else {
+			logger?.warn(
+				`[ai-config] Config source ${describeSource(source)} produces an invalid merged result: ${formatZodErrors(parsed.error)}. Ignoring this source.`,
+			);
+		}
 	}
 
-	// Validate the merged result with the full schema. A relaxed fragment
-	// (custom entry `type` optional) can merge into an invalid full config.
-	const parsed = providersConfigSchema.safeParse(merged);
-	if (parsed.success) {
-		const enabledLayers = highestFirst.map<EnablementLayer>((s) => s.config.providers);
-		return buildCatalog(parsed.data, enabledLayers, baseline, { external, logger, envVars });
-	}
+	// Enablement layers from the accepted sources, in the same highest-first
+	// order used for the merge, so connection and enablement never disagree.
+	const enabledLayers = highestFirst
+		.filter((s) => accepted.has(s))
+		.map<EnablementLayer>((s) => s.config.providers);
 
-	logger?.warn(
-		`[ai-config] Config sources produce an invalid merged result: ${formatZodErrors(parsed.error)}. Ignoring enforced/default overlays.`,
-	);
-
-	// Fall back to the user source alone (already validated at read time).
-	const userSource = highestFirst.find((s) => s.kind === "user");
-	const userConfig = userSource?.config ?? {};
-	const userParsed = providersConfigSchema.safeParse(userConfig);
-	const fallbackConfig: ProvidersConfig = userParsed.success ? userParsed.data : {};
-	const fallbackLayers: EnablementLayer[] = userSource ? [userSource.config.providers] : [];
-	return buildCatalog(fallbackConfig, fallbackLayers, baseline, { external, logger, envVars });
+	return buildCatalog(resolvedConfig, enabledLayers, baseline, { external, logger, envVars });
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function describeSource(source: ProviderConfigSource): string {
+	return source.label ? `"${source.label}" (${source.kind})` : source.kind;
+}
 
 function formatZodErrors(error: { issues: Array<{ message: string; path?: unknown[] }> }): string {
 	return error.issues.map((i) => `${i.path?.join(".") ?? ""}: ${i.message}`).join("; ");

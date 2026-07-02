@@ -37,11 +37,15 @@ import type { LoadCatalogOptions } from "./types";
 export async function loadResolvedProviderCatalog(
 	opts: LoadCatalogOptions,
 ): Promise<readonly ResolvedProvider[]> {
+	// This is the node seam — inject `process.env` so the pure resolver stays
+	// free of Node globals while node callers keep env-based overrides.
+	const env = opts.envVars ?? process.env;
+
 	const sources = await loadConfigSources({
 		configPath: opts.configPath,
 		enforcedEnvVar: opts.enforcedEnvVar,
 		defaultEnvVar: opts.defaultEnvVar,
-		env: opts.envVars,
+		env,
 		logger: opts.logger,
 	});
 
@@ -49,7 +53,7 @@ export async function loadResolvedProviderCatalog(
 		sources,
 		baseline: opts.baseline,
 		external: opts.external,
-		envVars: opts.envVars,
+		envVars: env,
 		logger: opts.logger,
 	});
 }
