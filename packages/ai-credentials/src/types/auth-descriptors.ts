@@ -13,6 +13,12 @@
  * to preserve the no-import-edge boundary. A compile-time shape guard in
  * `ai-lib/typechecks/` asserts that the keys cover `CLIENT_KIND_VALUES`.
  *
+ * Single source of truth: `CUSTOM_CLIENT_KIND_AUTH_DESCRIPTORS` is a const
+ * object keyed by the supported custom client kinds with `satisfies` ensuring
+ * every tuple value has a mapping. The Map, Set, and tuple are all derived
+ * from it, so adding a kind to the tuple without a descriptor (or vice versa)
+ * is a compile error.
+ *
  * Moved here from node's ProviderCatalogService so that standalone consumers
  * (Notebooks) can resolve custom-provider credentials without @assistant/*.
  */
@@ -51,23 +57,35 @@ export const SUPPORTED_CUSTOM_CLIENT_KIND_VALUES = [
 	"ms-foundry",
 ] as const;
 
+/** Union of supported custom client kind string literals. */
+type SupportedCustomClientKind = (typeof SUPPORTED_CUSTOM_CLIENT_KIND_VALUES)[number];
+
+/**
+ * Authoritative mapping from supported custom client kinds to auth metadata.
+ *
+ * `satisfies Record<SupportedCustomClientKind, CustomAuthMapping>` ensures
+ * every tuple value has an entry and every entry is a valid tuple value —
+ * omissions or typos are compile errors.
+ */
+const CUSTOM_CLIENT_KIND_AUTH_DESCRIPTORS = {
+	"openai-compatible": { authMethodId: "apikey", apiKeyOptional: true },
+	aws: { authMethodId: "aws-credentials", apiKeyOptional: false },
+	snowflake: { authMethodId: "apikey", apiKeyOptional: false },
+	"google-vertex": { authMethodId: "google-cloud", apiKeyOptional: false },
+	ollama: { authMethodId: "local", apiKeyOptional: false },
+	lmstudio: { authMethodId: "local", apiKeyOptional: false },
+	deepseek: { authMethodId: "apikey", apiKeyOptional: false },
+	openrouter: { authMethodId: "apikey", apiKeyOptional: false },
+	"ms-foundry": { authMethodId: "apikey", apiKeyOptional: false },
+} as const satisfies Record<SupportedCustomClientKind, CustomAuthMapping>;
+
 /**
  * Map from `clientKind` string values to auth metadata for custom providers.
+ * Derived from `CUSTOM_CLIENT_KIND_AUTH_DESCRIPTORS`.
  */
-export const CUSTOM_CLIENT_KIND_AUTH_MAP: ReadonlyMap<string, CustomAuthMapping> = new Map<
-	string,
-	CustomAuthMapping
->([
-	["openai-compatible", { authMethodId: "apikey", apiKeyOptional: true }],
-	["aws", { authMethodId: "aws-credentials", apiKeyOptional: false }],
-	["snowflake", { authMethodId: "apikey", apiKeyOptional: false }],
-	["google-vertex", { authMethodId: "google-cloud", apiKeyOptional: false }],
-	["ollama", { authMethodId: "local", apiKeyOptional: false }],
-	["lmstudio", { authMethodId: "local", apiKeyOptional: false }],
-	["deepseek", { authMethodId: "apikey", apiKeyOptional: false }],
-	["openrouter", { authMethodId: "apikey", apiKeyOptional: false }],
-	["ms-foundry", { authMethodId: "apikey", apiKeyOptional: false }],
-]);
+export const CUSTOM_CLIENT_KIND_AUTH_MAP: ReadonlyMap<string, CustomAuthMapping> = new Map(
+	Object.entries(CUSTOM_CLIENT_KIND_AUTH_DESCRIPTORS),
+);
 
 /**
  * Client kinds supported as custom provider `type` values (as a Set for
