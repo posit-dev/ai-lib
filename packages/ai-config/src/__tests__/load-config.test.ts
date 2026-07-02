@@ -300,6 +300,64 @@ describe("loadResolvedProviderCatalog", () => {
 	});
 
 	// ========================================================================
+	// Default env layer (POSIT_AI_PROVIDERS_DEFAULT)
+	// ========================================================================
+
+	describe("default env layer", () => {
+		it("default layer applies when user file is silent", async () => {
+			const configPath = await writeConfig(tempDir, {});
+
+			vi.stubEnv("TEST_DEFAULT", JSON.stringify({ providers: { default: { enabled: false } } }));
+
+			const catalog = await loadResolvedProviderCatalog({
+				baseline: STANDALONE_BASELINE,
+				configPath,
+				defaultEnvVar: "TEST_DEFAULT",
+				logger: mockLogger,
+			});
+
+			expect(findProvider(catalog, "anthropic")?.enabled).toBe(false);
+		});
+
+		it("user file overrides the default layer", async () => {
+			const configPath = await writeConfig(tempDir, {
+				providers: { anthropic: { enabled: true } },
+			});
+
+			vi.stubEnv("TEST_DEFAULT", JSON.stringify({ providers: { default: { enabled: false } } }));
+
+			const catalog = await loadResolvedProviderCatalog({
+				baseline: STANDALONE_BASELINE,
+				configPath,
+				defaultEnvVar: "TEST_DEFAULT",
+				logger: mockLogger,
+			});
+
+			// user per-provider wins over default's default.enabled=false
+			expect(findProvider(catalog, "anthropic")?.enabled).toBe(true);
+			// openai has no user value → falls through to default layer
+			expect(findProvider(catalog, "openai")?.enabled).toBe(false);
+		});
+
+		it("enforced still wins over the default layer", async () => {
+			const configPath = await writeConfig(tempDir, {});
+
+			vi.stubEnv("TEST_DEFAULT", JSON.stringify({ providers: { anthropic: { enabled: true } } }));
+			vi.stubEnv("TEST_ENFORCED", JSON.stringify({ providers: { anthropic: { enabled: false } } }));
+
+			const catalog = await loadResolvedProviderCatalog({
+				baseline: STANDALONE_BASELINE,
+				configPath,
+				enforcedEnvVar: "TEST_ENFORCED",
+				defaultEnvVar: "TEST_DEFAULT",
+				logger: mockLogger,
+			});
+
+			expect(findProvider(catalog, "anthropic")?.enabled).toBe(false);
+		});
+	});
+
+	// ========================================================================
 	// Client kind mapping (must-fix: id ≠ clientKind for some built-ins)
 	// ========================================================================
 

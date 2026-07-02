@@ -1,0 +1,147 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
+ *--------------------------------------------------------------------------------------------*/
+
+import { describe, expect, it, vi } from "vitest";
+
+import type { ProviderConfigSource } from "../resolve-catalog";
+import { resolveProviderCatalog } from "../resolve-catalog";
+import type { PlatformBaseline, ResolvedProvider } from "../types";
+
+const STANDALONE: PlatformBaseline = { defaultEnabled: true };
+
+function find(catalog: readonly ResolvedProvider[], id: string): ResolvedProvider | undefined {
+	return catalog.find((p) => (p.id as string) === id);
+}
+
+function source(
+	kind: ProviderConfigSource["kind"],
+	config: ProviderConfigSource["config"],
+): ProviderConfigSource {
+	return { kind, config };
+}
+
+describe("resolveProviderCatalog — precedence", () => {
+	it("orders sources by kind, not array position", () => {
+		// Pass sources out of precedence order; result must still honor rank.
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("default", { providers: { anthropic: { enabled: true } } }),
+				source("enforced", { providers: { anthropic: { enabled: false } } }),
+				source("user", { providers: { anthropic: { enabled: true } } }),
+			],
+			baseline: STANDALONE,
+			envVars: {},
+		});
+		expect(find(catalog, "anthropic")?.enabled).toBe(false);
+	});
+
+	it("host sits below user, above default (enablement)", () => {
+		// user disables → wins over host enabling.
+		const c1 = resolveProviderCatalog({
+			sources: [
+				source("user", { providers: { anthropic: { enabled: false } } }),
+				source("host", { providers: { anthropic: { enabled: true } } }),
+			],
+			baseline: STANDALONE,
+			envVars: {},
+		});
+		expect(find(c1, "anthropic")?.enabled).toBe(false);
+
+		// host disables → wins over default enabling.
+		const c2 = resolveProviderCatalog({
+			sources: [
+				source("host", { providers: { openai: { enabled: false } } }),
+				source("default", { providers: { openai: { enabled: true } } }),
+			],
+			baseline: STANDALONE,
+			envVars: {},
+		});
+		expect(find(c2, "openai")?.enabled).toBe(false);
+	});
+
+	it("default layer applies when user/host are silent", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [source("default", { providers: { default: { enabled: false } } })],
+			baseline: STANDALONE,
+			envVars: {},
+		});
+		expect(find(catalog, "anthropic")?.enabled).toBe(false);
+	});
+});
+
+describe("resolveProviderCatalog — sealed enforced overlay", () => {
+	it("enforced connection can never be overridden by lower sources", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("enforced", {
+					providers: { anthropic: { baseUrl: "https://enforced.example.com" } },
+				}),
+				source("user", { providers: { anthropic: { baseUrl: "https://user.example.com" } } }),
+				source("default", {
+					providers: { anthropic: { baseUrl: "https://default.example.com" } },
+				}),
+			],
+			baseline: STANDALONE,
+			envVars: {},
+		});
+		expect(find(catalog, "anthropic")?.connection.baseUrl).toBe("https://enforced.example.com");
+	});
+
+	it("customHeaders enforce per leaf-key (admin-pinned keys non-strippable, user keys kept)", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("enforced", {
+					providers: { anthropic: { customHeaders: { "x-admin": "pinned", "x-team": "admin" } } },
+				}),
+				source("user", {
+					providers: { anthropic: { customHeaders: { "x-team": "user", "x-extra": "ok" } } },
+				}),
+			],
+			baseline: STANDALONE,
+			envVars: {},
+		});
+		expect(find(catalog, "anthropic")?.connection.customHeaders).toEqual({
+			"x-admin": "pinned", // admin-pinned
+			"x-team": "admin", // enforced wins over user's same key
+			"x-extra": "ok", // user's other key preserved
+		});
+	});
+
+	it("allow/deny arrays replace wholesale (never widen)", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("enforced", { providers: { anthropic: { models: { allow: ["only-this"] } } } }),
+				source("user", {
+					providers: { anthropic: { models: { allow: ["a", "b", "c"] } } },
+				}),
+			],
+			baseline: STANDALONE,
+			envVars: {},
+		});
+		expect(find(catalog, "anthropic")?.models?.allow).toEqual(["only-this"]);
+	});
+});
+
+describe("resolveProviderCatalog — invalid merge fallback", () => {
+	it("drops overlays and falls back to the user source on invalid merged result", () => {
+		const logger = { debug: vi.fn(), warn: vi.fn() };
+		const catalog = resolveProviderCatalog({
+			sources: [
+				// enforced introduces a custom entry with no `type`; no other source
+				// supplies it → merged full-schema validation fails.
+				source("enforced", { providers: { custom: { "ghost-gw": { enabled: false } } } }),
+				source("user", { providers: { anthropic: { enabled: true } } }),
+			],
+			baseline: STANDALONE,
+			envVars: {},
+			logger,
+		});
+
+		// 14 built-ins, no custom provider leaked in.
+		expect(catalog.length).toBe(14);
+		expect(find(catalog, "ghost-gw")).toBeUndefined();
+		expect(find(catalog, "anthropic")?.enabled).toBe(true);
+		expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("invalid merged result"));
+	});
+});

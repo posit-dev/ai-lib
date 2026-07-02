@@ -17,57 +17,55 @@ import type {
 	ProvidersMap,
 } from "./types";
 
+/** A single enablement layer — a providers map from one config source. */
+export type EnablementLayer = ProvidersMap | EnforcedProvidersMap | undefined;
+
 /**
- * Resolve the enabled state for a single provider id.
+ * Resolve the enabled state for a single provider id across an ordered stack
+ * of config layers.
  *
- * Precedence (highest wins):
- * 1. Enforced `providers.<id>.enabled`
- * 2. Enforced `providers.default.enabled`
- * 3. User `providers.<id>.enabled`
- * 4. User `providers.default.enabled`
- * 5. Platform baseline per-provider override
- * 6. Platform baseline `defaultEnabled`
+ * `layers` is ordered **highest precedence first**. Within each layer the
+ * per-provider block wins over that layer's `default` block. The first layer
+ * (top-down) that defines an `enabled` value for this provider (directly or
+ * via `default`) wins — a "first defined wins" precedence reduction. Because
+ * the sealed enforced overlay is the top layer, it can never be overridden.
  *
- * The enforced providers map uses a relaxed type where custom entry `type`
- * is optional. Only `enabled` is read here.
+ * The canonical layer order assembled by `resolveProviderCatalog`:
+ * 1. ENFORCED  (sealed — always wins)
+ * 2. user      (providers.json)
+ * 3. host      (Positron authentication.*, transitional)
+ * 4. DEFAULT   (Workbench admin defaults)
+ * then the platform baseline:
+ * 5. baseline per-provider override
+ * 6. baseline `defaultEnabled`
+ *
+ * Enforced/default layers use a relaxed providers map where custom entry
+ * `type` is optional. Only `enabled` is read here.
  */
 export function resolveEnabled(
 	providerId: string,
-	userProviders: ProvidersMap | undefined,
-	enforcedProviders: ProvidersMap | EnforcedProvidersMap | undefined,
+	layers: readonly EnablementLayer[],
 	baseline: PlatformBaseline,
 ): boolean {
-	// 1. Enforced per-provider
-	const enforcedBlock = getProviderBlock(enforcedProviders, providerId);
-	if (enforcedBlock?.enabled !== undefined) {
-		return enforcedBlock.enabled;
+	for (const layer of layers) {
+		// Per-provider block wins over the layer's default block.
+		const block = getProviderBlock(layer, providerId);
+		if (block?.enabled !== undefined) {
+			return block.enabled;
+		}
+		const layerDefault = getDefaultBlock(layer);
+		if (layerDefault?.enabled !== undefined) {
+			return layerDefault.enabled;
+		}
 	}
 
-	// 2. Enforced default
-	const enforcedDefault = getDefaultBlock(enforcedProviders);
-	if (enforcedDefault?.enabled !== undefined) {
-		return enforcedDefault.enabled;
-	}
-
-	// 3. User per-provider
-	const userBlock = getProviderBlock(userProviders, providerId);
-	if (userBlock?.enabled !== undefined) {
-		return userBlock.enabled;
-	}
-
-	// 4. User default
-	const userDefault = getDefaultBlock(userProviders);
-	if (userDefault?.enabled !== undefined) {
-		return userDefault.enabled;
-	}
-
-	// 5. Platform baseline per-provider override
+	// Platform baseline per-provider override.
 	const baselineOverride = baseline.providerOverrides?.[providerId];
 	if (baselineOverride?.enabled !== undefined) {
 		return baselineOverride.enabled;
 	}
 
-	// 6. Platform baseline default
+	// Platform baseline default.
 	return baseline.defaultEnabled;
 }
 

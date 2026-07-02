@@ -241,3 +241,17 @@ export interface PlatformBaseline {
 	/** Per-provider overrides layered over `defaultEnabled`. */
 	readonly providerOverrides?: Readonly<Record<string, { enabled: boolean }>>;
 }
+
+// ---------------------------------------------------------------------------
+// Logger
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal logger interface used by the resolver and node seams. Matches the
+ * subset actually used. Lives in the pure entry so the pure resolver
+ * (`resolveProviderCatalog`) can accept a logger without depending on `./node`.
+ */
+export interface LoggerLike {
+	debug(message: string, ...args: unknown[]): void;
+	warn(message: string, ...args: unknown[]): void;
+}

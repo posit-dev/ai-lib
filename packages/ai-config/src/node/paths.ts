@@ -19,11 +19,20 @@ export const GENAI_CONFIG_DIR = path.join(os.homedir(), ".posit", "genai");
 export const PROVIDERS_CONFIG_PATH = path.join(GENAI_CONFIG_DIR, "providers.json");
 
 /**
- * Environment variable whose value is a JSON fragment of enforced config.
- * When set, the fragment is deep-merged over the user's file with enforced
- * keys winning (arrays replace, objects per-key merge).
+ * Environment variable whose value is a JSON fragment of **enforced** config
+ * — the sealed admin overlay. When set, the fragment deep-merges over every
+ * lower-precedence source with enforced keys winning (arrays replace, objects
+ * per-key merge) and can never be overridden.
  */
-export const ENFORCED_ENV_VAR = "POSIT_GENAI_PROVIDERS_ENFORCED";
+export const ENFORCED_ENV_VAR = "POSIT_AI_PROVIDERS_ENFORCED";
+
+/**
+ * Environment variable whose value is a JSON fragment of **default** config
+ * — Workbench admin defaults. Sits below the user file and host settings, so
+ * a user's `providers.json` (or host `authentication.*`) overrides it. Uses
+ * the same relaxed fragment shape as the enforced overlay.
+ */
+export const DEFAULT_ENV_VAR = "POSIT_AI_PROVIDERS_DEFAULT";
 
 /**
  * Lockfile path used for cross-process safe writes to providers.json.

@@ -276,7 +276,7 @@ export const providersConfigSchema = z
 
 /**
  * Relaxed schema for enforced config fragments. Used to validate the
- * `POSIT_GENAI_PROVIDERS_ENFORCED` env var. Custom provider entries do NOT
+ * `POSIT_AI_PROVIDERS_ENFORCED` env var. Custom provider entries do NOT
  * require the `type` field — full validation happens on the merged result.
  */
 export const enforcedProvidersConfigSchema = z

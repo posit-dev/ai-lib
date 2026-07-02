@@ -43,6 +43,7 @@ export type {
 	DefaultBlock,
 	EnforcedProvidersConfig,
 	EnforcedProvidersMap,
+	LoggerLike,
 	ModelInfoLike,
 	ModelOverride,
 	ModelsBlock,
@@ -68,5 +69,13 @@ export {
 // --- Resolution helpers (public) -------------------------------------------
 export { resolveModels } from "./resolve-models";
 
+// --- Deep resolver seam (owns the precedence stack) ------------------------
+export { resolveProviderCatalog } from "./resolve-catalog";
+export type {
+	ProviderConfigSource,
+	ProviderConfigSourceKind,
+	ResolveProviderCatalogOptions,
+} from "./resolve-catalog";
+
 // --- Enforcement merge -----------------------------------------------------
-export { mergeEnforced } from "./enforce";
+export { mergeConfigFragments, mergeEnforced } from "./enforce";

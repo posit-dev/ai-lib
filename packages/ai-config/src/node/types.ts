@@ -6,12 +6,11 @@
  * Types specific to the node (filesystem) entry of ai-config.
  */
 
-import type {
-	EnforcedProvidersConfig,
-	PlatformBaseline,
-	ProvidersConfig,
-	ResolvedProvider,
-} from "../types";
+import type { ProviderConfigSource } from "../resolve-catalog";
+import type { LoggerLike, PlatformBaseline, ResolvedProvider } from "../types";
+
+// Re-export the pure logger type so node consumers can import it from here.
+export type { LoggerLike } from "../types";
 
 // ---------------------------------------------------------------------------
 // Load options
@@ -31,10 +30,16 @@ export interface LoadCatalogOptions {
 	readonly configPath?: string;
 
 	/**
-	 * Override the enforced env-var name (defaults to POSIT_GENAI_PROVIDERS_ENFORCED).
+	 * Override the enforced env-var name (defaults to POSIT_AI_PROVIDERS_ENFORCED).
 	 * Useful for testing.
 	 */
 	readonly enforcedEnvVar?: string;
+
+	/**
+	 * Override the default env-var name (defaults to POSIT_AI_PROVIDERS_DEFAULT).
+	 * Useful for testing.
+	 */
+	readonly defaultEnvVar?: string;
 
 	/** Optional logger for diagnostics and validation warnings. */
 	readonly logger?: LoggerLike;
@@ -54,7 +59,8 @@ export interface LoadCatalogOptions {
 	readonly external?: boolean;
 
 	/**
-	 * Environment variables for non-secret connection overlay.
+	 * Environment variables for non-secret connection overlay AND for reading
+	 * the enforced/default fragment env vars.
 	 * Env vars have highest precedence: env > file > defaults.
 	 * Defaults to `process.env` when omitted. Useful for testing.
 	 */
@@ -78,7 +84,34 @@ export interface MutateConfigOptions {
  * Options for `watchResolvedProviderCatalog()`.
  */
 export interface WatchCatalogOptions extends LoadCatalogOptions {
-	// Inherits all LoadCatalogOptions fields.
+	/**
+	 * Additional watchable config sources beyond the built-in file + env
+	 * sources (e.g. a Positron `authentication.*` host source from
+	 * `ai-config/positron`). Any source change — file, host, or otherwise —
+	 * rebuilds the catalog and emits a change. Static env sources are read
+	 * once per rebuild and need no change signal.
+	 */
+	readonly additionalSources?: readonly ProviderConfigSourceProvider[];
+}
+
+// ---------------------------------------------------------------------------
+// Watchable config sources
+// ---------------------------------------------------------------------------
+
+/**
+ * A watchable config source contributed to the source-aware catalog watch.
+ *
+ * `read()` produces the source's current fragment (or `undefined` when the
+ * source has nothing to contribute — e.g. an unset env var or missing file).
+ * `watch()` subscribes to change signals; omit it for static sources (env
+ * vars don't change at runtime). Any `onChange` callback triggers a debounced
+ * rebuild of the whole catalog.
+ */
+export interface ProviderConfigSourceProvider {
+	/** Read (or re-read) the current fragment for this source. */
+	read(): ProviderConfigSource | undefined | Promise<ProviderConfigSource | undefined>;
+	/** Subscribe to change signals. Returns a disposable. Optional for static sources. */
+	watch?(onChange: () => void): Disposable;
 }
 
 // ---------------------------------------------------------------------------
@@ -115,34 +148,4 @@ export interface ProviderCatalogChange {
  */
 export interface Disposable {
 	dispose(): void;
-}
-
-// ---------------------------------------------------------------------------
-// Logger
-// ---------------------------------------------------------------------------
-
-/**
- * Minimal logger interface for the node entry. Matches the subset actually used.
- */
-export interface LoggerLike {
-	debug(message: string, ...args: unknown[]): void;
-	warn(message: string, ...args: unknown[]): void;
-}
-
-// ---------------------------------------------------------------------------
-// Internal: enforced config result
-// ---------------------------------------------------------------------------
-
-/**
- * The result of loading and enforcing the providers config.
- * Internal to the catalog builder.
- */
-export interface EnforcedConfig {
-	/** The user's config as written in the file (validated). */
-	readonly userConfig: ProvidersConfig;
-	/** The enforced config from the env var (if any). Custom entries have
-	 * `type` optional; the merged result is re-validated with the full schema. */
-	readonly enforcedConfig: EnforcedProvidersConfig | undefined;
-	/** The final merged config (enforced over user). */
-	readonly mergedConfig: ProvidersConfig;
 }

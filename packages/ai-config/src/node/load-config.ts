@@ -3,68 +3,74 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * Load and enforce providers.json.
+ * Read providers.json + env fragments into an ordered stack of
+ * `ProviderConfigSource`s.
  *
- * Internal building block of `loadResolvedProviderCatalog()`. The catalog is
- * the public read seam; this function need not be exported unless a non-catalog
- * consumer genuinely needs raw enforced config.
+ * Internal building block of `loadResolvedProviderCatalog()` and
+ * `watchResolvedProviderCatalog()`. Precedence is NOT applied here — the pure
+ * `resolveProviderCatalog()` seam owns the merge/precedence. This module only
+ * turns bytes on disk / env vars into validated source fragments.
  */
 
 import { promises as fs } from "fs";
 
-import { mergeEnforced } from "../enforce";
+import type { ProviderConfigSource } from "../resolve-catalog";
 import { enforcedProvidersConfigSchema, providersConfigSchema } from "../schema";
-import type { EnforcedProvidersConfig, ProvidersConfig } from "../types";
-import { ENFORCED_ENV_VAR, PROVIDERS_CONFIG_PATH } from "./paths";
-import type { EnforcedConfig, LoggerLike } from "./types";
+import type { EnforcedProvidersConfig, LoggerLike, ProvidersConfig } from "../types";
+import { DEFAULT_ENV_VAR, ENFORCED_ENV_VAR, PROVIDERS_CONFIG_PATH } from "./paths";
+
+/** Options for assembling the default config sources. */
+export interface LoadConfigSourcesOptions {
+	/** Override the config file path (defaults to ~/.posit/genai/providers.json). */
+	configPath?: string;
+	/** Override the enforced env-var name (defaults to POSIT_AI_PROVIDERS_ENFORCED). */
+	enforcedEnvVar?: string;
+	/** Override the default env-var name (defaults to POSIT_AI_PROVIDERS_DEFAULT). */
+	defaultEnvVar?: string;
+	/** Environment variables to read fragments from (defaults to process.env). */
+	env?: Record<string, string | undefined>;
+	/** Optional logger for diagnostics and validation warnings. */
+	logger?: LoggerLike;
+}
 
 /**
- * Read ~/.posit/genai/providers.json, validate it, apply the env-injected
- * enforced fragment (POSIT_GENAI_PROVIDERS_ENFORCED), and return the
- * **enforced result** (decision #6) — never the raw file.
+ * Assemble the default config sources: the user's `providers.json` file, the
+ * enforced env overlay, and the default env layer.
  *
- * Returns an empty `ProvidersConfig` if the file doesn't exist (valid — a
- * missing file is equivalent to `{}`).
- *
- * Validation warnings are logged but do not throw — the config degrades
- * gracefully to `{}` on errors so consumers are never stranded.
+ * The returned array is unordered with respect to precedence — each source
+ * carries its `kind`, and the resolver ranks them. Env sources are omitted
+ * when their env var is unset or fails to parse/validate (with a warning).
+ * The user (file) source is **always** present so it can serve as the
+ * validated fallback if merged overlays are invalid.
  */
-export async function loadProvidersConfig(opts?: {
-	configPath?: string;
-	enforcedEnvVar?: string;
-	logger?: LoggerLike;
-}): Promise<EnforcedConfig> {
+export async function loadConfigSources(
+	opts?: LoadConfigSourcesOptions,
+): Promise<ProviderConfigSource[]> {
 	const configPath = opts?.configPath ?? PROVIDERS_CONFIG_PATH;
 	const enforcedEnvVar = opts?.enforcedEnvVar ?? ENFORCED_ENV_VAR;
+	const defaultEnvVar = opts?.defaultEnvVar ?? DEFAULT_ENV_VAR;
+	const env = opts?.env ?? process.env;
 	const logger = opts?.logger;
 
-	// 1. Read the file
-	const userConfig = await readAndValidateConfig(configPath, logger);
+	const sources: ProviderConfigSource[] = [];
 
-	// 2. Read the enforced fragment from environment
-	const enforcedConfig = readEnforcedFragment(enforcedEnvVar, logger);
+	// user — the validated providers.json (empty config if missing/invalid).
+	const userConfig = await readFileConfig(configPath, logger);
+	sources.push({ kind: "user", label: configPath, config: userConfig });
 
-	// 3. Merge enforced over user
-	if (!enforcedConfig) {
-		return { userConfig, enforcedConfig: undefined, mergedConfig: userConfig };
+	// enforced — the sealed admin overlay.
+	const enforced = readEnvFragment(enforcedEnvVar, env, logger);
+	if (enforced) {
+		sources.push({ kind: "enforced", label: enforcedEnvVar, config: enforced });
 	}
 
-	const mergeCandidate = mergeEnforced(userConfig, enforcedConfig);
-
-	// 4. Re-validate merged result with the full schema. The enforced
-	// fragment uses a relaxed schema (custom entry `type` optional), so the
-	// merge can produce an invalid config — e.g. a custom entry with no
-	// `type`. Custom-name collision checks also only run on the full schema.
-	// On failure, ignore the enforced fragment and fall back to user config.
-	const mergeResult = providersConfigSchema.safeParse(mergeCandidate);
-	if (!mergeResult.success) {
-		logger?.warn(
-			`[ai-config] Enforced config produces an invalid merged result: ${formatZodErrors(mergeResult.error)}. Ignoring enforced config.`,
-		);
-		return { userConfig, enforcedConfig: undefined, mergedConfig: userConfig };
+	// default — Workbench admin defaults (below user/host).
+	const defaults = readEnvFragment(defaultEnvVar, env, logger);
+	if (defaults) {
+		sources.push({ kind: "default", label: defaultEnvVar, config: defaults });
 	}
 
-	return { userConfig, enforcedConfig, mergedConfig: mergeResult.data };
+	return sources;
 }
 
 // ---------------------------------------------------------------------------
@@ -72,9 +78,11 @@ export async function loadProvidersConfig(opts?: {
 // ---------------------------------------------------------------------------
 
 /**
- * Read and validate the config file. Returns `{}` on missing or invalid file.
+ * Read and validate the config file. Returns `{}` on missing or invalid file
+ * (a missing file is equivalent to an empty config — consumers are never
+ * stranded).
  */
-async function readAndValidateConfig(
+export async function readFileConfig(
 	configPath: string,
 	logger: LoggerLike | undefined,
 ): Promise<ProvidersConfig> {
@@ -114,19 +122,21 @@ async function readAndValidateConfig(
 }
 
 /**
- * Read the enforced fragment from an environment variable.
- * Returns `undefined` if the variable is not set or contains invalid JSON/schema.
+ * Read a config fragment from an environment variable.
+ * Returns `undefined` if the variable is not set or contains invalid
+ * JSON/schema (with a warning).
  *
  * Uses `enforcedProvidersConfigSchema` which relaxes the custom entry `type`
- * field to optional, so an admin can enforce a single key on a custom provider
- * (e.g. `providers.custom.foo.enabled`) without repeating `type`. The merged
- * result is re-validated with the full schema before being returned.
+ * field to optional, so an admin can enforce/default a single key on a custom
+ * provider without repeating `type`. The merged result is re-validated with
+ * the full schema by the resolver.
  */
-function readEnforcedFragment(
+export function readEnvFragment(
 	envVarName: string,
+	env: Record<string, string | undefined>,
 	logger: LoggerLike | undefined,
 ): EnforcedProvidersConfig | undefined {
-	const envValue = process.env[envVarName];
+	const envValue = env[envVarName];
 	if (!envValue) {
 		return undefined;
 	}
@@ -136,17 +146,15 @@ function readEnforcedFragment(
 		parsed = JSON.parse(envValue);
 	} catch (error) {
 		logger?.warn(
-			`[ai-config] Failed to parse ${envVarName} as JSON: ${errorMessage(error)}. Ignoring enforced config.`,
+			`[ai-config] Failed to parse ${envVarName} as JSON: ${errorMessage(error)}. Ignoring.`,
 		);
 		return undefined;
 	}
 
-	// Validate with the relaxed enforced schema (custom entry `type` not
-	// required — the full schema is checked on the merged result)
 	const result = enforcedProvidersConfigSchema.safeParse(parsed);
 	if (!result.success) {
 		logger?.warn(
-			`[ai-config] Validation errors in ${envVarName}: ${formatZodErrors(result.error)}. Ignoring enforced config.`,
+			`[ai-config] Validation errors in ${envVarName}: ${formatZodErrors(result.error)}. Ignoring.`,
 		);
 		return undefined;
 	}

@@ -46,10 +46,17 @@ export { GENAI_CONFIG_DIR, PROVIDERS_CONFIG_PATH } from "./paths";
 // --- Read seam (the single deep read seam) ---------------------------------
 export { loadResolvedProviderCatalog } from "./load-catalog";
 
+// --- Source assembly (file + env fragments → ProviderConfigSource[]) -------
+export { loadConfigSources, readEnvFragment, readFileConfig } from "./load-config";
+export type { LoadConfigSourcesOptions } from "./load-config";
+
+// --- Env var names ---------------------------------------------------------
+export { DEFAULT_ENV_VAR, ENFORCED_ENV_VAR } from "./paths";
+
 // --- Write seam ------------------------------------------------------------
 export { mutateProvidersConfig } from "./mutate-config";
 
-// --- Watch seam (the single watch seam) ------------------------------------
+// --- Watch seam (the single, source-aware watch seam) ----------------------
 export { watchResolvedProviderCatalog } from "./watch-catalog";
 
 // --- Types -----------------------------------------------------------------
@@ -59,5 +66,6 @@ export type {
 	LoggerLike,
 	MutateConfigOptions,
 	ProviderCatalogChange,
+	ProviderConfigSourceProvider,
 	WatchCatalogOptions,
 } from "./types";

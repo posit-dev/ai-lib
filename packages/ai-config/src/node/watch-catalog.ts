@@ -3,32 +3,44 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * Watch providers.json and emit typed change events.
+ * Watch the provider config sources and emit typed change events.
  *
- * This is the **single watch seam** over the file (decisions #7/#8; review
- * suggestion: one watcher, not two). There is no separate `watchProvidersConfig`
- * raw feed — consumers use this catalog watcher and read change categories
+ * This is the **single, source-aware watch seam**. It watches the built-in
+ * sources (the `providers.json` file + the enforced/default env fragments)
+ * and any `additionalSources` (e.g. a Positron `authentication.*` host source
+ * from `ai-config/positron`). Any source change — file edit, host settings
+ * change, etc. — triggers a debounced rebuild of the whole catalog and a
+ * typed change event. Consumers read change categories
  * (`enabled`/`connection`/`models`) off each event.
  */
 
 import * as fs from "fs";
 import * as path from "path";
 
-import type { ResolvedProvider } from "../types";
-import { buildCatalog } from "./build-catalog";
-import { loadProvidersConfig } from "./load-config";
-import { PROVIDERS_CONFIG_PATH } from "./paths";
-import type { Disposable, LoggerLike, ProviderCatalogChange, WatchCatalogOptions } from "./types";
+import type { ProviderConfigSource } from "../resolve-catalog";
+import { resolveProviderCatalog } from "../resolve-catalog";
+import type { LoggerLike, ResolvedProvider } from "../types";
+import { readEnvFragment, readFileConfig } from "./load-config";
+import { DEFAULT_ENV_VAR, ENFORCED_ENV_VAR, PROVIDERS_CONFIG_PATH } from "./paths";
+import type {
+	Disposable,
+	ProviderCatalogChange,
+	ProviderConfigSourceProvider,
+	WatchCatalogOptions,
+} from "./types";
 
 /**
- * Watch providers.json for changes and emit typed `ProviderCatalogChange` events.
+ * Watch the provider config sources for changes and emit typed
+ * `ProviderCatalogChange` events.
  *
- * Uses `fs.watch` with debouncing (300ms) on the parent directory. Handles
- * non-existent paths gracefully by watching ancestor directories and chaining
- * downward as directories are created (mirrors `settingsFileWatcher.ts`).
+ * The file source uses `fs.watch` with debouncing (300ms) on the parent
+ * directory and handles non-existent paths gracefully by watching ancestor
+ * directories and chaining downward as directories are created (mirrors
+ * `settingsFileWatcher.ts`). Env sources are static (read once per rebuild).
  *
- * @param handler - Called with the change event whenever the file changes.
- * @param opts - Platform baseline, optional path/env overrides.
+ * @param handler - Called with the change event whenever any source changes.
+ * @param opts - Platform baseline, optional path/env overrides, and any
+ *   `additionalSources` to fold in.
  * @returns Disposable that stops watching.
  */
 export function watchResolvedProviderCatalog(
@@ -36,113 +48,43 @@ export function watchResolvedProviderCatalog(
 	opts: WatchCatalogOptions,
 ): Disposable {
 	const configPath = opts.configPath ?? PROVIDERS_CONFIG_PATH;
+	const env = opts.envVars ?? process.env;
 	const logger = opts.logger;
-	const filename = path.basename(configPath);
-	const dir = path.dirname(configPath);
+
+	// Assemble the watchable sources: file (watchable) + env fragments
+	// (static) + any host/additional sources.
+	const sourceProviders: ProviderConfigSourceProvider[] = [
+		createFileSourceProvider(configPath, logger),
+		createEnvSourceProvider("enforced", opts.enforcedEnvVar ?? ENFORCED_ENV_VAR, env, logger),
+		createEnvSourceProvider("default", opts.defaultEnvVar ?? DEFAULT_ENV_VAR, env, logger),
+		...(opts.additionalSources ?? []),
+	];
 
 	let debounceTimer: ReturnType<typeof setTimeout> | undefined;
-	let fileWatcher: fs.FSWatcher | undefined;
-	let ancestorWatcher: fs.FSWatcher | undefined;
 	let disposed = false;
 	let previousCatalog: readonly ResolvedProvider[] | undefined;
-
-	// Load initial snapshot
-	void loadAndDiff();
-
-	// ----- Debouncing -----
-
-	const debouncedOnChange = () => {
-		if (disposed) return;
-		if (debounceTimer) clearTimeout(debounceTimer);
-		debounceTimer = setTimeout(() => {
-			debounceTimer = undefined;
-			if (!disposed) void loadAndDiff();
-		}, 300);
-	};
-
-	// ----- File watcher -----
-
-	const startFileWatcher = () => {
-		if (disposed) return;
-		try {
-			fileWatcher = fs.watch(dir, (_eventType, changedFilename) => {
-				if (changedFilename === filename) {
-					debouncedOnChange();
-				}
-			});
-			fileWatcher.on("error", (error) => {
-				logger?.warn(`[ai-config] Watcher error: ${error.message}`);
-			});
-		} catch {
-			logger?.debug(`[ai-config] Cannot watch ${configPath} (directory does not exist)`);
-		}
-	};
-
-	// ----- Ancestor watcher (handles non-existent paths) -----
-
-	const findNearestExistingAncestor = (targetDir: string): string => {
-		let current = targetDir;
-		while (!fs.existsSync(current)) {
-			const parent = path.dirname(current);
-			if (parent === current) return current;
-			current = parent;
-		}
-		return current;
-	};
-
-	const startAncestorWatcher = () => {
-		if (disposed) return;
-
-		if (fs.existsSync(dir)) {
-			startFileWatcher();
-			return;
-		}
-
-		const watchTarget = findNearestExistingAncestor(dir);
-
-		try {
-			ancestorWatcher = fs.watch(watchTarget, (_eventType, changedName) => {
-				if (disposed || !changedName) return;
-
-				if (fs.existsSync(dir)) {
-					ancestorWatcher?.close();
-					ancestorWatcher = undefined;
-					startFileWatcher();
-					debouncedOnChange();
-				} else {
-					ancestorWatcher?.close();
-					ancestorWatcher = undefined;
-					startAncestorWatcher();
-				}
-			});
-			ancestorWatcher.on("error", (error) => {
-				logger?.warn(`[ai-config] Ancestor watcher error: ${error.message}`);
-			});
-		} catch {
-			logger?.debug(`[ai-config] Cannot watch ancestor for ${configPath}`);
-		}
-	};
+	const subscriptions: Disposable[] = [];
 
 	// ----- Load and diff -----
 
-	async function loadAndDiff(): Promise<void> {
+	async function rebuild(): Promise<void> {
+		if (disposed) return;
 		try {
-			const { enforcedConfig, mergedConfig } = await loadProvidersConfig({
-				configPath: opts.configPath,
-				enforcedEnvVar: opts.enforcedEnvVar,
-				logger: opts.logger,
-			});
+			const settled = await Promise.all(sourceProviders.map((p) => p.read()));
+			const sources = settled.filter((s): s is ProviderConfigSource => s !== undefined);
 
-			const newCatalog = buildCatalog(mergedConfig, enforcedConfig?.providers, opts.baseline, {
+			const newCatalog = resolveProviderCatalog({
+				sources,
+				baseline: opts.baseline,
 				external: opts.external,
-				logger: opts.logger,
 				envVars: opts.envVars,
+				logger,
 			});
 
 			const change = diffCatalogs(previousCatalog, newCatalog);
 			previousCatalog = newCatalog;
 
-			// Only fire on actual changes (skip initial load if previousCatalog was undefined)
+			// Only fire on actual changes (skip initial load).
 			if (change) {
 				handler(change);
 			}
@@ -153,15 +95,150 @@ export function watchResolvedProviderCatalog(
 		}
 	}
 
-	// Start watching
-	startAncestorWatcher();
+	const debouncedRebuild = () => {
+		if (disposed) return;
+		if (debounceTimer) clearTimeout(debounceTimer);
+		debounceTimer = setTimeout(() => {
+			debounceTimer = undefined;
+			if (!disposed) void rebuild();
+		}, 300);
+	};
+
+	// Load initial snapshot.
+	void rebuild();
+
+	// Subscribe to change signals from every watchable source.
+	for (const provider of sourceProviders) {
+		if (provider.watch) {
+			subscriptions.push(provider.watch(debouncedRebuild));
+		}
+	}
 
 	return {
 		dispose: () => {
 			disposed = true;
 			if (debounceTimer) clearTimeout(debounceTimer);
-			fileWatcher?.close();
-			ancestorWatcher?.close();
+			for (const sub of subscriptions) {
+				sub.dispose();
+			}
+		},
+	};
+}
+
+// ---------------------------------------------------------------------------
+// Built-in source providers
+// ---------------------------------------------------------------------------
+
+/**
+ * The `providers.json` file as a watchable `user` source. Encapsulates the
+ * `fs.watch` + ancestor-chaining logic so the catalog watcher only sees a
+ * `read()` + `watch(onChange)` pair.
+ */
+function createFileSourceProvider(
+	configPath: string,
+	logger: LoggerLike | undefined,
+): ProviderConfigSourceProvider {
+	const filename = path.basename(configPath);
+	const dir = path.dirname(configPath);
+
+	return {
+		async read(): Promise<ProviderConfigSource> {
+			const config = await readFileConfig(configPath, logger);
+			return { kind: "user", label: configPath, config };
+		},
+
+		watch(onChange: () => void): Disposable {
+			let fileWatcher: fs.FSWatcher | undefined;
+			let ancestorWatcher: fs.FSWatcher | undefined;
+			let watchDisposed = false;
+
+			const startFileWatcher = () => {
+				if (watchDisposed) return;
+				try {
+					fileWatcher = fs.watch(dir, (_eventType, changedFilename) => {
+						if (changedFilename === filename) {
+							onChange();
+						}
+					});
+					fileWatcher.on("error", (error) => {
+						logger?.warn(`[ai-config] Watcher error: ${error.message}`);
+					});
+				} catch {
+					logger?.debug(`[ai-config] Cannot watch ${configPath} (directory does not exist)`);
+				}
+			};
+
+			const findNearestExistingAncestor = (targetDir: string): string => {
+				let current = targetDir;
+				while (!fs.existsSync(current)) {
+					const parent = path.dirname(current);
+					if (parent === current) return current;
+					current = parent;
+				}
+				return current;
+			};
+
+			const startAncestorWatcher = () => {
+				if (watchDisposed) return;
+
+				if (fs.existsSync(dir)) {
+					startFileWatcher();
+					return;
+				}
+
+				const watchTarget = findNearestExistingAncestor(dir);
+
+				try {
+					ancestorWatcher = fs.watch(watchTarget, (_eventType, changedName) => {
+						if (watchDisposed || !changedName) return;
+
+						if (fs.existsSync(dir)) {
+							ancestorWatcher?.close();
+							ancestorWatcher = undefined;
+							startFileWatcher();
+							onChange();
+						} else {
+							ancestorWatcher?.close();
+							ancestorWatcher = undefined;
+							startAncestorWatcher();
+						}
+					});
+					ancestorWatcher.on("error", (error) => {
+						logger?.warn(`[ai-config] Ancestor watcher error: ${error.message}`);
+					});
+				} catch {
+					logger?.debug(`[ai-config] Cannot watch ancestor for ${configPath}`);
+				}
+			};
+
+			startAncestorWatcher();
+
+			return {
+				dispose: () => {
+					watchDisposed = true;
+					fileWatcher?.close();
+					ancestorWatcher?.close();
+				},
+			};
+		},
+	};
+}
+
+/**
+ * An env fragment (`enforced` or `default`) as a static source. Env vars do
+ * not change within a process, so there is no `watch()` — the value is read
+ * fresh on each rebuild triggered by another source.
+ */
+function createEnvSourceProvider(
+	kind: "enforced" | "default",
+	envVarName: string,
+	env: Record<string, string | undefined>,
+	logger: LoggerLike | undefined,
+): ProviderConfigSourceProvider {
+	return {
+		read(): ProviderConfigSource | undefined {
+			const config = readEnvFragment(envVarName, env, logger);
+			return config ? { kind, label: envVarName, config } : undefined;
 		},
 	};
 }

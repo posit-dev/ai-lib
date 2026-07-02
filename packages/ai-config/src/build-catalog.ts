@@ -11,22 +11,22 @@
  * models (those need credentials + a runtime fetcher ai-config cannot hold).
  */
 
-import { PROVIDER_CONNECTION_DEFAULTS } from "../defaults";
-import { resolveEnabled } from "../resolve-enabled";
+import { PROVIDER_CONNECTION_DEFAULTS } from "./defaults";
+import type { EnablementLayer } from "./resolve-enabled";
+import { resolveEnabled } from "./resolve-enabled";
 import type {
 	BuiltinProviderBlock,
 	CustomProviderEntry,
-	EnforcedProvidersMap,
+	LoggerLike,
 	PlatformBaseline,
 	ProvidersConfig,
 	ProvidersMap,
 	ResolvedConnection,
 	ResolvedProvider,
-} from "../types";
-import { mintCustomProviderId } from "../types";
-import { BUILTIN_PROVIDER_IDS } from "../vocabulary";
-import type { BuiltinProviderId, ClientKind } from "../vocabulary";
-import type { LoggerLike } from "./types";
+} from "./types";
+import { mintCustomProviderId } from "./types";
+import { BUILTIN_PROVIDER_IDS } from "./vocabulary";
+import type { BuiltinProviderId, ClientKind } from "./vocabulary";
 
 // ---------------------------------------------------------------------------
 // Non-secret connection env var mappings
@@ -108,16 +108,20 @@ const BUILTIN_CLIENT_KIND = {
 } as const satisfies Record<BuiltinProviderId, ClientKind>;
 
 /**
- * Build the resolved provider catalog from the (already-enforced) config
- * and the platform baseline.
+ * Build the resolved provider catalog from the merged connection config and
+ * an ordered stack of enablement layers.
  *
- * This is the **single deep read seam** (decisions #9/#10) — consumers
- * iterate the result instead of the static registry. Enablement, connection,
- * model policy, and client kind are folded into each `ResolvedProvider`.
+ * This is the **catalog builder** behind `resolveProviderCatalog` — consumers
+ * iterate the result instead of the static registry. Connection, model
+ * policy, and client kind are read from `mergedConfig` (the deep-merged
+ * result where higher-precedence sources win per key). Enablement is resolved
+ * separately from `enabledLayers` (highest precedence first) so the sealed
+ * enforced overlay can never be overridden and per-layer "id beats default"
+ * semantics are preserved.
  */
 export function buildCatalog(
 	mergedConfig: ProvidersConfig,
-	enforcedProviders: EnforcedProvidersMap | undefined,
+	enabledLayers: readonly EnablementLayer[],
 	baseline: PlatformBaseline,
 	options?: {
 		external?: boolean;
@@ -133,7 +137,7 @@ export function buildCatalog(
 	// 1. Built-in providers
 	for (const id of BUILTIN_PROVIDER_IDS) {
 		const block = getBuiltinBlock(providers, id);
-		const enabled = resolveEnabled(id, providers, enforcedProviders, baseline);
+		const enabled = resolveEnabled(id, enabledLayers, baseline);
 		const connection = applyEnvOverlay(id, resolveConnection(id, block), envVars);
 
 		catalog.push({
@@ -158,7 +162,7 @@ export function buildCatalog(
 		} else {
 			for (const [name, entry] of Object.entries(customEntries)) {
 				const customId = mintCustomProviderId(name);
-				const enabled = resolveEnabled(name, providers, enforcedProviders, baseline);
+				const enabled = resolveEnabled(name, enabledLayers, baseline);
 				const connection = resolveConnectionFromBlock(entry);
 
 				catalog.push({

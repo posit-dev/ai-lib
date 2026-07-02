@@ -20,7 +20,7 @@ import type { EnforcedProvidersConfig, ProvidersConfig } from "./types";
  * user config. User keys not present in enforced are preserved.
  *
  * @param user - The user's config from providers.json (validated).
- * @param enforced - The enforced fragment from POSIT_GENAI_PROVIDERS_ENFORCED.
+ * @param enforced - The enforced fragment from POSIT_AI_PROVIDERS_ENFORCED.
  *   Uses `EnforcedProvidersConfig` where custom entry `type` is optional so
  *   admins can enforce individual keys without repeating the full entry.
  * @returns Merged config where enforced keys take precedence.
@@ -30,6 +30,27 @@ export function mergeEnforced(
 	enforced: EnforcedProvidersConfig,
 ): ProvidersConfig {
 	return deepMerge(user, enforced) as ProvidersConfig;
+}
+
+/**
+ * Deep-merge two config fragments, with `override` winning per key.
+ *
+ * Used by `resolveProviderCatalog` to fold an ordered stack of
+ * `ProviderConfigSource`s from lowest → highest precedence into a single
+ * merged config. Because the sealed enforced source is applied last (highest
+ * precedence), its keys can never be overridden. Object fields (e.g.
+ * `customHeaders`) merge per leaf-key; arrays (e.g. `allow`/`deny`) replace
+ * wholesale (v1 semantics).
+ *
+ * Both inputs use the relaxed `EnforcedProvidersConfig` shape so any source
+ * may contribute a partial fragment; the merged result is re-validated with
+ * the full schema by the caller.
+ */
+export function mergeConfigFragments(
+	base: EnforcedProvidersConfig,
+	override: EnforcedProvidersConfig,
+): EnforcedProvidersConfig {
+	return deepMerge(base, override) as EnforcedProvidersConfig;
 }
 
 /**

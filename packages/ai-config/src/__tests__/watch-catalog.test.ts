@@ -8,8 +8,9 @@ import * as path from "path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ProviderCatalogChange } from "../node/types";
+import type { ProviderCatalogChange, ProviderConfigSourceProvider } from "../node/types";
 import { watchResolvedProviderCatalog } from "../node/watch-catalog";
+import type { ProviderConfigSource } from "../resolve-catalog";
 import type { PlatformBaseline, ProvidersConfig } from "../types";
 
 const mockLogger = {
@@ -212,6 +213,56 @@ describe("watchResolvedProviderCatalog", () => {
 		// Only built-in providers should be in the catalog (no custom)
 		expect(lastChange.catalog.length).toBe(14);
 		expect(lastChange.catalog.find((p) => p.id === "my-gateway")).toBeUndefined();
+	});
+
+	it("should rebuild and emit when an additional (host) source changes", async () => {
+		const configPath = path.join(tempDir, "providers.json");
+		await writeConfig(configPath, {});
+
+		// A fake host source (e.g. Positron authentication.*). It starts by
+		// enabling anthropic, then flips to disabling it and fires onChange.
+		let hostConfig: ProviderConfigSource = {
+			kind: "host",
+			label: "test-host",
+			config: { providers: { anthropic: { enabled: true } } },
+		};
+		let fireChange: (() => void) | undefined;
+
+		const hostSource: ProviderConfigSourceProvider = {
+			read: () => hostConfig,
+			watch: (onChange) => {
+				fireChange = onChange;
+				return { dispose: () => {} };
+			},
+		};
+
+		const changes: ProviderCatalogChange[] = [];
+		const watcher = watchResolvedProviderCatalog((change) => changes.push(change), {
+			baseline: STANDALONE_BASELINE,
+			configPath,
+			logger: mockLogger,
+			additionalSources: [hostSource],
+		});
+
+		// Wait for the initial load.
+		await new Promise((resolve) => setTimeout(resolve, 500));
+
+		// Change the host source and signal a change.
+		hostConfig = {
+			kind: "host",
+			label: "test-host",
+			config: { providers: { anthropic: { enabled: false } } },
+		};
+		fireChange?.();
+
+		await new Promise((resolve) => setTimeout(resolve, 600));
+
+		watcher.dispose();
+
+		expect(changes.length).toBeGreaterThanOrEqual(1);
+		const lastChange = changes[changes.length - 1];
+		expect(lastChange.enabledChanged).toBe(true);
+		expect(lastChange.catalog.find((p) => p.id === "anthropic")?.enabled).toBe(false);
 	});
 
 	it("should include the full catalog in change events", async () => {

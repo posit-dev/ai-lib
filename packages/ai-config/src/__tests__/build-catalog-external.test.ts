@@ -4,8 +4,14 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import { buildCatalog } from "../node/build-catalog";
+import { buildCatalog } from "../build-catalog";
+import type { EnablementLayer } from "../resolve-enabled";
 import type { PlatformBaseline, ProvidersConfig } from "../types";
+
+/** Build the highest-first enablement layer stack from a config's providers map. */
+function layersOf(config: ProvidersConfig): EnablementLayer[] {
+	return [config.providers];
+}
 
 const BASELINE: PlatformBaseline = { defaultEnabled: true };
 
@@ -30,7 +36,7 @@ function emptyConfig(): ProvidersConfig {
 
 describe("buildCatalog external mode", () => {
 	it("includes custom providers when external is false", () => {
-		const catalog = buildCatalog(configWithCustom(), undefined, BASELINE, {
+		const catalog = buildCatalog(configWithCustom(), layersOf(configWithCustom()), BASELINE, {
 			external: false,
 		});
 		const customEntry = catalog.find((p) => p.id === "my-gateway");
@@ -40,7 +46,7 @@ describe("buildCatalog external mode", () => {
 
 	it("excludes custom providers when external is true", () => {
 		const logger = { debug: vi.fn(), warn: vi.fn() };
-		const catalog = buildCatalog(configWithCustom(), undefined, BASELINE, {
+		const catalog = buildCatalog(configWithCustom(), layersOf(configWithCustom()), BASELINE, {
 			external: true,
 			logger,
 		});
@@ -53,7 +59,7 @@ describe("buildCatalog external mode", () => {
 
 	it("does not warn when external is true but no custom providers exist", () => {
 		const logger = { debug: vi.fn(), warn: vi.fn() };
-		const catalog = buildCatalog(emptyConfig(), undefined, BASELINE, {
+		const catalog = buildCatalog(emptyConfig(), layersOf(emptyConfig()), BASELINE, {
 			external: true,
 			logger,
 		});
@@ -63,7 +69,7 @@ describe("buildCatalog external mode", () => {
 	});
 
 	it("includes custom providers when options is undefined (default)", () => {
-		const catalog = buildCatalog(configWithCustom(), undefined, BASELINE);
+		const catalog = buildCatalog(configWithCustom(), layersOf(configWithCustom()), BASELINE);
 		const customEntry = catalog.find((p) => p.id === "my-gateway");
 		expect(customEntry).toBeDefined();
 	});
