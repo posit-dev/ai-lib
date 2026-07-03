@@ -28,6 +28,12 @@ const entrypoints = [
 // SDKs are regular dependencies (installed transitively with the package); vscode
 // is a host-provided optional peer. Not inlined because several (e.g. @aws-sdk/*,
 // google-auth-library) bundle poorly.
+//
+// NOTE: the sibling workspaces `ai-config` and `ai-credentials` are deliberately
+// NOT listed here — they are bundled INTO dist (the "bundle-in" distribution
+// decision; see CLAUDE.md > Releasing). This keeps the packed tarball's runtime
+// self-contained without also-packing those packages. Direct/submodule
+// consumers (e.g. Notebooks) still import them from source as workspaces.
 const externalDeps = [
 	"@ai-sdk/amazon-bedrock",
 	"@ai-sdk/anthropic",

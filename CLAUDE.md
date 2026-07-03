@@ -8,11 +8,11 @@ This file provides guidance to AI agents working in the `ai-lib` repository (Git
 
 The repo is consumed as a **git submodule** (`packages/ai-lib`) by the Posit Assistant monorepo, where all three packages are built from source as workspaces (resolved via `"<pkg>": "*"`), not installed from published tarballs.
 
-| Package              | Purpose                                                                                                                  |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `ai-provider-bridge` | LLM provider infra: plugin registry, model clients (14 providers), credential abstractions, and a Positron VS Code layer |
-| `ai-config`          | `~/.posit/genai/providers.json` schema, validation, defaults, and the load → enforce → build → watch resolution pipeline |
-| `ai-credentials`     | Generic typed single-file KV store (atomic writes, cross-process locking, secure permissions, file watching)             |
+| Package              | Purpose                                                                                                                                                                                   |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ai-provider-bridge` | LLM provider infra: plugin registry, model clients (14 providers), credential abstractions, and a Positron VS Code layer                                                                  |
+| `ai-config`          | `~/.posit/genai/providers.json` schema, validation, defaults, and the load → enforce → build → watch resolution pipeline                                                                  |
+| `ai-credentials`     | Credential resolution: browser-safe types/shaping, a generic single-file KV store, the store-backed backend + on-disk format, a vscode backend, and a root resolver (device-flow/refresh) |
 
 ### Dependency relationships
 
@@ -57,13 +57,13 @@ packages/ai-provider-bridge/src/
 
 **`ai-provider-bridge`**
 
-| Entrypoint                              | What it provides                                                                              | vscode dep? |
-| --------------------------------------- | --------------------------------------------------------------------------------------------- | ----------- |
-| `ai-provider-bridge`                    | ProviderRegistry, interfaces, types, cached model fetcher, provider map, LocalProviderManager | No          |
-| `ai-provider-bridge/providers`          | `register*Provider()` functions, all client classes                                           | No          |
-| `ai-provider-bridge/providers-external` | Minimal provider set (Posit AI only, for OSS/external builds)                                 | No          |
-| `ai-provider-bridge/positron`           | PositronCredentialProvider, VscodeLmClient, message conversion utilities                      | **Yes**     |
-| `ai-provider-bridge/credential-shaping` | Pure `shapeCredentials()` + `CredentialConfig` (browser-safe, for Positron's renderer facade) | No          |
+| Entrypoint                              | What it provides                                                                                                                          | vscode dep? |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| `ai-provider-bridge`                    | ProviderRegistry, interfaces, types, cached model fetcher, provider map, LocalProviderManager                                             | No          |
+| `ai-provider-bridge/providers`          | `register*Provider()` functions, all client classes                                                                                       | No          |
+| `ai-provider-bridge/providers-external` | Minimal provider set (Posit AI only, for OSS/external builds)                                                                             | No          |
+| `ai-provider-bridge/positron`           | VscodeLmClient, message conversion utilities (PositronCredentialProvider removed — credentials now resolve via `ai-credentials/positron`) | **Yes**     |
+| `ai-provider-bridge/credential-shaping` | Compat re-export of `ai-credentials/types` (`shapeCredentials()` + `CredentialConfig`); the implementation now lives in `ai-credentials`  | No          |
 
 **`ai-config`**
 
@@ -75,12 +75,13 @@ packages/ai-provider-bridge/src/
 
 **`ai-credentials`**
 
-| Entrypoint                | What it provides                                                                         |
-| ------------------------- | ---------------------------------------------------------------------------------------- |
-| `ai-credentials`          | Stub root entry (Phase 4: CredentialProvider interface + factory)                        |
-| `ai-credentials/types`    | Browser-safe credential types, `shapeCredentials()`, `AuthProviderMapping`, `Logger`     |
-| `ai-credentials/store`    | `SingleFileStore` class plus `SingleFileStoreConfig` / `LoggerLike` / `Disposable` types |
-| `ai-credentials/positron` | Stub entry (Phase 4: vscode.authentication backend)                                      |
+| Entrypoint                     | What it provides                                                                                                                                                                                                                                      | Platform dep? |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| `ai-credentials`               | Root resolver: `CredentialProvider` interface, injected `Backend` seam, `createCredentialProvider()` (root-owned OAuth device-flow + refresh). Imports only `/types` — never `/store`, `vscode`, or an SDK                                            | No            |
+| `ai-credentials/types`         | Browser-safe credential types (`ProviderCredentials`), `shapeCredentials()`, `AuthProviderMapping`, OAuth protocol/runtime types (`DeviceAuthInfo`/`TokenData`), custom-provider `clientKind → authMethodId` descriptors, `storageKeyFor()`, `Logger` | No            |
+| `ai-credentials/store`         | Generic type-parametric `SingleFileStore` (`get<T>`/`set<T>`) plus `SingleFileStoreConfig` / `LoggerLike` / `Disposable` types. No sibling imports (not even `/types`)                                                                                | fs            |
+| `ai-credentials/store-backend` | Store-backed backend (`createStoreBackend`): `StoredProviderCredentials` + tolerant Zod schema (on-disk format), env resolver + `PROVIDER_ENV_MAPPINGS`, `store → env → null` resolution. No `@assistant/*` import                                    | fs            |
+| `ai-credentials/positron`      | vscode.authentication backend (`createPositronBackend` + `createVscodeCredentialConfig`)                                                                                                                                                              | **vscode**    |
 
 ### Key Invariants
 
@@ -88,7 +89,8 @@ packages/ai-provider-bridge/src/
 - No package may depend on a consumer (host) package -- the dependency arrow is one-way inward.
 - `ai-config` splits pure logic (`ai-config`) from filesystem I/O (`ai-config/node`); the pure entry must stay free of Node FS APIs.
 - `ai-config` and `ai-provider-bridge` must not import each other; vocabulary compatibility is enforced by the shape guard.
-- External builds alias `ai-provider-bridge`'s `providers.ts`, `types.ts`, and `local-providers.ts` to `-external` variants (positai only).
+- `ai-credentials`: `/types` stays browser-safe (no `vscode`/SDK/Node-builtins); `/store` imports no sibling; the root never imports `/store` (backends are injected); `/store-backend` never imports `@assistant/*`. `/store-backend` and `/positron` are the platform-bound (fs/vscode) entries.
+- External builds alias `ai-provider-bridge`'s `providers.ts`, `types.ts`, and `local-providers.ts` to `-external` variants (positai only). `ai-credentials`'s `providerEnvMappings.ts` also has a `-external` variant (empty map — positai has no secret env vars), redirected by the consuming app's build config.
 
 ## Key Commands
 
@@ -110,7 +112,7 @@ Per-package build notes:
 
 - **`ai-provider-bridge`**: `npm run build` runs esbuild bundling + declaration emit; `npm run build:unbundled` is tsc-only (debugging); `npm run watch` runs the esbuild + dts watchers.
 - **`ai-config`**: plain `tsc -p .`, with a `prebuild` that regenerates `providers.schema.json` from the Zod schemas (`npm run generate-schema`).
-- **`ai-credentials`**: plain `tsc -p .`. Multi-entrypoint: `/types` (browser-safe credentials + shaping), `/store` (SingleFileStore), `/positron` (stub).
+- **`ai-credentials`**: plain `tsc -p .`. Multi-entrypoint: root (resolver + factory), `/types` (browser-safe credentials + shaping + vocab), `/store` (generic SingleFileStore), `/store-backend` (store-backed backend + disk format), `/positron` (vscode backend). `vscode` is an optional peer (typed via `@types/vscode`); `/positron` never loads outside Positron.
 
 ### Shape Guard (cross-package vocabulary compatibility)
 
@@ -134,9 +136,16 @@ External builds alias `ai-provider-bridge` provider files to their `-external` v
 
 ## Releasing
 
-Consumers pick up changes primarily by **updating the git-submodule pin** (gitlink) in the Posit Assistant monorepo — there is no install from a registry.
+### Distribution model (locked — plan `2026-07-01-0046`, Phase 8)
 
-Separately, a **tag-driven** GitHub Release publishes an `ai-provider-bridge` tarball. Pushing a tag matching `v*` triggers `.github/workflows/release.yml`, which runs `npm ci` -> `npm run build -w ai-provider-bridge` -> `npm pack -w ai-provider-bridge` and creates (or updates) a GitHub Release with the `.tgz` attached. Only `ai-provider-bridge` is packed; `ai-config` and `ai-credentials` are consumed via the submodule/workspace, not released as tarballs.
+**Consumers build all three packages from source as workspaces, pinned via the git submodule.** There is no install from a registry, and `ai-config`/`ai-credentials` are **not** published as tarballs.
+
+- **Notebooks (and any other standalone consumer)** depends on `ai-provider-bridge`, `ai-config`, and `ai-credentials` directly, consuming `ai-lib` as a **git submodule + npm workspace** — the same model the Posit Assistant monorepo uses. It imports nothing from `@assistant/*`. Adding this repo as a submodule and listing the three packages as `"*"` workspace deps is the supported path.
+- **The packed `ai-provider-bridge` tarball bundles-in `ai-config`/`ai-credentials` runtime code** (esbuild inlines them — they are intentionally absent from `esbuild.config.ts`'s `external` list), so the bridge's `dist/` is self-contained at runtime. This is the **bundle-in** decision (not also-pack): the tarball stays bridge-only. Caveat: the tarball still declares `"ai-config": "*"` / `"ai-credentials": "*"` deps and its `.d.ts` files reference those type packages, so the tarball is **not** a standalone registry install — it is a secondary artifact, and direct source/submodule consumption is the supported path.
+
+### Cutting a bridge release
+
+A **tag-driven** GitHub Release publishes the `ai-provider-bridge` tarball. Pushing a tag matching `v*` triggers `.github/workflows/release.yml`, which runs `npm ci` -> `npm run build -w ai-provider-bridge` -> `npm pack -w ai-provider-bridge` and creates (or updates) a GitHub Release with the `.tgz` attached. Only `ai-provider-bridge` is packed (per the bundle-in decision above).
 
 To cut a release (example bumps `ai-provider-bridge` to `0.0.11`):
 
