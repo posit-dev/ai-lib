@@ -24,7 +24,7 @@ import * as vscode from "vscode";
 import type { Backend, OAuthBackendHooks } from "../Backend";
 import type { Disposable } from "../CredentialProvider";
 import type { AuthProviderMapping, CredentialConfig, Logger, ProviderCredentials } from "../types";
-import { CONFIG_KEY_OVERRIDES, shapeCredentials } from "../types";
+import { shapeCredentials } from "../types";
 
 /** A provider-id → auth mapping table (injected from the bridge's PROVIDER_MAP). */
 export type ProviderMap = Readonly<Record<string, AuthProviderMapping | undefined>>;
@@ -38,7 +38,7 @@ export interface PositronBackend extends Backend {
 	oauth?: never;
 	/** Like getCredentials, but prompts the user to sign in when no session exists. */
 	getCredentialsWithPrompt(providerId: string): Promise<ProviderCredentials | null>;
-	/** Dispose the vscode change listeners. */
+	/** Dispose the vscode session-change listener. */
 	dispose(): void;
 }
 
@@ -145,44 +145,18 @@ export function createPositronBackend(options: CreatePositronBackendOptions): Po
 		authToLogical.set(mapping.authProviderId, list);
 	}
 
-	// Config-key -> logical ids, for baseUrl/customHeaders changes on api-key providers.
-	const baseUrlConfigToLogical = new Map<string, string[]>();
-	for (const logicalId of mappedProviderIds) {
-		const mapping = providerMap[logicalId];
-		if (!mapping || mapping.credentialType !== "apikey") continue;
-		const configKey = CONFIG_KEY_OVERRIDES[mapping.authProviderId] ?? mapping.authProviderId;
-		const list = baseUrlConfigToLogical.get(configKey) ?? [];
-		list.push(logicalId);
-		baseUrlConfigToLogical.set(configKey, list);
-	}
-
+	// The emitter fires ONLY on vscode auth session changes (login/logout).
+	//
+	// Connection-config changes (base URL, customHeaders, AWS region, Snowflake
+	// host/account) are NOT signalled here. Those `authentication.*` settings are
+	// folded into the resolved catalog as a `host` source (ai-config/positron), so
+	// the catalog's debounced change event (catalogAdapter.onChange) is their
+	// single source of truth. Wiring them up here too would race that event — the
+	// immediate emitter would fire a refresh against the still-stale catalog
+	// before the debounced rebuild lands.
 	const sessionSub = vscode.authentication.onDidChangeSessions((e) => {
 		const logicalIds = authToLogical.get(e.provider.id);
 		if (logicalIds) emitter.fire(logicalIds);
-	});
-
-	const configSub = vscode.workspace.onDidChangeConfiguration((e) => {
-		for (const [configKey, logicalIds] of baseUrlConfigToLogical) {
-			if (
-				e.affectsConfiguration(`authentication.${configKey}.baseUrl`) ||
-				e.affectsConfiguration(`authentication.${configKey}.customHeaders`)
-			) {
-				emitter.fire(logicalIds);
-			}
-		}
-
-		if (e.affectsConfiguration("authentication.positai.baseUrl") && providerMap.positai) {
-			emitter.fire(["positai"]);
-		}
-		if (e.affectsConfiguration("authentication.aws.credentials") && providerMap.bedrock) {
-			emitter.fire(["bedrock"]);
-		}
-		if (
-			e.affectsConfiguration("authentication.snowflake.credentials") &&
-			providerMap["snowflake-cortex"]
-		) {
-			emitter.fire(["snowflake-cortex"]);
-		}
 	});
 
 	function onDidChangeCredentials(callback: (providerIds: string[]) => void): Disposable {
@@ -191,7 +165,6 @@ export function createPositronBackend(options: CreatePositronBackendOptions): Po
 
 	function dispose(): void {
 		sessionSub.dispose();
-		configSub.dispose();
 		emitter.dispose();
 	}
 

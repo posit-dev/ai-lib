@@ -83,6 +83,15 @@ export interface OAuthBackendHooks {
 	persistError(providerId: string, error: string): Promise<void>;
 
 	/**
+	 * Reset a provider's OAuth record to a clean, unauthenticated, no-error
+	 * state. Called by the root state machine at the start of a fresh device-auth
+	 * attempt (before it returns the new device code) so a retry after a failed
+	 * sign-in doesn't briefly resurface the stale error while the new flow is
+	 * still pending.
+	 */
+	clearError(providerId: string): Promise<void>;
+
+	/**
 	 * Notify the host that a provider's credentials are ready/refreshed. Used to
 	 * trigger model-cache refresh + UI updates. Fire-and-forget.
 	 */

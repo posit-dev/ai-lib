@@ -53,6 +53,9 @@ function makeOAuthHooks(
 			state.error = error;
 			state.tokens = null;
 		},
+		clearError: async (): Promise<void> => {
+			state.error = undefined;
+		},
 		notifyReady: (): void => {
 			state.readyCount += 1;
 		},
@@ -201,6 +204,34 @@ describe("createCredentialProvider — startDeviceAuth", () => {
 	it("rejects when the provider has no device-flow config", async () => {
 		const provider = createCredentialProvider({ backend: makeBackend(async () => null) });
 		await expect(provider.startDeviceAuth("positai")).rejects.toThrow(/not supported/);
+	});
+
+	it("clears a prior error before returning device-code info (retry after failure)", async () => {
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce(
+				okJson({
+					user_code: "WXYZ",
+					verification_uri: "https://auth.test/device",
+					verification_uri_complete: "https://auth.test/device?code=WXYZ",
+					device_code: "dev-123",
+					interval: 1,
+					expires_in: 900,
+				}),
+			)
+			// Any subsequent poll stays pending; we never advance timers here.
+			.mockResolvedValue(errJson(400, { error: "authorization_pending" }));
+		vi.stubGlobal("fetch", fetchMock);
+
+		const hooks = makeOAuthHooks(null);
+		hooks.error = "access_denied"; // stale error from a previous attempt
+		const provider = createCredentialProvider({ backend: makeBackend(async () => null, hooks) });
+
+		await provider.startDeviceAuth("positai");
+
+		// Error must be cleared by the time device-code info is returned, so the
+		// host's immediate auth-status re-read doesn't flash the stale error.
+		expect(hooks.error).toBeUndefined();
 	});
 
 	it("returns device-code info and polls until a token is stored", async () => {

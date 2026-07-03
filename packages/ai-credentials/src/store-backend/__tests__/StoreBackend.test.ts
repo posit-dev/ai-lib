@@ -243,6 +243,25 @@ describe("createStoreBackend", () => {
 			expect(stored?.error).toBe("access_denied");
 		});
 
+		it("clearError resets a prior error record to a clean unauthenticated state", async () => {
+			const backend = createStoreBackend({
+				store,
+				resolveAuthMethod,
+				oauthConfigForProvider,
+				env: {},
+			});
+			const oauth = backend.oauth;
+			if (!oauth) throw new Error("expected oauth hooks");
+
+			await oauth.persistError("positai", "access_denied");
+			await oauth.clearError("positai");
+
+			const stored = await store.get<StoredProviderCredentials>(storageKeyFor("positai", "oauth"));
+			expect(stored?.authenticated).toBe(false);
+			expect(stored?.error).toBeUndefined();
+			expect(await oauth.readTokens("positai")).toBeNull();
+		});
+
 		it("readTokens ignores a record marked authenticated:false with stale tokenData", async () => {
 			// Legacy refresh-failure shape: authenticated flipped to false but
 			// oauthAuth.tokenData left in place. Must NOT be treated as usable.

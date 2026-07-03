@@ -126,8 +126,13 @@ export class OAuthEngine {
 			throw new Error(`OAuth device auth not supported for provider: ${providerId}`);
 		}
 
-		// Note: any stale error is cleared by persistTokens on success (it writes
-		// error: undefined); on failure the polling loop overwrites it.
+		// Clear any stale error/pending state from a prior attempt before we
+		// return the new device code. Otherwise a retry-after-error would
+		// resurface the old error the moment the host re-reads auth status (which
+		// it does immediately after startDeviceAuth returns), before the new
+		// flow's success (persistTokens) or failure (polling) resolves it.
+		await this.hooks.clearError(providerId);
+
 		const authUrl = `https://${config.authHost}/oauth/device/authorize`;
 		const params = new URLSearchParams({ scope: config.scope, client_id: config.clientId });
 

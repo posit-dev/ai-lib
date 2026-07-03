@@ -57,6 +57,12 @@ import type { AuthProviderMapping } from "../../types";
 const PROVIDER_MAP: Record<string, AuthProviderMapping> = {
 	anthropic: { authProviderId: "anthropic-api", scopes: [], credentialType: "apikey" },
 	positai: { authProviderId: "posit-ai", scopes: ["positai"], credentialType: "oauth" },
+	copilot: {
+		authProviderId: "github",
+		scopes: ["read:user"],
+		fallbackScopes: [["read:user", "user:email", "repo", "workflow"], ["user:email"]],
+		credentialType: "apikey",
+	},
 };
 
 const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), trace: vi.fn() };
@@ -126,14 +132,87 @@ describe("createPositronBackend", () => {
 		expect(seen).toEqual([["anthropic"]]);
 	});
 
-	it("fires positai on base URL config change", () => {
-		const backend = createPositronBackend({ logger, providerMap: PROVIDER_MAP });
-		const seen: string[][] = [];
-		backend.onDidChangeCredentials((ids) => seen.push(ids));
+	it("does not subscribe to connection-config changes (the catalog owns those)", () => {
+		configChangeHook.callback = null;
+		createPositronBackend({ logger, providerMap: PROVIDER_MAP });
+		// Connection-config invalidation flows solely through the catalog host
+		// source; wiring it here too would race the debounced catalog rebuild.
+		expect(configChangeHook.callback).toBeNull();
+	});
 
-		configChangeHook.callback?.({
-			affectsConfiguration: (k: string) => k === "authentication.positai.baseUrl",
+	// --- Copilot fallback scopes (ported from the removed bridge auth suite) ---
+
+	it("uses the primary read:user scope for copilot when a session exists there", async () => {
+		mockGetSession.mockImplementation(async (_id: string, scopes: string[]) =>
+			scopes.length === 1 && scopes[0] === "read:user" ? makeSession("primary-gh") : undefined,
+		);
+		const backend = createPositronBackend({ logger, providerMap: PROVIDER_MAP });
+
+		expect(await backend.getCredentials("copilot")).toEqual({
+			type: "apikey",
+			apiKey: "primary-gh",
+			baseUrl: undefined,
+			customHeaders: undefined,
 		});
-		expect(seen).toEqual([["positai"]]);
+		// Primary match short-circuits — no fallback lookups fire.
+		expect(mockGetSession).toHaveBeenCalledTimes(1);
+		expect(mockGetSession).toHaveBeenCalledWith("github", ["read:user"], { silent: true });
+	});
+
+	it("falls back to the aligned scope set for copilot when the primary is missing", async () => {
+		const aligned = ["read:user", "user:email", "repo", "workflow"];
+		mockGetSession.mockImplementation(async (_id: string, scopes: string[]) =>
+			scopes.length === aligned.length && scopes.every((s, i) => s === aligned[i])
+				? makeSession("aligned-gh")
+				: undefined,
+		);
+		const backend = createPositronBackend({ logger, providerMap: PROVIDER_MAP });
+
+		expect(await backend.getCredentials("copilot")).toMatchObject({ apiKey: "aligned-gh" });
+		expect(mockGetSession).toHaveBeenNthCalledWith(1, "github", ["read:user"], { silent: true });
+		expect(mockGetSession).toHaveBeenNthCalledWith(2, "github", aligned, { silent: true });
+	});
+
+	it("falls back to user:email for copilot when neither primary nor aligned exist", async () => {
+		mockGetSession.mockImplementation(async (_id: string, scopes: string[]) =>
+			scopes.length === 1 && scopes[0] === "user:email" ? makeSession("email-gh") : undefined,
+		);
+		const backend = createPositronBackend({ logger, providerMap: PROVIDER_MAP });
+
+		expect(await backend.getCredentials("copilot")).toMatchObject({ apiKey: "email-gh" });
+		// Walked all three scope sets: primary → aligned → user:email.
+		expect(mockGetSession).toHaveBeenCalledTimes(3);
+		expect(mockGetSession).toHaveBeenNthCalledWith(3, "github", ["user:email"], { silent: true });
+	});
+
+	it("returns null for copilot when no GitHub session exists for any scope set", async () => {
+		mockGetSession.mockResolvedValue(undefined);
+		const backend = createPositronBackend({ logger, providerMap: PROVIDER_MAP });
+
+		expect(await backend.getCredentials("copilot")).toBeNull();
+		expect(mockGetSession).toHaveBeenCalledTimes(3);
+	});
+
+	it("returns null when getSession throws (auth provider not registered)", async () => {
+		mockGetSession.mockRejectedValue(new Error("provider not registered"));
+		const backend = createPositronBackend({ logger, providerMap: PROVIDER_MAP });
+		expect(await backend.getCredentials("anthropic")).toBeNull();
+	});
+
+	it("shapes baseUrl and customHeaders read from vscode settings", async () => {
+		mockGetSession.mockResolvedValue(makeSession("sk-ant"));
+		mockGetConfigValue.mockImplementation((key: string) => {
+			if (key === "anthropic.baseUrl") return "https://proxy.example";
+			if (key === "anthropic.customHeaders") return { "x-tenancy": "team-42" };
+			return undefined;
+		});
+		const backend = createPositronBackend({ logger, providerMap: PROVIDER_MAP });
+
+		expect(await backend.getCredentials("anthropic")).toEqual({
+			type: "apikey",
+			apiKey: "sk-ant",
+			baseUrl: "https://proxy.example",
+			customHeaders: { "x-tenancy": "team-42" },
+		});
 	});
 });

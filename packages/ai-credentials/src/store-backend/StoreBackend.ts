@@ -217,6 +217,10 @@ export function createStoreBackend(options: CreateStoreBackendOptions): Backend 
 				await store.set(oauthKey(providerId), { authenticated: false, error });
 			},
 
+			async clearError(providerId: string): Promise<void> {
+				await store.set(oauthKey(providerId), { authenticated: false, error: undefined });
+			},
+
 			notifyReady(providerId: string): void {
 				notifyReady?.(providerId);
 			},
