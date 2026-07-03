@@ -2,7 +2,7 @@
 
 Platform-neutral provider infrastructure for AI model access: registry, model clients, credential abstractions, and provider registration functions, with no dependency on VS Code or Node platform services.
 
-This package is one of three in the [`ai-lib`](../../README.md) monorepo. It depends on its sibling [`ai-config`](../ai-config) for shared vocabulary types (`ResolvedProviderId`, `ClientKind`); the two are kept in sync by a compile-time [shape guard](../../typechecks) rather than a runtime import. It does not depend on `ai-credential-store`.
+This package is one of three in the [`ai-lib`](../../README.md) monorepo. It depends on its sibling [`ai-config`](../ai-config) for shared vocabulary types (`ResolvedProviderId`, `ClientKind`); the two are kept in sync by a compile-time [shape guard](../../typechecks) rather than a runtime import. It also depends on [`ai-credentials`](../ai-credentials) for credential types, shaping, and the `CredentialProvider` interface (a one-directional `bridge → ai-credentials` import) — those moved out of the bridge into `ai-credentials`, so the bridge now re-exports them for existing call sites.
 
 ## Package Boundaries
 
@@ -13,13 +13,13 @@ These rules keep the dependency graph clean:
 
 ## Entrypoints
 
-| Entrypoint                              | What it provides                                                                                                                                     | Heavy deps?           |
-| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
-| `ai-provider-bridge`                    | `ProviderRegistry`, interfaces (`ModelClient`, `CredentialProvider`, `StepLogger`), `createCachedModelFetcher`, provider map, `LocalProviderManager` | No                    |
-| `ai-provider-bridge/providers`          | `register*Provider()` functions, client classes, helpers                                                                                             | Yes (AI SDK packages) |
-| `ai-provider-bridge/providers-external` | Minimal provider set (external/OSS builds -- Posit AI only)                                                                                          | Minimal               |
-| `ai-provider-bridge/positron`           | `PositronCredentialProvider`, `VscodeLmClient`, `listVscodeLmModels()`, `fromAiMessages2()`, LM helpers                                              | Yes (`vscode`)        |
-| `ai-provider-bridge/credential-shaping` | Pure `shapeCredentials()` + `CredentialConfig` + `CONFIG_KEY_OVERRIDES` -- browser-safe (no `vscode`, AI SDK, or node builtins)                      | No                    |
+| Entrypoint                              | What it provides                                                                                                                                                                                                                          | Heavy deps?           |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| `ai-provider-bridge`                    | `ProviderRegistry`, interfaces (`ModelClient`, `CredentialProvider`, `StepLogger`), `createCachedModelFetcher`, provider map, `LocalProviderManager`                                                                                      | No                    |
+| `ai-provider-bridge/providers`          | `register*Provider()` functions, client classes, helpers                                                                                                                                                                                  | Yes (AI SDK packages) |
+| `ai-provider-bridge/providers-external` | Minimal provider set (external/OSS builds -- Posit AI only)                                                                                                                                                                               | Minimal               |
+| `ai-provider-bridge/positron`           | `VscodeLmClient`, `listVscodeLmModels()`, `fromAiMessages2()`, LM helpers, `CONFIG_KEY_OVERRIDES` (**no** `PositronCredentialProvider` — removed; the VS Code auth backend is now `createPositronBackend` from `ai-credentials/positron`) | Yes (`vscode`)        |
+| `ai-provider-bridge/credential-shaping` | Compat re-export of `ai-credentials/types` — `shapeCredentials()` + `CredentialConfig` + `CONFIG_KEY_OVERRIDES` (implementation now lives in `ai-credentials`)                                                                            | No                    |
 
 `./types` and `./local-providers` are also exposed as granular subpath exports (for consumers that want just those modules without pulling the root entrypoint).
 
@@ -448,19 +448,22 @@ const modelService = createModelService({
 
 ### Positron extension (VS Code auth bridge)
 
+Credential resolution moved out of the bridge into `ai-credentials`. The Positron VS Code auth backend is `createPositronBackend` from `ai-credentials/positron`, seeded with the bridge's `PROVIDER_MAP`:
+
 ```ts
-import { ProviderRegistry, MAPPED_PROVIDER_IDS } from "ai-provider-bridge";
+import { ProviderRegistry, MAPPED_PROVIDER_IDS, PROVIDER_MAP } from "ai-provider-bridge";
 import { registerAnthropicProvider } from "ai-provider-bridge/providers";
-import { PositronCredentialProvider } from "ai-provider-bridge/positron";
+import { createPositronBackend } from "ai-credentials/positron";
 
 const registry = new ProviderRegistry(logger);
 registerAnthropicProvider(registry, logger);
 
-const credentialProvider = new PositronCredentialProvider();
+// The Positron credential backend wraps vscode.authentication.
+const credentialBackend = createPositronBackend({ logger, providerMap: PROVIDER_MAP });
 
 // Fetch models for each mapped provider that has credentials
 for (const providerId of MAPPED_PROVIDER_IDS) {
-  const credentials = await credentialProvider.getCredentials(providerId);
+  const credentials = await credentialBackend.getCredentials(providerId);
   if (credentials) {
     const models = await registry.getModelsForProvider(providerId, credentials);
     // ...
@@ -468,7 +471,7 @@ for (const providerId of MAPPED_PROVIDER_IDS) {
 }
 
 // React to credential changes
-credentialProvider.onDidChangeCredentials((providerIds) => {
+credentialBackend.onDidChangeCredentials((providerIds) => {
   for (const id of providerIds) {
     registry.clearModelCache(id);
   }

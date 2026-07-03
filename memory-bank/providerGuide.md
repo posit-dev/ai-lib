@@ -93,7 +93,7 @@ Add an export for the new `register*Provider()` function. Also export the client
 If the provider should be accessible through Positron's auth extension:
 
 1. Add a mapping in `src/provider-map.ts` (`PROVIDER_MAP` and `MAPPED_PROVIDER_IDS`)
-2. Add credential handling in `src/positron/auth.ts` (`PositronCredentialProvider`)
+2. Add credential handling in the Positron auth backend `ai-credentials/src/positron/PositronBackend.ts` (`createPositronBackend`) — credential resolution moved out of the bridge into `ai-credentials` in Phase 7
 
 Do **not** add a Positron auth mapping unless the underlying auth provider actually exists in Positron.
 

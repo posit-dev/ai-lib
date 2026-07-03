@@ -14,12 +14,12 @@ Unless otherwise noted, provider counts below refer to the **internal build**. E
 
 ## Entrypoints
 
-| Entrypoint                              | What it exports                                                                                                                                                                         | vscode dependency? |
-| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
-| `ai-provider-bridge`                    | `ProviderRegistry`, `ModelClient` interface, `StepLogger` interface, `CredentialProvider` interface, `createCachedModelFetcher`, `PROVIDER_MAP`, `MAPPED_PROVIDER_IDS`                  | No                 |
-| `ai-provider-bridge/providers`          | `register*Provider()` functions (14), all model client classes, AI SDK helpers, `openai-compat-fetch`, provider test utilities                                                          | No                 |
-| `ai-provider-bridge/positron`           | `PositronCredentialProvider`, `VscodeLmClient`, `listVscodeLmModels()`, `fromAiMessages2()`, LM helpers, `isProviderId()`, `toProviderId()`                                             | **Yes**            |
-| `ai-provider-bridge/credential-shaping` | `shapeCredentials()`, `CredentialConfig`, `CONFIG_KEY_OVERRIDES` -- pure credential shaping, browser-safe (no vscode, AI SDK, or node builtins); consumed by Positron's renderer facade | No                 |
+| Entrypoint                              | What it exports                                                                                                                                                                                                                                                                      | vscode dependency? |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------ |
+| `ai-provider-bridge`                    | `ProviderRegistry`, `ModelClient` interface, `StepLogger` interface, `CredentialProvider` interface, `createCachedModelFetcher`, `PROVIDER_MAP`, `MAPPED_PROVIDER_IDS`                                                                                                               | No                 |
+| `ai-provider-bridge/providers`          | `register*Provider()` functions (14), all model client classes, AI SDK helpers, `openai-compat-fetch`, provider test utilities                                                                                                                                                       | No                 |
+| `ai-provider-bridge/positron`           | `VscodeLmClient`, `listVscodeLmModels()`, `fromAiMessages2()`, LM helpers, `isProviderId()`, `toProviderId()`, `CONFIG_KEY_OVERRIDES` (**no** `PositronCredentialProvider` — removed in Phase 7; the VS Code auth backend is `createPositronBackend` from `ai-credentials/positron`) | **Yes**            |
+| `ai-provider-bridge/credential-shaping` | `shapeCredentials()`, `CredentialConfig`, `CONFIG_KEY_OVERRIDES` -- pure credential shaping, browser-safe (no vscode, AI SDK, or node builtins); consumed by Positron's renderer facade                                                                                              | No                 |
 
 ## Invariants
 
@@ -30,22 +30,22 @@ Unless otherwise noted, provider counts below refer to the **internal build**. E
 
 ## Code Layout
 
-| Location                           | What it does                                                                                                        | VS Code deps? |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------- |
-| `src/types.ts`                     | `PROVIDER_IDS` tuple (14 internal-build IDs) and `ProviderId` type -- single source of truth for valid provider IDs | No            |
-| `src/providers/`                   | Provider registry, model fetchers, client factories (14 internal-build providers)                                   | No            |
-| `src/model-clients/`               | Chat API clients (Anthropic, OpenAI, Gemini, Bedrock, Snowflake, Copilot SDK, DeepSeek, etc.) via AI SDK            | No            |
-| `src/model-capabilities/`          | Per-provider capability inference helpers (model ID to capabilities mapping)                                        | No            |
-| `src/provider-map.ts`              | `PROVIDER_MAP` and `MAPPED_PROVIDER_IDS` -- maps logical provider IDs to Positron auth provider config              | No            |
-| `src/credential-shaping.ts`        | `shapeCredentials()` -- pure token-to-`ProviderCredentials` shaping over an injected `CredentialConfig`             | No            |
-| `src/custom-headers.ts`            | Header merging/filtering utilities for custom HTTP headers                                                          | No            |
-| `src/positron/auth.ts`             | `PositronCredentialProvider` -- VS Code auth adapter implementing `CredentialProvider`                              | **Yes**       |
-| `src/positron/VscodeLmClient.ts`   | `VscodeLmClient` -- `ModelClient` implementation wrapping `vscode.LanguageModelChat`                                | **Yes**       |
-| `src/positron/vscode-lm-models.ts` | `listVscodeLmModels()`, `toProviderId()`, `isProviderId()`, vendor-to-provider mapping                              | **Yes**       |
-| `src/positron/message-formats.ts`  | `fromAiMessages2()` (AI SDK to VS Code direction), cache control helpers                                            | **Yes**       |
-| `src/positron/lm-helpers.ts`       | Type guards and cache breakpoint helpers for VS Code LM parts                                                       | **Yes**       |
-| `src/positron/utils.ts`            | `ensureUint8Array()` -- binary data normalization for cross-process data                                            | No            |
-| `src/local-providers.ts`           | `LocalProviderManager` class, `LOCAL_PROVIDER_IDS`, DI-based endpoint management (no vscode/node deps)              | No            |
+| Location                                         | What it does                                                                                                                             | VS Code deps? |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| `src/types.ts`                                   | `PROVIDER_IDS` tuple (14 internal-build IDs) and `ProviderId` type -- single source of truth for valid provider IDs                      | No            |
+| `src/providers/`                                 | Provider registry, model fetchers, client factories (14 internal-build providers)                                                        | No            |
+| `src/model-clients/`                             | Chat API clients (Anthropic, OpenAI, Gemini, Bedrock, Snowflake, Copilot SDK, DeepSeek, etc.) via AI SDK                                 | No            |
+| `src/model-capabilities/`                        | Per-provider capability inference helpers (model ID to capabilities mapping)                                                             | No            |
+| `src/provider-map.ts`                            | `PROVIDER_MAP` and `MAPPED_PROVIDER_IDS` -- maps logical provider IDs to Positron auth provider config                                   | No            |
+| `src/credential-shaping.ts`                      | `shapeCredentials()` -- pure token-to-`ProviderCredentials` shaping over an injected `CredentialConfig`                                  | No            |
+| `src/custom-headers.ts`                          | Header merging/filtering utilities for custom HTTP headers                                                                               | No            |
+| `ai-credentials/src/positron/PositronBackend.ts` | `createPositronBackend` -- VS Code auth backend (in `ai-credentials`, not the bridge; replaces the removed `PositronCredentialProvider`) | **Yes**       |
+| `src/positron/VscodeLmClient.ts`                 | `VscodeLmClient` -- `ModelClient` implementation wrapping `vscode.LanguageModelChat`                                                     | **Yes**       |
+| `src/positron/vscode-lm-models.ts`               | `listVscodeLmModels()`, `toProviderId()`, `isProviderId()`, vendor-to-provider mapping                                                   | **Yes**       |
+| `src/positron/message-formats.ts`                | `fromAiMessages2()` (AI SDK to VS Code direction), cache control helpers                                                                 | **Yes**       |
+| `src/positron/lm-helpers.ts`                     | Type guards and cache breakpoint helpers for VS Code LM parts                                                                            | **Yes**       |
+| `src/positron/utils.ts`                          | `ensureUint8Array()` -- binary data normalization for cross-process data                                                                 | No            |
+| `src/local-providers.ts`                         | `LocalProviderManager` class, `LOCAL_PROVIDER_IDS`, DI-based endpoint management (no vscode/node deps)                                   | No            |
 
 ## Provider Inventory
 
@@ -120,5 +120,5 @@ Trade-off: an external / positai-only build still _installs_ every SDK even thou
 
 - **New provider modules, model clients, and capability helpers** go in `src/providers/`, `src/model-clients/`, and `src/model-capabilities/`
 - **New provider IDs** are added to `PROVIDER_IDS` in `src/types.ts`
-- **Positron auth mappings** are added to `PROVIDER_MAP` in `src/provider-map.ts` and `PositronCredentialProvider` in `src/positron/auth.ts`
+- **Positron auth mappings** are added to `PROVIDER_MAP` in `src/provider-map.ts`; the VS Code auth backend that consumes them is `createPositronBackend` in `ai-credentials/positron`
 - **Avoid adding new `vscode` dependencies** to the root entrypoint -- the `/positron` entrypoint is the correct place for VS Code integration

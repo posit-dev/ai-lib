@@ -56,25 +56,29 @@ Re-exports the pure entry, plus:
 
 ## Resolution Pipeline
 
-Config flows through four stages: **load → enforce → build → watch**.
+Config flows through three stages: **assemble sources → resolve → watch**. Precedence lives entirely inside the pure `resolveProviderCatalog({ sources })` seam (`src/resolve-catalog.ts`); the node entry only assembles sources.
 
-1. **Load** (`src/node/load-config.ts`, `loadProvidersConfig()`): read the file
-   (missing → `{}`), parse, validate against `providersConfigSchema`, read the
-   enforced fragment from the `POSIT_GENAI_PROVIDERS_ENFORCED` env var and
-   validate it against the relaxed `enforcedProvidersConfigSchema`. Returns the
-   user config, the enforced config, and the merged config.
-2. **Enforce** (`src/enforce.ts`, `mergeEnforced()`): deep-merge enforced over
-   user — objects merge per-key (enforced wins, user keys preserved), arrays
-   replace wholesale, primitives override. The merged result is re-validated
-   against the full schema.
-3. **Build** (`src/node/build-catalog.ts`, `buildCatalog()`): assemble
-   `ResolvedProvider[]` (built-ins + custom) from the merged config, the
-   enforced providers map, and the platform baseline. Resolves enablement and
-   connection per the precedence ladders below, applies the env-var overlay, and
-   maps each provider to a `clientKind`.
-4. **Build resolved catalog** (`src/node/load-catalog.ts`,
-   `loadResolvedProviderCatalog()`): the public read seam — composes load +
-   build and returns `readonly ResolvedProvider[]`.
+1. **Assemble sources** (`src/node/load-config.ts`): read the file (missing → `{}`,
+   validated against `providersConfigSchema`), the enforced fragment from
+   `POSIT_AI_PROVIDERS_ENFORCED`, and the defaults fragment from
+   `POSIT_AI_PROVIDERS_DEFAULT` (both validated against the relaxed
+   `enforcedProvidersConfigSchema`), plus any `additionalSources` (e.g. a Positron
+   `authentication.*` host source). Each becomes a `ProviderConfigSource` tagged
+   with its `kind` (`enforced` / `user` / `host` / `default`).
+2. **Resolve** (`src/resolve-catalog.ts`, `resolveProviderCatalog()`): rank the
+   sources by kind (`enforced` > `user` > `host` > `default`), fold them low → high
+   so the sealed `enforced` overlay can never be overwritten, apply the
+   `PlatformBaseline` beneath, and build `ResolvedProvider[]` via `build-catalog.ts`.
+   Objects deep-merge per leaf-key (`mergeConfigFragments`), `allow`/`deny` arrays
+   wholesale-replace, and a non-secret env-var overlay applies on top.
+   `loadResolvedProviderCatalog()` (`src/node/load-catalog.ts`) is the public read
+   seam that composes assembly + resolve and returns `readonly ResolvedProvider[]`.
+   (`mergeEnforced` — the two-layer merge — remains exported as a low-level
+   primitive, but the layered resolver is the seam consumers should use.)
+3. **Watch** (`src/node/watch-catalog.ts`, `watchResolvedProviderCatalog()`):
+   source-aware — watches the file via `fs.watch` and subscribes to any
+   `additionalSources`' change signals; **any** source change re-resolves the
+   catalog and emits a typed `ProviderCatalogChange` when something actually changed.
 
 ### Model selection (`resolveModels`)
 
@@ -134,27 +138,28 @@ the bridge's `ModelInfo` — compatible by contract, not by import.
 
 ## Code Layout
 
-| Location                     | What it does                                                                                       |
-| ---------------------------- | -------------------------------------------------------------------------------------------------- |
-| `src/vocabulary.ts`          | Provider-ID / protocol / client-kind / reserved-key value tuples + type guards                     |
-| `src/schema.ts`              | Zod schemas (full + enforced variants) for `providers.json`                                        |
-| `src/types.ts`               | Types inferred from Zod + resolution outputs + branded `CustomProviderId` / `mintCustomProviderId` |
-| `src/defaults.ts`            | Built-in provider connection defaults; `PROVIDER_CONNECTION_DEFAULTS`                              |
-| `src/enforce.ts`             | `mergeEnforced()` deep-merge of enforced over user config                                          |
-| `src/resolve-enabled.ts`     | `resolveEnabled()` enablement precedence ladder                                                    |
-| `src/resolve-connection.ts`  | Internal baseUrl/endpoint resolution precedence                                                    |
-| `src/resolve-models.ts`      | `resolveModels()` model selection + routing pipeline                                               |
-| `src/index.ts`               | Pure entrypoint exports                                                                            |
-| `src/node/paths.ts`          | `GENAI_CONFIG_DIR`, `PROVIDERS_CONFIG_PATH`, enforced env-var name, lockfile path                  |
-| `src/node/types.ts`          | Node seam option/result types (`LoadCatalogOptions`, `ProviderCatalogChange`, `Disposable`, …)     |
-| `src/node/load-config.ts`    | `loadProvidersConfig()` — read, validate, enforce, re-validate                                     |
-| `src/node/build-catalog.ts`  | `buildCatalog()` — assemble `ResolvedProvider[]` from merged config + baseline + env overlay       |
-| `src/node/load-catalog.ts`   | `loadResolvedProviderCatalog()` — public read seam                                                 |
-| `src/node/mutate-config.ts`  | `mutateProvidersConfig()` — locked, atomic, serialized mutation                                    |
-| `src/node/watch-catalog.ts`  | `watchResolvedProviderCatalog()` — watch, reload, diff, emit typed changes                         |
-| `src/node/index.ts`          | Node entrypoint; re-exports pure entry + filesystem seams                                          |
-| `providers.schema.json`      | Generated JSON Schema, exported for editor validation                                              |
-| `scripts/generate-schema.ts` | Regenerates `providers.schema.json` from the Zod schemas                                           |
+| Location                     | What it does                                                                                                        |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `src/vocabulary.ts`          | Provider-ID / protocol / client-kind / reserved-key value tuples + type guards                                      |
+| `src/schema.ts`              | Zod schemas (full + enforced variants) for `providers.json`                                                         |
+| `src/types.ts`               | Types inferred from Zod + resolution outputs + branded `CustomProviderId` / `mintCustomProviderId`                  |
+| `src/defaults.ts`            | Built-in provider connection defaults; `PROVIDER_CONNECTION_DEFAULTS`                                               |
+| `src/enforce.ts`             | `mergeEnforced()` deep-merge of enforced over user config                                                           |
+| `src/resolve-enabled.ts`     | `resolveEnabled()` enablement precedence ladder                                                                     |
+| `src/resolve-connection.ts`  | Internal baseUrl/endpoint resolution precedence                                                                     |
+| `src/resolve-models.ts`      | `resolveModels()` model selection + routing pipeline                                                                |
+| `src/index.ts`               | Pure entrypoint exports                                                                                             |
+| `src/node/paths.ts`          | `GENAI_CONFIG_DIR`, `PROVIDERS_CONFIG_PATH`, enforced env-var name, lockfile path                                   |
+| `src/node/types.ts`          | Node seam option/result types (`LoadCatalogOptions`, `ProviderCatalogChange`, `Disposable`, …)                      |
+| `src/resolve-catalog.ts`     | `resolveProviderCatalog()` — pure deep resolver seam; owns the precedence stack + sealed-enforced invariant         |
+| `src/build-catalog.ts`       | `buildCatalog()` — assemble `ResolvedProvider[]` from the resolved config + baseline + env overlay (pure entry)     |
+| `src/node/load-config.ts`    | `loadConfigSources()` / `readFileConfig()` / `readEnvFragment()` — assemble the ordered `ProviderConfigSource` list |
+| `src/node/load-catalog.ts`   | `loadResolvedProviderCatalog()` — public read seam (assemble sources → `resolveProviderCatalog`)                    |
+| `src/node/mutate-config.ts`  | `mutateProvidersConfig()` — locked, atomic, serialized mutation                                                     |
+| `src/node/watch-catalog.ts`  | `watchResolvedProviderCatalog()` — watch, reload, diff, emit typed changes                                          |
+| `src/node/index.ts`          | Node entrypoint; re-exports pure entry + filesystem seams                                                           |
+| `providers.schema.json`      | Generated JSON Schema, exported for editor validation                                                               |
+| `scripts/generate-schema.ts` | Regenerates `providers.schema.json` from the Zod schemas                                                            |
 
 ## Invariants & Design Decisions
 

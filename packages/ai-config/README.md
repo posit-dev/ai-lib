@@ -2,17 +2,18 @@
 
 Owns the full lifecycle of `~/.posit/genai/providers.json`: the schema, validation, defaults, the resolution pipeline that turns a raw file into an effective provider catalog, and the filesystem seams that load, watch, and mutate the file safely across processes.
 
-This package is part of the [`ai-lib`](../../README.md) monorepo. It is a dependency-light leaf: it does **not** import `ai-provider-bridge` or `ai-credential-store`. Compatibility with the bridge's vocabulary (provider IDs, protocols, client kinds) is enforced at compile time by a [shape guard](../../typechecks), not by an import edge.
+This package is part of the [`ai-lib`](../../README.md) monorepo. It is a dependency-light leaf: it does **not** import `ai-provider-bridge` or `ai-credentials`. Compatibility with the bridge's vocabulary (provider IDs, protocols, client kinds) is enforced at compile time by a [shape guard](../../typechecks), not by an import edge.
 
 ## Entrypoints
 
 The package splits pure (browser/test-safe) logic from filesystem I/O:
 
-| Entrypoint                        | What it provides                                                                                                                                                               | Node FS dep? |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------ |
-| `ai-config`                       | Vocabulary (`BUILTIN_PROVIDER_IDS`, `PROTOCOL_VALUES`, `CLIENT_KIND_VALUES`, …), Zod schemas, inferred types, defaults, and the pure helpers `resolveModels` / `mergeEnforced` | No           |
-| `ai-config/node`                  | The pure entry plus the three filesystem seams and path constants                                                                                                              | Yes          |
-| `ai-config/providers.schema.json` | The generated JSON Schema, for editor validation/autocomplete of `providers.json`                                                                                              | No           |
+| Entrypoint                        | What it provides                                                                                                                                                                         | Node FS dep? |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| `ai-config`                       | Vocabulary (`BUILTIN_PROVIDER_IDS`, `PROTOCOL_VALUES`, `CLIENT_KIND_VALUES`, …), Zod schemas, inferred types, defaults, the `resolveProviderCatalog({ sources })` seam, and pure helpers | No           |
+| `ai-config/node`                  | The pure entry plus the three filesystem seams and path constants                                                                                                                        | Yes          |
+| `ai-config/positron`              | Builds a `host`-kind `ProviderConfigSource` from Positron `authentication.*` settings (+ change signal). The only entry that imports `vscode`.                                           | No (vscode)  |
+| `ai-config/providers.schema.json` | The generated JSON Schema, for editor validation/autocomplete of `providers.json`                                                                                                        | No           |
 
 The three filesystem seams (`ai-config/node`):
 
@@ -54,7 +55,7 @@ const config = providersConfigSchema.parse(rawJson);
 const enforced = enforcedProvidersConfigSchema.parse(rawFragment);
 ```
 
-Both are Zod schemas. `providersConfigSchema` is the source of truth for the on-disk format and for the generated `providers.schema.json`. `enforcedProvidersConfigSchema` is the relaxed variant used to validate the `POSIT_GENAI_PROVIDERS_ENFORCED` fragment before merging.
+Both are Zod schemas. `providersConfigSchema` is the source of truth for the on-disk format and for the generated `providers.schema.json`. `enforcedProvidersConfigSchema` is the relaxed variant used to validate the `POSIT_AI_PROVIDERS_ENFORCED` / `POSIT_AI_PROVIDERS_DEFAULT` fragments before merging.
 
 #### Types
 
@@ -92,9 +93,22 @@ interface ResolvedProvider {
 
 The one sanctioned producer of the branded `CustomProviderId`. Validates the id against built-in and reserved-key collisions; **throws** if the id is empty, collides with a built-in id, or is a reserved key (`default`, `custom`).
 
-#### `mergeEnforced(user, enforced): ProvidersConfig`
+#### `resolveProviderCatalog(opts): readonly ResolvedProvider[]`
 
-Deep-merges an enforced fragment over user config: objects merge per key (enforced wins), arrays replace wholesale, primitives override. Returns a new config object; the caller re-validates the result with `providersConfigSchema`.
+The **deep resolver seam** — the one place that owns the entire precedence stack. It takes an ordered list of `ProviderConfigSource`s plus a `PlatformBaseline` and returns a fully resolved catalog. Hosts only _contribute sources_; precedence knowledge (rank per kind, the sealed-enforced invariant, deep-merge and array-replace rules) lives here.
+
+```ts
+function resolveProviderCatalog(opts: {
+  sources: readonly ProviderConfigSource[]; // any order — ranked by `kind`
+  baseline: PlatformBaseline;
+  external?: boolean;
+  envVars?: Record<string, string | undefined>; // non-secret connection overlay (default {})
+}): readonly ResolvedProvider[];
+```
+
+A `ProviderConfigSource` declares _what it is_ via `kind`, not _where it sits_. The resolver maps each kind to a fixed rank, highest → lowest: **`enforced` > `user` > `host` > `default`**, with the `PlatformBaseline` beneath all sources. The `enforced` layer is a **sealed overlay** — no lower source can overwrite an enforced key (a correctness invariant). Object fields deep-merge per leaf-key; `allow`/`deny` arrays wholesale-replace.
+
+`mergeEnforced` (two-layer) and `mergeConfigFragments` (layered) remain exported as the low-level merge primitives, but consumers should assemble sources and call `resolveProviderCatalog` rather than merging by hand.
 
 #### `resolveModels(modelsBlock, discovered, providerConnection?): ResolvedModelInfo[]`
 
@@ -140,7 +154,7 @@ import { GENAI_CONFIG_DIR, PROVIDERS_CONFIG_PATH } from "ai-config/node";
 
 #### `loadResolvedProviderCatalog(opts): Promise<readonly ResolvedProvider[]>`
 
-The single read seam. Loads the file (missing → `{}`), merges the enforced fragment, applies the platform baseline, and returns the resolved catalog. The read path degrades gracefully — malformed/missing files log a warning and fall back rather than throwing.
+The single read seam. Assembles the config sources (the user file → `{}` if missing, the `POSIT_AI_PROVIDERS_ENFORCED` / `POSIT_AI_PROVIDERS_DEFAULT` env fragments, and any `additionalSources`), delegates precedence to `resolveProviderCatalog`, applies the platform baseline, and returns the resolved catalog. The read path degrades gracefully — malformed/missing files log a warning and fall back rather than throwing.
 
 ```ts
 const catalog = await loadResolvedProviderCatalog({
@@ -150,14 +164,16 @@ const catalog = await loadResolvedProviderCatalog({
 
 `LoadCatalogOptions`:
 
-| Field                 | Description                                                               |
-| --------------------- | ------------------------------------------------------------------------- |
-| `baseline` (required) | `PlatformBaseline` — enablement defaults for this platform.               |
-| `configPath?`         | Override the file path (testing).                                         |
-| `enforcedEnvVar?`     | Override the enforced env-var name (testing).                             |
-| `envVars?`            | Source for the non-secret connection overlay (defaults to `process.env`). |
-| `external?`           | Reject `providers.custom` entries (external builds).                      |
-| `logger?`             | `LoggerLike` for diagnostics/validation warnings.                         |
+| Field                 | Description                                                                                                                                    |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `baseline` (required) | `PlatformBaseline` — enablement defaults for this platform.                                                                                    |
+| `configPath?`         | Override the file path (testing).                                                                                                              |
+| `enforcedEnvVar?`     | Override the enforced env-var name (defaults to `POSIT_AI_PROVIDERS_ENFORCED`; testing).                                                       |
+| `defaultEnvVar?`      | Override the defaults env-var name (defaults to `POSIT_AI_PROVIDERS_DEFAULT`; testing).                                                        |
+| `envVars?`            | Source for the non-secret connection overlay **and** the enforced/default fragment env vars (defaults to `process.env`).                       |
+| `external?`           | Reject `providers.custom` entries (external builds).                                                                                           |
+| `additionalSources?`  | Extra watchable `ProviderConfigSourceProvider`s (e.g. a Positron `authentication.*` `host` source). Folded into both the load and watch paths. |
+| `logger?`             | `LoggerLike` for diagnostics/validation warnings.                                                                                              |
 
 #### `mutateProvidersConfig(mutator, opts?): Promise<void>`
 
@@ -232,12 +248,11 @@ sub.dispose();
 
 ## Resolution pipeline
 
-Config flows through **load → enforce → build → watch**:
+Config flows through **assemble sources → resolve → watch**:
 
-1. **Load** (`loadProvidersConfig`): read the file (missing → `{}`), validate against `providersConfigSchema`, read the enforced fragment from the `POSIT_GENAI_PROVIDERS_ENFORCED` env var, validate it against the relaxed `enforcedProvidersConfigSchema`.
-2. **Enforce** (`mergeEnforced`): deep-merge enforced over user config (objects merge per-key, arrays replace, primitives override); re-validate the merged result.
-3. **Build** (`buildCatalog`): assemble `ResolvedProvider[]` from the merged config + enforced map + platform baseline, applying the enablement and connection precedence ladders and a non-secret env-var overlay.
-4. **Watch** (`watchResolvedProviderCatalog`): debounced (~300ms), ancestor-aware file watch that reloads, diffs against the previous catalog, and emits a typed change only when something actually changed.
+1. **Assemble sources**: the node seam reads the user file (missing → `{}`, validated against `providersConfigSchema`), the enforced fragment from `POSIT_AI_PROVIDERS_ENFORCED`, and the defaults fragment from `POSIT_AI_PROVIDERS_DEFAULT` (both validated against the relaxed `enforcedProvidersConfigSchema`), plus any `additionalSources` (e.g. a Positron `authentication.*` `host` source). Each becomes a `ProviderConfigSource` tagged with its `kind`.
+2. **Resolve** (`resolveProviderCatalog`): rank the sources by kind (`enforced` > `user` > `host` > `default`), fold them low → high so the sealed `enforced` overlay can never be overwritten, apply the `PlatformBaseline` beneath, and build `ResolvedProvider[]` — objects deep-merge per leaf-key, `allow`/`deny` arrays wholesale-replace, and a non-secret env-var overlay applies on top.
+3. **Watch** (`watchResolvedProviderCatalog`): debounced (~300ms), ancestor-aware watch over **every** source (file via `fs.watch`; host sources emit their own change signals; env sources are static) that re-resolves, diffs against the previous catalog, and emits a typed change only when something actually changed.
 
 The read path **degrades gracefully**: malformed or missing files log a warning and fall back rather than throwing.
 
