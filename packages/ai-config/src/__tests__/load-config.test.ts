@@ -576,6 +576,90 @@ describe("loadResolvedProviderCatalog", () => {
 			expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining("Validation errors"));
 		});
 	});
+
+	// ========================================================================
+	// additionalSources (host layer) folded into the LOAD path
+	// ========================================================================
+
+	describe("additionalSources", () => {
+		it("folds a host source into the initial load (below user, above default)", async () => {
+			// providers.json (user) sets openai's base URL; a host source sets
+			// anthropic's. Both must appear in the initial catalog — the load path
+			// reads additionalSources, not just the watch path.
+			const configPath = await writeConfig(tempDir, {
+				providers: { openai: { baseUrl: "https://user-openai.example.com" } },
+			});
+
+			const hostSource = {
+				read: () => ({
+					kind: "host" as const,
+					label: "authentication.*",
+					config: {
+						providers: {
+							anthropic: { baseUrl: "https://host-anthropic.example.com" },
+							openai: { baseUrl: "https://host-openai.example.com" },
+						},
+					},
+				}),
+			};
+
+			const catalog = await loadResolvedProviderCatalog({
+				baseline: STANDALONE_BASELINE,
+				configPath,
+				logger: mockLogger,
+				additionalSources: [hostSource],
+			});
+
+			// Host contributes anthropic (user silent → host wins over default).
+			expect(findProvider(catalog, "anthropic")?.connection.baseUrl).toBe(
+				"https://host-anthropic.example.com",
+			);
+			// user wins over host for openai.
+			expect(findProvider(catalog, "openai")?.connection.baseUrl).toBe(
+				"https://user-openai.example.com",
+			);
+		});
+
+		it("skips a host source that reads undefined", async () => {
+			const configPath = await writeConfig(tempDir, { providers: {} });
+
+			const emptyHostSource = { read: () => undefined };
+
+			const catalog = await loadResolvedProviderCatalog({
+				baseline: STANDALONE_BASELINE,
+				configPath,
+				logger: mockLogger,
+				additionalSources: [emptyHostSource],
+			});
+
+			expect(catalog.length).toBe(14);
+			expect(findProvider(catalog, "anthropic")?.connection.baseUrl).toBeUndefined();
+		});
+
+		it("awaits an async host source read", async () => {
+			const configPath = await writeConfig(tempDir, { providers: {} });
+
+			const asyncHostSource = {
+				read: () =>
+					Promise.resolve({
+						kind: "host" as const,
+						label: "authentication.*",
+						config: { providers: { gemini: { baseUrl: "https://host-gemini.example.com" } } },
+					}),
+			};
+
+			const catalog = await loadResolvedProviderCatalog({
+				baseline: STANDALONE_BASELINE,
+				configPath,
+				logger: mockLogger,
+				additionalSources: [asyncHostSource],
+			});
+
+			expect(findProvider(catalog, "gemini")?.connection.baseUrl).toBe(
+				"https://host-gemini.example.com",
+			);
+		});
+	});
 });
 
 // ===========================================================================

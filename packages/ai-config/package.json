@@ -13,6 +13,10 @@
       "types": "./dist/node/index.d.ts",
       "import": "./dist/node/index.js"
     },
+    "./positron": {
+      "types": "./dist/positron/index.d.ts",
+      "import": "./dist/positron/index.js"
+    },
     "./providers.schema.json": "./providers.schema.json"
   },
   "scripts": {
@@ -29,9 +33,18 @@
     "proper-lockfile": "^4.1.2",
     "zod": "^4.4.3"
   },
+  "peerDependencies": {
+    "vscode": "^1.100.0"
+  },
+  "peerDependenciesMeta": {
+    "vscode": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@types/node": "22.x",
     "@types/proper-lockfile": "^4.1.4",
+    "@types/vscode": "^1.100.0",
     "typescript": "^6.0.2",
     "vitest": "^3.2.1"
   },

@@ -6,11 +6,17 @@
  * Types specific to the node (filesystem) entry of ai-config.
  */
 
-import type { ProviderConfigSource } from "../resolve-catalog";
+import type { ProviderConfigSourceProvider } from "../config-source";
 import type { LoggerLike, PlatformBaseline, ResolvedProvider } from "../types";
 
 // Re-export the pure logger type so node consumers can import it from here.
 export type { LoggerLike } from "../types";
+
+// Re-export the pure config-source contracts so existing `ai-config/node`
+// consumers keep importing them from here (the seam moved to the pure entry so
+// `ai-config/positron` can reference it without the node entry — see
+// `../config-source`).
+export type { Disposable, ProviderConfigSourceProvider } from "../config-source";
 
 // ---------------------------------------------------------------------------
 // Load options
@@ -65,6 +71,21 @@ export interface LoadCatalogOptions {
 	 * Defaults to `process.env` when omitted. Useful for testing.
 	 */
 	readonly envVars?: Record<string, string | undefined>;
+
+	/**
+	 * Additional watchable config sources beyond the built-in file + env
+	 * sources (e.g. a Positron `authentication.*` host source from
+	 * `ai-config/positron`). Any source change — file, host, or otherwise —
+	 * rebuilds the catalog and emits a change. Static env sources are read
+	 * once per rebuild and need no change signal.
+	 *
+	 * These are folded into BOTH the load path (`loadResolvedProviderCatalog`
+	 * reads each once) and the watch path (`watchResolvedProviderCatalog`
+	 * subscribes to each). Threading them through load is load-bearing: the
+	 * watch's initial rebuild does not emit, so without a load-path fold the
+	 * first catalog would miss host settings until the first change.
+	 */
+	readonly additionalSources?: readonly ProviderConfigSourceProvider[];
 }
 
 /**
@@ -82,37 +103,11 @@ export interface MutateConfigOptions {
 
 /**
  * Options for `watchResolvedProviderCatalog()`.
- */
-export interface WatchCatalogOptions extends LoadCatalogOptions {
-	/**
-	 * Additional watchable config sources beyond the built-in file + env
-	 * sources (e.g. a Positron `authentication.*` host source from
-	 * `ai-config/positron`). Any source change — file, host, or otherwise —
-	 * rebuilds the catalog and emits a change. Static env sources are read
-	 * once per rebuild and need no change signal.
-	 */
-	readonly additionalSources?: readonly ProviderConfigSourceProvider[];
-}
-
-// ---------------------------------------------------------------------------
-// Watchable config sources
-// ---------------------------------------------------------------------------
-
-/**
- * A watchable config source contributed to the source-aware catalog watch.
  *
- * `read()` produces the source's current fragment (or `undefined` when the
- * source has nothing to contribute — e.g. an unset env var or missing file).
- * `watch()` subscribes to change signals; omit it for static sources (env
- * vars don't change at runtime). Any `onChange` callback triggers a debounced
- * rebuild of the whole catalog.
+ * Inherits `additionalSources` from {@link LoadCatalogOptions} so the same host
+ * sources are folded into both the load and watch paths.
  */
-export interface ProviderConfigSourceProvider {
-	/** Read (or re-read) the current fragment for this source. */
-	read(): ProviderConfigSource | undefined | Promise<ProviderConfigSource | undefined>;
-	/** Subscribe to change signals. Returns a disposable. Optional for static sources. */
-	watch?(onChange: () => void): Disposable;
-}
+export type WatchCatalogOptions = LoadCatalogOptions;
 
 // ---------------------------------------------------------------------------
 // Watch events
@@ -137,15 +132,4 @@ export interface ProviderCatalogChange {
 
 	/** Whether any provider's model policy/custom declarations changed. */
 	readonly modelsChanged: boolean;
-}
-
-// ---------------------------------------------------------------------------
-// Disposable
-// ---------------------------------------------------------------------------
-
-/**
- * A resource that can be disposed.
- */
-export interface Disposable {
-	dispose(): void;
 }

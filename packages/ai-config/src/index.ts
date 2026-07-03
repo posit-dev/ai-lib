@@ -77,5 +77,10 @@ export type {
 	ResolveProviderCatalogOptions,
 } from "./resolve-catalog";
 
+// --- Watchable config-source contracts (pure) ------------------------------
+// The seam types a host source implements. Kept in the pure entry so
+// `ai-config/positron` can build a source without depending on `ai-config/node`.
+export type { Disposable, ProviderConfigSourceProvider } from "./config-source";
+
 // --- Enforcement merge -----------------------------------------------------
 export { mergeConfigFragments, mergeEnforced } from "./enforce";

@@ -4,11 +4,7 @@
 
 import * as vscode from "vscode";
 
-import {
-	CONFIG_KEY_OVERRIDES,
-	type CredentialConfig,
-	shapeCredentials,
-} from "../credential-shaping";
+import { type CredentialConfig, shapeCredentials } from "../credential-shaping";
 import type { Disposable } from "../CredentialProvider";
 import { MAPPED_PROVIDER_IDS, PROVIDER_MAP } from "../provider-map";
 import type { Logger, ProviderId, ProviderCredentials } from "../types";
@@ -145,52 +141,19 @@ for (const logicalId of MAPPED_PROVIDER_IDS) {
 // Internal merged emitter for mapped provider credential changes.
 const credentialChangeEmitter = new vscode.EventEmitter<ProviderId[]>();
 
-// Source 1: VS Code auth session changes
+// The emitter fires ONLY on VS Code auth session changes (login/logout). The
+// catalog does not track auth sessions, so the bridge stays their notifier.
+//
+// Connection-config changes (base URL, customHeaders, AWS region, Snowflake
+// host/account) are NOT signalled here. Those `authentication.*` settings are
+// folded into the resolved catalog as a `host` source (ai-config/positron), so
+// the catalog's debounced change event is their single source of truth. Wiring
+// them up here as well would race that event — the immediate emitter fires a
+// refresh against the still-stale catalog before the debounced rebuild lands.
 vscode.authentication.onDidChangeSessions((e) => {
 	const logicalIds = AUTH_TO_LOGICAL.get(e.provider.id);
 	if (logicalIds) {
 		credentialChangeEmitter.fire(logicalIds);
-	}
-});
-
-// Source 2: Base URL changes in VS Code settings for API key providers.
-// Build a map of config keys → logical provider IDs from PROVIDER_MAP entries
-// with credentialType: "apikey", so it automatically covers all mapped API key providers.
-const BASE_URL_CONFIG_TO_LOGICAL = new Map<string, ProviderId[]>();
-for (const logicalId of MAPPED_PROVIDER_IDS) {
-	const mapping = PROVIDER_MAP[logicalId];
-	if (!mapping || mapping.credentialType !== "apikey") continue;
-	const configKey = CONFIG_KEY_OVERRIDES[mapping.authProviderId] ?? mapping.authProviderId;
-	const list = BASE_URL_CONFIG_TO_LOGICAL.get(configKey) ?? [];
-	list.push(logicalId);
-	BASE_URL_CONFIG_TO_LOGICAL.set(configKey, list);
-}
-
-vscode.workspace.onDidChangeConfiguration((e) => {
-	// baseUrl and customHeaders both live under `authentication.<configKey>`
-	// for API key providers, so they share the same configKey → logicalIds map.
-	for (const [configKey, logicalIds] of BASE_URL_CONFIG_TO_LOGICAL) {
-		if (
-			e.affectsConfiguration(`authentication.${configKey}.baseUrl`) ||
-			e.affectsConfiguration(`authentication.${configKey}.customHeaders`)
-		) {
-			credentialChangeEmitter.fire(logicalIds);
-		}
-	}
-
-	// Posit AI: baseUrl changes affect the gateway endpoint (e.g., switching to staging).
-	if (e.affectsConfiguration("authentication.positai.baseUrl")) {
-		credentialChangeEmitter.fire(["positai"]);
-	}
-
-	// Bedrock: region changes in AWS credentials settings affect model fetching and client endpoint.
-	if (e.affectsConfiguration("authentication.aws.credentials")) {
-		credentialChangeEmitter.fire(["bedrock"]);
-	}
-
-	// Snowflake: account changes affect the constructed base URL.
-	if (e.affectsConfiguration("authentication.snowflake.credentials")) {
-		credentialChangeEmitter.fire(["snowflake-cortex"]);
 	}
 });
 

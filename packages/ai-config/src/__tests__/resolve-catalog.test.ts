@@ -245,6 +245,81 @@ describe("resolveProviderCatalog — same-kind ordering", () => {
 	});
 });
 
+describe("resolveProviderCatalog — host layer merge semantics (Phase 6)", () => {
+	// These pin the three declared merge-semantic changes from relocating the
+	// Positron `authentication.*` dual-read into a `host` source: the resolver
+	// deep-merges object keys where the old adapter did whole-field fallback.
+
+	it("customHeaders deep-merge across user + host (user wins per key)", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("user", {
+					providers: { anthropic: { customHeaders: { "x-team": "user", "x-user-only": "u" } } },
+				}),
+				source("host", {
+					providers: { anthropic: { customHeaders: { "x-team": "host", "x-host-only": "h" } } },
+				}),
+			],
+			baseline: STANDALONE,
+			envVars: {},
+		});
+		expect(find(catalog, "anthropic")?.connection.customHeaders).toEqual({
+			"x-team": "user", // user wins on collision (host is the fallback below it)
+			"x-user-only": "u", // user's own key preserved
+			"x-host-only": "h", // host's non-colliding key merged in
+		});
+	});
+
+	it("snowflake host/account merge across user + host (both keys resolve)", () => {
+		// user sets only account; host sets only host → the merged connection
+		// carries both. `host` wins over `account` when the URL is built downstream
+		// (that preference is in ai-credentials' shapeCredentials — see its tests).
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("user", {
+					providers: { "snowflake-cortex": { snowflake: { account: "user-acct" } } },
+				}),
+				source("host", {
+					providers: { "snowflake-cortex": { snowflake: { host: "host.snowflakecomputing.com" } } },
+				}),
+			],
+			baseline: STANDALONE,
+			envVars: {},
+		});
+		expect(find(catalog, "snowflake-cortex")?.connection.snowflake).toEqual({
+			host: "host.snowflakecomputing.com",
+			account: "user-acct",
+		});
+	});
+
+	it("AWS region ordering: env > host authentication setting > us-east-1 default", () => {
+		// host setting beats the us-east-1 default (revival of the previously-dead
+		// authentication.aws.credentials.AWS_REGION).
+		const hostOnly = resolveProviderCatalog({
+			sources: [source("host", { providers: { bedrock: { aws: { region: "eu-west-1" } } } })],
+			baseline: STANDALONE,
+			envVars: {},
+		});
+		expect(find(hostOnly, "bedrock")?.connection.aws?.region).toBe("eu-west-1");
+
+		// env AWS_REGION still beats the host setting (env overlay > host).
+		const withEnv = resolveProviderCatalog({
+			sources: [source("host", { providers: { bedrock: { aws: { region: "eu-west-1" } } } })],
+			baseline: STANDALONE,
+			envVars: { AWS_REGION: "ap-south-1" },
+		});
+		expect(find(withEnv, "bedrock")?.connection.aws?.region).toBe("ap-south-1");
+
+		// no host, no env → the us-east-1 default.
+		const defaultOnly = resolveProviderCatalog({
+			sources: [source("user", { providers: {} })],
+			baseline: STANDALONE,
+			envVars: {},
+		});
+		expect(find(defaultOnly, "bedrock")?.connection.aws?.region).toBe("us-east-1");
+	});
+});
+
 describe("recoverValidStack — choose dropped source", () => {
 	/** Custom entry with no `type` — uncompletable unless another source supplies it. */
 	const badCustom = (name: string): ProviderConfigSource["config"] => ({

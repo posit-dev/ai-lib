@@ -49,6 +49,18 @@ export async function loadResolvedProviderCatalog(
 		logger: opts.logger,
 	});
 
+	// Fold in any host/additional sources (e.g. Positron's `authentication.*`
+	// host source) by reading each once. The watch path subscribes to their
+	// change signals separately; this load-path fold is load-bearing because
+	// the watch's initial rebuild does not emit, so without it the first
+	// catalog would miss host settings until the first change fires.
+	const additional = await Promise.all((opts.additionalSources ?? []).map((p) => p.read()));
+	for (const source of additional) {
+		if (source) {
+			sources.push(source);
+		}
+	}
+
 	return resolveProviderCatalog({
 		sources,
 		baseline: opts.baseline,

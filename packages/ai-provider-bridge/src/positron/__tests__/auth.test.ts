@@ -7,7 +7,8 @@
  *
  * Covers: API key credential mapping, OAuth credential mapping, AWS credential JSON
  * parsing, config-key overrides, Snowflake URL construction, base URL resolution,
- * and config-driven credential change invalidation.
+ * and session-driven credential change invalidation (connection-config changes now
+ * flow through the catalog, not this emitter — see the onDidChangeCredentials block).
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -668,110 +669,22 @@ describe("PositronCredentialProvider.onDidChangeCredentials", () => {
 		expect(callback).not.toHaveBeenCalled();
 	});
 
-	it("fires when base URL config changes for openai-compatible", () => {
+	it("does NOT fire on connection-config changes (the catalog owns those now)", () => {
+		// Phase 6 / A6: the bridge emitter fires only on auth session changes.
+		// Connection-config (`authentication.*` baseUrl/customHeaders/AWS/Snowflake)
+		// is folded into the resolved catalog as a `host` source, so the catalog's
+		// debounced change event is the single source of truth. The bridge no
+		// longer registers an onDidChangeConfiguration listener at all.
 		const provider = new PositronCredentialProvider(mockLogger);
 		const callback = vi.fn();
 		provider.onDidChangeCredentials(callback);
 
-		expect(configChangeHook.callback).not.toBeNull();
-		configChangeHook.callback!({
-			affectsConfiguration: (section: string) =>
-				section === "authentication.openai-compatible.baseUrl",
-		});
+		// No config listener was wired, so a settings change cannot fire the emitter.
+		expect(configChangeHook.callback).toBeNull();
 
-		expect(callback).toHaveBeenCalledWith(["openai-compatible"]);
-	});
-
-	it("fires when authentication.aws.credentials changes (bedrock region)", () => {
-		const provider = new PositronCredentialProvider(mockLogger);
-		const callback = vi.fn();
-		provider.onDidChangeCredentials(callback);
-
-		configChangeHook.callback!({
-			affectsConfiguration: (section: string) => section === "authentication.aws.credentials",
-		});
-
-		expect(callback).toHaveBeenCalledWith(["bedrock"]);
-	});
-
-	it("fires when authentication.snowflake.credentials changes", () => {
-		const provider = new PositronCredentialProvider(mockLogger);
-		const callback = vi.fn();
-		provider.onDidChangeCredentials(callback);
-
-		configChangeHook.callback!({
-			affectsConfiguration: (section: string) => section === "authentication.snowflake.credentials",
-		});
-
-		expect(callback).toHaveBeenCalledWith(["snowflake-cortex"]);
-	});
-
-	it("fires when authentication.foundry.baseUrl changes", () => {
-		const provider = new PositronCredentialProvider(mockLogger);
-		const callback = vi.fn();
-		provider.onDidChangeCredentials(callback);
-
-		configChangeHook.callback!({
-			affectsConfiguration: (section: string) => section === "authentication.foundry.baseUrl",
-		});
-
-		expect(callback).toHaveBeenCalledWith(["ms-foundry"]);
-	});
-
-	it("does not fire for unrelated config changes", () => {
-		const provider = new PositronCredentialProvider(mockLogger);
-		const callback = vi.fn();
-		provider.onDidChangeCredentials(callback);
-
-		configChangeHook.callback!({
-			affectsConfiguration: () => false,
-		});
-
-		expect(callback).not.toHaveBeenCalled();
-	});
-
-	it("fires when authentication.<configKey>.customHeaders changes (configKey, with override)", () => {
-		const provider = new PositronCredentialProvider(mockLogger);
-		const callback = vi.fn();
-		provider.onDidChangeCredentials(callback);
-
-		// Anthropic uses configKey "anthropic" (CONFIG_KEY_OVERRIDES maps
-		// `anthropic-api` → `anthropic`), and customHeaders lives in the same
-		// `authentication.<configKey>` namespace as baseUrl.
-		configChangeHook.callback!({
-			affectsConfiguration: (section: string) =>
-				section === "authentication.anthropic.customHeaders",
-		});
-
+		// A session change still fires — login/logout notification is unchanged.
+		sessionChangeHook.callback!({ provider: { id: "anthropic-api" } });
 		expect(callback).toHaveBeenCalledWith(["anthropic"]);
-	});
-
-	it("fires when authentication.openai-api.customHeaders changes", () => {
-		const provider = new PositronCredentialProvider(mockLogger);
-		const callback = vi.fn();
-		provider.onDidChangeCredentials(callback);
-
-		// `openai` logical id maps to configKey `openai-api` (the auth provider
-		// id is used directly when no override exists).
-		configChangeHook.callback!({
-			affectsConfiguration: (section: string) =>
-				section === "authentication.openai-api.customHeaders",
-		});
-
-		expect(callback).toHaveBeenCalledWith(["openai"]);
-	});
-
-	it("fires when authentication.openai-compatible.customHeaders changes", () => {
-		const provider = new PositronCredentialProvider(mockLogger);
-		const callback = vi.fn();
-		provider.onDidChangeCredentials(callback);
-
-		configChangeHook.callback!({
-			affectsConfiguration: (section: string) =>
-				section === "authentication.openai-compatible.customHeaders",
-		});
-
-		expect(callback).toHaveBeenCalledWith(["openai-compatible"]);
 	});
 });
 

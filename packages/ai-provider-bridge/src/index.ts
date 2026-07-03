@@ -64,6 +64,12 @@ export type {
 export { MAPPED_PROVIDER_IDS, PROVIDER_MAP } from "./provider-map";
 export type { AuthProviderMapping } from "./provider-map";
 
+// Config-key overrides (authProviderId → VS Code `authentication.<key>` section).
+// Re-exported from the pure `credential-shaping` shim (originates in
+// ai-credentials/types) so consumers can import it from the bridge ROOT without
+// the vscode-coupled `ai-provider-bridge/positron` module.
+export { CONFIG_KEY_OVERRIDES } from "./credential-shaping";
+
 // Model capability inference
 export { getAnthropicModelCapabilities } from "./model-capabilities/anthropic-helpers";
 export {
