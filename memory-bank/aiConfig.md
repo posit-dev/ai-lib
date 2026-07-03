@@ -24,14 +24,15 @@ enablement in Posit Assistant lives in the main monorepo's
 
 ## Entrypoints
 
-The package has two entrypoints, splitting pure (browser/test-safe) logic from
-filesystem I/O:
+The package has three entrypoints, splitting pure (browser/test-safe) logic from
+filesystem I/O and vscode-bound wiring:
 
-| Entrypoint                        | What it exports                                                                                                                                                       | Node FS deps? |
-| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
-| `ai-config`                       | Vocabulary, Zod schemas, inferred types, defaults, and the pure resolution helpers (`resolveModels`, `mergeEnforced`)                                                 | No            |
-| `ai-config/node`                  | Re-exports the pure entry plus the three filesystem seams (`loadResolvedProviderCatalog`, `mutateProvidersConfig`, `watchResolvedProviderCatalog`) and path constants | Yes           |
-| `ai-config/providers.schema.json` | The generated JSON Schema, exported so editors can validate/autocomplete `providers.json`                                                                             | No            |
+| Entrypoint                        | What it exports                                                                                                                                                                                      | External deps? |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| `ai-config`                       | Vocabulary, Zod schemas, inferred types, defaults, the pure resolution helpers (`resolveModels`, `mergeEnforced`), and the config-source contracts                                                   | No             |
+| `ai-config/node`                  | Re-exports the pure entry plus the three filesystem seams (`loadResolvedProviderCatalog`, `mutateProvidersConfig`, `watchResolvedProviderCatalog`) and path constants                                | Node FS        |
+| `ai-config/positron`              | Builds a `host`-kind config source from Positron's `authentication.*` VS Code settings (injected via `additionalSources`); the pure `buildAuthenticationFragment` builder is testable without vscode | `vscode`       |
+| `ai-config/providers.schema.json` | The generated JSON Schema, exported so editors can validate/autocomplete `providers.json`                                                                                                            | No             |
 
 ### Pure entry (`ai-config`)
 
@@ -40,6 +41,7 @@ filesystem I/O:
 - **Types** (`src/types.ts`): types inferred from the Zod schemas (`ProvidersConfig`, `ProvidersMap`, `BuiltinProviderBlock`, `CustomProviderEntry`, `ModelsBlock`, `ModelOverride`, `CustomModel`, …) plus resolution outputs (`ResolvedProvider`, `ResolvedConnection`, `ResolvedModelInfo`) and the branded `CustomProviderId`. `mintCustomProviderId()` is the **only** way to produce a `CustomProviderId`.
 - **Defaults** (`src/defaults.ts`): per-provider connection defaults and the `PROVIDER_CONNECTION_DEFAULTS` map.
 - **Resolution helpers**: `resolveModels()` and `mergeEnforced()` are pure and exported; `resolveEnabled()` / connection resolution are internal helpers used by the catalog builder.
+- **Config-source contracts** (`src/config-source.ts`): `ProviderConfigSource`, `ProviderConfigSourceProvider`, and `Disposable` — the watchable source interfaces the resolver folds in via `additionalSources` (e.g. host layers). Re-exported from `ai-config/node` for back-compat, so consumers of the pure entry (like `ai-config/positron`) can name them without touching `/node`.
 - **Constant**: `PROVIDERS_CONFIG_VERSION = 1` — the on-disk format version.
 
 ### Node entry (`ai-config/node`)
@@ -87,8 +89,9 @@ reusable independent of the catalog builder.
 - **Enablement** (`resolveEnabled`): enforced per-provider > enforced default >
   user per-provider > user default > platform-baseline per-provider > baseline
   default.
-- **Connection**: user file > built-in defaults, with non-secret env-var
-  overlay applied on top at highest precedence.
+- **Connection**: non-secret env-var overlay (highest) > enforced > user file >
+  injected `host` sources (e.g. Positron `authentication.*` via
+  `additionalSources`) > built-in defaults. Object keys deep-merge across layers.
 - **Model routing**: user config (override/custom) > provider config > discovered
   model inference.
 
@@ -155,9 +158,10 @@ the bridge's `ModelInfo` — compatible by contract, not by import.
 
 ## Invariants & Design Decisions
 
-- **Two entrypoints, one boundary**: pure logic (schema, vocabulary, resolution)
-  must stay free of Node FS APIs so it runs in the browser and tests; only
-  `ai-config/node` touches the filesystem.
+- **Three entrypoints, clean boundaries**: pure logic (schema, vocabulary,
+  resolution) stays free of Node FS APIs so it runs in the browser and tests;
+  only `ai-config/node` touches the filesystem, and only `ai-config/positron`
+  imports `vscode`.
 - **No import edge to the bridge or credential store** — vocabulary
   compatibility is guaranteed by the shape guard instead.
 - **Graceful degradation everywhere on the read path** — a malformed or missing
