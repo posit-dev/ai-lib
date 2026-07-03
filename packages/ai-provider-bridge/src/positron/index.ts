@@ -7,8 +7,8 @@
 // PROVIDER_MAP and MAPPED_PROVIDER_IDS are exported from the main entrypoint
 // (ai-provider-bridge) since they have no vscode dependency.
 
-// Auth adapter
-export { createVscodeCredentialConfig, PositronCredentialProvider } from "./auth";
+// Credential shaping vocab (the Positron credential backend now lives in
+// `ai-credentials/positron`; the bridge's own auth adapter was removed in Phase 7).
 export { CONFIG_KEY_OVERRIDES } from "../credential-shaping";
 export type { CredentialConfig } from "../credential-shaping";
 

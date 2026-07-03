@@ -279,3 +279,56 @@ describe("createCredentialProvider — startDeviceAuth", () => {
 		expect(hooks.tokens).toBeNull();
 	});
 });
+
+describe("createCredentialProvider — cancelDeviceAuth", () => {
+	beforeEach(() => vi.useFakeTimers());
+	afterEach(() => {
+		vi.useRealTimers();
+		vi.unstubAllGlobals();
+	});
+
+	it("stops in-flight polling so no token is stored after cancel", async () => {
+		const fetchMock = vi
+			.fn()
+			// 1) device-code request
+			.mockResolvedValueOnce(
+				okJson({
+					user_code: "WXYZ",
+					verification_uri: "https://auth.test/device",
+					verification_uri_complete: "https://auth.test/device?code=WXYZ",
+					device_code: "dev-123",
+					interval: 1,
+					expires_in: 900,
+				}),
+			)
+			// 2+) any subsequent poll would succeed — but cancel should prevent it.
+			.mockResolvedValue(
+				okJson({
+					access_token: "device-tok",
+					refresh_token: "device-ref",
+					expires_in: 3600,
+					token_type: "Bearer",
+					scope: "prism",
+				}),
+			);
+		vi.stubGlobal("fetch", fetchMock);
+
+		const hooks = makeOAuthHooks(null);
+		const provider = createCredentialProvider({ backend: makeBackend(async () => null, hooks) });
+
+		await provider.startDeviceAuth("positai");
+		// Cancel before the first poll interval elapses.
+		provider.cancelDeviceAuth("positai");
+		await vi.advanceTimersByTimeAsync(5000);
+
+		expect(hooks.tokens).toBeNull();
+		expect(hooks.readyCount).toBe(0);
+		// Only the device-code request was made; polling never hit the token endpoint.
+		expect(fetchMock).toHaveBeenCalledOnce();
+	});
+
+	it("is a no-op when the backend has no OAuth hooks", () => {
+		const provider = createCredentialProvider({ backend: makeBackend(async () => null) });
+		expect(() => provider.cancelDeviceAuth("positai")).not.toThrow();
+	});
+});

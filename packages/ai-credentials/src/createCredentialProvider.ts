@@ -34,6 +34,12 @@ export interface CreateCredentialProviderOptions {
  * hosts can cancel in-flight device-flow polling on shutdown.
  */
 export interface CredentialProviderHandle extends CredentialProvider {
+	/**
+	 * Cancel any in-flight device-authorization polling for a provider (e.g. on
+	 * logout, so a pending sign-in can't complete after the user opted out).
+	 * No-op when the backend has no device flow or no polling is active.
+	 */
+	cancelDeviceAuth(providerId: string): void;
 	dispose(): void;
 }
 
@@ -73,9 +79,20 @@ export function createCredentialProvider(
 		return backend.onDidChangeCredentials(callback);
 	}
 
+	function cancelDeviceAuth(providerId: string): void {
+		engine?.cancelPolling(providerId);
+	}
+
 	function dispose(): void {
 		engine?.dispose();
 	}
 
-	return { getCredentials, getAccessToken, startDeviceAuth, onDidChangeCredentials, dispose };
+	return {
+		getCredentials,
+		getAccessToken,
+		startDeviceAuth,
+		onDidChangeCredentials,
+		cancelDeviceAuth,
+		dispose,
+	};
 }
