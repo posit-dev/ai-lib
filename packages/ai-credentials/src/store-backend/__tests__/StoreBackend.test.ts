@@ -9,7 +9,7 @@
  * shape are exercised end-to-end.
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -299,5 +299,131 @@ describe("createStoreBackend", () => {
 			expect(typeof disposable.dispose).toBe("function");
 			disposable.dispose();
 		});
+	});
+
+	describe("custom providers (widened ResolvedProviderId, Phase 0 #2)", () => {
+		// Custom catalog providers arrive as arbitrary (minted) id strings whose
+		// descriptors come from the resolved catalog at runtime, not a fixed map.
+		// The backend must resolve them exactly like built-ins.
+		const CUSTOM_ID = "my-gateway";
+		const resolveCustom = (id: string): AuthMethodDescriptor | undefined =>
+			id === CUSTOM_ID ? { authMethodId: "apikey", apiKeyOptional: true } : undefined;
+
+		it("resolves stored api-key credentials for a custom provider id", async () => {
+			await store.set<StoredProviderCredentials>(storageKeyFor(CUSTOM_ID, "apikey"), {
+				apiKeyAuth: { apiKey: "sk-custom", baseUrl: "https://gw.custom" },
+			});
+			const backend = createStoreBackend({ store, resolveAuthMethod: resolveCustom, env: {} });
+
+			expect(await backend.getCredentials(CUSTOM_ID)).toEqual({
+				type: "apikey",
+				apiKey: "sk-custom",
+				baseUrl: "https://gw.custom",
+			});
+		});
+
+		it("resolves an api-key-optional custom provider even with no stored key", async () => {
+			// openai-compatible-style gateways may need only a baseUrl (apiKeyOptional).
+			await store.set<StoredProviderCredentials>(storageKeyFor(CUSTOM_ID, "apikey"), {
+				apiKeyAuth: { apiKey: "", baseUrl: "https://gw.custom" },
+			});
+			const backend = createStoreBackend({ store, resolveAuthMethod: resolveCustom, env: {} });
+
+			expect(await backend.getCredentials(CUSTOM_ID)).toEqual({
+				type: "apikey",
+				apiKey: "",
+				baseUrl: "https://gw.custom",
+			});
+		});
+
+		it("returns null for a custom id with no catalog descriptor", async () => {
+			const backend = createStoreBackend({ store, resolveAuthMethod: resolveCustom, env: {} });
+			expect(await backend.getCredentials("unregistered-custom")).toBeNull();
+		});
+	});
+});
+
+/**
+ * Disk-format compatibility (Phase 0 #5 — v1 is byte-compatible).
+ *
+ * A legacy `data.json` (records with the current 9-key shape, no stored version)
+ * must round-trip byte-identically through the store backend: resolving
+ * credentials only reads, never rewrites the file.
+ */
+describe("createStoreBackend — legacy data.json byte-compatibility", () => {
+	let dir: string;
+
+	beforeEach(() => {
+		dir = mkdtempSync(join(tmpdir(), "aicred-compat-"));
+	});
+	afterEach(() => {
+		rmSync(dir, { recursive: true, force: true });
+	});
+
+	// A representative pre-existing store: one record per auth method, no version
+	// marker, exactly as written by the shipping credential store today.
+	const LEGACY_JSON = JSON.stringify(
+		{
+			"auth:anthropic:apikey": {
+				configured: true,
+				authenticated: true,
+				apiKeyAuth: { apiKey: "sk-legacy-anthropic" },
+			},
+			"auth:ollama:local": {
+				configured: true,
+				localAuth: { endpoint: "http://localhost:11434" },
+			},
+			"auth:bedrock:aws-credentials": {
+				configured: true,
+				awsAuth: { region: "us-west-2", accessKeyId: "AK", secretAccessKey: "SK" },
+			},
+			"auth:positai:oauth": {
+				authenticated: true,
+				oauthAuth: {
+					tokenData: {
+						accessToken: "at",
+						refreshToken: "rt",
+						expiresAt: "2999-01-01T00:00:00.000Z",
+						tokenType: "Bearer",
+						scope: "prism",
+					},
+					expiresAt: "2999-01-01T00:00:00.000Z",
+					scope: "prism",
+				},
+			},
+		},
+		null,
+		2,
+	);
+
+	it("reads legacy records via the tolerant Zod schema without rewriting the file", async () => {
+		const filePath = join(dir, "data.json");
+		writeFileSync(filePath, LEGACY_JSON);
+		const before = readFileSync(filePath);
+
+		const store = new SingleFileStore({ filePath });
+		const backend = createStoreBackend({ store, resolveAuthMethod, env: {} });
+
+		// Existing records parse and resolve to runtime credentials.
+		expect(await backend.getCredentials("anthropic")).toEqual({
+			type: "apikey",
+			apiKey: "sk-legacy-anthropic",
+			baseUrl: undefined,
+		});
+		expect(await backend.getCredentials("ollama")).toEqual({
+			type: "local",
+			endpoint: "http://localhost:11434",
+		});
+		expect(await backend.getCredentials("bedrock")).toMatchObject({
+			type: "aws-credentials",
+			region: "us-west-2",
+		});
+		// OAuth is resolved by the root state machine, so the backend returns null
+		// here — but the stored oauth record must remain untouched on disk.
+		expect(await backend.getCredentials("positai")).toBeNull();
+
+		// The file is byte-identical after all reads (no migration, no re-serialize).
+		const after = readFileSync(filePath);
+		expect(after.equals(before)).toBe(true);
 	});
 });
