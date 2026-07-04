@@ -156,12 +156,7 @@ export function filterUnsignedReasoning(messages: readonly ModelMessage[]): Mode
  * - `store: true` always (stateful mode)
  * - `previousInteractionId` when chaining
  * - `thinkingLevel` validated against the per-model profile
- *
- * Note: `thinkingSummaries` is intentionally NOT set. Setting
- * `thinkingSummaries: "auto"` poisons the server-side interaction state
- * when tools are present, causing subsequent `function_result` continuations
- * to be rejected with HTTP 400. See the upstream issue family in
- * plans/2026-06-24-2301-gemini-thinking-summaries-fix.md.
+ * - `thinkingSummaries: "auto"` when the model has an Interactions profile
  *
  * If `thinkingEffort` is `"off"` or `undefined`, `thinkingLevel` is omitted
  * entirely (the model uses its default). Note: on default-on models like
@@ -190,6 +185,10 @@ export function buildInteractionsOptions(params: {
 	if (thinkingEffort !== undefined && thinkingEffort !== "off" && profile) {
 		const validLevels = profile.thinkingLevels;
 		google.thinkingLevel = validLevels.includes(thinkingEffort) ? thinkingEffort : "medium";
+	}
+
+	if (profile) {
+		google.thinkingSummaries = "auto";
 	}
 
 	return { google };

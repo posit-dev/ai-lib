@@ -440,19 +440,28 @@ describe("buildInteractionsOptions", () => {
 		expect(result.google.previousInteractionId).toBe("prev-id");
 	});
 
-	it("never emits thinkingSummaries (2.5 model)", () => {
+	it("emits thinkingSummaries: auto for models with a profile (2.5 model)", () => {
 		const result = buildInteractionsOptions({
 			thinkingEffort: "high",
 			modelId: "gemini-2.5-pro",
 			previousInteractionId: null,
 		});
-		expect(result.google).not.toHaveProperty("thinkingSummaries");
+		expect(result.google.thinkingSummaries).toBe("auto");
 	});
 
-	it("never emits thinkingSummaries (3.x model)", () => {
+	it("emits thinkingSummaries: auto for models with a profile (3.x model)", () => {
 		const result = buildInteractionsOptions({
 			thinkingEffort: "high",
 			modelId: "gemini-3.5-flash",
+			previousInteractionId: null,
+		});
+		expect(result.google.thinkingSummaries).toBe("auto");
+	});
+
+	it("omits thinkingSummaries for models without a profile", () => {
+		const result = buildInteractionsOptions({
+			thinkingEffort: "high",
+			modelId: "unknown-model",
 			previousInteractionId: null,
 		});
 		expect(result.google).not.toHaveProperty("thinkingSummaries");

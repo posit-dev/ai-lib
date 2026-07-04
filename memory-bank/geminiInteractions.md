@@ -39,19 +39,7 @@ Builds `providerOptions.google` for each request:
 - `store: true` — always (stateful mode)
 - `previousInteractionId` — when chaining
 - `thinkingLevel` — validated against per-model `INTERACTIONS_PROFILES`
-
-## `thinkingSummaries` — Intentionally Disabled
-
-`thinkingSummaries: "auto"` is **not** set. Two confirmed failure paths:
-
-1. **Chained continuation**: summaries poison the server-stored interaction state.
-   The subsequent `function_result` continuation is rejected with HTTP 400
-   ("Request contains an invalid argument."). Client-side code cannot fix this.
-2. **Full-history retry path**: the summarized `thought` comes back with
-   `signature: ""`, which (before hardening) bypassed `filterUnsignedReasoning`.
-
-Since this product almost always sends tools, summaries would rarely work correctly.
-They are disabled entirely pending a Google API-side fix.
+- `thinkingSummaries: "auto"` — when the model has an Interactions profile
 
 ## Expired-Interaction Retry
 
