@@ -5,7 +5,7 @@
 /**
  * StoredProviderCredentials — on-disk format for provider credentials.
  *
- * Defines the shape of data persisted in `~/.posit/genai/auth/data.json`.
+ * Defines the shape of data persisted in `~/.posit/ai/auth/data.json`.
  * Guarded by a tolerant Zod schema (runtime validation) rather than a
  * compile-time shape guard.
  *

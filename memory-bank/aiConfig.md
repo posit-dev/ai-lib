@@ -8,7 +8,7 @@ package: ai-config
 
 ## Overview
 
-`ai-config` owns the full lifecycle of `~/.posit/genai/providers.json`: the
+`ai-config` owns the full lifecycle of `~/.posit/ai/providers.json`: the
 schema, validation, defaults, the resolution pipeline that turns a raw file into
 an effective provider catalog, and the filesystem seams that load, watch, and
 mutate the file safely across processes.
@@ -48,7 +48,7 @@ filesystem I/O and vscode-bound wiring:
 
 Re-exports the pure entry, plus:
 
-- **Paths**: `GENAI_CONFIG_DIR` (`~/.posit/genai`) and `PROVIDERS_CONFIG_PATH`.
+- **Paths**: `AI_CONFIG_DIR` (`~/.posit/ai`) and `PROVIDERS_CONFIG_PATH`.
 - **Read seam**: `loadResolvedProviderCatalog(opts)` — the single read entry point.
 - **Write seam**: `mutateProvidersConfig(mutator, opts)` — cross-process-safe mutation.
 - **Watch seam**: `watchResolvedProviderCatalog(handler, opts)` — emits typed `ProviderCatalogChange` events.
@@ -149,7 +149,7 @@ the bridge's `ModelInfo` — compatible by contract, not by import.
 | `src/resolve-connection.ts`  | Internal baseUrl/endpoint resolution precedence                                                                     |
 | `src/resolve-models.ts`      | `resolveModels()` model selection + routing pipeline                                                                |
 | `src/index.ts`               | Pure entrypoint exports                                                                                             |
-| `src/node/paths.ts`          | `GENAI_CONFIG_DIR`, `PROVIDERS_CONFIG_PATH`, enforced env-var name, lockfile path                                   |
+| `src/node/paths.ts`          | `AI_CONFIG_DIR`, `PROVIDERS_CONFIG_PATH`, enforced env-var name, lockfile path                                      |
 | `src/node/types.ts`          | Node seam option/result types (`LoadCatalogOptions`, `ProviderCatalogChange`, `Disposable`, …)                      |
 | `src/resolve-catalog.ts`     | `resolveProviderCatalog()` — pure deep resolver seam; owns the precedence stack + sealed-enforced invariant         |
 | `src/build-catalog.ts`       | `buildCatalog()` — assemble `ResolvedProvider[]` from the resolved config + baseline + env overlay (pure entry)     |

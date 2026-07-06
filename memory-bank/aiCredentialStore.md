@@ -67,13 +67,13 @@ import type { LoggerLike, Disposable, SingleFileStoreConfig } from "ai-credentia
 #### Default path convention
 
 The package owns the canonical default credential store path:
-`~/.posit/genai/auth/data.json`. Consumers that want the standard location use
+`~/.posit/ai/auth/data.json`. Consumers that want the standard location use
 the convenience helpers:
 
 ```ts
 import { createDefaultStore, getDefaultStorePath } from "ai-credentials/store";
 
-const store = createDefaultStore(logger); // ~/.posit/genai/auth/data.json
+const store = createDefaultStore(logger); // ~/.posit/ai/auth/data.json
 const path = getDefaultStorePath(); // inspect the path
 ```
 
@@ -160,7 +160,7 @@ JSON, 2-space indented, a flat object keyed by the opaque key strings:
 }
 ```
 
-The canonical default location is `~/.posit/genai/auth/data.json`, owned by
+The canonical default location is `~/.posit/ai/auth/data.json`, owned by
 `getDefaultStorePath()`. Custom paths are supported via `config.filePath` (an
 absolute path). On first access `ensureFileExists()` creates the parent
 directories (`0o700`) and an empty `{}` file (`0o600`).

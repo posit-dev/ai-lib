@@ -7,7 +7,7 @@ A small monorepo of platform-neutral packages that provide the LLM provider infr
 | Package                                             | Description                                                                                                              |
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | [`ai-provider-bridge`](packages/ai-provider-bridge) | LLM provider infra: plugin registry, model clients (14 providers), credential abstractions, and a Positron VS Code layer |
-| [`ai-config`](packages/ai-config)                   | `~/.posit/genai/providers.json` schema, validation, defaults, and the load → enforce → build → watch resolution pipeline |
+| [`ai-config`](packages/ai-config)                   | `~/.posit/ai/providers.json` schema, validation, defaults, and the load → enforce → build → watch resolution pipeline    |
 | [`ai-credentials`](packages/ai-credentials)         | Credential types, shaping, and generic typed single-file KV store (atomic writes, cross-process locking, file watching)  |
 
 ## Dependency graph

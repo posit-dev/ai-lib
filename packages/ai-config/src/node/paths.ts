@@ -12,11 +12,11 @@
 import * as os from "os";
 import * as path from "path";
 
-/** Directory containing cross-product genai configuration. */
-export const GENAI_CONFIG_DIR = path.join(os.homedir(), ".posit", "genai");
+/** Directory containing cross-product AI configuration. */
+export const AI_CONFIG_DIR = path.join(os.homedir(), ".posit", "ai");
 
 /** Full path to the providers.json config file. */
-export const PROVIDERS_CONFIG_PATH = path.join(GENAI_CONFIG_DIR, "providers.json");
+export const PROVIDERS_CONFIG_PATH = path.join(AI_CONFIG_DIR, "providers.json");
 
 /**
  * Environment variable whose value is a JSON fragment of **enforced** config

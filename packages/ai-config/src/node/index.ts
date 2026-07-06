@@ -5,7 +5,7 @@
 /**
  * ai-config/node — Filesystem Entry
  *
- * Load, watch, and write ~/.posit/genai/providers.json with cross-process
+ * Load, watch, and write ~/.posit/ai/providers.json with cross-process
  * locking, atomic writes, and typed change events. Imports the pure entry
  * for schema/validation; adds Node-specific I/O.
  *
@@ -33,7 +33,7 @@
  *   runtime-discovered models the catalog cannot hold.
  *
  * ### Paths
- * - `PROVIDERS_CONFIG_PATH`, `GENAI_CONFIG_DIR` — centralized for one-edit
+ * - `PROVIDERS_CONFIG_PATH`, `AI_CONFIG_DIR` — centralized for one-edit
  *   changes.
  */
 
@@ -41,7 +41,7 @@
 export * from "../index";
 
 // --- Paths -----------------------------------------------------------------
-export { GENAI_CONFIG_DIR, PROVIDERS_CONFIG_PATH } from "./paths";
+export { AI_CONFIG_DIR, PROVIDERS_CONFIG_PATH } from "./paths";
 
 // --- Read seam (the single deep read seam) ---------------------------------
 export { loadResolvedProviderCatalog } from "./load-catalog";

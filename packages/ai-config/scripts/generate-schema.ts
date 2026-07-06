@@ -8,7 +8,7 @@
  * Generate providers.schema.json from the Zod schema.
  *
  * Produces a JSON Schema file at the package root (source-controlled) that
- * is also copied into ~/.posit/genai/ alongside providers.json at seed time
+ * is also copied into ~/.posit/ai/ alongside providers.json at seed time
  * so editors can validate and autocomplete the config file.
  *
  * Usage: npx tsx scripts/generate-schema.ts

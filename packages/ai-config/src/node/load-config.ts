@@ -21,7 +21,7 @@ import { DEFAULT_ENV_VAR, ENFORCED_ENV_VAR, PROVIDERS_CONFIG_PATH } from "./path
 
 /** Options for assembling the default config sources. */
 export interface LoadConfigSourcesOptions {
-	/** Override the config file path (defaults to ~/.posit/genai/providers.json). */
+	/** Override the config file path (defaults to ~/.posit/ai/providers.json). */
 	configPath?: string;
 	/** Override the enforced env-var name (defaults to POSIT_AI_PROVIDERS_ENFORCED). */
 	enforcedEnvVar?: string;

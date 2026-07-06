@@ -30,7 +30,7 @@ export interface LoadCatalogOptions {
 	readonly baseline: PlatformBaseline;
 
 	/**
-	 * Override the config file path (defaults to ~/.posit/genai/providers.json).
+	 * Override the config file path (defaults to ~/.posit/ai/providers.json).
 	 * Useful for testing.
 	 */
 	readonly configPath?: string;
@@ -93,7 +93,7 @@ export interface LoadCatalogOptions {
  */
 export interface MutateConfigOptions {
 	/**
-	 * Override the config file path (defaults to ~/.posit/genai/providers.json).
+	 * Override the config file path (defaults to ~/.posit/ai/providers.json).
 	 */
 	readonly configPath?: string;
 

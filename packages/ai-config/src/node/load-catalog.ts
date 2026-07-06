@@ -20,7 +20,7 @@ import { loadConfigSources } from "./load-config";
 import type { LoadCatalogOptions } from "./types";
 
 /**
- * Load ~/.posit/genai/providers.json, read the enforced/default env overlays,
+ * Load ~/.posit/ai/providers.json, read the enforced/default env overlays,
  * resolve the platform baseline, and return the full resolved provider
  * catalog.
  *

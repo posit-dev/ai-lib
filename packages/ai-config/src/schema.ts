@@ -3,7 +3,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * Zod v4 schema for ~/.posit/genai/providers.json.
+ * Zod v4 schema for ~/.posit/ai/providers.json.
  *
  * Owns the on-disk format. No secrets ever appear here (API keys, OAuth tokens,
  * AWS secret/session keys live in env vars + the credential store).

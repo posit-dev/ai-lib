@@ -2,7 +2,7 @@
   "name": "ai-config",
   "version": "0.0.1",
   "private": true,
-  "description": "Cross-product AI configuration: schema, validation, merge/resolution, and file load/watch/write for ~/.posit/genai/",
+  "description": "Cross-product AI configuration: schema, validation, merge/resolution, and file load/watch/write for ~/.posit/ai/",
   "type": "module",
   "exports": {
     ".": {

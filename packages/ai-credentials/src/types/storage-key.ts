@@ -20,7 +20,7 @@
  * @returns The canonical storage key, e.g. `"auth:anthropic:apikey"`.
  *
  * STABLE PERSISTED IDENTIFIER: These values are written to
- * `~/.posit/genai/auth/data.json` as keys for credential lookup. Renaming the
+ * `~/.posit/ai/auth/data.json` as keys for credential lookup. Renaming the
  * scheme without a migration will orphan existing credentials on disk.
  */
 export function storageKeyFor(providerId: string, authMethodId: string): string {

@@ -6,7 +6,7 @@
  * ai-config — Pure Entry
  *
  * Platform-agnostic schema, types, validation, and resolution helpers for
- * ~/.posit/genai/providers.json. No filesystem imports — runs in any JS
+ * ~/.posit/ai/providers.json. No filesystem imports — runs in any JS
  * environment (browser, Node, test).
  *
  * The ./node entry (ai-config/node) adds filesystem I/O: load, watch, write.

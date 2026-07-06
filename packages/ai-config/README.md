@@ -1,6 +1,6 @@
 # ai-config
 
-Owns the full lifecycle of `~/.posit/genai/providers.json`: the schema, validation, defaults, the resolution pipeline that turns a raw file into an effective provider catalog, and the filesystem seams that load, watch, and mutate the file safely across processes.
+Owns the full lifecycle of `~/.posit/ai/providers.json`: the schema, validation, defaults, the resolution pipeline that turns a raw file into an effective provider catalog, and the filesystem seams that load, watch, and mutate the file safely across processes.
 
 This package is part of the [`ai-lib`](../../README.md) monorepo. It is a dependency-light leaf: it does **not** import `ai-provider-bridge` or `ai-credentials`. Compatibility with the bridge's vocabulary (provider IDs, protocols, client kinds) is enforced at compile time by a [shape guard](../../typechecks), not by an import edge.
 
@@ -148,8 +148,8 @@ Re-exports everything above, and adds the filesystem seams. Requires Node.
 #### Paths
 
 ```ts
-import { GENAI_CONFIG_DIR, PROVIDERS_CONFIG_PATH } from "ai-config/node";
-// ~/.posit/genai  and  ~/.posit/genai/providers.json
+import { AI_CONFIG_DIR, PROVIDERS_CONFIG_PATH } from "ai-config/node";
+// ~/.posit/ai  and  ~/.posit/ai/providers.json
 ```
 
 #### `loadResolvedProviderCatalog(opts): Promise<readonly ResolvedProvider[]>`

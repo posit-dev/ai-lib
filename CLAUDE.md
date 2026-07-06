@@ -11,7 +11,7 @@ The repo is consumed as a **git submodule** (`packages/ai-lib`) by the Posit Ass
 | Package              | Purpose                                                                                                                                                                                   |
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ai-provider-bridge` | LLM provider infra: plugin registry, model clients (14 providers), credential abstractions, and a Positron VS Code layer                                                                  |
-| `ai-config`          | `~/.posit/genai/providers.json` schema, validation, defaults, and the load → enforce → build → watch resolution pipeline                                                                  |
+| `ai-config`          | `~/.posit/ai/providers.json` schema, validation, defaults, and the load → enforce → build → watch resolution pipeline                                                                     |
 | `ai-credentials`     | Credential resolution: browser-safe types/shaping, a generic single-file KV store, the store-backed backend + on-disk format, a vscode backend, and a root resolver (device-flow/refresh) |
 
 ### Dependency relationships

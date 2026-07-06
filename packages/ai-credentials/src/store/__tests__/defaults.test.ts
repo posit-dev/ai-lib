@@ -32,8 +32,8 @@ describe("getDefaultStorePath", () => {
 		await fs.rm(tmpHome, { recursive: true, force: true });
 	});
 
-	it("returns {home}/.posit/genai/auth/data.json", () => {
-		const expected = path.join(tmpHome, ".posit", "genai", "auth", "data.json");
+	it("returns {home}/.posit/ai/auth/data.json", () => {
+		const expected = path.join(tmpHome, ".posit", "ai", "auth", "data.json");
 		expect(getDefaultStorePath()).toBe(expected);
 	});
 });
@@ -56,7 +56,7 @@ describe("createDefaultStore", () => {
 		await store.set("test-key", { value: 42 });
 
 		// Verify the file was written at the expected path
-		const expectedPath = path.join(tmpHome, ".posit", "genai", "auth", "data.json");
+		const expectedPath = path.join(tmpHome, ".posit", "ai", "auth", "data.json");
 		const raw = await fs.readFile(expectedPath, "utf-8");
 		const data = JSON.parse(raw);
 		expect(data["test-key"]).toEqual({ value: 42 });
