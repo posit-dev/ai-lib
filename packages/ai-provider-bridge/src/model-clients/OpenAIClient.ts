@@ -102,7 +102,10 @@ export class OpenAIClient implements ModelClient {
 		// Transform tool result images for completions API (doesn't support images in tool results)
 		let messagesToSend = params.messages;
 		if (effectiveApiMode === "completions" && hasImagesInToolResults(params.messages)) {
-			messagesToSend = transformToolResultImagesForCompletions(params.messages);
+			messagesToSend = transformToolResultImagesForCompletions(
+				params.messages,
+				params.supportsImages ?? false,
+			);
 		}
 
 		// Stream the response

@@ -248,7 +248,10 @@ export class PositAiClient implements ModelClient {
 			// images in tool results)
 			let messagesToSend = params.messages;
 			if (hasImagesInToolResults(params.messages)) {
-				messagesToSend = transformToolResultImagesForCompletions(params.messages);
+				messagesToSend = transformToolResultImagesForCompletions(
+					params.messages,
+					params.supportsImages ?? false,
+				);
 			}
 
 			const result = streamText({

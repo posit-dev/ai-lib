@@ -36,6 +36,13 @@ export interface ModelClientChatParams {
 	webSearchEnabled?: boolean;
 	/** Whether the model requires vLLM-style `chat_template_kwargs` to enable thinking. */
 	requiresChatTemplateKwargs?: boolean;
+	/**
+	 * Whether the target model accepts image input at all. Used to decide how
+	 * tool-result images are transformed for APIs that can't embed images in
+	 * tool results: when `true`, images are moved to a follow-up user message;
+	 * when `false`, images are stripped with an explanatory note.
+	 */
+	supportsImages?: boolean;
 
 	// Posit Assistant-specific parameters — not part of the generic
 	// provider contract; may be removed when this package is extracted.

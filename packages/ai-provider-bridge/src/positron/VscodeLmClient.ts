@@ -35,6 +35,14 @@ export interface VscodeLmClientOptions {
 	 * in the fromAiMessages2 conversion. Default: true.
 	 */
 	supportsToolResultImages?: boolean;
+	/**
+	 * Whether the target model accepts image input at all. Used when
+	 * transforming tool-result images for providers that can't embed images
+	 * in tool results: when `true`, images are moved to a follow-up user
+	 * message; when `false`, images are stripped with an explanatory note.
+	 * Default: true (preserves existing VS Code LM behavior).
+	 */
+	supportsImages?: boolean;
 }
 
 /**
@@ -49,6 +57,7 @@ export interface VscodeLmClientOptions {
  */
 export class VscodeLmClient implements ModelClient {
 	private readonly supportsToolResultImages: boolean;
+	private readonly supportsImages: boolean;
 
 	constructor(
 		private readonly model: vscode.LanguageModelChat,
@@ -56,6 +65,7 @@ export class VscodeLmClient implements ModelClient {
 		options?: VscodeLmClientOptions,
 	) {
 		this.supportsToolResultImages = options?.supportsToolResultImages ?? true;
+		this.supportsImages = options?.supportsImages ?? true;
 	}
 
 	async chat(params: {
@@ -114,7 +124,9 @@ export class VscodeLmClient implements ModelClient {
 			PROVIDERS_WITHOUT_TOOL_RESULT_IMAGES.includes(this.model.vendor) &&
 			hasImagesInToolResults(messages)
 		) {
-			messages = structuredClone(transformToolResultImagesForCompletions(messages));
+			messages = structuredClone(
+				transformToolResultImagesForCompletions(messages, this.supportsImages),
+			);
 		}
 
 		// Convert AI SDK messages to VS Code format

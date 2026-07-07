@@ -80,17 +80,29 @@ export class SnowflakeClient implements ModelClient {
 
 		const { abortController, cleanup } = createAbortControllerFromToken(params.cancellationToken);
 
-		const providerOptions = isThinkingEnabled(params.thinkingEffort)
-			? {
-					anthropic: {
-						// `display: "summarized"` is required to receive thinking summary text.
-						// Opus 4.7+/Fable 5 default to `"omitted"`, which streams thinking blocks
-						// with only a signature and no text — so the UI shows no <thinking>.
-						thinking: { type: "adaptive", display: "summarized" },
-						effort: params.thinkingEffort,
-					},
-				}
-			: undefined;
+		const useThinking = isThinkingEnabled(params.thinkingEffort);
+		// Haiku 4.5 rejects the `eager_input_streaming` field that @ai-sdk/anthropic
+		// adds to tool specs by default while streaming, returning HTTP 400
+		// (tools.0.custom.eager_input_streaming: Extra inputs are not permitted).
+		// Scope the opt-out to Haiku 4.5, matching the Bedrock fix (posit-dev/ai-provider-bridge#14).
+		const disableEagerToolStreaming = params.model.includes("claude-haiku-4-5");
+		const providerOptions =
+			useThinking || disableEagerToolStreaming
+				? {
+						anthropic: {
+							...(disableEagerToolStreaming ? { toolStreaming: false } : {}),
+							...(useThinking
+								? {
+										// `display: "summarized"` is required to receive thinking summary text.
+										// Opus 4.7+/Fable 5 default to `"omitted"`, which streams thinking blocks
+										// with only a signature and no text — so the UI shows no <thinking>.
+										thinking: { type: "adaptive", display: "summarized" },
+										effort: params.thinkingEffort,
+									}
+								: {}),
+						},
+					}
+				: undefined;
 
 		const result = streamText({
 			model,

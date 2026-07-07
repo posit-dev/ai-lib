@@ -75,15 +75,25 @@ export class BedrockClient implements ModelClient {
 		// For Anthropic models on Bedrock, pass thinking config via providerOptions.
 		// The createBedrockAnthropic provider uses AnthropicMessagesLanguageModel internally,
 		// so it accepts the same `anthropic` provider options as the direct Anthropic provider.
+		const useThinking = isThinkingEnabled(params.thinkingEffort) && isAnthropic;
+		// Haiku 4.5 on Bedrock rejects the `eager_input_streaming` field that
+		// @ai-sdk/anthropic adds to tools by default while streaming, returning HTTP 400.
+		// Other Anthropic models on Bedrock accept it, so scope the opt-out to Haiku 4.5;
+		const disableEagerToolStreaming = params.model.includes("claude-haiku-4-5");
 		const providerOptions =
-			isThinkingEnabled(params.thinkingEffort) && isAnthropic
+			useThinking || disableEagerToolStreaming
 				? {
 						anthropic: {
-							// `display: "summarized"` is required to receive thinking summary text.
-							// Opus 4.7+/Fable 5 default to `"omitted"`, which streams thinking blocks
-							// with only a signature and no text — so the UI shows no <thinking>.
-							thinking: { type: "adaptive", display: "summarized" },
-							effort: params.thinkingEffort,
+							...(disableEagerToolStreaming ? { toolStreaming: false } : {}),
+							...(useThinking
+								? {
+										// `display: "summarized"` is required to receive thinking summary text.
+										// Opus 4.7+/Fable 5 default to `"omitted"`, which streams thinking blocks
+										// with only a signature and no text — so the UI shows no <thinking>.
+										thinking: { type: "adaptive", display: "summarized" },
+										effort: params.thinkingEffort,
+									}
+								: {}),
 						},
 					}
 				: undefined;

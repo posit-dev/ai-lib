@@ -65,6 +65,26 @@ describe("getAnthropicModelCapabilities", () => {
 		});
 	});
 
+	describe("claude-sonnet-5", () => {
+		it("returns family claude-5 with 1M context and 128k output", () => {
+			const caps = getAnthropicModelCapabilities("claude-sonnet-5");
+			expect(caps?.family).toBe("claude-5");
+			expect(caps?.maxContextLength).toBe(1_000_000);
+			expect(caps?.maxOutputTokens).toBe(128_000);
+		});
+
+		it("offers the full effort range including 'off' (same profile as Opus 4.8)", () => {
+			expect(getAnthropicModelCapabilities("claude-sonnet-5")?.thinkingEffortLevels).toEqual([
+				"off",
+				"low",
+				"medium",
+				"high",
+				"xhigh",
+				"max",
+			]);
+		});
+	});
+
 	describe("Opus 4.6 and 4.7 — 128k output, 1M context", () => {
 		for (const id of ["claude-opus-4-6", "claude-opus-4-7"]) {
 			it(`returns 128k output and 1M context for ${id}`, () => {

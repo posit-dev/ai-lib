@@ -28,8 +28,6 @@ Add the new ID to the `PROVIDER_IDS` array (single source of truth for valid IDs
 export const PROVIDER_IDS = [..., "newprovider"] as const;
 ```
 
-> **External build variants**: The external variant (`types-external.ts`) only includes positai. You don't need to modify it when adding a new non-positai provider -- the bundler aliasing in the consuming application handles exclusion automatically.
-
 ## Step 2: Choose Implementation Pattern
 
 | Pattern               | When to Use                        | Example                                             |

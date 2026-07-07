@@ -61,7 +61,6 @@ packages/ai-provider-bridge/src/
 | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
 | `ai-provider-bridge`                    | ProviderRegistry, interfaces, types, cached model fetcher, provider map, LocalProviderManager                                             | No          |
 | `ai-provider-bridge/providers`          | `register*Provider()` functions, all client classes                                                                                       | No          |
-| `ai-provider-bridge/providers-external` | Minimal provider set (Posit AI only, for OSS/external builds)                                                                             | No          |
 | `ai-provider-bridge/positron`           | VscodeLmClient, message conversion utilities (PositronCredentialProvider removed — credentials now resolve via `ai-credentials/positron`) | **Yes**     |
 | `ai-provider-bridge/credential-shaping` | Compat re-export of `ai-credentials/types` (`shapeCredentials()` + `CredentialConfig`); the implementation now lives in `ai-credentials`  | No          |
 
@@ -90,7 +89,7 @@ packages/ai-provider-bridge/src/
 - `ai-config` splits pure logic (`ai-config`) from filesystem I/O (`ai-config/node`); the pure entry must stay free of Node FS APIs.
 - `ai-config` and `ai-provider-bridge` must not import each other; vocabulary compatibility is enforced by the shape guard.
 - `ai-credentials`: `/types` stays browser-safe (no `vscode`/SDK/Node-builtins); `/store` imports no sibling; the root never imports `/store` (backends are injected); `/store-backend` never imports `@assistant/*`. `/store-backend` and `/positron` are the platform-bound (fs/vscode) entries.
-- External builds alias `ai-provider-bridge`'s `providers.ts`, `types.ts`, and `local-providers.ts` to `-external` variants (positai only). `ai-credentials`'s `providerEnvMappings.ts` also has a `-external` variant (empty map — positai has no secret env vars), redirected by the consuming app's build config.
+- `ai-credentials`'s `providerEnvMappings.ts` has a `-external` variant (empty map — positai has no secret env vars), redirected by the consuming app's build config.
 
 ## Key Commands
 
@@ -125,12 +124,6 @@ Per-package build notes:
 It runs as part of the root `npm run check-types` (`tsc -p typechecks/tsconfig.json`, which aliases both packages to their `src/index.ts`). Adding or renaming a provider/protocol/client-kind in one package fails the typecheck until the other is updated.
 
 ### Internal/External Build Variants
-
-External builds alias `ai-provider-bridge` provider files to their `-external` variants via the consuming application's build configuration:
-
-- `providers.ts` -> `providers-external.ts` -- only Posit AI provider (keeps non-positai provider code and SDK dependencies out of the bundle)
-- `types.ts` -> `types-external.ts` -- only positai provider ID and notification actions
-- `local-providers.ts` -> `local-providers-external.ts` -- empty `LOCAL_PROVIDER_IDS` and no-op `LocalProviderManager`
 
 `ai-config`'s `buildCatalog()` accepts `external: true` to skip `providers.custom` entries (whose client code is aliased away in external bundles).
 
@@ -225,7 +218,6 @@ The `memory-bank/` directory is a **single, repo-wide** documentation set coveri
   - Package architecture, entrypoints, invariants, code layout
   - Credential system and custom headers precedence rules
   - VS Code Language Model (vscode.lm) integration
-  - Internal/external build variant details
 
 - `./memory-bank/providerGuide.md`
   - Step-by-step guide for adding new providers

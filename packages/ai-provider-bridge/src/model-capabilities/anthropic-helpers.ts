@@ -49,6 +49,17 @@ const CAPABILITY_RULES: CapabilityRule[] = [
 		maxContextLength: 1_000_000,
 		thinkingEffortLevels: ["low", "medium", "high", "xhigh", "max"],
 	},
+	// Sonnet 5 — 128k output, 1M context. Uses the `claude-<tier>-<version>`
+	// shape (`claude-sonnet-5`), so it matches here rather than under the
+	// name-as-tier Fable/Mythos rules above. Same thinking profile as Opus 4.8
+	// (adaptive thinking, off by default), so it offers the full effort range.
+	{
+		match: /^claude-sonnet-5/,
+		family: "claude-5",
+		maxOutputTokens: 128_000,
+		maxContextLength: 1_000_000,
+		thinkingEffortLevels: ["off", "low", "medium", "high", "xhigh", "max"],
+	},
 	// Opus 4.6–4.8 — 128k output, 1M context. Opus 4.7+ add the `xhigh` effort
 	// level; 4.6 does not.
 	{
