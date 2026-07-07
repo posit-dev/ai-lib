@@ -313,6 +313,27 @@ export const customProviderEntrySchema = z.discriminatedUnion("type", [
 	customProviderVariantSchema("ms-foundry"),
 ]);
 
+/**
+ * Compile-time exhaustiveness guard for the hand-listed variant tuple above.
+ *
+ * The tuple must be hand-listed (building it with `.map(...)` degrades Zod's
+ * discriminated-union type inference), so — unlike `CUSTOM_CONNECTION_SECTIONS`,
+ * which is `satisfies Record<SupportedCustomClientKind, …>` — nothing otherwise
+ * ties the listed `type` literals to `SUPPORTED_CUSTOM_CLIENT_KIND_VALUES`.
+ * Without this, adding a supported kind would fail the section-map guard but
+ * could silently omit its variant from the schema (or an extra variant could
+ * creep in). This asserts the two sets are exactly equal; a mismatch fails to
+ * compile. Type-only — fully erased, no runtime emit.
+ */
+type CustomVariantKind = z.infer<typeof customProviderEntrySchema>["type"];
+type CustomVariantsMatchSupportedKinds = [CustomVariantKind] extends [SupportedCustomClientKind]
+	? [SupportedCustomClientKind] extends [CustomVariantKind]
+		? true
+		: false
+	: false;
+type AssertTrue<T extends true> = T;
+type _AssertCustomVariantsExhaustive = AssertTrue<CustomVariantsMatchSupportedKinds>;
+
 // ---------------------------------------------------------------------------
 // Enforced custom provider entry (relaxed `type`, superset sections)
 // ---------------------------------------------------------------------------
