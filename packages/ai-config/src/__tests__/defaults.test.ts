@@ -16,9 +16,9 @@ import {
 describe("provider connection defaults", () => {
 	it("POSIT_AI_DEFAULTS has expected shape", () => {
 		expect(POSIT_AI_DEFAULTS.baseUrl).toBe("https://gateway.posit.ai");
-		expect(POSIT_AI_DEFAULTS.oauth.host).toBe("login.posit.cloud");
-		expect(POSIT_AI_DEFAULTS.oauth.clientId).toBe("rstudio-ide");
-		expect(POSIT_AI_DEFAULTS.oauth.scope).toBe("prism");
+		expect(POSIT_AI_DEFAULTS.positaiLogin.host).toBe("login.posit.cloud");
+		expect(POSIT_AI_DEFAULTS.positaiLogin.clientId).toBe("rstudio-ide");
+		expect(POSIT_AI_DEFAULTS.positaiLogin.scope).toBe("prism");
 	});
 
 	it("OLLAMA_DEFAULTS has expected endpoint", () => {

@@ -13,18 +13,6 @@
         "anthropic": {
           "additionalProperties": false,
           "properties": {
-            "aws": {
-              "additionalProperties": false,
-              "properties": {
-                "profile": {
-                  "type": "string"
-                },
-                "region": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            },
             "baseUrl": {
               "type": "string"
             },
@@ -56,18 +44,6 @@
                   "google-generative"
                 ],
                 "type": "string"
-              },
-              "type": "object"
-            },
-            "googleCloud": {
-              "additionalProperties": false,
-              "properties": {
-                "location": {
-                  "type": "string"
-                },
-                "project": {
-                  "type": "string"
-                }
               },
               "type": "object"
             },
@@ -247,21 +223,6 @@
               },
               "type": "object"
             },
-            "oauth": {
-              "additionalProperties": false,
-              "properties": {
-                "clientId": {
-                  "type": "string"
-                },
-                "host": {
-                  "type": "string"
-                },
-                "scope": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            },
             "protocol": {
               "enum": [
                 "anthropic-messages",
@@ -271,18 +232,6 @@
                 "google-generative"
               ],
               "type": "string"
-            },
-            "snowflake": {
-              "additionalProperties": false,
-              "properties": {
-                "account": {
-                  "type": "string"
-                },
-                "host": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
             }
           },
           "type": "object"
@@ -336,18 +285,6 @@
               },
               "type": "object"
             },
-            "googleCloud": {
-              "additionalProperties": false,
-              "properties": {
-                "location": {
-                  "type": "string"
-                },
-                "project": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            },
             "models": {
               "additionalProperties": false,
               "properties": {
@@ -524,21 +461,6 @@
               },
               "type": "object"
             },
-            "oauth": {
-              "additionalProperties": false,
-              "properties": {
-                "clientId": {
-                  "type": "string"
-                },
-                "host": {
-                  "type": "string"
-                },
-                "scope": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            },
             "protocol": {
               "enum": [
                 "anthropic-messages",
@@ -548,18 +470,6 @@
                 "google-generative"
               ],
               "type": "string"
-            },
-            "snowflake": {
-              "additionalProperties": false,
-              "properties": {
-                "account": {
-                  "type": "string"
-                },
-                "host": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
             }
           },
           "type": "object"
@@ -567,18 +477,6 @@
         "copilot": {
           "additionalProperties": false,
           "properties": {
-            "aws": {
-              "additionalProperties": false,
-              "properties": {
-                "profile": {
-                  "type": "string"
-                },
-                "region": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            },
             "baseUrl": {
               "type": "string"
             },
@@ -613,18 +511,6 @@
               },
               "type": "object"
             },
-            "googleCloud": {
-              "additionalProperties": false,
-              "properties": {
-                "location": {
-                  "type": "string"
-                },
-                "project": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            },
             "models": {
               "additionalProperties": false,
               "properties": {
@@ -801,21 +687,6 @@
               },
               "type": "object"
             },
-            "oauth": {
-              "additionalProperties": false,
-              "properties": {
-                "clientId": {
-                  "type": "string"
-                },
-                "host": {
-                  "type": "string"
-                },
-                "scope": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            },
             "protocol": {
               "enum": [
                 "anthropic-messages",
@@ -825,321 +696,2210 @@
                 "google-generative"
               ],
               "type": "string"
-            },
-            "snowflake": {
-              "additionalProperties": false,
-              "properties": {
-                "account": {
-                  "type": "string"
-                },
-                "host": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
             }
           },
           "type": "object"
         },
         "custom": {
           "additionalProperties": {
-            "additionalProperties": false,
-            "properties": {
-              "aws": {
+            "oneOf": [
+              {
                 "additionalProperties": false,
                 "properties": {
-                  "profile": {
+                  "baseUrl": {
                     "type": "string"
                   },
-                  "region": {
-                    "type": "string"
-                  }
-                },
-                "type": "object"
-              },
-              "baseUrl": {
-                "type": "string"
-              },
-              "customHeaders": {
-                "additionalProperties": {
-                  "type": "string"
-                },
-                "propertyNames": {
-                  "type": "string"
-                },
-                "type": "object"
-              },
-              "enabled": {
-                "type": "boolean"
-              },
-              "endpoint": {
-                "type": "string"
-              },
-              "endpoints": {
-                "additionalProperties": {
-                  "type": "string"
-                },
-                "propertyNames": {
-                  "enum": [
-                    "anthropic-messages",
-                    "openai-chat",
-                    "openai-responses",
-                    "bedrock-converse",
-                    "google-generative"
-                  ],
-                  "type": "string"
-                },
-                "type": "object"
-              },
-              "googleCloud": {
-                "additionalProperties": false,
-                "properties": {
-                  "location": {
-                    "type": "string"
-                  },
-                  "project": {
-                    "type": "string"
-                  }
-                },
-                "type": "object"
-              },
-              "models": {
-                "additionalProperties": false,
-                "properties": {
-                  "allow": {
-                    "items": {
-                      "type": "string"
-                    },
-                    "type": "array"
-                  },
-                  "custom": {
-                    "items": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "baseUrl": {
-                          "type": "string"
-                        },
-                        "family": {
-                          "type": "string"
-                        },
-                        "id": {
-                          "minLength": 1,
-                          "type": "string"
-                        },
-                        "maxContextLength": {
-                          "exclusiveMinimum": 0,
-                          "maximum": 9007199254740991,
-                          "type": "integer"
-                        },
-                        "maxInputTokens": {
-                          "exclusiveMinimum": 0,
-                          "maximum": 9007199254740991,
-                          "type": "integer"
-                        },
-                        "maxOutputTokens": {
-                          "exclusiveMinimum": 0,
-                          "maximum": 9007199254740991,
-                          "type": "integer"
-                        },
-                        "name": {
-                          "minLength": 1,
-                          "type": "string"
-                        },
-                        "protocol": {
-                          "enum": [
-                            "anthropic-messages",
-                            "openai-chat",
-                            "openai-responses",
-                            "bedrock-converse",
-                            "google-generative"
-                          ],
-                          "type": "string"
-                        },
-                        "supportedInputMediaTypes": {
-                          "items": {
-                            "type": "string"
-                          },
-                          "type": "array"
-                        },
-                        "supportsImages": {
-                          "type": "boolean"
-                        },
-                        "supportsToolResultImages": {
-                          "type": "boolean"
-                        },
-                        "supportsTools": {
-                          "type": "boolean"
-                        },
-                        "supportsWebSearch": {
-                          "type": "boolean"
-                        },
-                        "thinkingEffortLevels": {
-                          "items": {
-                            "type": "string"
-                          },
-                          "type": "array"
-                        }
-                      },
-                      "required": [
-                        "id",
-                        "name",
-                        "maxContextLength",
-                        "supportsTools",
-                        "supportsImages",
-                        "supportsToolResultImages",
-                        "supportsWebSearch"
-                      ],
-                      "type": "object"
-                    },
-                    "type": "array"
-                  },
-                  "deny": {
-                    "items": {
-                      "type": "string"
-                    },
-                    "type": "array"
-                  },
-                  "discovery": {
-                    "enum": [
-                      "auto",
-                      "off"
-                    ],
-                    "type": "string"
-                  },
-                  "overrides": {
+                  "customHeaders": {
                     "additionalProperties": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "baseUrl": {
-                          "type": "string"
-                        },
-                        "family": {
-                          "type": "string"
-                        },
-                        "maxContextLength": {
-                          "exclusiveMinimum": 0,
-                          "maximum": 9007199254740991,
-                          "type": "integer"
-                        },
-                        "maxInputTokens": {
-                          "exclusiveMinimum": 0,
-                          "maximum": 9007199254740991,
-                          "type": "integer"
-                        },
-                        "maxOutputTokens": {
-                          "exclusiveMinimum": 0,
-                          "maximum": 9007199254740991,
-                          "type": "integer"
-                        },
-                        "name": {
-                          "type": "string"
-                        },
-                        "protocol": {
-                          "enum": [
-                            "anthropic-messages",
-                            "openai-chat",
-                            "openai-responses",
-                            "bedrock-converse",
-                            "google-generative"
-                          ],
-                          "type": "string"
-                        },
-                        "supportedInputMediaTypes": {
-                          "items": {
-                            "type": "string"
-                          },
-                          "type": "array"
-                        },
-                        "supportsImages": {
-                          "type": "boolean"
-                        },
-                        "supportsToolResultImages": {
-                          "type": "boolean"
-                        },
-                        "supportsTools": {
-                          "type": "boolean"
-                        },
-                        "supportsWebSearch": {
-                          "type": "boolean"
-                        },
-                        "thinkingEffortLevels": {
-                          "items": {
-                            "type": "string"
-                          },
-                          "type": "array"
-                        }
-                      },
-                      "type": "object"
+                      "type": "string"
                     },
                     "propertyNames": {
                       "type": "string"
                     },
                     "type": "object"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "endpoint": {
+                    "type": "string"
+                  },
+                  "endpoints": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "propertyNames": {
+                      "enum": [
+                        "anthropic-messages",
+                        "openai-chat",
+                        "openai-responses",
+                        "bedrock-converse",
+                        "google-generative"
+                      ],
+                      "type": "string"
+                    },
+                    "required": [
+                      "anthropic-messages",
+                      "openai-chat",
+                      "openai-responses",
+                      "bedrock-converse",
+                      "google-generative"
+                    ],
+                    "type": "object"
+                  },
+                  "models": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "allow": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "custom": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "baseUrl": {
+                              "type": "string"
+                            },
+                            "family": {
+                              "type": "string"
+                            },
+                            "id": {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "maxContextLength": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxInputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxOutputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "name": {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "protocol": {
+                              "enum": [
+                                "anthropic-messages",
+                                "openai-chat",
+                                "openai-responses",
+                                "bedrock-converse",
+                                "google-generative"
+                              ],
+                              "type": "string"
+                            },
+                            "supportedInputMediaTypes": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "supportsImages": {
+                              "type": "boolean"
+                            },
+                            "supportsToolResultImages": {
+                              "type": "boolean"
+                            },
+                            "supportsTools": {
+                              "type": "boolean"
+                            },
+                            "supportsWebSearch": {
+                              "type": "boolean"
+                            },
+                            "thinkingEffortLevels": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name",
+                            "maxContextLength",
+                            "supportsTools",
+                            "supportsImages",
+                            "supportsToolResultImages",
+                            "supportsWebSearch"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "deny": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "discovery": {
+                        "enum": [
+                          "auto",
+                          "off"
+                        ],
+                        "type": "string"
+                      },
+                      "overrides": {
+                        "additionalProperties": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "baseUrl": {
+                              "type": "string"
+                            },
+                            "family": {
+                              "type": "string"
+                            },
+                            "maxContextLength": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxInputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxOutputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "protocol": {
+                              "enum": [
+                                "anthropic-messages",
+                                "openai-chat",
+                                "openai-responses",
+                                "bedrock-converse",
+                                "google-generative"
+                              ],
+                              "type": "string"
+                            },
+                            "supportedInputMediaTypes": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "supportsImages": {
+                              "type": "boolean"
+                            },
+                            "supportsToolResultImages": {
+                              "type": "boolean"
+                            },
+                            "supportsTools": {
+                              "type": "boolean"
+                            },
+                            "supportsWebSearch": {
+                              "type": "boolean"
+                            },
+                            "thinkingEffortLevels": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "type": "object"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "protocol": {
+                    "enum": [
+                      "anthropic-messages",
+                      "openai-chat",
+                      "openai-responses",
+                      "bedrock-converse",
+                      "google-generative"
+                    ],
+                    "type": "string"
+                  },
+                  "type": {
+                    "const": "openai-compatible",
+                    "type": "string"
                   }
                 },
+                "required": [
+                  "type"
+                ],
                 "type": "object"
               },
-              "oauth": {
+              {
                 "additionalProperties": false,
                 "properties": {
-                  "clientId": {
+                  "aws": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "profile": {
+                        "type": "string"
+                      },
+                      "region": {
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "baseUrl": {
                     "type": "string"
                   },
-                  "host": {
+                  "customHeaders": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "endpoint": {
                     "type": "string"
                   },
-                  "scope": {
+                  "endpoints": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "propertyNames": {
+                      "enum": [
+                        "anthropic-messages",
+                        "openai-chat",
+                        "openai-responses",
+                        "bedrock-converse",
+                        "google-generative"
+                      ],
+                      "type": "string"
+                    },
+                    "required": [
+                      "anthropic-messages",
+                      "openai-chat",
+                      "openai-responses",
+                      "bedrock-converse",
+                      "google-generative"
+                    ],
+                    "type": "object"
+                  },
+                  "models": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "allow": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "custom": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "baseUrl": {
+                              "type": "string"
+                            },
+                            "family": {
+                              "type": "string"
+                            },
+                            "id": {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "maxContextLength": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxInputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxOutputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "name": {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "protocol": {
+                              "enum": [
+                                "anthropic-messages",
+                                "openai-chat",
+                                "openai-responses",
+                                "bedrock-converse",
+                                "google-generative"
+                              ],
+                              "type": "string"
+                            },
+                            "supportedInputMediaTypes": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "supportsImages": {
+                              "type": "boolean"
+                            },
+                            "supportsToolResultImages": {
+                              "type": "boolean"
+                            },
+                            "supportsTools": {
+                              "type": "boolean"
+                            },
+                            "supportsWebSearch": {
+                              "type": "boolean"
+                            },
+                            "thinkingEffortLevels": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name",
+                            "maxContextLength",
+                            "supportsTools",
+                            "supportsImages",
+                            "supportsToolResultImages",
+                            "supportsWebSearch"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "deny": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "discovery": {
+                        "enum": [
+                          "auto",
+                          "off"
+                        ],
+                        "type": "string"
+                      },
+                      "overrides": {
+                        "additionalProperties": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "baseUrl": {
+                              "type": "string"
+                            },
+                            "family": {
+                              "type": "string"
+                            },
+                            "maxContextLength": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxInputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxOutputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "protocol": {
+                              "enum": [
+                                "anthropic-messages",
+                                "openai-chat",
+                                "openai-responses",
+                                "bedrock-converse",
+                                "google-generative"
+                              ],
+                              "type": "string"
+                            },
+                            "supportedInputMediaTypes": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "supportsImages": {
+                              "type": "boolean"
+                            },
+                            "supportsToolResultImages": {
+                              "type": "boolean"
+                            },
+                            "supportsTools": {
+                              "type": "boolean"
+                            },
+                            "supportsWebSearch": {
+                              "type": "boolean"
+                            },
+                            "thinkingEffortLevels": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "type": "object"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "protocol": {
+                    "enum": [
+                      "anthropic-messages",
+                      "openai-chat",
+                      "openai-responses",
+                      "bedrock-converse",
+                      "google-generative"
+                    ],
+                    "type": "string"
+                  },
+                  "type": {
+                    "const": "aws",
                     "type": "string"
                   }
                 },
+                "required": [
+                  "type"
+                ],
                 "type": "object"
               },
-              "protocol": {
-                "enum": [
-                  "anthropic-messages",
-                  "openai-chat",
-                  "openai-responses",
-                  "bedrock-converse",
-                  "google-generative"
-                ],
-                "type": "string"
-              },
-              "snowflake": {
+              {
                 "additionalProperties": false,
                 "properties": {
-                  "account": {
+                  "baseUrl": {
                     "type": "string"
                   },
-                  "host": {
+                  "customHeaders": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "endpoint": {
+                    "type": "string"
+                  },
+                  "endpoints": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "propertyNames": {
+                      "enum": [
+                        "anthropic-messages",
+                        "openai-chat",
+                        "openai-responses",
+                        "bedrock-converse",
+                        "google-generative"
+                      ],
+                      "type": "string"
+                    },
+                    "required": [
+                      "anthropic-messages",
+                      "openai-chat",
+                      "openai-responses",
+                      "bedrock-converse",
+                      "google-generative"
+                    ],
+                    "type": "object"
+                  },
+                  "models": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "allow": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "custom": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "baseUrl": {
+                              "type": "string"
+                            },
+                            "family": {
+                              "type": "string"
+                            },
+                            "id": {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "maxContextLength": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxInputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxOutputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "name": {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "protocol": {
+                              "enum": [
+                                "anthropic-messages",
+                                "openai-chat",
+                                "openai-responses",
+                                "bedrock-converse",
+                                "google-generative"
+                              ],
+                              "type": "string"
+                            },
+                            "supportedInputMediaTypes": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "supportsImages": {
+                              "type": "boolean"
+                            },
+                            "supportsToolResultImages": {
+                              "type": "boolean"
+                            },
+                            "supportsTools": {
+                              "type": "boolean"
+                            },
+                            "supportsWebSearch": {
+                              "type": "boolean"
+                            },
+                            "thinkingEffortLevels": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name",
+                            "maxContextLength",
+                            "supportsTools",
+                            "supportsImages",
+                            "supportsToolResultImages",
+                            "supportsWebSearch"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "deny": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "discovery": {
+                        "enum": [
+                          "auto",
+                          "off"
+                        ],
+                        "type": "string"
+                      },
+                      "overrides": {
+                        "additionalProperties": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "baseUrl": {
+                              "type": "string"
+                            },
+                            "family": {
+                              "type": "string"
+                            },
+                            "maxContextLength": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxInputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxOutputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "protocol": {
+                              "enum": [
+                                "anthropic-messages",
+                                "openai-chat",
+                                "openai-responses",
+                                "bedrock-converse",
+                                "google-generative"
+                              ],
+                              "type": "string"
+                            },
+                            "supportedInputMediaTypes": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "supportsImages": {
+                              "type": "boolean"
+                            },
+                            "supportsToolResultImages": {
+                              "type": "boolean"
+                            },
+                            "supportsTools": {
+                              "type": "boolean"
+                            },
+                            "supportsWebSearch": {
+                              "type": "boolean"
+                            },
+                            "thinkingEffortLevels": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "type": "object"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "protocol": {
+                    "enum": [
+                      "anthropic-messages",
+                      "openai-chat",
+                      "openai-responses",
+                      "bedrock-converse",
+                      "google-generative"
+                    ],
+                    "type": "string"
+                  },
+                  "snowflake": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "account": {
+                        "type": "string"
+                      },
+                      "host": {
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "type": {
+                    "const": "snowflake",
                     "type": "string"
                   }
                 },
+                "required": [
+                  "type"
+                ],
                 "type": "object"
               },
-              "type": {
-                "enum": [
-                  "openai-compatible",
-                  "aws",
-                  "snowflake",
-                  "google-vertex",
-                  "anthropic",
-                  "openai",
-                  "gemini",
-                  "ollama",
-                  "lmstudio",
-                  "deepseek",
-                  "openrouter",
-                  "positai",
-                  "copilot",
-                  "ms-foundry"
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "baseUrl": {
+                    "type": "string"
+                  },
+                  "customHeaders": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "endpoint": {
+                    "type": "string"
+                  },
+                  "endpoints": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "propertyNames": {
+                      "enum": [
+                        "anthropic-messages",
+                        "openai-chat",
+                        "openai-responses",
+                        "bedrock-converse",
+                        "google-generative"
+                      ],
+                      "type": "string"
+                    },
+                    "required": [
+                      "anthropic-messages",
+                      "openai-chat",
+                      "openai-responses",
+                      "bedrock-converse",
+                      "google-generative"
+                    ],
+                    "type": "object"
+                  },
+                  "googleCloud": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "location": {
+                        "type": "string"
+                      },
+                      "project": {
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "models": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "allow": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "custom": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "baseUrl": {
+                              "type": "string"
+                            },
+                            "family": {
+                              "type": "string"
+                            },
+                            "id": {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "maxContextLength": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxInputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxOutputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "name": {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "protocol": {
+                              "enum": [
+                                "anthropic-messages",
+                                "openai-chat",
+                                "openai-responses",
+                                "bedrock-converse",
+                                "google-generative"
+                              ],
+                              "type": "string"
+                            },
+                            "supportedInputMediaTypes": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "supportsImages": {
+                              "type": "boolean"
+                            },
+                            "supportsToolResultImages": {
+                              "type": "boolean"
+                            },
+                            "supportsTools": {
+                              "type": "boolean"
+                            },
+                            "supportsWebSearch": {
+                              "type": "boolean"
+                            },
+                            "thinkingEffortLevels": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name",
+                            "maxContextLength",
+                            "supportsTools",
+                            "supportsImages",
+                            "supportsToolResultImages",
+                            "supportsWebSearch"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "deny": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "discovery": {
+                        "enum": [
+                          "auto",
+                          "off"
+                        ],
+                        "type": "string"
+                      },
+                      "overrides": {
+                        "additionalProperties": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "baseUrl": {
+                              "type": "string"
+                            },
+                            "family": {
+                              "type": "string"
+                            },
+                            "maxContextLength": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxInputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxOutputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "protocol": {
+                              "enum": [
+                                "anthropic-messages",
+                                "openai-chat",
+                                "openai-responses",
+                                "bedrock-converse",
+                                "google-generative"
+                              ],
+                              "type": "string"
+                            },
+                            "supportedInputMediaTypes": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "supportsImages": {
+                              "type": "boolean"
+                            },
+                            "supportsToolResultImages": {
+                              "type": "boolean"
+                            },
+                            "supportsTools": {
+                              "type": "boolean"
+                            },
+                            "supportsWebSearch": {
+                              "type": "boolean"
+                            },
+                            "thinkingEffortLevels": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "type": "object"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "protocol": {
+                    "enum": [
+                      "anthropic-messages",
+                      "openai-chat",
+                      "openai-responses",
+                      "bedrock-converse",
+                      "google-generative"
+                    ],
+                    "type": "string"
+                  },
+                  "type": {
+                    "const": "google-vertex",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type"
                 ],
-                "type": "string"
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "baseUrl": {
+                    "type": "string"
+                  },
+                  "customHeaders": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "endpoint": {
+                    "type": "string"
+                  },
+                  "endpoints": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "propertyNames": {
+                      "enum": [
+                        "anthropic-messages",
+                        "openai-chat",
+                        "openai-responses",
+                        "bedrock-converse",
+                        "google-generative"
+                      ],
+                      "type": "string"
+                    },
+                    "required": [
+                      "anthropic-messages",
+                      "openai-chat",
+                      "openai-responses",
+                      "bedrock-converse",
+                      "google-generative"
+                    ],
+                    "type": "object"
+                  },
+                  "models": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "allow": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "custom": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "baseUrl": {
+                              "type": "string"
+                            },
+                            "family": {
+                              "type": "string"
+                            },
+                            "id": {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "maxContextLength": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxInputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxOutputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "name": {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "protocol": {
+                              "enum": [
+                                "anthropic-messages",
+                                "openai-chat",
+                                "openai-responses",
+                                "bedrock-converse",
+                                "google-generative"
+                              ],
+                              "type": "string"
+                            },
+                            "supportedInputMediaTypes": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "supportsImages": {
+                              "type": "boolean"
+                            },
+                            "supportsToolResultImages": {
+                              "type": "boolean"
+                            },
+                            "supportsTools": {
+                              "type": "boolean"
+                            },
+                            "supportsWebSearch": {
+                              "type": "boolean"
+                            },
+                            "thinkingEffortLevels": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name",
+                            "maxContextLength",
+                            "supportsTools",
+                            "supportsImages",
+                            "supportsToolResultImages",
+                            "supportsWebSearch"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "deny": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "discovery": {
+                        "enum": [
+                          "auto",
+                          "off"
+                        ],
+                        "type": "string"
+                      },
+                      "overrides": {
+                        "additionalProperties": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "baseUrl": {
+                              "type": "string"
+                            },
+                            "family": {
+                              "type": "string"
+                            },
+                            "maxContextLength": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxInputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxOutputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "protocol": {
+                              "enum": [
+                                "anthropic-messages",
+                                "openai-chat",
+                                "openai-responses",
+                                "bedrock-converse",
+                                "google-generative"
+                              ],
+                              "type": "string"
+                            },
+                            "supportedInputMediaTypes": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "supportsImages": {
+                              "type": "boolean"
+                            },
+                            "supportsToolResultImages": {
+                              "type": "boolean"
+                            },
+                            "supportsTools": {
+                              "type": "boolean"
+                            },
+                            "supportsWebSearch": {
+                              "type": "boolean"
+                            },
+                            "thinkingEffortLevels": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "type": "object"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "protocol": {
+                    "enum": [
+                      "anthropic-messages",
+                      "openai-chat",
+                      "openai-responses",
+                      "bedrock-converse",
+                      "google-generative"
+                    ],
+                    "type": "string"
+                  },
+                  "type": {
+                    "const": "ollama",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "baseUrl": {
+                    "type": "string"
+                  },
+                  "customHeaders": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "endpoint": {
+                    "type": "string"
+                  },
+                  "endpoints": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "propertyNames": {
+                      "enum": [
+                        "anthropic-messages",
+                        "openai-chat",
+                        "openai-responses",
+                        "bedrock-converse",
+                        "google-generative"
+                      ],
+                      "type": "string"
+                    },
+                    "required": [
+                      "anthropic-messages",
+                      "openai-chat",
+                      "openai-responses",
+                      "bedrock-converse",
+                      "google-generative"
+                    ],
+                    "type": "object"
+                  },
+                  "models": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "allow": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "custom": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "baseUrl": {
+                              "type": "string"
+                            },
+                            "family": {
+                              "type": "string"
+                            },
+                            "id": {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "maxContextLength": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxInputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxOutputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "name": {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "protocol": {
+                              "enum": [
+                                "anthropic-messages",
+                                "openai-chat",
+                                "openai-responses",
+                                "bedrock-converse",
+                                "google-generative"
+                              ],
+                              "type": "string"
+                            },
+                            "supportedInputMediaTypes": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "supportsImages": {
+                              "type": "boolean"
+                            },
+                            "supportsToolResultImages": {
+                              "type": "boolean"
+                            },
+                            "supportsTools": {
+                              "type": "boolean"
+                            },
+                            "supportsWebSearch": {
+                              "type": "boolean"
+                            },
+                            "thinkingEffortLevels": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name",
+                            "maxContextLength",
+                            "supportsTools",
+                            "supportsImages",
+                            "supportsToolResultImages",
+                            "supportsWebSearch"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "deny": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "discovery": {
+                        "enum": [
+                          "auto",
+                          "off"
+                        ],
+                        "type": "string"
+                      },
+                      "overrides": {
+                        "additionalProperties": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "baseUrl": {
+                              "type": "string"
+                            },
+                            "family": {
+                              "type": "string"
+                            },
+                            "maxContextLength": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxInputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxOutputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "protocol": {
+                              "enum": [
+                                "anthropic-messages",
+                                "openai-chat",
+                                "openai-responses",
+                                "bedrock-converse",
+                                "google-generative"
+                              ],
+                              "type": "string"
+                            },
+                            "supportedInputMediaTypes": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "supportsImages": {
+                              "type": "boolean"
+                            },
+                            "supportsToolResultImages": {
+                              "type": "boolean"
+                            },
+                            "supportsTools": {
+                              "type": "boolean"
+                            },
+                            "supportsWebSearch": {
+                              "type": "boolean"
+                            },
+                            "thinkingEffortLevels": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "type": "object"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "protocol": {
+                    "enum": [
+                      "anthropic-messages",
+                      "openai-chat",
+                      "openai-responses",
+                      "bedrock-converse",
+                      "google-generative"
+                    ],
+                    "type": "string"
+                  },
+                  "type": {
+                    "const": "lmstudio",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "baseUrl": {
+                    "type": "string"
+                  },
+                  "customHeaders": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "endpoint": {
+                    "type": "string"
+                  },
+                  "endpoints": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "propertyNames": {
+                      "enum": [
+                        "anthropic-messages",
+                        "openai-chat",
+                        "openai-responses",
+                        "bedrock-converse",
+                        "google-generative"
+                      ],
+                      "type": "string"
+                    },
+                    "required": [
+                      "anthropic-messages",
+                      "openai-chat",
+                      "openai-responses",
+                      "bedrock-converse",
+                      "google-generative"
+                    ],
+                    "type": "object"
+                  },
+                  "models": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "allow": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "custom": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "baseUrl": {
+                              "type": "string"
+                            },
+                            "family": {
+                              "type": "string"
+                            },
+                            "id": {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "maxContextLength": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxInputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxOutputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "name": {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "protocol": {
+                              "enum": [
+                                "anthropic-messages",
+                                "openai-chat",
+                                "openai-responses",
+                                "bedrock-converse",
+                                "google-generative"
+                              ],
+                              "type": "string"
+                            },
+                            "supportedInputMediaTypes": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "supportsImages": {
+                              "type": "boolean"
+                            },
+                            "supportsToolResultImages": {
+                              "type": "boolean"
+                            },
+                            "supportsTools": {
+                              "type": "boolean"
+                            },
+                            "supportsWebSearch": {
+                              "type": "boolean"
+                            },
+                            "thinkingEffortLevels": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name",
+                            "maxContextLength",
+                            "supportsTools",
+                            "supportsImages",
+                            "supportsToolResultImages",
+                            "supportsWebSearch"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "deny": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "discovery": {
+                        "enum": [
+                          "auto",
+                          "off"
+                        ],
+                        "type": "string"
+                      },
+                      "overrides": {
+                        "additionalProperties": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "baseUrl": {
+                              "type": "string"
+                            },
+                            "family": {
+                              "type": "string"
+                            },
+                            "maxContextLength": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxInputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxOutputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "protocol": {
+                              "enum": [
+                                "anthropic-messages",
+                                "openai-chat",
+                                "openai-responses",
+                                "bedrock-converse",
+                                "google-generative"
+                              ],
+                              "type": "string"
+                            },
+                            "supportedInputMediaTypes": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "supportsImages": {
+                              "type": "boolean"
+                            },
+                            "supportsToolResultImages": {
+                              "type": "boolean"
+                            },
+                            "supportsTools": {
+                              "type": "boolean"
+                            },
+                            "supportsWebSearch": {
+                              "type": "boolean"
+                            },
+                            "thinkingEffortLevels": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "type": "object"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "protocol": {
+                    "enum": [
+                      "anthropic-messages",
+                      "openai-chat",
+                      "openai-responses",
+                      "bedrock-converse",
+                      "google-generative"
+                    ],
+                    "type": "string"
+                  },
+                  "type": {
+                    "const": "deepseek",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "baseUrl": {
+                    "type": "string"
+                  },
+                  "customHeaders": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "endpoint": {
+                    "type": "string"
+                  },
+                  "endpoints": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "propertyNames": {
+                      "enum": [
+                        "anthropic-messages",
+                        "openai-chat",
+                        "openai-responses",
+                        "bedrock-converse",
+                        "google-generative"
+                      ],
+                      "type": "string"
+                    },
+                    "required": [
+                      "anthropic-messages",
+                      "openai-chat",
+                      "openai-responses",
+                      "bedrock-converse",
+                      "google-generative"
+                    ],
+                    "type": "object"
+                  },
+                  "models": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "allow": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "custom": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "baseUrl": {
+                              "type": "string"
+                            },
+                            "family": {
+                              "type": "string"
+                            },
+                            "id": {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "maxContextLength": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxInputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxOutputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "name": {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "protocol": {
+                              "enum": [
+                                "anthropic-messages",
+                                "openai-chat",
+                                "openai-responses",
+                                "bedrock-converse",
+                                "google-generative"
+                              ],
+                              "type": "string"
+                            },
+                            "supportedInputMediaTypes": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "supportsImages": {
+                              "type": "boolean"
+                            },
+                            "supportsToolResultImages": {
+                              "type": "boolean"
+                            },
+                            "supportsTools": {
+                              "type": "boolean"
+                            },
+                            "supportsWebSearch": {
+                              "type": "boolean"
+                            },
+                            "thinkingEffortLevels": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name",
+                            "maxContextLength",
+                            "supportsTools",
+                            "supportsImages",
+                            "supportsToolResultImages",
+                            "supportsWebSearch"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "deny": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "discovery": {
+                        "enum": [
+                          "auto",
+                          "off"
+                        ],
+                        "type": "string"
+                      },
+                      "overrides": {
+                        "additionalProperties": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "baseUrl": {
+                              "type": "string"
+                            },
+                            "family": {
+                              "type": "string"
+                            },
+                            "maxContextLength": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxInputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxOutputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "protocol": {
+                              "enum": [
+                                "anthropic-messages",
+                                "openai-chat",
+                                "openai-responses",
+                                "bedrock-converse",
+                                "google-generative"
+                              ],
+                              "type": "string"
+                            },
+                            "supportedInputMediaTypes": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "supportsImages": {
+                              "type": "boolean"
+                            },
+                            "supportsToolResultImages": {
+                              "type": "boolean"
+                            },
+                            "supportsTools": {
+                              "type": "boolean"
+                            },
+                            "supportsWebSearch": {
+                              "type": "boolean"
+                            },
+                            "thinkingEffortLevels": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "type": "object"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "protocol": {
+                    "enum": [
+                      "anthropic-messages",
+                      "openai-chat",
+                      "openai-responses",
+                      "bedrock-converse",
+                      "google-generative"
+                    ],
+                    "type": "string"
+                  },
+                  "type": {
+                    "const": "openrouter",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "baseUrl": {
+                    "type": "string"
+                  },
+                  "customHeaders": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "endpoint": {
+                    "type": "string"
+                  },
+                  "endpoints": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "propertyNames": {
+                      "enum": [
+                        "anthropic-messages",
+                        "openai-chat",
+                        "openai-responses",
+                        "bedrock-converse",
+                        "google-generative"
+                      ],
+                      "type": "string"
+                    },
+                    "required": [
+                      "anthropic-messages",
+                      "openai-chat",
+                      "openai-responses",
+                      "bedrock-converse",
+                      "google-generative"
+                    ],
+                    "type": "object"
+                  },
+                  "models": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "allow": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "custom": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "baseUrl": {
+                              "type": "string"
+                            },
+                            "family": {
+                              "type": "string"
+                            },
+                            "id": {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "maxContextLength": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxInputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxOutputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "name": {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "protocol": {
+                              "enum": [
+                                "anthropic-messages",
+                                "openai-chat",
+                                "openai-responses",
+                                "bedrock-converse",
+                                "google-generative"
+                              ],
+                              "type": "string"
+                            },
+                            "supportedInputMediaTypes": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "supportsImages": {
+                              "type": "boolean"
+                            },
+                            "supportsToolResultImages": {
+                              "type": "boolean"
+                            },
+                            "supportsTools": {
+                              "type": "boolean"
+                            },
+                            "supportsWebSearch": {
+                              "type": "boolean"
+                            },
+                            "thinkingEffortLevels": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name",
+                            "maxContextLength",
+                            "supportsTools",
+                            "supportsImages",
+                            "supportsToolResultImages",
+                            "supportsWebSearch"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "deny": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "discovery": {
+                        "enum": [
+                          "auto",
+                          "off"
+                        ],
+                        "type": "string"
+                      },
+                      "overrides": {
+                        "additionalProperties": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "baseUrl": {
+                              "type": "string"
+                            },
+                            "family": {
+                              "type": "string"
+                            },
+                            "maxContextLength": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxInputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "maxOutputTokens": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "protocol": {
+                              "enum": [
+                                "anthropic-messages",
+                                "openai-chat",
+                                "openai-responses",
+                                "bedrock-converse",
+                                "google-generative"
+                              ],
+                              "type": "string"
+                            },
+                            "supportedInputMediaTypes": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "supportsImages": {
+                              "type": "boolean"
+                            },
+                            "supportsToolResultImages": {
+                              "type": "boolean"
+                            },
+                            "supportsTools": {
+                              "type": "boolean"
+                            },
+                            "supportsWebSearch": {
+                              "type": "boolean"
+                            },
+                            "thinkingEffortLevels": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "type": "object"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "protocol": {
+                    "enum": [
+                      "anthropic-messages",
+                      "openai-chat",
+                      "openai-responses",
+                      "bedrock-converse",
+                      "google-generative"
+                    ],
+                    "type": "string"
+                  },
+                  "type": {
+                    "const": "ms-foundry",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type"
+                ],
+                "type": "object"
               }
-            },
-            "required": [
-              "type"
-            ],
-            "type": "object"
+            ]
           },
           "propertyNames": {
             "type": "string"
@@ -1149,18 +2909,6 @@
         "deepseek": {
           "additionalProperties": false,
           "properties": {
-            "aws": {
-              "additionalProperties": false,
-              "properties": {
-                "profile": {
-                  "type": "string"
-                },
-                "region": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            },
             "baseUrl": {
               "type": "string"
             },
@@ -1192,18 +2940,6 @@
                   "google-generative"
                 ],
                 "type": "string"
-              },
-              "type": "object"
-            },
-            "googleCloud": {
-              "additionalProperties": false,
-              "properties": {
-                "location": {
-                  "type": "string"
-                },
-                "project": {
-                  "type": "string"
-                }
               },
               "type": "object"
             },
@@ -1383,21 +3119,6 @@
               },
               "type": "object"
             },
-            "oauth": {
-              "additionalProperties": false,
-              "properties": {
-                "clientId": {
-                  "type": "string"
-                },
-                "host": {
-                  "type": "string"
-                },
-                "scope": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            },
             "protocol": {
               "enum": [
                 "anthropic-messages",
@@ -1407,18 +3128,6 @@
                 "google-generative"
               ],
               "type": "string"
-            },
-            "snowflake": {
-              "additionalProperties": false,
-              "properties": {
-                "account": {
-                  "type": "string"
-                },
-                "host": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
             }
           },
           "type": "object"
@@ -1435,18 +3144,6 @@
         "gemini": {
           "additionalProperties": false,
           "properties": {
-            "aws": {
-              "additionalProperties": false,
-              "properties": {
-                "profile": {
-                  "type": "string"
-                },
-                "region": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            },
             "baseUrl": {
               "type": "string"
             },
@@ -1478,18 +3175,6 @@
                   "google-generative"
                 ],
                 "type": "string"
-              },
-              "type": "object"
-            },
-            "googleCloud": {
-              "additionalProperties": false,
-              "properties": {
-                "location": {
-                  "type": "string"
-                },
-                "project": {
-                  "type": "string"
-                }
               },
               "type": "object"
             },
@@ -1669,21 +3354,6 @@
               },
               "type": "object"
             },
-            "oauth": {
-              "additionalProperties": false,
-              "properties": {
-                "clientId": {
-                  "type": "string"
-                },
-                "host": {
-                  "type": "string"
-                },
-                "scope": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            },
             "protocol": {
               "enum": [
                 "anthropic-messages",
@@ -1693,18 +3363,6 @@
                 "google-generative"
               ],
               "type": "string"
-            },
-            "snowflake": {
-              "additionalProperties": false,
-              "properties": {
-                "account": {
-                  "type": "string"
-                },
-                "host": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
             }
           },
           "type": "object"
@@ -1712,18 +3370,6 @@
         "google-vertex": {
           "additionalProperties": false,
           "properties": {
-            "aws": {
-              "additionalProperties": false,
-              "properties": {
-                "profile": {
-                  "type": "string"
-                },
-                "region": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            },
             "baseUrl": {
               "type": "string"
             },
@@ -1946,21 +3592,6 @@
               },
               "type": "object"
             },
-            "oauth": {
-              "additionalProperties": false,
-              "properties": {
-                "clientId": {
-                  "type": "string"
-                },
-                "host": {
-                  "type": "string"
-                },
-                "scope": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            },
             "protocol": {
               "enum": [
                 "anthropic-messages",
@@ -1970,18 +3601,6 @@
                 "google-generative"
               ],
               "type": "string"
-            },
-            "snowflake": {
-              "additionalProperties": false,
-              "properties": {
-                "account": {
-                  "type": "string"
-                },
-                "host": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
             }
           },
           "type": "object"
@@ -1989,18 +3608,6 @@
         "lmstudio": {
           "additionalProperties": false,
           "properties": {
-            "aws": {
-              "additionalProperties": false,
-              "properties": {
-                "profile": {
-                  "type": "string"
-                },
-                "region": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            },
             "baseUrl": {
               "type": "string"
             },
@@ -2032,18 +3639,6 @@
                   "google-generative"
                 ],
                 "type": "string"
-              },
-              "type": "object"
-            },
-            "googleCloud": {
-              "additionalProperties": false,
-              "properties": {
-                "location": {
-                  "type": "string"
-                },
-                "project": {
-                  "type": "string"
-                }
               },
               "type": "object"
             },
@@ -2223,21 +3818,6 @@
               },
               "type": "object"
             },
-            "oauth": {
-              "additionalProperties": false,
-              "properties": {
-                "clientId": {
-                  "type": "string"
-                },
-                "host": {
-                  "type": "string"
-                },
-                "scope": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            },
             "protocol": {
               "enum": [
                 "anthropic-messages",
@@ -2247,18 +3827,6 @@
                 "google-generative"
               ],
               "type": "string"
-            },
-            "snowflake": {
-              "additionalProperties": false,
-              "properties": {
-                "account": {
-                  "type": "string"
-                },
-                "host": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
             }
           },
           "type": "object"
@@ -2266,18 +3834,6 @@
         "ms-foundry": {
           "additionalProperties": false,
           "properties": {
-            "aws": {
-              "additionalProperties": false,
-              "properties": {
-                "profile": {
-                  "type": "string"
-                },
-                "region": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            },
             "baseUrl": {
               "type": "string"
             },
@@ -2309,18 +3865,6 @@
                   "google-generative"
                 ],
                 "type": "string"
-              },
-              "type": "object"
-            },
-            "googleCloud": {
-              "additionalProperties": false,
-              "properties": {
-                "location": {
-                  "type": "string"
-                },
-                "project": {
-                  "type": "string"
-                }
               },
               "type": "object"
             },
@@ -2500,21 +4044,6 @@
               },
               "type": "object"
             },
-            "oauth": {
-              "additionalProperties": false,
-              "properties": {
-                "clientId": {
-                  "type": "string"
-                },
-                "host": {
-                  "type": "string"
-                },
-                "scope": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            },
             "protocol": {
               "enum": [
                 "anthropic-messages",
@@ -2524,18 +4053,6 @@
                 "google-generative"
               ],
               "type": "string"
-            },
-            "snowflake": {
-              "additionalProperties": false,
-              "properties": {
-                "account": {
-                  "type": "string"
-                },
-                "host": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
             }
           },
           "type": "object"
@@ -2543,18 +4060,6 @@
         "ollama": {
           "additionalProperties": false,
           "properties": {
-            "aws": {
-              "additionalProperties": false,
-              "properties": {
-                "profile": {
-                  "type": "string"
-                },
-                "region": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            },
             "baseUrl": {
               "type": "string"
             },
@@ -2586,18 +4091,6 @@
                   "google-generative"
                 ],
                 "type": "string"
-              },
-              "type": "object"
-            },
-            "googleCloud": {
-              "additionalProperties": false,
-              "properties": {
-                "location": {
-                  "type": "string"
-                },
-                "project": {
-                  "type": "string"
-                }
               },
               "type": "object"
             },
@@ -2777,21 +4270,6 @@
               },
               "type": "object"
             },
-            "oauth": {
-              "additionalProperties": false,
-              "properties": {
-                "clientId": {
-                  "type": "string"
-                },
-                "host": {
-                  "type": "string"
-                },
-                "scope": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            },
             "protocol": {
               "enum": [
                 "anthropic-messages",
@@ -2801,18 +4279,6 @@
                 "google-generative"
               ],
               "type": "string"
-            },
-            "snowflake": {
-              "additionalProperties": false,
-              "properties": {
-                "account": {
-                  "type": "string"
-                },
-                "host": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
             }
           },
           "type": "object"
@@ -2820,18 +4286,6 @@
         "openai": {
           "additionalProperties": false,
           "properties": {
-            "aws": {
-              "additionalProperties": false,
-              "properties": {
-                "profile": {
-                  "type": "string"
-                },
-                "region": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            },
             "baseUrl": {
               "type": "string"
             },
@@ -2863,18 +4317,6 @@
                   "google-generative"
                 ],
                 "type": "string"
-              },
-              "type": "object"
-            },
-            "googleCloud": {
-              "additionalProperties": false,
-              "properties": {
-                "location": {
-                  "type": "string"
-                },
-                "project": {
-                  "type": "string"
-                }
               },
               "type": "object"
             },
@@ -3054,21 +4496,6 @@
               },
               "type": "object"
             },
-            "oauth": {
-              "additionalProperties": false,
-              "properties": {
-                "clientId": {
-                  "type": "string"
-                },
-                "host": {
-                  "type": "string"
-                },
-                "scope": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            },
             "protocol": {
               "enum": [
                 "anthropic-messages",
@@ -3078,18 +4505,6 @@
                 "google-generative"
               ],
               "type": "string"
-            },
-            "snowflake": {
-              "additionalProperties": false,
-              "properties": {
-                "account": {
-                  "type": "string"
-                },
-                "host": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
             }
           },
           "type": "object"
@@ -3097,18 +4512,6 @@
         "openai-compatible": {
           "additionalProperties": false,
           "properties": {
-            "aws": {
-              "additionalProperties": false,
-              "properties": {
-                "profile": {
-                  "type": "string"
-                },
-                "region": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            },
             "baseUrl": {
               "type": "string"
             },
@@ -3140,18 +4543,6 @@
                   "google-generative"
                 ],
                 "type": "string"
-              },
-              "type": "object"
-            },
-            "googleCloud": {
-              "additionalProperties": false,
-              "properties": {
-                "location": {
-                  "type": "string"
-                },
-                "project": {
-                  "type": "string"
-                }
               },
               "type": "object"
             },
@@ -3331,21 +4722,6 @@
               },
               "type": "object"
             },
-            "oauth": {
-              "additionalProperties": false,
-              "properties": {
-                "clientId": {
-                  "type": "string"
-                },
-                "host": {
-                  "type": "string"
-                },
-                "scope": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            },
             "protocol": {
               "enum": [
                 "anthropic-messages",
@@ -3355,18 +4731,6 @@
                 "google-generative"
               ],
               "type": "string"
-            },
-            "snowflake": {
-              "additionalProperties": false,
-              "properties": {
-                "account": {
-                  "type": "string"
-                },
-                "host": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
             }
           },
           "type": "object"
@@ -3374,18 +4738,6 @@
         "openrouter": {
           "additionalProperties": false,
           "properties": {
-            "aws": {
-              "additionalProperties": false,
-              "properties": {
-                "profile": {
-                  "type": "string"
-                },
-                "region": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            },
             "baseUrl": {
               "type": "string"
             },
@@ -3417,18 +4769,6 @@
                   "google-generative"
                 ],
                 "type": "string"
-              },
-              "type": "object"
-            },
-            "googleCloud": {
-              "additionalProperties": false,
-              "properties": {
-                "location": {
-                  "type": "string"
-                },
-                "project": {
-                  "type": "string"
-                }
               },
               "type": "object"
             },
@@ -3608,21 +4948,6 @@
               },
               "type": "object"
             },
-            "oauth": {
-              "additionalProperties": false,
-              "properties": {
-                "clientId": {
-                  "type": "string"
-                },
-                "host": {
-                  "type": "string"
-                },
-                "scope": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            },
             "protocol": {
               "enum": [
                 "anthropic-messages",
@@ -3632,18 +4957,6 @@
                 "google-generative"
               ],
               "type": "string"
-            },
-            "snowflake": {
-              "additionalProperties": false,
-              "properties": {
-                "account": {
-                  "type": "string"
-                },
-                "host": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
             }
           },
           "type": "object"
@@ -3651,18 +4964,6 @@
         "positai": {
           "additionalProperties": false,
           "properties": {
-            "aws": {
-              "additionalProperties": false,
-              "properties": {
-                "profile": {
-                  "type": "string"
-                },
-                "region": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            },
             "baseUrl": {
               "type": "string"
             },
@@ -3694,18 +4995,6 @@
                   "google-generative"
                 ],
                 "type": "string"
-              },
-              "type": "object"
-            },
-            "googleCloud": {
-              "additionalProperties": false,
-              "properties": {
-                "location": {
-                  "type": "string"
-                },
-                "project": {
-                  "type": "string"
-                }
               },
               "type": "object"
             },
@@ -3885,7 +5174,7 @@
               },
               "type": "object"
             },
-            "oauth": {
+            "positaiLogin": {
               "additionalProperties": false,
               "properties": {
                 "clientId": {
@@ -3909,18 +5198,6 @@
                 "google-generative"
               ],
               "type": "string"
-            },
-            "snowflake": {
-              "additionalProperties": false,
-              "properties": {
-                "account": {
-                  "type": "string"
-                },
-                "host": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
             }
           },
           "type": "object"
@@ -3928,18 +5205,6 @@
         "snowflake-cortex": {
           "additionalProperties": false,
           "properties": {
-            "aws": {
-              "additionalProperties": false,
-              "properties": {
-                "profile": {
-                  "type": "string"
-                },
-                "region": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            },
             "baseUrl": {
               "type": "string"
             },
@@ -3971,18 +5236,6 @@
                   "google-generative"
                 ],
                 "type": "string"
-              },
-              "type": "object"
-            },
-            "googleCloud": {
-              "additionalProperties": false,
-              "properties": {
-                "location": {
-                  "type": "string"
-                },
-                "project": {
-                  "type": "string"
-                }
               },
               "type": "object"
             },
@@ -4158,21 +5411,6 @@
                     "type": "string"
                   },
                   "type": "object"
-                }
-              },
-              "type": "object"
-            },
-            "oauth": {
-              "additionalProperties": false,
-              "properties": {
-                "clientId": {
-                  "type": "string"
-                },
-                "host": {
-                  "type": "string"
-                },
-                "scope": {
-                  "type": "string"
                 }
               },
               "type": "object"

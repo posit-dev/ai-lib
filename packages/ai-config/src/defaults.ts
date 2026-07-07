@@ -16,7 +16,7 @@ import type { BuiltinProviderId } from "./vocabulary";
 /** Posit AI gateway defaults. */
 export const POSIT_AI_DEFAULTS = {
 	baseUrl: "https://gateway.posit.ai",
-	oauth: {
+	positaiLogin: {
 		host: "login.posit.cloud",
 		clientId: "rstudio-ide",
 		scope: "prism",

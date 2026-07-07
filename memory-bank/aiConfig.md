@@ -54,6 +54,60 @@ Re-exports the pure entry, plus:
 - **Watch seam**: `watchResolvedProviderCatalog(handler, opts)` — emits typed `ProviderCatalogChange` events.
 - **Types**: `LoadCatalogOptions`, `MutateConfigOptions`, `WatchCatalogOptions`, `ProviderCatalogChange`, `LoggerLike`, `Disposable`.
 
+## Schema Structure (`src/schema.ts`)
+
+The `providers` map is tightened along two axes so a block rejects connection
+sub-sections that don't apply to it — in both the Zod schema and the generated
+JSON Schema:
+
+- **Built-in providers are per-key, not a union.** Each built-in id
+  (`providers.anthropic`, `providers.bedrock`, …) is a distinct object key, and
+  the key **is** the discriminator (built-in blocks carry **no `type` field** —
+  the client kind comes from the bridge registry). Each key gets its own
+  tailored strict block via `connectionBlockSchema(sections)`, composed from
+  `baseConnectionFields` + only the capability sub-sections that provider
+  carries.
+- **Custom providers are a genuine discriminated union** on `type`
+  (`z.discriminatedUnion("type", […])`), one variant per supported client kind,
+  each carrying only its relevant sub-sections.
+
+**Capability maps (single source of truth).** `BUILTIN_CONNECTION_SECTIONS`
+(keyed by built-in id) and `CUSTOM_CONNECTION_SECTIONS` (keyed by supported
+custom `type`) name which of `aws` / `googleCloud` / `snowflake` / `positaiLogin`
+each provider carries. Both are `satisfies Record<…>` so a missing key is a
+compile error (exhaustiveness). Only four built-ins carry a section — `bedrock`
+(`aws`), `google-vertex` (`googleCloud`), `snowflake-cortex` (`snowflake`),
+`positai` (`positaiLogin`); of the custom kinds only `aws` / `google-vertex` /
+`snowflake` do. `positaiLogin` attaches to the built-in `positai` key **only** —
+no custom variant carries it.
+
+**Supported custom kinds ⊂ client kinds.** `providers.custom` entries are
+restricted to `SUPPORTED_CUSTOM_CLIENT_KIND_VALUES` (9 kinds), a local mirror of
+`ai-credentials/types`' list (no import edge; kept equal by the shape guard).
+Product-specific kinds (`positai`, `anthropic`, `openai`, `gemini`, `copilot`)
+are **excluded** — a custom provider proxying those APIs uses
+`openai-compatible`. An unsupported `type` is now an upfront schema error rather
+than a silent catalog-time drop.
+
+**`positaiLogin` (formerly `oauth`).** The Posit-login connection sub-section
+was renamed from `oauth` to `positaiLogin` — it is Posit-login-specific config
+(the engine hard-codes Posit's device-auth/token URL conventions around the bare
+`host`), not generic OAuth. The rename spans the disk field, the runtime
+`ResolvedConnection.positaiLogin`, `POSIT_AI_DEFAULTS.positaiLogin`, and the env
+overlay. It does **not** touch the auth-method / storage-key / status vocabulary,
+which stays `oauth` (a genuinely different concept — mapped at the
+`getPositaiAuthConfig` seam in `@assistant/node`).
+
+**Strict validation vs. permissive working type.** Strictness is a parse-time
+property. The inferred `ProvidersMap` built-in blocks and `ResolvedConnection`
+stay a permissive **superset** (all sub-sections optional), so reader/writer code
+(`resolveConnectionFromBlock`, `authentication-fragment.ts`) is union-agnostic.
+The **enforced** schemas stay loose too: built-in keys use the superset block and
+custom `type` is optional (though still constrained to the supported 9 when
+present) — a discriminated union requires its discriminator, so full validation
+runs on the **merged** result, and `recoverValidStack()` drops any relaxed
+overlay that becomes invalid after merge.
+
 ## Resolution Pipeline
 
 Config flows through three stages: **assemble sources → resolve → watch**. Precedence lives entirely inside the pure `resolveProviderCatalog({ sources })` seam (`src/resolve-catalog.ts`); the node entry only assembles sources.
@@ -131,6 +185,10 @@ on every build, never emitted) that keep `ai-config`'s vocabulary compatible wit
 - `PROTOCOL_VALUES` is a subset of the bridge's `Protocol`.
 - `CLIENT_KIND_VALUES` maps onto provider IDs, allowing for the non-identity
   mappings (`aws` → `bedrock`, `snowflake` → `snowflake-cortex`).
+- `ai-config`'s `SUPPORTED_CUSTOM_CLIENT_KIND_VALUES` **equals**
+  `ai-credentials/types`' list (the schema's custom discriminated union and the
+  credential resolver must offer the same set of custom `type` values). The guard
+  also asserts that list ⊆ `CLIENT_KIND_VALUES`.
 
 If the bridge adds a provider, the guard fails until `ai-config` is updated, and
 vice versa. `ai-config` types like `ModelInfoLike` are satisfied structurally by

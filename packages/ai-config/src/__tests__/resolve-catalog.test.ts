@@ -168,6 +168,53 @@ describe("resolveProviderCatalog — invalid merge tolerance", () => {
 	});
 });
 
+describe("resolveProviderCatalog — tightened-schema recovery", () => {
+	it("drops a non-user overlay carrying a now-forbidden subsection, continuing resolution", () => {
+		const logger = { debug: vi.fn(), warn: vi.fn() };
+		const catalog = resolveProviderCatalog({
+			sources: [
+				// `anthropic.aws` is a foreign section under the tightened schema. The
+				// enforced overlay's merged result is invalid → the overlay is dropped.
+				source("enforced", {
+					providers: { anthropic: { aws: { region: "us-east-1" } } },
+				}),
+				source("user", { providers: { openai: { enabled: true } } }),
+			],
+			baseline: STANDALONE,
+			envVars: {},
+			logger,
+		});
+
+		// The valid user source still resolves; the forbidden overlay is gone.
+		expect(catalog.length).toBe(14);
+		expect(find(catalog, "openai")?.enabled).toBe(true);
+		expect(find(catalog, "anthropic")?.connection.aws).toBeUndefined();
+		expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("invalid merged result"));
+	});
+
+	it("keeps a valid host overlay when a forbidden default overlay is dropped", () => {
+		const logger = { debug: vi.fn(), warn: vi.fn() };
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("user", { providers: {} }),
+				// A valid host overlay must survive the forbidden default being dropped.
+				source("host", { providers: { anthropic: { enabled: false } } }),
+				// `bedrock.snowflake` is a wrong-capability section → invalid, dropped.
+				source("default", {
+					providers: { bedrock: { snowflake: { account: "MYORG" } } },
+				}),
+			],
+			baseline: STANDALONE,
+			envVars: {},
+			logger,
+		});
+
+		expect(find(catalog, "anthropic")?.enabled).toBe(false);
+		expect(find(catalog, "bedrock")?.connection.snowflake).toBeUndefined();
+		expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("invalid merged result"));
+	});
+});
+
 describe("resolveProviderCatalog — cross-layer custom completion", () => {
 	it("keeps a lower partial custom source completed by a higher source", () => {
 		const logger = { debug: vi.fn(), warn: vi.fn() };

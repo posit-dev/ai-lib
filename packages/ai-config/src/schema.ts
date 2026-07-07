@@ -17,7 +17,9 @@ import {
 	isBuiltinProviderId,
 	PROTOCOL_VALUES,
 	RESERVED_PROVIDER_KEYS,
+	SUPPORTED_CUSTOM_CLIENT_KIND_VALUES,
 } from "./vocabulary";
+import type { BuiltinProviderId, SupportedCustomClientKind } from "./vocabulary";
 
 // ---------------------------------------------------------------------------
 // Leaf enums
@@ -102,7 +104,15 @@ export const modelsBlockSchema = z
 // Grouped connection sections (all non-secret)
 // ---------------------------------------------------------------------------
 
-export const oauthConfigSchema = z
+/**
+ * Posit-login connection config for the built-in `positai` provider.
+ *
+ * Named `positaiLogin` (not `oauth`) because the engine hard-codes Posit's URL
+ * conventions around the bare `host` (device auth / token endpoints, public
+ * client, RFC 8628). It is Posit-login config, not generic OAuth — see the
+ * `positai` key in {@link BUILTIN_CONNECTION_SECTIONS}.
+ */
+export const positaiLoginConfigSchema = z
 	.object({
 		host: z.string().optional(),
 		clientId: z.string().optional(),
@@ -135,31 +145,138 @@ export const snowflakeConfigSchema = z
 /** Per-protocol base-URL overrides (partial — only specified protocols). */
 export const endpointsSchema = z.record(protocolSchema, z.string().optional());
 
-/** Connection fields shared by built-in and custom provider blocks. */
-const connectionFields = {
+// ---------------------------------------------------------------------------
+// Connection field composition
+// ---------------------------------------------------------------------------
+
+/**
+ * Connection fields shared by EVERY provider block (built-in and custom),
+ * regardless of provider. Provider-specific capability sub-sections (`aws`,
+ * `googleCloud`, `snowflake`, `positaiLogin`) are NOT here — they are attached
+ * per-provider via {@link connectionBlockSchema}.
+ */
+const baseConnectionFields = {
 	enabled: z.boolean().optional(),
 	baseUrl: z.string().optional(),
 	endpoint: z.string().optional(),
 	customHeaders: z.record(z.string(), z.string()).optional(),
 	protocol: protocolSchema.optional(),
 	endpoints: endpointsSchema.optional(),
-	oauth: oauthConfigSchema.optional(),
+	models: modelsBlockSchema.optional(),
+};
+
+/**
+ * The provider-specific connection sub-sections, keyed by section name. A
+ * provider block carries only the sub-sections its capability map names.
+ */
+const CONNECTION_SECTION_SCHEMAS = {
+	aws: awsConfigSchema,
+	googleCloud: googleCloudConfigSchema,
+	snowflake: snowflakeConfigSchema,
+	positaiLogin: positaiLoginConfigSchema,
+} as const;
+
+/** Name of a provider-specific connection sub-section. */
+type ConnectionSectionName = keyof typeof CONNECTION_SECTION_SCHEMAS;
+
+/**
+ * Superset of all connection fields (base + every sub-section, all optional).
+ * Used for the **enforced** (loose) block shape and the permissive working
+ * types — it is not a user-facing strict block.
+ */
+const allConnectionFields = {
+	...baseConnectionFields,
 	aws: awsConfigSchema.optional(),
 	googleCloud: googleCloudConfigSchema.optional(),
 	snowflake: snowflakeConfigSchema.optional(),
-	models: modelsBlockSchema.optional(),
+	positaiLogin: positaiLoginConfigSchema.optional(),
 };
+
+/**
+ * Build the `{ section: schema.optional() }` shape for a named set of
+ * connection sub-sections. The single internal cast (mirroring the
+ * dynamically-keyed provider-map builder below) is safe: the return type is
+ * pinned to the precise mapped type the caller relies on.
+ */
+function connectionSectionShape<S extends ConnectionSectionName>(
+	sections: readonly S[],
+): { [K in S]: z.ZodOptional<(typeof CONNECTION_SECTION_SCHEMAS)[K]> } {
+	const shape: Partial<Record<ConnectionSectionName, z.ZodTypeAny>> = {};
+	for (const name of sections) {
+		shape[name] = CONNECTION_SECTION_SCHEMAS[name].optional();
+	}
+	return shape as { [K in S]: z.ZodOptional<(typeof CONNECTION_SECTION_SCHEMAS)[K]> };
+}
+
+/**
+ * Compose a strict provider block schema from the shared base fields plus the
+ * named provider-specific sub-sections. This is the deep helper behind both
+ * the per-built-in-key schemas and the custom discriminated-union variants —
+ * a block accepts a sub-section only if its capability map names it.
+ */
+function connectionBlockSchema<S extends ConnectionSectionName>(sections: readonly S[]) {
+	return z.object({ ...baseConnectionFields, ...connectionSectionShape(sections) }).strict();
+}
+
+// ---------------------------------------------------------------------------
+// Capability maps — single source of truth for which sub-sections a provider
+// carries. Kept internal to this module; the `satisfies` clauses make a
+// missing key a compile error (exhaustiveness), so no export/shape-guard is
+// needed for the maps themselves.
+// ---------------------------------------------------------------------------
+
+/**
+ * Which connection sub-sections each **built-in** provider key carries.
+ * Most are base-only; only the four capability-bearing ids name a section.
+ * `positaiLogin` attaches to the built-in `positai` key ONLY (no custom
+ * variant carries it).
+ */
+const BUILTIN_CONNECTION_SECTIONS = {
+	positai: ["positaiLogin"],
+	anthropic: [],
+	copilot: [],
+	openai: [],
+	bedrock: ["aws"],
+	gemini: [],
+	openrouter: [],
+	"google-vertex": ["googleCloud"],
+	ollama: [],
+	lmstudio: [],
+	"openai-compatible": [],
+	"snowflake-cortex": ["snowflake"],
+	"ms-foundry": [],
+	deepseek: [],
+} as const satisfies Record<BuiltinProviderId, readonly ConnectionSectionName[]>;
+
+/**
+ * Which connection sub-sections each supported **custom** `type` carries. Of
+ * the 9 supported kinds only `aws` / `google-vertex` / `snowflake` carry a
+ * capability section; the other 6 are base-only. No custom variant carries
+ * `positaiLogin`.
+ */
+const CUSTOM_CONNECTION_SECTIONS = {
+	"openai-compatible": [],
+	aws: ["aws"],
+	snowflake: ["snowflake"],
+	"google-vertex": ["googleCloud"],
+	ollama: [],
+	lmstudio: [],
+	deepseek: [],
+	openrouter: [],
+	"ms-foundry": [],
+} as const satisfies Record<SupportedCustomClientKind, readonly ConnectionSectionName[]>;
 
 // ---------------------------------------------------------------------------
 // Provider blocks
 // ---------------------------------------------------------------------------
 
 /**
- * A built-in provider block. Note: NO `type` field — `type` is custom-only
- * (decision #16). Built-ins carry their client kind implicitly via the bridge
- * registry.
+ * The permissive **superset** provider block (base + every sub-section, no
+ * `type`). This is NOT used in the user-facing `providersMapSchema` — each
+ * built-in key there gets its own tailored strict block. It backs the enforced
+ * (loose) built-in blocks and the inferred `BuiltinProviderBlock` working type.
  */
-export const builtinProviderBlockSchema = z.object(connectionFields).strict();
+export const builtinProviderBlockSchema = z.object(allConnectionFields).strict();
 
 /** The `providers.default` baseline block — carries `enabled` only for v1. */
 export const defaultBlockSchema = z
@@ -169,32 +286,50 @@ export const defaultBlockSchema = z
 	.strict();
 
 /**
- * A custom provider entry. `type` (client kind) is REQUIRED and selects which
- * bridge client to instantiate.
+ * A custom provider entry — a genuine discriminated union keyed on `type` (the
+ * client kind). Each variant carries only its relevant connection sub-sections.
+ * Restricted to the supported 9 kinds (product-specific kinds assume built-in
+ * registration and are excluded).
  */
-export const customProviderEntrySchema = z
-	.object({
-		type: clientKindSchema,
-		...connectionFields,
-	})
-	.strict();
+function customProviderVariantSchema<K extends SupportedCustomClientKind>(kind: K) {
+	return z
+		.object({
+			type: z.literal(kind),
+			...baseConnectionFields,
+			...connectionSectionShape(CUSTOM_CONNECTION_SECTIONS[kind]),
+		})
+		.strict();
+}
+
+export const customProviderEntrySchema = z.discriminatedUnion("type", [
+	customProviderVariantSchema("openai-compatible"),
+	customProviderVariantSchema("aws"),
+	customProviderVariantSchema("snowflake"),
+	customProviderVariantSchema("google-vertex"),
+	customProviderVariantSchema("ollama"),
+	customProviderVariantSchema("lmstudio"),
+	customProviderVariantSchema("deepseek"),
+	customProviderVariantSchema("openrouter"),
+	customProviderVariantSchema("ms-foundry"),
+]);
 
 // ---------------------------------------------------------------------------
-// Enforced custom provider entry (relaxed `type`)
+// Enforced custom provider entry (relaxed `type`, superset sections)
 // ---------------------------------------------------------------------------
 
 /**
- * Relaxed variant of `customProviderEntrySchema` for enforced fragments.
- * The only difference is that `type` is optional, so an admin can enforce
- * a single key on an existing custom provider (e.g.
- * `providers.custom.my-gateway.enabled = false`) should not need to repeat
- * the required `type` field. Full-schema validation happens on the **merged**
- * result, not on the fragment.
+ * Relaxed variant of `customProviderEntrySchema` for enforced fragments. A
+ * discriminated union requires the discriminator, so the enforced entry cannot
+ * be one — its connection sections stay a permissive superset. `type` is
+ * optional so an admin can enforce a single key (e.g.
+ * `providers.custom.my-gateway.enabled = false`) without repeating it; when
+ * present it is still constrained to the supported 9 kinds. Full-schema
+ * validation happens on the **merged** result, not on the fragment.
  */
 export const enforcedCustomProviderEntrySchema = z
 	.object({
-		type: clientKindSchema.optional(),
-		...connectionFields,
+		type: z.enum(SUPPORTED_CUSTOM_CLIENT_KIND_VALUES).optional(),
+		...allConnectionFields,
 	})
 	.strict();
 
@@ -203,15 +338,32 @@ export const enforcedCustomProviderEntrySchema = z
 // ---------------------------------------------------------------------------
 
 /**
- * Build the `providers` object schema: one optional key per built-in provider
- * id, plus the reserved `default` and `custom` keys.
+ * The `providers` object schema: one optional key per built-in provider id
+ * (each a tailored strict block via {@link connectionBlockSchema}), plus the
+ * reserved `default` and `custom` keys. `custom` is a discriminated union over
+ * the supported client kinds.
  */
+/**
+ * The runtime schema for a built-in key is its tailored strict block (accepts
+ * only that provider's capability sub-sections), but the static type is widened
+ * to the permissive superset block. This is the deliberate strict-runtime /
+ * superset-static seam: strictness is enforced at **parse time**, while the
+ * inferred `ProvidersMap` stays a workable superset — assignable to
+ * `EnforcedProvidersMap` and read through the `BuiltinProviderBlock` working
+ * type. The single cast bridges the two (there is no subtype relation between
+ * two `ZodObject`s with different shapes).
+ */
+function optionalBuiltinBlock(
+	id: BuiltinProviderId,
+): z.ZodOptional<typeof builtinProviderBlockSchema> {
+	return connectionBlockSchema(
+		BUILTIN_CONNECTION_SECTIONS[id],
+	).optional() as unknown as z.ZodOptional<typeof builtinProviderBlockSchema>;
+}
+
 const builtinProviderKeys = Object.fromEntries(
-	BUILTIN_PROVIDER_IDS.map((id) => [id, builtinProviderBlockSchema.optional()]),
-) as Record<
-	(typeof BUILTIN_PROVIDER_IDS)[number],
-	z.ZodOptional<typeof builtinProviderBlockSchema>
->;
+	BUILTIN_PROVIDER_IDS.map((id) => [id, optionalBuiltinBlock(id)]),
+) as Record<BuiltinProviderId, z.ZodOptional<typeof builtinProviderBlockSchema>>;
 
 export const providersMapSchema = z
 	.object({
@@ -222,15 +374,14 @@ export const providersMapSchema = z
 	.strict();
 
 /**
- * Relaxed variant of `providersMapSchema` for enforced fragments.
- * Uses `enforcedCustomProviderEntrySchema` so `type` is not required.
+ * Relaxed variant of `providersMapSchema` for enforced fragments. Built-in
+ * keys use the permissive superset block (so an enforced fragment can carry a
+ * single key without matching a specific provider's tailored shape), and custom
+ * entries use `enforcedCustomProviderEntrySchema` (`type` optional).
  */
 const enforcedBuiltinProviderKeys = Object.fromEntries(
 	BUILTIN_PROVIDER_IDS.map((id) => [id, builtinProviderBlockSchema.optional()]),
-) as Record<
-	(typeof BUILTIN_PROVIDER_IDS)[number],
-	z.ZodOptional<typeof builtinProviderBlockSchema>
->;
+) as Record<BuiltinProviderId, z.ZodOptional<typeof builtinProviderBlockSchema>>;
 
 export const enforcedProvidersMapSchema = z
 	.object({

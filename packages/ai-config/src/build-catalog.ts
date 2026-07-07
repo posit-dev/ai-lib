@@ -44,7 +44,7 @@ import type { BuiltinProviderId, ClientKind } from "./vocabulary";
 interface ConnectionEnvMapping {
 	baseUrl?: string;
 	endpoint?: string;
-	oauth?: { host?: string; clientId?: string; scope?: string };
+	positaiLogin?: { host?: string; clientId?: string; scope?: string };
 	aws?: { region?: string; profile?: string };
 	googleCloud?: { project?: string; location?: string };
 }
@@ -55,7 +55,7 @@ const CONNECTION_ENV_MAPPINGS: Readonly<Record<string, ConnectionEnvMapping>> = 
 	gemini: { baseUrl: "GEMINI_BASE_URL" },
 	positai: {
 		baseUrl: "POSITAI_BASE_URL",
-		oauth: {
+		positaiLogin: {
 			host: "POSITAI_AUTH_HOST",
 			clientId: "POSITAI_CLIENT_ID",
 			scope: "POSITAI_SCOPE",
@@ -230,7 +230,7 @@ function resolveConnection(
 				? { ...defaults.endpoints, ...fromBlock.endpoints }
 				: fromBlock.endpoints
 			: defaults.endpoints,
-		oauth: mergeOptionalSection(defaults.oauth, fromBlock.oauth),
+		positaiLogin: mergeOptionalSection(defaults.positaiLogin, fromBlock.positaiLogin),
 		aws: mergeOptionalSection(defaults.aws, fromBlock.aws),
 		googleCloud: mergeOptionalSection(defaults.googleCloud, fromBlock.googleCloud),
 		snowflake: mergeOptionalSection(defaults.snowflake, fromBlock.snowflake),
@@ -239,6 +239,13 @@ function resolveConnection(
 
 /**
  * Extract connection fields from a provider block (built-in or custom).
+ *
+ * Reads against the permissive **superset** block type (`BuiltinProviderBlock`,
+ * which carries every sub-section optionally). Custom entries are a
+ * discriminated union whose variants omit sub-sections that don't apply — but
+ * each is structurally assignable to the superset, and a sub-section it lacks
+ * simply reads as `undefined`. This lets the reader stay union-agnostic without
+ * per-variant narrowing.
  */
 function resolveConnectionFromBlock(
 	block: BuiltinProviderBlock | CustomProviderEntry | undefined,
@@ -247,16 +254,17 @@ function resolveConnectionFromBlock(
 		return {};
 	}
 
+	const superset: BuiltinProviderBlock = block;
 	return {
-		baseUrl: block.baseUrl,
-		endpoint: block.endpoint,
-		customHeaders: block.customHeaders,
-		protocol: block.protocol,
-		endpoints: block.endpoints,
-		oauth: block.oauth,
-		aws: block.aws,
-		googleCloud: block.googleCloud,
-		snowflake: block.snowflake,
+		baseUrl: superset.baseUrl,
+		endpoint: superset.endpoint,
+		customHeaders: superset.customHeaders,
+		protocol: superset.protocol,
+		endpoints: superset.endpoints,
+		positaiLogin: superset.positaiLogin,
+		aws: superset.aws,
+		googleCloud: superset.googleCloud,
+		snowflake: superset.snowflake,
 	};
 }
 
@@ -320,11 +328,11 @@ function applyEnvOverlay(
 	}
 
 	// Nested sections — only override fields where the env var is set
-	if (mapping.oauth) {
-		const overlay = readEnvSection(mapping.oauth, envVars);
+	if (mapping.positaiLogin) {
+		const overlay = readEnvSection(mapping.positaiLogin, envVars);
 		if (overlay) {
 			result = changed ? result : { ...result };
-			result.oauth = result.oauth ? { ...result.oauth, ...overlay } : overlay;
+			result.positaiLogin = result.positaiLogin ? { ...result.positaiLogin, ...overlay } : overlay;
 			changed = true;
 		}
 	}

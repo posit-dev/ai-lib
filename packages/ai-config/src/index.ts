@@ -23,8 +23,15 @@ export {
 	isBuiltinProviderId,
 	PROTOCOL_VALUES,
 	RESERVED_PROVIDER_KEYS,
+	SUPPORTED_CUSTOM_CLIENT_KIND_VALUES,
 } from "./vocabulary";
-export type { BuiltinProviderId, ClientKind, Protocol, ReservedProviderKey } from "./vocabulary";
+export type {
+	BuiltinProviderId,
+	ClientKind,
+	Protocol,
+	ReservedProviderKey,
+	SupportedCustomClientKind,
+} from "./vocabulary";
 
 // --- Schema ----------------------------------------------------------------
 export { enforcedProvidersConfigSchema, providersConfigSchema } from "./schema";

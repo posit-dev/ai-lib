@@ -23,6 +23,7 @@ import type {
 	CLIENT_KIND_VALUES,
 	MODEL_METADATA_FIELD_NAMES,
 	PROTOCOL_VALUES,
+	SUPPORTED_CUSTOM_CLIENT_KIND_VALUES as AI_CONFIG_SUPPORTED_CUSTOM_CLIENT_KIND_VALUES,
 } from "ai-config";
 import type { SUPPORTED_CUSTOM_CLIENT_KIND_VALUES } from "ai-credentials/types";
 import type {
@@ -136,6 +137,21 @@ const _customClientKindsCovered: TupleSubset<
 > = true;
 
 // ---------------------------------------------------------------------------
+// Assertion 6: ai-config's SUPPORTED_CUSTOM_CLIENT_KIND_VALUES ≡ ai-credentials'
+//
+// ai-config mirrors ai-credentials/types' supported-custom-kinds list locally
+// (no import edge between the two leaf packages). This guard asserts the two
+// lists are EXACTLY equal — the schema's custom discriminated union and the
+// credential resolver must offer the same set of custom `type` values, or a
+// kind would be schema-valid but credential-unresolvable (or vice versa).
+// ---------------------------------------------------------------------------
+
+const _supportedCustomKindsEqual: TupleEqual<
+	typeof AI_CONFIG_SUPPORTED_CUSTOM_CLIENT_KIND_VALUES,
+	typeof SUPPORTED_CUSTOM_CLIENT_KIND_VALUES
+> = true;
+
+// ---------------------------------------------------------------------------
 // Suppress unused-variable warnings
 // ---------------------------------------------------------------------------
 
@@ -145,3 +161,4 @@ void _protocolValuesSubset;
 void _nonIdentityTargetsAreProviderIds;
 void _clientKindsCovered;
 void _customClientKindsCovered;
+void _supportedCustomKindsEqual;

@@ -418,7 +418,7 @@ describe("loadResolvedProviderCatalog", () => {
 
 			const positai = findProvider(catalog, "positai");
 			expect(positai?.connection.baseUrl).toBe("https://gateway.posit.ai");
-			expect(positai?.connection.oauth?.host).toBe("login.posit.cloud");
+			expect(positai?.connection.positaiLogin?.host).toBe("login.posit.cloud");
 		});
 
 		it("should apply built-in defaults for ollama", async () => {
@@ -573,6 +573,26 @@ describe("loadResolvedProviderCatalog", () => {
 			});
 
 			expect(catalog.length).toBe(14); // defaults
+			expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining("Validation errors"));
+		});
+
+		it("should degrade gracefully on a forbidden connection subsection", async () => {
+			// `anthropic.aws` is rejected by the tightened per-key schema. The whole
+			// user file is invalid and must fall back to defaults, not hard-crash.
+			const configPath = path.join(tempDir, "providers.json");
+			await fs.writeFile(
+				configPath,
+				JSON.stringify({ providers: { anthropic: { aws: { region: "us-east-1" } } } }),
+			);
+
+			const catalog = await loadResolvedProviderCatalog({
+				baseline: STANDALONE_BASELINE,
+				configPath,
+				logger: mockLogger,
+			});
+
+			expect(catalog.length).toBe(14); // defaults
+			expect(findProvider(catalog, "anthropic")?.connection.aws).toBeUndefined();
 			expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining("Validation errors"));
 		});
 	});

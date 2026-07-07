@@ -122,7 +122,7 @@ export interface ResolvedConnection {
 	customHeaders?: Record<string, string>;
 	protocol?: Protocol;
 	endpoints?: Partial<Record<Protocol, string>>;
-	oauth?: { host?: string; clientId?: string; scope?: string };
+	positaiLogin?: { host?: string; clientId?: string; scope?: string };
 	aws?: { region?: string; profile?: string };
 	googleCloud?: { project?: string; location?: string };
 	snowflake?: { account?: string; host?: string };

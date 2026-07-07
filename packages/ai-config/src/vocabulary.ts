@@ -91,6 +91,38 @@ export const CLIENT_KIND_VALUES = [
 export type ClientKind = (typeof CLIENT_KIND_VALUES)[number];
 
 // ---------------------------------------------------------------------------
+// Supported custom client kinds (for providers.custom `type` discriminator)
+// ---------------------------------------------------------------------------
+
+/**
+ * Client kinds valid as a `providers.custom.<name>.type` discriminator.
+ *
+ * A **local mirror** of `ai-credentials/types`'
+ * `SUPPORTED_CUSTOM_CLIENT_KIND_VALUES`. ai-config must not import
+ * `ai-credentials` (leaf-import discipline), so the list is duplicated here and
+ * a compile-time shape guard in `ai-lib/typechecks/` asserts the two lists are
+ * **equal**.
+ *
+ * This is a strict subset of {@link CLIENT_KIND_VALUES}: product-specific kinds
+ * (`positai`, `anthropic`, `openai`, `gemini`, `copilot`) assume built-in
+ * registration and are excluded — a custom provider proxying those APIs uses
+ * `openai-compatible`.
+ */
+export const SUPPORTED_CUSTOM_CLIENT_KIND_VALUES = [
+	"openai-compatible",
+	"aws",
+	"snowflake",
+	"google-vertex",
+	"ollama",
+	"lmstudio",
+	"deepseek",
+	"openrouter",
+	"ms-foundry",
+] as const;
+
+export type SupportedCustomClientKind = (typeof SUPPORTED_CUSTOM_CLIENT_KIND_VALUES)[number];
+
+// ---------------------------------------------------------------------------
 // Reserved keys in the providers map
 // ---------------------------------------------------------------------------
 

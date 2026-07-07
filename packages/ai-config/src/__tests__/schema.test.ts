@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from "vitest";
 
-import { providersConfigSchema } from "../schema";
+import { enforcedProvidersConfigSchema, providersConfigSchema } from "../schema";
 
 describe("providersConfigSchema", () => {
 	it("accepts an empty config", () => {
@@ -83,7 +83,7 @@ describe("providersConfigSchema", () => {
 				bedrock: { aws: { region: "us-west-2", profile: "default" } },
 				"google-vertex": { googleCloud: { project: "my-project", location: "us-central1" } },
 				"snowflake-cortex": { snowflake: { account: "MYORG-MYACCT" } },
-				positai: { oauth: { host: "login.posit.cloud", clientId: "my-app" } },
+				positai: { positaiLogin: { host: "login.posit.cloud", clientId: "my-app" } },
 			},
 		});
 		expect(result.success).toBe(true);
@@ -136,6 +136,91 @@ describe("providersConfigSchema", () => {
 			},
 		});
 		expect(result.success).toBe(true);
+	});
+
+	// --- Per-key / discriminated-union strictness ---
+
+	it("rejects a foreign connection section on a built-in provider (anthropic + aws)", () => {
+		const result = providersConfigSchema.safeParse({
+			providers: {
+				anthropic: { aws: { region: "us-east-1" } },
+			},
+		});
+		expect(result.success).toBe(false);
+	});
+
+	it("rejects a wrong capability section on a capability-bearing built-in (bedrock + snowflake)", () => {
+		const result = providersConfigSchema.safeParse({
+			providers: {
+				bedrock: { snowflake: { account: "MYORG" } },
+			},
+		});
+		expect(result.success).toBe(false);
+	});
+
+	it("rejects googleCloud on bedrock", () => {
+		const result = providersConfigSchema.safeParse({
+			providers: {
+				bedrock: { googleCloud: { project: "p" } },
+			},
+		});
+		expect(result.success).toBe(false);
+	});
+
+	it("accepts a custom type:'aws' entry with an aws section", () => {
+		const result = providersConfigSchema.safeParse({
+			providers: {
+				custom: { gw: { type: "aws", aws: { region: "us-east-1" } } },
+			},
+		});
+		expect(result.success).toBe(true);
+	});
+
+	it("rejects an aws section on a custom type:'openai-compatible' entry", () => {
+		const result = providersConfigSchema.safeParse({
+			providers: {
+				custom: { gw: { type: "openai-compatible", aws: { region: "us-east-1" } } },
+			},
+		});
+		expect(result.success).toBe(false);
+	});
+
+	it("rejects an unsupported custom type (positai)", () => {
+		const result = providersConfigSchema.safeParse({
+			providers: {
+				custom: { gw: { type: "positai" } },
+			},
+		});
+		expect(result.success).toBe(false);
+	});
+
+	// --- positaiLogin rename ---
+
+	it("accepts positaiLogin on the positai key", () => {
+		const result = providersConfigSchema.safeParse({
+			providers: {
+				positai: { positaiLogin: { host: "login.posit.cloud" } },
+			},
+		});
+		expect(result.success).toBe(true);
+	});
+
+	it("rejects the legacy oauth section on the positai key", () => {
+		const result = providersConfigSchema.safeParse({
+			providers: {
+				positai: { oauth: { host: "login.posit.cloud" } },
+			},
+		});
+		expect(result.success).toBe(false);
+	});
+
+	it("rejects positaiLogin on a non-positai provider", () => {
+		const result = providersConfigSchema.safeParse({
+			providers: {
+				anthropic: { positaiLogin: { host: "login.posit.cloud" } },
+			},
+		});
+		expect(result.success).toBe(false);
 	});
 
 	// --- Rejections ---
@@ -224,6 +309,35 @@ describe("providersConfigSchema", () => {
 	it("rejects unknown top-level keys", () => {
 		const result = providersConfigSchema.safeParse({
 			unknownKey: "value",
+		});
+		expect(result.success).toBe(false);
+	});
+});
+
+describe("enforcedProvidersConfigSchema", () => {
+	it("accepts a bare single custom key with type omitted", () => {
+		const result = enforcedProvidersConfigSchema.safeParse({
+			providers: {
+				custom: { "my-gateway": { enabled: false } },
+			},
+		});
+		expect(result.success).toBe(true);
+	});
+
+	it("accepts an enforced custom entry with a supported type", () => {
+		const result = enforcedProvidersConfigSchema.safeParse({
+			providers: {
+				custom: { "my-gateway": { type: "openai-compatible", enabled: true } },
+			},
+		});
+		expect(result.success).toBe(true);
+	});
+
+	it("rejects an enforced custom entry with an unsupported type", () => {
+		const result = enforcedProvidersConfigSchema.safeParse({
+			providers: {
+				custom: { "my-gateway": { type: "positai" } },
+			},
 		});
 		expect(result.success).toBe(false);
 	});
