@@ -13,7 +13,11 @@ interface KnownProviderCase {
 }
 
 const KNOWN_PROVIDERS: KnownProviderCase[] = [
-	{ providerId: "anthropic", host: "https://api.anthropic.com", versioned: "https://api.anthropic.com/v1" },
+	{
+		providerId: "anthropic",
+		host: "https://api.anthropic.com",
+		versioned: "https://api.anthropic.com/v1",
+	},
 	{ providerId: "openai", host: "https://api.openai.com", versioned: "https://api.openai.com/v1" },
 	{
 		providerId: "gemini",
@@ -22,27 +26,30 @@ const KNOWN_PROVIDERS: KnownProviderCase[] = [
 	},
 ];
 
-describe.each(KNOWN_PROVIDERS)("normalizeBaseUrlForProvider ($providerId)", ({ providerId, host, versioned }) => {
-	it("corrects a bare host to the versioned form", () => {
-		expect(normalizeBaseUrlForProvider(providerId, host)).toBe(versioned);
-	});
+describe.each(KNOWN_PROVIDERS)(
+	"normalizeBaseUrlForProvider ($providerId)",
+	({ providerId, host, versioned }) => {
+		it("corrects a bare host to the versioned form", () => {
+			expect(normalizeBaseUrlForProvider(providerId, host)).toBe(versioned);
+		});
 
-	it("corrects a bare host with a trailing slash", () => {
-		expect(normalizeBaseUrlForProvider(providerId, `${host}/`)).toBe(versioned);
-	});
+		it("corrects a bare host with a trailing slash", () => {
+			expect(normalizeBaseUrlForProvider(providerId, `${host}/`)).toBe(versioned);
+		});
 
-	it("corrects a bare host with surrounding whitespace", () => {
-		expect(normalizeBaseUrlForProvider(providerId, `  ${host}  `)).toBe(versioned);
-	});
+		it("corrects a bare host with surrounding whitespace", () => {
+			expect(normalizeBaseUrlForProvider(providerId, `  ${host}  `)).toBe(versioned);
+		});
 
-	it("corrects a bare host with both a trailing slash and surrounding whitespace", () => {
-		expect(normalizeBaseUrlForProvider(providerId, `  ${host}/  `)).toBe(versioned);
-	});
+		it("corrects a bare host with both a trailing slash and surrounding whitespace", () => {
+			expect(normalizeBaseUrlForProvider(providerId, `  ${host}/  `)).toBe(versioned);
+		});
 
-	it("leaves an already-versioned host unchanged", () => {
-		expect(normalizeBaseUrlForProvider(providerId, versioned)).toBe(versioned);
-	});
-});
+		it("leaves an already-versioned host unchanged", () => {
+			expect(normalizeBaseUrlForProvider(providerId, versioned)).toBe(versioned);
+		});
+	},
+);
 
 describe("normalizeBaseUrlForProvider: custom hosts", () => {
 	it("returns a custom host unchanged", () => {
