@@ -3,15 +3,16 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { getAnthropicModelCapabilities } from "../model-capabilities/anthropic-helpers";
-import { AnthropicClient } from "../model-clients/AnthropicClient";
+import {
+	ANTHROPIC_API_VERSION,
+	ANTHROPIC_HOST,
+	AnthropicClient,
+} from "../model-clients/AnthropicClient";
 import type { Logger, ModelInfo } from "../types";
 import type { ApiKeyCredentials } from "../types";
-import { normalizeConfiguredBaseUrl, normalizeProviderBaseUrl } from "../utils";
+import { normalizeProviderBaseUrl } from "../utils";
 import { createCachedModelFetcher } from "./cached-model-fetcher";
 import type { ProviderRegistry } from "./ProviderRegistry";
-
-/** Anthropic public API host. `@ai-sdk/anthropic` expects baseURL to include `/v1`. */
-const ANTHROPIC_HOST = "https://api.anthropic.com";
 
 /**
  * Models that are documented and usable but not yet returned by Anthropic's
@@ -59,7 +60,11 @@ export function registerAnthropicProvider(registry: ProviderRegistry, logger: Lo
 		createCachedModelFetcher<ApiKeyCredentials>({
 			providerId: "anthropic",
 			resolveUrl: (credentials) => {
-				const base = normalizeProviderBaseUrl(credentials.baseUrl, ANTHROPIC_HOST, "v1");
+				const base = normalizeProviderBaseUrl(
+					credentials.baseUrl,
+					ANTHROPIC_HOST,
+					ANTHROPIC_API_VERSION,
+				);
 				return `${base}/models`;
 			},
 			hasCredentials: (credentials) => Boolean(credentials.apiKey),
@@ -90,10 +95,8 @@ export function registerAnthropicProvider(registry: ProviderRegistry, logger: Lo
 		if (credentials.type !== "apikey") {
 			throw new Error(`Anthropic provider requires API key credentials, got: ${credentials.type}`);
 		}
-		return new AnthropicClient(
-			credentials.apiKey,
-			normalizeConfiguredBaseUrl(credentials.baseUrl, ANTHROPIC_HOST, "v1"),
-			credentials.customHeaders,
-		);
+		// Pass the raw configured base URL; AnthropicClient.chat() normalizes it
+		// (and any per-request routing override) at the single convergence point.
+		return new AnthropicClient(credentials.apiKey, credentials.baseUrl, credentials.customHeaders);
 	});
 }

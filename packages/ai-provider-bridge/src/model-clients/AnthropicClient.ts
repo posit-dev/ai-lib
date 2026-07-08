@@ -13,7 +13,7 @@ import { streamText } from "ai";
 
 import { safeSdkCustomHeaders } from "../custom-headers";
 import type { LMStreamPart } from "../types";
-import { isThinkingEnabled } from "../utils";
+import { isThinkingEnabled, normalizeConfiguredBaseUrl } from "../utils";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
@@ -23,6 +23,11 @@ import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 
 /** Maximum number of web searches per request */
 const WEB_SEARCH_MAX_USES = 5;
+
+/** Anthropic public API host. `@ai-sdk/anthropic` expects baseURL to include `/v1`. */
+export const ANTHROPIC_HOST = "https://api.anthropic.com";
+/** Version segment `@ai-sdk/anthropic` expects appended to the host. */
+export const ANTHROPIC_API_VERSION = "v1";
 
 export class AnthropicClient implements ModelClient {
 	private readonly apiKey: string;
@@ -36,7 +41,13 @@ export class AnthropicClient implements ModelClient {
 	}
 
 	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {
-		const effectiveBaseUrl = params.baseUrl ?? this.baseURL;
+		// Normalize whichever base URL wins (per-request routing override or the
+		// constructor value) so a bare host gains the `/v1` the SDK expects.
+		const effectiveBaseUrl = normalizeConfiguredBaseUrl(
+			params.baseUrl ?? this.baseURL,
+			ANTHROPIC_HOST,
+			ANTHROPIC_API_VERSION,
+		);
 		const headers = safeSdkCustomHeaders(this.customHeaders);
 		const provider = createAnthropic({
 			apiKey: this.apiKey,

@@ -18,7 +18,7 @@ import {
 } from "../tool-result-images";
 import type { LMStreamPart } from "../types";
 import { normalizeProtocol } from "../types";
-import { isThinkingEnabled } from "../utils";
+import { isThinkingEnabled, normalizeConfiguredBaseUrl } from "../utils";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
@@ -27,6 +27,11 @@ import {
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 
 type ApiMode = "completions" | "responses";
+
+/** OpenAI public API host. `@ai-sdk/openai` expects baseURL to include `/v1`. */
+export const OPENAI_HOST = "https://api.openai.com";
+/** Version segment `@ai-sdk/openai` expects appended to the host. */
+export const OPENAI_API_VERSION = "v1";
 
 export class OpenAIClient implements ModelClient {
 	private readonly apiKey?: string;
@@ -66,7 +71,15 @@ export class OpenAIClient implements ModelClient {
 			effectiveApiMode = this.apiMode;
 		}
 
-		const effectiveBaseUrl = params.baseUrl ?? this.baseURL;
+		// Normalize whichever base URL wins (per-request routing override or the
+		// constructor value) so a bare `https://api.openai.com` gains the `/v1`
+		// the SDK expects. Custom hosts (openai-compatible gateways) never match
+		// the exact OpenAI host, so they are left untouched.
+		const effectiveBaseUrl = normalizeConfiguredBaseUrl(
+			params.baseUrl ?? this.baseURL,
+			OPENAI_HOST,
+			OPENAI_API_VERSION,
+		);
 
 		// Create OpenAI provider.
 		// When apiKey === "" (openai-compatible unauthenticated endpoints), pass a
