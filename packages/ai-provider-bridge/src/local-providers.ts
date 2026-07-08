@@ -32,6 +32,17 @@ export function isLocalProviderId(providerId: string): providerId is LocalProvid
 	return LOCAL_PROVIDER_ID_SET.has(providerId);
 }
 
+/**
+ * Canonical default endpoints for local providers.
+ *
+ * LM Studio is the bare server root — `LMStudioClient` appends `/v1` itself,
+ * so stored endpoints must not include it.
+ */
+export const LOCAL_PROVIDER_DEFAULT_ENDPOINTS: Record<LocalProviderId, string> = {
+	ollama: "http://localhost:11434",
+	lmstudio: "http://localhost:1234",
+};
+
 // ============================================================================
 // Dependency Injection Interface
 // ============================================================================
