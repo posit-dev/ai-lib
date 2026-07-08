@@ -28,6 +28,10 @@ import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 
 type ApiMode = "completions" | "responses";
 
+// Host/version constants live in base-url.ts (which must stay free of this
+// module's Node-only imports); re-exported here for the provider modules.
+export { OPENAI_API_VERSION, OPENAI_HOST } from "../base-url";
+
 export class OpenAIClient implements ModelClient {
 	private readonly apiKey?: string;
 	private readonly baseURL?: string;
@@ -66,6 +70,9 @@ export class OpenAIClient implements ModelClient {
 			effectiveApiMode = this.apiMode;
 		}
 
+		// Per-request routing override wins over the constructor value. The URL is
+		// trusted as given — bare-host correction happens at the config seam
+		// (see base-url.ts), not here.
 		const effectiveBaseUrl = params.baseUrl ?? this.baseURL;
 
 		// Create OpenAI provider.

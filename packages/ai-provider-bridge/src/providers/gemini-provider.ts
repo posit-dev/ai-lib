@@ -6,15 +6,12 @@ import {
 	getGeminiModelCapabilities,
 	isInteractionsEligible,
 } from "../model-capabilities/gemini-helpers";
-import { GeminiClient } from "../model-clients/GeminiClient";
+import { GEMINI_API_VERSION, GEMINI_HOST, GeminiClient } from "../model-clients/GeminiClient";
 import type { Logger, ModelInfo } from "../types";
 import type { ApiKeyCredentials } from "../types";
-import { normalizeConfiguredBaseUrl, normalizeProviderBaseUrl } from "../utils";
+import { normalizeProviderBaseUrl } from "../utils";
 import { createCachedModelFetcher } from "./cached-model-fetcher";
 import type { ProviderRegistry } from "./ProviderRegistry";
-
-/** Gemini public API host. `@ai-sdk/google` expects baseURL to include `/v1beta`. */
-const GEMINI_HOST = "https://generativelanguage.googleapis.com";
 
 /** Default capabilities for unrecognized Gemini models */
 const GEMINI_DEFAULT_CAPABILITIES: Partial<ModelInfo> = {
@@ -71,7 +68,7 @@ export function registerGeminiProvider(registry: ProviderRegistry, logger: Logge
 			providerId: "gemini",
 			// Google requires API key in query string, not header
 			resolveUrl: (credentials) => {
-				const base = normalizeProviderBaseUrl(credentials.baseUrl, GEMINI_HOST, "v1beta");
+				const base = normalizeProviderBaseUrl(credentials.baseUrl, GEMINI_HOST, GEMINI_API_VERSION);
 				const url = new URL("models", base + "/");
 				url.searchParams.set("key", credentials.apiKey);
 				return url.toString();
@@ -140,7 +137,7 @@ export function registerGeminiProvider(registry: ProviderRegistry, logger: Logge
 		}
 		return new GeminiClient(
 			credentials.apiKey,
-			normalizeConfiguredBaseUrl(credentials.baseUrl, GEMINI_HOST, "v1beta"),
+			credentials.baseUrl,
 			credentials.customHeaders,
 			logger,
 		);

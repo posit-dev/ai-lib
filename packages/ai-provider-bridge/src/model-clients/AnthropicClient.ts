@@ -24,6 +24,10 @@ import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 /** Maximum number of web searches per request */
 const WEB_SEARCH_MAX_USES = 5;
 
+// Host/version constants live in base-url.ts (which must stay free of this
+// module's Node-only imports); re-exported here for the provider modules.
+export { ANTHROPIC_API_VERSION, ANTHROPIC_HOST } from "../base-url";
+
 export class AnthropicClient implements ModelClient {
 	private readonly apiKey: string;
 	private readonly baseURL?: string;
@@ -36,6 +40,9 @@ export class AnthropicClient implements ModelClient {
 	}
 
 	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {
+		// Per-request routing override wins over the constructor value. The URL is
+		// trusted as given — bare-host correction happens at the config seam
+		// (see base-url.ts), not here.
 		const effectiveBaseUrl = params.baseUrl ?? this.baseURL;
 		const headers = safeSdkCustomHeaders(this.customHeaders);
 		const provider = createAnthropic({

@@ -142,6 +142,61 @@ describe("buildAuthenticationFragment", () => {
 		});
 	});
 
+	it("applies the descriptor's normalizeBaseUrl to a set base URL", () => {
+		const normalizeBaseUrl = (url: string) =>
+			url === "https://bare.example" ? "https://bare.example/v1" : url;
+		const descriptor: PositronAuthSettingDescriptor = { ...ANTHROPIC, normalizeBaseUrl };
+		const reader = fakeReader({ baseUrls: { anthropic: "https://bare.example" } });
+		const fragment = buildAuthenticationFragment(reader, [descriptor]);
+		expect(fragment).toEqual({
+			providers: { anthropic: { baseUrl: "https://bare.example/v1" } },
+		});
+	});
+
+	it("passes a value the normalizer leaves alone through unchanged", () => {
+		const normalizeBaseUrl = (url: string) =>
+			url === "https://bare.example" ? "https://bare.example/v1" : url;
+		const descriptor: PositronAuthSettingDescriptor = { ...ANTHROPIC, normalizeBaseUrl };
+		const reader = fakeReader({ baseUrls: { anthropic: "https://custom.example/anthropic" } });
+		const fragment = buildAuthenticationFragment(reader, [descriptor]);
+		expect(fragment).toEqual({
+			providers: { anthropic: { baseUrl: "https://custom.example/anthropic" } },
+		});
+	});
+
+	it("does not invoke the normalizer when baseUrl is unset", () => {
+		let calls = 0;
+		const normalizeBaseUrl = (url: string) => {
+			calls++;
+			return url;
+		};
+		const descriptor: PositronAuthSettingDescriptor = { ...ANTHROPIC, normalizeBaseUrl };
+		const fragment = buildAuthenticationFragment(fakeReader(), [descriptor]);
+		expect(fragment).toEqual({});
+		expect(calls).toBe(0);
+	});
+
+	it("does not invoke the normalizer when baseUrl is an empty string", () => {
+		let calls = 0;
+		const normalizeBaseUrl = (url: string) => {
+			calls++;
+			return url;
+		};
+		const descriptor: PositronAuthSettingDescriptor = { ...ANTHROPIC, normalizeBaseUrl };
+		const reader = fakeReader({ baseUrls: { anthropic: "" } });
+		const fragment = buildAuthenticationFragment(reader, [descriptor]);
+		expect(fragment).toEqual({});
+		expect(calls).toBe(0);
+	});
+
+	it("behaves as before for descriptors without normalizeBaseUrl", () => {
+		const reader = fakeReader({ baseUrls: { anthropic: "https://bare.example" } });
+		const fragment = buildAuthenticationFragment(reader, [ANTHROPIC]);
+		expect(fragment).toEqual({
+			providers: { anthropic: { baseUrl: "https://bare.example" } },
+		});
+	});
+
 	it("builds a multi-provider fragment, omitting providers with nothing set", () => {
 		const reader = fakeReader({
 			baseUrls: { anthropic: "https://a.example" },

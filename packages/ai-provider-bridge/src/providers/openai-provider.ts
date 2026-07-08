@@ -6,16 +6,13 @@ import {
 	getOpenAIModelCapabilities,
 	openaiMaxInputTokens,
 } from "../model-capabilities/openai-helpers";
-import { OpenAIClient } from "../model-clients/OpenAIClient";
+import { OPENAI_API_VERSION, OPENAI_HOST, OpenAIClient } from "../model-clients/OpenAIClient";
 import type { Logger, ModelInfo } from "../types";
 import type { ApiKeyCredentials } from "../types";
-import { normalizeConfiguredBaseUrl, normalizeProviderBaseUrl } from "../utils";
+import { normalizeProviderBaseUrl } from "../utils";
 import { createCachedModelFetcher } from "./cached-model-fetcher";
 import { getOpenAIModelName } from "./openai-model-names";
 import type { ProviderRegistry } from "./ProviderRegistry";
-
-/** OpenAI public API host. `@ai-sdk/openai` expects baseURL to include `/v1`. */
-const OPENAI_HOST = "https://api.openai.com";
 
 /** Default capabilities for unrecognized OpenAI models (GPT-3.5, unknown) */
 const OPENAI_DEFAULT_CAPABILITIES = {
@@ -65,7 +62,7 @@ export function registerOpenAIProvider(registry: ProviderRegistry, logger: Logge
 		createCachedModelFetcher<ApiKeyCredentials>({
 			providerId: "openai",
 			resolveUrl: (credentials) => {
-				const base = normalizeProviderBaseUrl(credentials.baseUrl, OPENAI_HOST, "v1");
+				const base = normalizeProviderBaseUrl(credentials.baseUrl, OPENAI_HOST, OPENAI_API_VERSION);
 				return `${base}/models`;
 			},
 			hasCredentials: (credentials) => Boolean(credentials.apiKey),
@@ -125,7 +122,7 @@ export function registerOpenAIProvider(registry: ProviderRegistry, logger: Logge
 		}
 		return new OpenAIClient(
 			credentials.apiKey,
-			normalizeConfiguredBaseUrl(credentials.baseUrl, OPENAI_HOST, "v1"),
+			credentials.baseUrl,
 			"responses",
 			undefined,
 			credentials.customHeaders,
