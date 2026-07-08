@@ -26,7 +26,9 @@ describe("provider connection defaults", () => {
 	});
 
 	it("LMSTUDIO_DEFAULTS has expected endpoint", () => {
-		expect(LMSTUDIO_DEFAULTS.endpoint).toBe("http://localhost:1234/v1");
+		// Bare server root: LMStudioClient appends /v1 itself, so a /v1 suffix
+		// here would produce /v1/v1 URLs downstream.
+		expect(LMSTUDIO_DEFAULTS.endpoint).toBe("http://localhost:1234");
 	});
 
 	it("BEDROCK_DEFAULTS has expected region", () => {

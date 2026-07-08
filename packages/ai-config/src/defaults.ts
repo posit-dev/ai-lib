@@ -28,9 +28,12 @@ export const OLLAMA_DEFAULTS = {
 	endpoint: "http://localhost:11434",
 } as const satisfies ResolvedConnection;
 
-/** LM Studio default endpoint. */
+/**
+ * LM Studio default endpoint. Bare server root — LMStudioClient and the
+ * model fetcher append the `/v1` path segment themselves.
+ */
 export const LMSTUDIO_DEFAULTS = {
-	endpoint: "http://localhost:1234/v1",
+	endpoint: "http://localhost:1234",
 } as const satisfies ResolvedConnection;
 
 /** AWS Bedrock default region. */
