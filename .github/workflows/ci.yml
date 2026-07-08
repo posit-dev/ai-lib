@@ -25,6 +25,9 @@ jobs:
       - name: Lint
         run: npm run lint -w ai-provider-bridge
 
+      - name: Build dependencies
+        run: npm run build -w ai-config -w ai-credentials
+
       - name: Type check
         run: npm run check-types -w ai-provider-bridge
 
