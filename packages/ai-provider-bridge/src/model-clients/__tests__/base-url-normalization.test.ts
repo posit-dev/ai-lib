@@ -80,7 +80,7 @@ const CASES: Record<string, ClientCase> = {
 	},
 };
 
-describe.each(Object.entries(CASES))("%s base URL normalization", (_name, c) => {
+describe.each(Object.entries(CASES))("%s base URL pass-through", (_name, c) => {
 	const params = (overrides?: Partial<ModelClientChatParams>): ModelClientChatParams => ({
 		model: c.model,
 		messages: [],
@@ -93,14 +93,14 @@ describe.each(Object.entries(CASES))("%s base URL normalization", (_name, c) => 
 		c.factory.mockClear();
 	});
 
-	it("appends the version segment to a per-request bare host (Positron direct-routing regression)", async () => {
+	it("passes a per-request bare host straight through, unchanged", async () => {
 		await c.construct().chat(params({ baseUrl: c.host }));
-		expect(baseUrlPassedTo(c.factory)).toBe(c.versioned);
+		expect(baseUrlPassedTo(c.factory)).toBe(c.host);
 	});
 
-	it("appends the version segment to a bare host supplied at construction time", async () => {
+	it("passes a bare host supplied at construction time straight through, unchanged", async () => {
 		await c.construct(c.host).chat(params());
-		expect(baseUrlPassedTo(c.factory)).toBe(c.versioned);
+		expect(baseUrlPassedTo(c.factory)).toBe(c.host);
 	});
 
 	it("prefers the per-request base URL over the constructor value", async () => {
@@ -111,6 +111,12 @@ describe.each(Object.entries(CASES))("%s base URL normalization", (_name, c) => 
 	it("leaves an already-versioned host untouched", async () => {
 		await c.construct().chat(params({ baseUrl: c.versioned }));
 		expect(baseUrlPassedTo(c.factory)).toBe(c.versioned);
+	});
+
+	it("passes a custom URL with a trailing slash through byte-for-byte", async () => {
+		const custom = "https://my-proxy.example/gateway/";
+		await c.construct().chat(params({ baseUrl: custom }));
+		expect(baseUrlPassedTo(c.factory)).toBe(custom);
 	});
 
 	it("omits baseURL entirely when none is configured (SDK keeps its default)", async () => {

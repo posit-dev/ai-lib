@@ -135,8 +135,6 @@ export function registerGeminiProvider(registry: ProviderRegistry, logger: Logge
 		if (credentials.type !== "apikey") {
 			throw new Error(`Gemini provider requires API key, got: ${credentials.type}`);
 		}
-		// Pass the raw configured base URL; GeminiClient.chat() normalizes it
-		// (and any per-request routing override) at the single convergence point.
 		return new GeminiClient(
 			credentials.apiKey,
 			credentials.baseUrl,

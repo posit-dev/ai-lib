@@ -13,7 +13,7 @@ import { streamText } from "ai";
 
 import { safeSdkCustomHeaders } from "../custom-headers";
 import type { LMStreamPart } from "../types";
-import { isThinkingEnabled, normalizeConfiguredBaseUrl } from "../utils";
+import { isThinkingEnabled } from "../utils";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
@@ -41,13 +41,10 @@ export class AnthropicClient implements ModelClient {
 	}
 
 	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {
-		// Normalize whichever base URL wins (per-request routing override or the
-		// constructor value) so a bare host gains the `/v1` the SDK expects.
-		const effectiveBaseUrl = normalizeConfiguredBaseUrl(
-			params.baseUrl ?? this.baseURL,
-			ANTHROPIC_HOST,
-			ANTHROPIC_API_VERSION,
-		);
+		// Per-request routing override wins over the constructor value. The URL is
+		// trusted as given — bare-host correction happens at the config seam
+		// (see base-url.ts), not here.
+		const effectiveBaseUrl = params.baseUrl ?? this.baseURL;
 		const headers = safeSdkCustomHeaders(this.customHeaders);
 		const provider = createAnthropic({
 			apiKey: this.apiKey,

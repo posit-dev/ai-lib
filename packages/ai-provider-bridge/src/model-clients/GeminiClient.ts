@@ -20,7 +20,6 @@ import { streamText } from "ai";
 import { safeSdkCustomHeaders } from "../custom-headers";
 import { getGeminiInteractionsProfile } from "../model-capabilities/gemini-helpers";
 import type { AiToolWithJsonSchema, LMStreamPart, Logger } from "../types";
-import { normalizeConfiguredBaseUrl } from "../utils";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
@@ -295,14 +294,10 @@ export class GeminiClient implements ModelClient {
 	}
 
 	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {
-		// Create Google Generative AI provider. Normalize whichever base URL wins
-		// (per-request routing override or the constructor value) so a bare host
-		// gains the `/v1beta` the SDK expects.
-		const effectiveBaseUrl = normalizeConfiguredBaseUrl(
-			params.baseUrl ?? this.baseURL,
-			GEMINI_HOST,
-			GEMINI_API_VERSION,
-		);
+		// Create Google Generative AI provider. Per-request routing override wins
+		// over the constructor value. The URL is trusted as given — bare-host
+		// correction happens at the config seam (see base-url.ts), not here.
+		const effectiveBaseUrl = params.baseUrl ?? this.baseURL;
 		const headers = safeSdkCustomHeaders(this.customHeaders);
 		const provider = createGoogleGenerativeAI({
 			apiKey: this.apiKey,

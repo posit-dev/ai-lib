@@ -63,6 +63,15 @@ export interface PositronAuthSettingDescriptor {
 	 *   (+ `snowflake.customHeaders`), with `process.env` fallback for host/account.
 	 */
 	readonly read: "api-key-connection" | "aws-region" | "snowflake";
+	/**
+	 * Optional correction applied to the raw `baseUrl` setting value before it
+	 * enters the fragment (only meaningful for `"api-key-connection"` reads).
+	 * Injected by the consumer — e.g. the bridge's `normalizeBaseUrlForProvider`,
+	 * which fixes bare known hosts missing their API version segment — so
+	 * ai-config stays free of provider-specific URL knowledge and of any
+	 * `ai-provider-bridge` import.
+	 */
+	readonly normalizeBaseUrl?: (url: string) => string;
 }
 
 /**
@@ -111,7 +120,7 @@ function buildBlock(
 ): BuiltinProviderBlock | undefined {
 	switch (descriptor.read) {
 		case "api-key-connection":
-			return buildApiKeyBlock(reader, descriptor.configKey);
+			return buildApiKeyBlock(reader, descriptor.configKey, descriptor.normalizeBaseUrl);
 		case "aws-region":
 			return buildAwsRegionBlock(reader);
 		case "snowflake":
@@ -122,12 +131,13 @@ function buildBlock(
 function buildApiKeyBlock(
 	reader: PositronAuthSettingReader,
 	configKey: string,
+	normalizeBaseUrl?: (url: string) => string,
 ): BuiltinProviderBlock | undefined {
 	const block: BuiltinProviderBlock = {};
 
 	const baseUrl = reader.getBaseUrl(configKey) || undefined;
 	if (baseUrl) {
-		block.baseUrl = baseUrl;
+		block.baseUrl = normalizeBaseUrl ? normalizeBaseUrl(baseUrl) : baseUrl;
 	}
 
 	const customHeaders = normalizeHeaders(reader.getCustomHeaders(configKey));

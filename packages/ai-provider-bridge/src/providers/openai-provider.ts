@@ -120,8 +120,6 @@ export function registerOpenAIProvider(registry: ProviderRegistry, logger: Logge
 		if (credentials.type !== "apikey") {
 			throw new Error(`OpenAI provider requires API key credentials, got: ${credentials.type}`);
 		}
-		// Pass the raw configured base URL; OpenAIClient.chat() normalizes it
-		// (and any per-request routing override) at the single convergence point.
 		return new OpenAIClient(
 			credentials.apiKey,
 			credentials.baseUrl,

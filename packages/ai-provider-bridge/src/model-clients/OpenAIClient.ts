@@ -18,7 +18,7 @@ import {
 } from "../tool-result-images";
 import type { LMStreamPart } from "../types";
 import { normalizeProtocol } from "../types";
-import { isThinkingEnabled, normalizeConfiguredBaseUrl } from "../utils";
+import { isThinkingEnabled } from "../utils";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
@@ -71,15 +71,10 @@ export class OpenAIClient implements ModelClient {
 			effectiveApiMode = this.apiMode;
 		}
 
-		// Normalize whichever base URL wins (per-request routing override or the
-		// constructor value) so a bare `https://api.openai.com` gains the `/v1`
-		// the SDK expects. Custom hosts (openai-compatible gateways) never match
-		// the exact OpenAI host, so they are left untouched.
-		const effectiveBaseUrl = normalizeConfiguredBaseUrl(
-			params.baseUrl ?? this.baseURL,
-			OPENAI_HOST,
-			OPENAI_API_VERSION,
-		);
+		// Per-request routing override wins over the constructor value. The URL is
+		// trusted as given — bare-host correction happens at the config seam
+		// (see base-url.ts), not here.
+		const effectiveBaseUrl = params.baseUrl ?? this.baseURL;
 
 		// Create OpenAI provider.
 		// When apiKey === "" (openai-compatible unauthenticated endpoints), pass a

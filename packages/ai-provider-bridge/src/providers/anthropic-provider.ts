@@ -95,8 +95,6 @@ export function registerAnthropicProvider(registry: ProviderRegistry, logger: Lo
 		if (credentials.type !== "apikey") {
 			throw new Error(`Anthropic provider requires API key credentials, got: ${credentials.type}`);
 		}
-		// Pass the raw configured base URL; AnthropicClient.chat() normalizes it
-		// (and any per-request routing override) at the single convergence point.
 		return new AnthropicClient(credentials.apiKey, credentials.baseUrl, credentials.customHeaders);
 	});
 }
