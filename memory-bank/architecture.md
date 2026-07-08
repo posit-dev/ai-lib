@@ -1,6 +1,6 @@
 ---
 title: ai-provider-bridge Architecture
-description: Architecture of ai-provider-bridge -- entrypoints, invariants, code layout, credential system, and VS Code LM integration.
+description: Architecture of ai-provider-bridge -- entrypoints, invariants, code layout, credential system, VS Code LM integration, and client-side token usage estimation for vscode.lm providers (e.g. Copilot) that report no usage.
 package: ai-provider-bridge
 ---
 
@@ -101,6 +101,71 @@ The `/positron` entrypoint exposes `VscodeLmClient` and `listVscodeLmModels()` -
 - **No caching** -- `vscode.lm` path is uncached; `selectChatModels()` is called fresh each time.
 - **No ProviderRegistry** -- `vscode.lm` models are host-authenticated; no `ProviderCredentials` needed. Consumers use `VscodeLmClient` + `listVscodeLmModels()` directly.
 - **Positron compat shim** -- `fromAiMessages2()` accepts `{ supportsToolResultImages: boolean }` option. Host extensions inject platform version checks at the call site.
+
+### Client-side token usage estimation
+
+Neither the `vscode.lm` consumer API nor the provider-side `LanguageModelChatProvider` API has a
+usage channel -- providers can only stream text, tool-call, data, and thinking parts. Positron
+works around this for **its own** LM providers by emitting a side-channel
+`LanguageModelDataPart` (`mimeType: "text/x-json"`, payload `{type: "usage", data: {...}}`) at
+end of stream, which `VscodeLmClient.convertResponseStream()` parses into a `finish-step` with
+real usage. The GitHub Copilot Chat extension's provider never emits that data part, so Copilot
+requests (and any other third-party `vscode.lm` vendor) otherwise end with **no usage event at
+all**.
+
+**Trigger rule**: rather than keying on vendor, `VscodeLmClient` synthesizes estimated usage
+whenever the stream ends without having seen a usage data part. This covers Copilot today,
+automatically steps aside if a provider starts reporting real usage, and needs no vendor
+allowlist. Positron's own providers are unaffected since they always emit the data part first.
+
+**Mechanics** (`src/positron/token-estimation.ts`):
+
+- **Input**: counted once, in `chat()`, over the _final post-transform_ `vscodeMessages` array
+  (after system-prompt extraction, the Copilot system-as-user-message special case, and the
+  tool-result-image transform) plus serialized tool definitions and the `system` parameter where
+  it isn't already folded into messages -- counting "logical messages + system" separately would
+  double-count Copilot's prepended system message. Because `convertResponseStream()` only sees
+  the response stream (no messages/tools/system), `chat()` builds a lazy, **never-rejecting**
+  thunk (`.catch()` attached at creation, resolving to `number | undefined`) and passes it plus
+  the `LanguageModelChat` reference into the converter as a typed estimation context; the
+  converter only awaits it at stream end, so providers that report real usage never pay the
+  `countTokens()` cost.
+- Per-message counts are memoized in a **module-level bounded LRU** (~500 entries) keyed by
+  `model.id` + a hash of the serialized final message (role + all content parts), plus a small
+  constant added per message for framing overhead. Module-level because `VscodeLmClient`
+  instances are per-request -- a per-instance cache would never hit.
+- **Output**: accumulated from streamed text deltas and tool-call inputs during
+  `convertResponseStream()`; one `countTokens()` call on the accumulated text after the provider
+  stream ends. Steady state is ~2 `countTokens()` calls per turn.
+- **Emission**: the synthesized `finish-step` uses the same shape as the real usage-data-part
+  path (`inputTokenDetails.noCacheTokens = inputTokens`, no cache fields) plus a marker,
+  `providerMetadata.positai.usage.isEstimated = true` -- see `messageArchitecture.md` in the main
+  monorepo for how core/UI consume that marker.
+- **Failure policy**: estimation must never fail the request. Errors are caught and logged as a
+  warning; the stream ends with no usage, matching pre-estimation behavior.
+
+**Why `countTokens()` is cheap enough to call inline**: for Copilot models it's backed by a local
+tiktoken BPE tokenizer (`cl100k_base`/`o200k_base` vocabularies bundled in the Copilot Chat
+extension, tokenized in a worker thread) -- no network request, ~1-2ms of IPC per call (extension
+host -> VS Code main -> Copilot Chat's provider -> its tokenizer worker). Counts are exact for
+OpenAI-family models and an approximation for Anthropic/Gemini models served through Copilot
+(same tokenizer, different real vocabulary). Message-framing and tool-schema overhead outside
+`messages` is approximated with constants, and there is no cache-read/write breakdown to report
+-- all input is counted as uncached. All of this is why results are estimates, not exact counts,
+and why consumers must present them as such.
+
+**Why VS Code's own cost/usage UI can't be reused**: it isn't built on `vscode.lm` at all. The
+Copilot Chat extension is simultaneously the LM provider, the chat participant, and the HTTP
+client, so it reads usage from first-party channels unavailable to LM consumers: the raw
+OpenAI-style `usage` block in the `api.githubcopilot.com` response body, `x-quota-snapshot-*`
+response headers for credit/quota state, and (once adopted) the proposed
+`vscode.proposed.languageModelPricing` API for per-model credit rates
+(`inputCost`/`outputCost`/`cacheCost` per `LanguageModelChatInformation`). Even VS Code's generic
+context-window indicator hardcodes "0 tokens used" for third-party LM providers today
+([microsoft/vscode#309207](https://github.com/microsoft/vscode/issues/309207)) -- there is no
+provider-to-consumer usage channel for anyone, which is why estimation is the only option until
+that gap closes. `languageModelPricing` is the future hook for a real Copilot cost figure once
+Positron's VS Code base includes it.
 
 ## Provider Registration
 
