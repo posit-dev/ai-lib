@@ -89,9 +89,6 @@ export interface ResolveProviderCatalogOptions {
 	/** Platform baseline (e.g. standalone: all enabled, RStudio: positai only). */
 	readonly baseline: PlatformBaseline;
 
-	/** If true, reject `providers.custom` entries (external builds). */
-	readonly external?: boolean;
-
 	/**
 	 * Environment variables for the non-secret connection overlay.
 	 * Env vars have highest precedence: env > file > defaults.
@@ -131,7 +128,7 @@ export interface ResolveProviderCatalogOptions {
 export function resolveProviderCatalog(
 	opts: ResolveProviderCatalogOptions,
 ): readonly ResolvedProvider[] {
-	const { sources, baseline, external, envVars, logger } = opts;
+	const { sources, baseline, envVars, logger } = opts;
 
 	// Order sources by precedence rank (highest precedence first). Array.sort
 	// is stable, so same-kind sources keep their array order (earlier wins).
@@ -140,7 +137,7 @@ export function resolveProviderCatalog(
 	const { kept, config } = recoverValidStack(highestFirst, logger);
 
 	const enabledLayers = kept.map<EnablementLayer>((s) => s.config.providers);
-	return buildCatalog(config, enabledLayers, baseline, { external, logger, envVars });
+	return buildCatalog(config, enabledLayers, baseline, { envVars });
 }
 
 // ---------------------------------------------------------------------------

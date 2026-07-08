@@ -51,20 +51,6 @@ export interface LoadCatalogOptions {
 	readonly logger?: LoggerLike;
 
 	/**
-	 * If true, reject `providers.custom` entries (external builds).
-	 *
-	 * External builds restrict to the positai provider only and alias
-	 * non-positai client code out of the bundle. A runtime `providers.custom`
-	 * entry would fail because the client code is aliased away. This flag
-	 * causes `buildCatalog` to skip the custom-providers loop and log a
-	 * warning if `providers.custom` is non-empty.
-	 *
-	 * This flag does NOT filter built-in providers — built-in restriction in
-	 * external builds is enforced at the bundler aliasing layer.
-	 */
-	readonly external?: boolean;
-
-	/**
 	 * Environment variables for non-secret connection overlay AND for reading
 	 * the enforced/default fragment env vars.
 	 * Env vars have highest precedence: env > file > defaults.

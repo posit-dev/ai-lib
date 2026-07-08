@@ -167,54 +167,6 @@ describe("watchResolvedProviderCatalog", () => {
 		expect(lastChange.connectionChanged).toBe(true);
 	});
 
-	it("should exclude custom providers when external is true", async () => {
-		const configPath = path.join(tempDir, "providers.json");
-		// Start with a config containing a custom provider
-		await writeConfig(configPath, {
-			providers: {
-				custom: {
-					"my-gateway": {
-						type: "openai-compatible",
-						baseUrl: "https://gw.example.com",
-					},
-				},
-			},
-		});
-
-		const changes: ProviderCatalogChange[] = [];
-		const watcher = watchResolvedProviderCatalog((change) => changes.push(change), {
-			baseline: STANDALONE_BASELINE,
-			configPath,
-			logger: mockLogger,
-			external: true,
-		});
-
-		await new Promise((resolve) => setTimeout(resolve, 500));
-
-		// Trigger a change by toggling a built-in provider
-		await writeConfig(configPath, {
-			providers: {
-				anthropic: { enabled: false },
-				custom: {
-					"my-gateway": {
-						type: "openai-compatible",
-						baseUrl: "https://gw.example.com",
-					},
-				},
-			},
-		});
-
-		await new Promise((resolve) => setTimeout(resolve, 600));
-
-		watcher.dispose();
-
-		expect(changes.length).toBeGreaterThanOrEqual(1);
-		const lastChange = changes[changes.length - 1];
-		// Only built-in providers should be in the catalog (no custom)
-		expect(lastChange.catalog.length).toBe(14);
-		expect(lastChange.catalog.find((p) => p.id === "my-gateway")).toBeUndefined();
-	});
-
 	it("should rebuild and emit when an additional (host) source changes", async () => {
 		const configPath = path.join(tempDir, "providers.json");
 		await writeConfig(configPath, {});

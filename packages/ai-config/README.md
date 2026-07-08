@@ -101,7 +101,6 @@ The **deep resolver seam** — the one place that owns the entire precedence sta
 function resolveProviderCatalog(opts: {
   sources: readonly ProviderConfigSource[]; // any order — ranked by `kind`
   baseline: PlatformBaseline;
-  external?: boolean;
   envVars?: Record<string, string | undefined>; // non-secret connection overlay (default {})
 }): readonly ResolvedProvider[];
 ```
@@ -171,7 +170,6 @@ const catalog = await loadResolvedProviderCatalog({
 | `enforcedEnvVar?`     | Override the enforced env-var name (defaults to `POSIT_AI_PROVIDERS_ENFORCED`; testing).                                                       |
 | `defaultEnvVar?`      | Override the defaults env-var name (defaults to `POSIT_AI_PROVIDERS_DEFAULT`; testing).                                                        |
 | `envVars?`            | Source for the non-secret connection overlay **and** the enforced/default fragment env vars (defaults to `process.env`).                       |
-| `external?`           | Reject `providers.custom` entries (external builds).                                                                                           |
 | `additionalSources?`  | Extra watchable `ProviderConfigSourceProvider`s (e.g. a Positron `authentication.*` `host` source). Folded into both the load and watch paths. |
 | `logger?`             | `LoggerLike` for diagnostics/validation warnings.                                                                                              |
 

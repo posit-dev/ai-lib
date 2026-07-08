@@ -64,7 +64,6 @@ export async function loadResolvedProviderCatalog(
 	return resolveProviderCatalog({
 		sources,
 		baseline: opts.baseline,
-		external: opts.external,
 		envVars: env,
 		logger: opts.logger,
 	});
