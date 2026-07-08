@@ -32,6 +32,8 @@ filesystem I/O and vscode-bound wiring:
 | `ai-config`                       | Vocabulary, Zod schemas, inferred types, defaults, the pure resolution helpers (`resolveModels`, `mergeEnforced`), and the config-source contracts                                                   | No             |
 | `ai-config/node`                  | Re-exports the pure entry plus the three filesystem seams (`loadResolvedProviderCatalog`, `mutateProvidersConfig`, `watchResolvedProviderCatalog`) and path constants                                | Node FS        |
 | `ai-config/positron`              | Builds a `host`-kind config source from Positron's `authentication.*` VS Code settings (injected via `additionalSources`); the pure `buildAuthenticationFragment` builder is testable without vscode | `vscode`       |
+
+Each provider's `PositronAuthSettingDescriptor` (consumed by `buildAuthenticationFragment`) may carry an optional `normalizeBaseUrl?: (url: string) => string` hook, applied to the raw `baseUrl` setting before it enters the fragment. It's the seam for correcting known-bad values (e.g. a bare API host missing its version segment) without `ai-config` importing `ai-provider-bridge` — the consumer (`packages/positron`) injects the bridge's `normalizeBaseUrlForProvider` when building descriptors; `ai-config` only ever sees an opaque string-to-string function.
 | `ai-config/providers.schema.json` | The generated JSON Schema, exported so editors can validate/autocomplete `providers.json`                                                                                                            | No             |
 
 ### Pure entry (`ai-config`)
