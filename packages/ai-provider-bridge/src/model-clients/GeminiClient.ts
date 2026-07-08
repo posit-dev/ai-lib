@@ -27,10 +27,9 @@ import {
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 
-/** Gemini public API host. `@ai-sdk/google` expects baseURL to include `/v1beta`. */
-export const GEMINI_HOST = "https://generativelanguage.googleapis.com";
-/** Version segment `@ai-sdk/google` expects appended to the host. */
-export const GEMINI_API_VERSION = "v1beta";
+// Host/version constants live in base-url.ts (which must stay free of this
+// module's Node-only imports); re-exported here for the provider modules.
+export { GEMINI_API_VERSION, GEMINI_HOST } from "../base-url";
 
 // ---------------------------------------------------------------------------
 // Interaction ID extraction (compaction-aware)

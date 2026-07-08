@@ -24,10 +24,9 @@ import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 /** Maximum number of web searches per request */
 const WEB_SEARCH_MAX_USES = 5;
 
-/** Anthropic public API host. `@ai-sdk/anthropic` expects baseURL to include `/v1`. */
-export const ANTHROPIC_HOST = "https://api.anthropic.com";
-/** Version segment `@ai-sdk/anthropic` expects appended to the host. */
-export const ANTHROPIC_API_VERSION = "v1";
+// Host/version constants live in base-url.ts (which must stay free of this
+// module's Node-only imports); re-exported here for the provider modules.
+export { ANTHROPIC_API_VERSION, ANTHROPIC_HOST } from "../base-url";
 
 export class AnthropicClient implements ModelClient {
 	private readonly apiKey: string;

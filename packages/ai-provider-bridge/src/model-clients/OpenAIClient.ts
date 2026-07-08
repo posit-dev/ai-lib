@@ -28,10 +28,9 @@ import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 
 type ApiMode = "completions" | "responses";
 
-/** OpenAI public API host. `@ai-sdk/openai` expects baseURL to include `/v1`. */
-export const OPENAI_HOST = "https://api.openai.com";
-/** Version segment `@ai-sdk/openai` expects appended to the host. */
-export const OPENAI_API_VERSION = "v1";
+// Host/version constants live in base-url.ts (which must stay free of this
+// module's Node-only imports); re-exported here for the provider modules.
+export { OPENAI_API_VERSION, OPENAI_HOST } from "../base-url";
 
 export class OpenAIClient implements ModelClient {
 	private readonly apiKey?: string;

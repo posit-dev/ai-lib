@@ -13,14 +13,29 @@
  * rewrite the user's setting on disk. The bridge itself trusts the base URLs
  * it is given — there is no chat-time normalization.
  *
- * Lives in its own module (not `utils.ts`) because it imports the host
- * constants from the client modules, which themselves import `utils`.
+ * This module owns the host/version constants (the client modules re-export
+ * them) and must stay dependency-light: it is reachable from the bridge ROOT
+ * entrypoint, which browser bundles import (via @assistant/core re-exports) —
+ * importing the client modules here would drag their Node-only dependencies
+ * (`crypto` via ai-sdk-helpers) into browser code.
  */
 
-import { ANTHROPIC_API_VERSION, ANTHROPIC_HOST } from "./model-clients/AnthropicClient";
-import { GEMINI_API_VERSION, GEMINI_HOST } from "./model-clients/GeminiClient";
-import { OPENAI_API_VERSION, OPENAI_HOST } from "./model-clients/OpenAIClient";
 import type { ProviderId } from "./types";
+
+/** Anthropic public API host. `@ai-sdk/anthropic` expects baseURL to include `/v1`. */
+export const ANTHROPIC_HOST = "https://api.anthropic.com";
+/** Version segment `@ai-sdk/anthropic` expects appended to the host. */
+export const ANTHROPIC_API_VERSION = "v1";
+
+/** OpenAI public API host. `@ai-sdk/openai` expects baseURL to include `/v1`. */
+export const OPENAI_HOST = "https://api.openai.com";
+/** Version segment `@ai-sdk/openai` expects appended to the host. */
+export const OPENAI_API_VERSION = "v1";
+
+/** Gemini public API host. `@ai-sdk/google` expects baseURL to include `/v1beta`. */
+export const GEMINI_HOST = "https://generativelanguage.googleapis.com";
+/** Version segment `@ai-sdk/google` expects appended to the host. */
+export const GEMINI_API_VERSION = "v1beta";
 
 /** Providers whose public API requires a version segment the SDK won't add. */
 const KNOWN_HOSTS: Partial<Record<ProviderId, { host: string; version: string }>> = {
