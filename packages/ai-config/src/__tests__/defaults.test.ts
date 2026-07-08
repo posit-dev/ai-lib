@@ -26,9 +26,9 @@ describe("provider connection defaults", () => {
 	});
 
 	it("LMSTUDIO_DEFAULTS has expected endpoint", () => {
-		// Bare server root: LMStudioClient appends /v1 itself, so a /v1 suffix
-		// here would produce /v1/v1 URLs downstream.
-		expect(LMSTUDIO_DEFAULTS.endpoint).toBe("http://localhost:1234");
+		// OpenAI-compatible convention: the endpoint includes /v1; clients use
+		// it as-is (only a bare default host is normalized for back-compat).
+		expect(LMSTUDIO_DEFAULTS.endpoint).toBe("http://localhost:1234/v1");
 	});
 
 	it("BEDROCK_DEFAULTS has expected region", () => {

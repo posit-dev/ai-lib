@@ -5,22 +5,29 @@
 /**
  * LM Studio API Client
  *
- * LM Studio provides OpenAI-compatible API at /v1/chat/completions,
- * so we delegate to OpenAIClient with configured endpoint URL.
+ * LM Studio provides an OpenAI-compatible API, so we delegate to OpenAIClient
+ * with the configured endpoint URL. Like other OpenAI-compatible providers,
+ * the configured endpoint is expected to already include the version segment
+ * (e.g. `http://localhost:1234/v1`); the bare default host is normalized as a
+ * courtesy.
  */
 
 import type { LMStreamPart } from "../types";
 import { normalizeProtocol } from "../types";
+import { normalizeProviderBaseUrl } from "../utils";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 import { OpenAIClient } from "./OpenAIClient";
+
+/** LM Studio default local server host (no version segment). */
+export const LMSTUDIO_HOST = "http://localhost:1234";
 
 export class LMStudioClient implements ModelClient {
 	private readonly openaiClient: OpenAIClient;
 
 	constructor(endpoint: string) {
-		// LM Studio OpenAI-compatible endpoint: {endpoint}/v1
-		// Example: http://localhost:1234/v1
-		const baseURL = endpoint.endsWith("/") ? `${endpoint}v1` : `${endpoint}/v1`;
+		// Endpoint includes the version segment (e.g. http://localhost:1234/v1);
+		// the exact bare default host gets /v1 appended for backward compatibility.
+		const baseURL = normalizeProviderBaseUrl(endpoint, LMSTUDIO_HOST, "v1");
 
 		// LM Studio doesn't require API key - pass dummy string (LM Studio ignores auth headers)
 		// Use 'completions' API mode since LM Studio doesn't support the Responses API

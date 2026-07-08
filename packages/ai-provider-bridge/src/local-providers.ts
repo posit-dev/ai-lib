@@ -35,12 +35,14 @@ export function isLocalProviderId(providerId: string): providerId is LocalProvid
 /**
  * Canonical default endpoints for local providers.
  *
- * LM Studio is the bare server root — `LMStudioClient` appends `/v1` itself,
- * so stored endpoints must not include it.
+ * Ollama is the bare server root — its client uses the native API and appends
+ * `/api/...` paths itself. LM Studio follows the OpenAI-compatible convention:
+ * the endpoint includes the `/v1` version segment (a bare default host is
+ * normalized for backward compatibility).
  */
 export const LOCAL_PROVIDER_DEFAULT_ENDPOINTS: Record<LocalProviderId, string> = {
 	ollama: "http://localhost:11434",
-	lmstudio: "http://localhost:1234",
+	lmstudio: "http://localhost:1234/v1",
 };
 
 // ============================================================================
