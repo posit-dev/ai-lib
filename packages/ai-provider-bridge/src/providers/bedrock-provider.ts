@@ -58,11 +58,19 @@ const MODEL_CACHE_TTL = 60 * 60 * 1000;
  * Claude 4.x and newer models require inference profiles, not direct model IDs.
  *
  * AWS cross-region inference profiles use these prefixes:
+ * - us-gov.* for AWS GovCloud regions (us-gov-west-1, us-gov-east-1)
  * - us.* for US regions (us-east-1, us-west-2, etc.)
  * - eu.* for EU regions (eu-west-1, eu-central-1, etc.)
  * - apac.* for Asia-Pacific regions (ap-northeast-1, ap-southeast-1, etc.)
+ *
+ * GovCloud must be checked before the general `us-` case: `us-gov-west-1`
+ * also starts with `us-`, but its profiles live under the `us-gov` partition
+ * and the commercial `us.` profiles don't exist there.
  */
-function getInferenceProfilePrefix(region: string): string {
+export function getInferenceProfilePrefix(region: string): string {
+	if (region.startsWith("us-gov-")) {
+		return "us-gov";
+	}
 	if (region.startsWith("us-")) {
 		return "us";
 	}
