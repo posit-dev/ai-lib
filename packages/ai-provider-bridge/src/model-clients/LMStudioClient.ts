@@ -5,8 +5,12 @@
 /**
  * LM Studio API Client
  *
- * LM Studio provides OpenAI-compatible API at /v1/chat/completions,
- * so we delegate to OpenAIClient with configured endpoint URL.
+ * LM Studio provides an OpenAI-compatible API, so we delegate to OpenAIClient
+ * with the configured endpoint URL. Like other OpenAI-compatible providers,
+ * the configured endpoint already includes the version segment (e.g.
+ * `http://localhost:1234/v1`) and is trusted as given — bare-host correction
+ * happens at the config read seam (see base-url.ts and
+ * `LocalProviderManager.getEndpoint`), not here.
  */
 
 import type { LMStreamPart } from "../types";
@@ -14,17 +18,17 @@ import { normalizeProtocol } from "../types";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 import { OpenAIClient } from "./OpenAIClient";
 
+// Host/version constants live in base-url.ts (which must stay free of this
+// module's Node-only imports); re-exported here for the provider modules.
+export { LMSTUDIO_API_VERSION, LMSTUDIO_HOST } from "../base-url";
+
 export class LMStudioClient implements ModelClient {
 	private readonly openaiClient: OpenAIClient;
 
 	constructor(endpoint: string) {
-		// LM Studio OpenAI-compatible endpoint: {endpoint}/v1
-		// Example: http://localhost:1234/v1
-		const baseURL = endpoint.endsWith("/") ? `${endpoint}v1` : `${endpoint}/v1`;
-
 		// LM Studio doesn't require API key - pass dummy string (LM Studio ignores auth headers)
 		// Use 'completions' API mode since LM Studio doesn't support the Responses API
-		this.openaiClient = new OpenAIClient("lmstudio", baseURL, "completions");
+		this.openaiClient = new OpenAIClient("lmstudio", endpoint, "completions");
 	}
 
 	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {

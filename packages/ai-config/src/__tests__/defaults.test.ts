@@ -26,6 +26,8 @@ describe("provider connection defaults", () => {
 	});
 
 	it("LMSTUDIO_DEFAULTS has expected endpoint", () => {
+		// OpenAI-compatible convention: the endpoint includes /v1; clients use
+		// it as-is (only a bare default host is normalized for back-compat).
 		expect(LMSTUDIO_DEFAULTS.endpoint).toBe("http://localhost:1234/v1");
 	});
 

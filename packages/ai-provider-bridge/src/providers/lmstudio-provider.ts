@@ -2,10 +2,14 @@
  *  Copyright (C) 2025 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { LMStudioClient } from "../model-clients/LMStudioClient";
+import {
+	LMSTUDIO_API_VERSION,
+	LMSTUDIO_HOST,
+	LMStudioClient,
+} from "../model-clients/LMStudioClient";
 import type { Logger, ModelInfo } from "../types";
 import type { LocalCredentials } from "../types";
-import { joinPath } from "../utils";
+import { joinPath, normalizeProviderBaseUrl } from "../utils";
 import { createCachedModelFetcher } from "./cached-model-fetcher";
 import type { ProviderRegistry } from "./ProviderRegistry";
 
@@ -69,7 +73,12 @@ export function registerLMStudioProvider(registry: ProviderRegistry, logger: Log
 		createCachedModelFetcher<LocalCredentials>({
 			providerId: "lmstudio",
 			resolveUrl: (credentials) => {
-				return joinPath(credentials.endpoint, "v1/models");
+				// Endpoint already includes /v1 (bare default host corrected at the
+				// config read seam); normalizeProviderBaseUrl only trims here.
+				return joinPath(
+					normalizeProviderBaseUrl(credentials.endpoint, LMSTUDIO_HOST, LMSTUDIO_API_VERSION),
+					"models",
+				);
 			},
 			hasCredentials: (credentials) => Boolean(credentials.endpoint),
 			createHeaders: () => ({

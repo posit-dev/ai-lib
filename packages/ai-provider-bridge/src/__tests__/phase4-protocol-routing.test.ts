@@ -151,7 +151,7 @@ describe("Posit AI protocol mapping", () => {
 
 describe("LMStudioClient protocol guard", () => {
 	it("rejects openai-responses protocol", async () => {
-		const client = new LMStudioClient("http://localhost:1234");
+		const client = new LMStudioClient("http://localhost:1234/v1");
 
 		const params: ModelClientChatParams = {
 			model: "some-model",
@@ -166,7 +166,7 @@ describe("LMStudioClient protocol guard", () => {
 	});
 
 	it("rejects anthropic-messages protocol", async () => {
-		const client = new LMStudioClient("http://localhost:1234");
+		const client = new LMStudioClient("http://localhost:1234/v1");
 
 		const params: ModelClientChatParams = {
 			model: "some-model",
@@ -181,7 +181,7 @@ describe("LMStudioClient protocol guard", () => {
 	});
 
 	it("accepts openai-chat protocol (or legacy openai)", async () => {
-		const client = new LMStudioClient("http://localhost:1234");
+		const client = new LMStudioClient("http://localhost:1234/v1");
 
 		const params: ModelClientChatParams = {
 			model: "some-model",

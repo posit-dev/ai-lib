@@ -28,7 +28,11 @@ export const OLLAMA_DEFAULTS = {
 	endpoint: "http://localhost:11434",
 } as const satisfies ResolvedConnection;
 
-/** LM Studio default endpoint. */
+/**
+ * LM Studio default endpoint. Includes the `/v1` version segment, following
+ * the OpenAI-compatible base-URL convention (the client uses the endpoint
+ * as-is; only a bare default host is normalized for backward compatibility).
+ */
 export const LMSTUDIO_DEFAULTS = {
 	endpoint: "http://localhost:1234/v1",
 } as const satisfies ResolvedConnection;

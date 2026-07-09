@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { normalizeBaseUrlForProvider } from "../base-url";
 
 interface KnownProviderCase {
-	providerId: "anthropic" | "openai" | "gemini";
+	providerId: "anthropic" | "openai" | "gemini" | "lmstudio";
 	host: string;
 	versioned: string;
 }
@@ -24,6 +24,7 @@ const KNOWN_PROVIDERS: KnownProviderCase[] = [
 		host: "https://generativelanguage.googleapis.com",
 		versioned: "https://generativelanguage.googleapis.com/v1beta",
 	},
+	{ providerId: "lmstudio", host: "http://localhost:1234", versioned: "http://localhost:1234/v1" },
 ];
 
 describe.each(KNOWN_PROVIDERS)(

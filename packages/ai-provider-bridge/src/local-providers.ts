@@ -17,6 +17,7 @@
  * in sync with external edits.
  */
 
+import { normalizeBaseUrlForProvider } from "./base-url";
 import type { Disposable } from "./CredentialProvider";
 
 export type { Disposable };
@@ -31,6 +32,19 @@ const LOCAL_PROVIDER_ID_SET: ReadonlySet<string> = new Set(LOCAL_PROVIDER_IDS);
 export function isLocalProviderId(providerId: string): providerId is LocalProviderId {
 	return LOCAL_PROVIDER_ID_SET.has(providerId);
 }
+
+/**
+ * Canonical default endpoints for local providers.
+ *
+ * Ollama is the bare server root — its client uses the native API and appends
+ * `/api/...` paths itself. LM Studio follows the OpenAI-compatible convention:
+ * the endpoint includes the `/v1` version segment (a bare default host is
+ * normalized for backward compatibility).
+ */
+export const LOCAL_PROVIDER_DEFAULT_ENDPOINTS: Record<LocalProviderId, string> = {
+	ollama: "http://localhost:11434",
+	lmstudio: "http://localhost:1234/v1",
+};
 
 // ============================================================================
 // Dependency Injection Interface
@@ -100,9 +114,15 @@ export class LocalProviderManager {
 	/**
 	 * Read the endpoint for a local provider from the in-memory cache.
 	 * Returns undefined if no endpoint is set.
+	 *
+	 * This is the config read seam for stored endpoints: a bare known default
+	 * host is corrected to its versioned form (e.g. `http://localhost:1234` →
+	 * `http://localhost:1234/v1` for LM Studio) so previously stored values
+	 * keep working now that clients trust endpoints as given (see base-url.ts).
 	 */
 	getEndpoint(providerId: LocalProviderId): string | undefined {
-		return this.endpointCache.get(providerId);
+		const stored = this.endpointCache.get(providerId);
+		return stored === undefined ? undefined : normalizeBaseUrlForProvider(providerId, stored);
 	}
 
 	/**
