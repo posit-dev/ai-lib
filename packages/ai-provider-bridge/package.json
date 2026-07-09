@@ -100,7 +100,7 @@
     "oxfmt": "^0.41.0",
     "oxlint": "^1.57.0",
     "tsx": "^4.20.6",
-    "typescript": "^6.0.2",
+    "typescript": "^7.0.2",
     "vitest": "^3.2.1",
     "whatwg-fetch": "^3.6.20"
   },

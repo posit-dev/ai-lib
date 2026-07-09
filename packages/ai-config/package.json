@@ -45,7 +45,7 @@
     "@types/node": "22.x",
     "@types/proper-lockfile": "^4.1.4",
     "@types/vscode": "^1.100.0",
-    "typescript": "^6.0.2",
+    "typescript": "^7.0.2",
     "vitest": "^3.2.1"
   },
   "repository": {
