@@ -27,6 +27,33 @@ import {
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 import { createOpenAICompatibleFetch } from "./openai-compat-fetch";
 
+/** Header carrying the Snowflake auth scheme (real token types are forwarded). */
+const TOKEN_TYPE_HEADER = "X-Snowflake-Authorization-Token-Type";
+/**
+ * Internal sentinel token-type: the credential's `apiKey` is a Snowflake session
+ * token (from external-browser SSO) that must be sent as
+ * `Authorization: Snowflake Token="..."` rather than a Bearer token. This value
+ * is consumed by the client and never forwarded to Snowflake.
+ */
+const SESSION_TOKEN_TYPE = "SESSION";
+
+type FetchFn = (url: string | URL | globalThis.Request, init?: RequestInit) => Promise<Response>;
+
+/**
+ * Wrap a fetch so every request authenticates with a Snowflake **session token**
+ * (`Authorization: Snowflake Token="..."`). Removes any Bearer/x-api-key header
+ * the SDK set and the internal token-type sentinel before the request goes out.
+ */
+function createSnowflakeSessionFetch(sessionToken: string, delegate: FetchFn): FetchFn {
+	return async (url, init) => {
+		const headers = new Headers(init?.headers);
+		headers.delete("x-api-key");
+		headers.delete(TOKEN_TYPE_HEADER);
+		headers.set("Authorization", `Snowflake Token="${sessionToken}"`);
+		return delegate(url, { ...init, headers });
+	};
+}
+
 export class SnowflakeClient implements ModelClient {
 	private readonly bearerToken: string;
 	private readonly baseUrl: string;
@@ -36,6 +63,19 @@ export class SnowflakeClient implements ModelClient {
 		this.bearerToken = bearerToken;
 		this.baseUrl = baseUrl;
 		this.customHeaders = customHeaders;
+	}
+
+	/** True when the token is a session token needing the `Snowflake Token=` scheme. */
+	private get isSessionAuth(): boolean {
+		return this.customHeaders?.[TOKEN_TYPE_HEADER] === SESSION_TOKEN_TYPE;
+	}
+
+	/** customHeaders to forward, with the internal session sentinel removed. */
+	private forwardedHeaders(): Record<string, string> | undefined {
+		if (!this.customHeaders || !this.isSessionAuth) return this.customHeaders;
+		const rest = { ...this.customHeaders };
+		delete rest[TOKEN_TYPE_HEADER];
+		return Object.keys(rest).length > 0 ? rest : undefined;
 	}
 
 	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {
@@ -70,12 +110,21 @@ export class SnowflakeClient implements ModelClient {
 		params: ModelClientChatParams,
 		baseUrl: string,
 	): Promise<AsyncIterable<LMStreamPart>> {
-		const headers = safeSdkCustomHeaders(this.customHeaders);
-		const provider = createAnthropic({
-			authToken: this.bearerToken,
-			baseURL: baseUrl,
-			...(headers && { headers }),
-		});
+		const headers = safeSdkCustomHeaders(this.forwardedHeaders());
+		const provider = this.isSessionAuth
+			? createAnthropic({
+					// Auth is applied by the session fetch wrapper; this placeholder key
+					// just satisfies the SDK (its x-api-key header is stripped there).
+					apiKey: "session-auth",
+					baseURL: baseUrl,
+					fetch: createSnowflakeSessionFetch(this.bearerToken, globalThis.fetch),
+					...(headers && { headers }),
+				})
+			: createAnthropic({
+					authToken: this.bearerToken,
+					baseURL: baseUrl,
+					...(headers && { headers }),
+				});
 		const model = provider(params.model);
 
 		const { abortController, cleanup } = createAbortControllerFromToken(params.cancellationToken);
@@ -127,10 +176,18 @@ export class SnowflakeClient implements ModelClient {
 		params: ModelClientChatParams,
 		baseUrl: string,
 	): Promise<AsyncIterable<LMStreamPart>> {
+		// The compat fetch applies OpenAI-spec fix-ups. For session auth we keep a
+		// non-empty apiKey so it does NOT strip the Authorization header, and wrap
+		// it so the outer fetch installs the `Snowflake Token=` header last.
+		const compatFetch = this.isSessionAuth
+			? createOpenAICompatibleFetch("Snowflake", "session-auth", this.forwardedHeaders())
+			: createOpenAICompatibleFetch("Snowflake", this.bearerToken, this.customHeaders);
 		const provider = createOpenAI({
 			apiKey: this.bearerToken || "sk-placeholder",
 			baseURL: baseUrl,
-			fetch: createOpenAICompatibleFetch("Snowflake", this.bearerToken, this.customHeaders),
+			fetch: this.isSessionAuth
+				? createSnowflakeSessionFetch(this.bearerToken, compatFetch)
+				: compatFetch,
 		});
 		const model = provider.chat(params.model);
 
