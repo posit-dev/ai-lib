@@ -17,6 +17,7 @@
  * in sync with external edits.
  */
 
+import { normalizeBaseUrlForProvider } from "./base-url";
 import type { Disposable } from "./CredentialProvider";
 
 export type { Disposable };
@@ -113,9 +114,15 @@ export class LocalProviderManager {
 	/**
 	 * Read the endpoint for a local provider from the in-memory cache.
 	 * Returns undefined if no endpoint is set.
+	 *
+	 * This is the config read seam for stored endpoints: a bare known default
+	 * host is corrected to its versioned form (e.g. `http://localhost:1234` →
+	 * `http://localhost:1234/v1` for LM Studio) so previously stored values
+	 * keep working now that clients trust endpoints as given (see base-url.ts).
 	 */
 	getEndpoint(providerId: LocalProviderId): string | undefined {
-		return this.endpointCache.get(providerId);
+		const stored = this.endpointCache.get(providerId);
+		return stored === undefined ? undefined : normalizeBaseUrlForProvider(providerId, stored);
 	}
 
 	/**

@@ -95,10 +95,33 @@ describe("LocalProviderManager", () => {
 
 		it("returns cached value after initialize", async () => {
 			vi.mocked(options.readSettings).mockResolvedValue({
-				providers: { lmstudio: { endpoint: "http://localhost:1234" } },
+				providers: { lmstudio: { endpoint: "http://localhost:1234/v1" } },
 			});
 			await manager.initialize();
-			expect(manager.getEndpoint("lmstudio")).toBe("http://localhost:1234");
+			expect(manager.getEndpoint("lmstudio")).toBe("http://localhost:1234/v1");
+		});
+
+		it("corrects a stored bare default host to its versioned form (lmstudio)", async () => {
+			vi.mocked(options.readSettings).mockResolvedValue({
+				providers: {
+					ollama: { endpoint: "http://localhost:11434" },
+					lmstudio: { endpoint: "http://localhost:1234" },
+				},
+			});
+			await manager.initialize();
+			// Previously stored bare-root LM Studio endpoints keep working now
+			// that clients trust endpoints as given (see base-url.ts).
+			expect(manager.getEndpoint("lmstudio")).toBe("http://localhost:1234/v1");
+			// Ollama has no version segment (native API) — returned as stored.
+			expect(manager.getEndpoint("ollama")).toBe("http://localhost:11434");
+		});
+
+		it("returns a custom lmstudio endpoint as stored, without correction", async () => {
+			vi.mocked(options.readSettings).mockResolvedValue({
+				providers: { lmstudio: { endpoint: "http://gpu-box:1234" } },
+			});
+			await manager.initialize();
+			expect(manager.getEndpoint("lmstudio")).toBe("http://gpu-box:1234");
 		});
 
 		it("treats non-string endpoint values as unset", async () => {
@@ -299,7 +322,7 @@ describe("LocalProviderManager", () => {
 			vi.mocked(options.readSettings).mockResolvedValue({
 				providers: {
 					ollama: { endpoint: "http://localhost:11434" },
-					lmstudio: { endpoint: "http://localhost:1234" },
+					lmstudio: { endpoint: "http://localhost:1234/v1" },
 				},
 			});
 			await manager.initialize();
@@ -310,7 +333,7 @@ describe("LocalProviderManager", () => {
 			vi.mocked(options.readSettings).mockResolvedValue({
 				providers: {
 					ollama: { endpoint: "http://localhost:99999" },
-					lmstudio: { endpoint: "http://localhost:1234" },
+					lmstudio: { endpoint: "http://localhost:1234/v1" },
 				},
 			});
 
@@ -322,7 +345,7 @@ describe("LocalProviderManager", () => {
 
 			expect(callback).toHaveBeenCalledWith(["ollama"]);
 			expect(manager.getEndpoint("ollama")).toBe("http://localhost:99999");
-			expect(manager.getEndpoint("lmstudio")).toBe("http://localhost:1234");
+			expect(manager.getEndpoint("lmstudio")).toBe("http://localhost:1234/v1");
 		});
 	});
 

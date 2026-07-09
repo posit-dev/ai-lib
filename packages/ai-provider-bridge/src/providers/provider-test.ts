@@ -9,8 +9,8 @@
  * Both standalone and Positron consume these functions.
  */
 
-import { LMSTUDIO_HOST } from "../model-clients/LMStudioClient";
-import { joinPath, normalizeProviderBaseUrl } from "../utils";
+import { normalizeBaseUrlForProvider } from "../base-url";
+import { joinPath } from "../utils";
 
 export async function testOllamaProvider(
 	endpoint: string,
@@ -41,8 +41,9 @@ export async function testOllamaProvider(
 export async function testLMStudioProvider(
 	endpoint: string,
 ): Promise<{ success: true; modelCount: number } | { success: false; error: string }> {
-	// Endpoint already includes /v1 (bare default host normalized).
-	const apiUrl = joinPath(normalizeProviderBaseUrl(endpoint, LMSTUDIO_HOST, "v1"), "models");
+	// The endpoint is raw user input (pre-save), so apply the same bare-host
+	// correction the config read seam applies to stored values.
+	const apiUrl = joinPath(normalizeBaseUrlForProvider("lmstudio", endpoint), "models");
 
 	try {
 		const response = await fetch(apiUrl, {

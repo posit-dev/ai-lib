@@ -37,11 +37,22 @@ export const GEMINI_HOST = "https://generativelanguage.googleapis.com";
 /** Version segment `@ai-sdk/google` expects appended to the host. */
 export const GEMINI_API_VERSION = "v1beta";
 
+/**
+ * LM Studio default local server host. Configured endpoints include the `/v1`
+ * segment (OpenAI-compatible convention); the bare default host is corrected
+ * at the config read seam (`LocalProviderManager.getEndpoint`) for backward
+ * compatibility with previously stored endpoints.
+ */
+export const LMSTUDIO_HOST = "http://localhost:1234";
+/** Version segment LM Studio's OpenAI-compatible API expects appended to the host. */
+export const LMSTUDIO_API_VERSION = "v1";
+
 /** Providers whose public API requires a version segment the SDK won't add. */
 const KNOWN_HOSTS: Partial<Record<ProviderId, { host: string; version: string }>> = {
 	anthropic: { host: ANTHROPIC_HOST, version: ANTHROPIC_API_VERSION },
 	openai: { host: OPENAI_HOST, version: OPENAI_API_VERSION },
 	gemini: { host: GEMINI_HOST, version: GEMINI_API_VERSION },
+	lmstudio: { host: LMSTUDIO_HOST, version: LMSTUDIO_API_VERSION },
 };
 
 /**
