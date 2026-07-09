@@ -1431,6 +1431,9 @@
                       "account": {
                         "type": "string"
                       },
+                      "connectionName": {
+                        "type": "string"
+                      },
                       "home": {
                         "type": "string"
                       },
@@ -5667,6 +5670,9 @@
               "additionalProperties": false,
               "properties": {
                 "account": {
+                  "type": "string"
+                },
+                "connectionName": {
                   "type": "string"
                 },
                 "home": {
