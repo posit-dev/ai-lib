@@ -139,6 +139,12 @@ export const snowflakeConfigSchema = z
 	.object({
 		account: z.string().optional(),
 		host: z.string().optional(),
+		/**
+		 * Name of the `connections.toml` connection to use (non-secret). Consumed
+		 * by `@assistant/node`'s Snowflake resolver on Node platforms; ignored in
+		 * Positron, which defers Snowflake credentials to `vscode.authentication`.
+		 */
+		connectionName: z.string().optional(),
 	})
 	.strict();
 
