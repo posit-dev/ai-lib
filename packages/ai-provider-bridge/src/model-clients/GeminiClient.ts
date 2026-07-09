@@ -27,6 +27,10 @@ import {
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 
+// Host/version constants live in base-url.ts (which must stay free of this
+// module's Node-only imports); re-exported here for the provider modules.
+export { GEMINI_API_VERSION, GEMINI_HOST } from "../base-url";
+
 // ---------------------------------------------------------------------------
 // Interaction ID extraction (compaction-aware)
 // ---------------------------------------------------------------------------
@@ -289,7 +293,9 @@ export class GeminiClient implements ModelClient {
 	}
 
 	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {
-		// Create Google Generative AI provider
+		// Create Google Generative AI provider. Per-request routing override wins
+		// over the constructor value. The URL is trusted as given — bare-host
+		// correction happens at the config seam (see base-url.ts), not here.
 		const effectiveBaseUrl = params.baseUrl ?? this.baseURL;
 		const headers = safeSdkCustomHeaders(this.customHeaders);
 		const provider = createGoogleGenerativeAI({

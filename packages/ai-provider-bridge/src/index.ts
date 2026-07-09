@@ -94,6 +94,10 @@ export {
 export { isLocalProviderId, LOCAL_PROVIDER_IDS, LocalProviderManager } from "./local-providers";
 export type { LocalProviderId, LocalProviderManagerOptions } from "./local-providers";
 
+// Bare-host base URL correction (consumed by packages/positron to fix
+// incorrect `authentication.*.baseUrl` values at the read seam and on disk)
+export { normalizeBaseUrlForProvider } from "./base-url";
+
 // Small utilities
 export { isThinkingEnabled } from "./utils";
 export { buildSnowflakeCortexUrl } from "./utils";

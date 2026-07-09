@@ -60,6 +60,12 @@ Positron's direct providers are the union of those two sets. Currently:
 - Mapped auth providers: `anthropic`, `positai`, `openai`, `gemini`, `google-vertex`, `openai-compatible`, `bedrock`, `ms-foundry`, `snowflake-cortex`, `copilot`, `deepseek`
 - Local providers: `ollama`, `lmstudio`
 
+## Base URLs
+
+Model clients (`AnthropicClient`, `OpenAIClient`, `GeminiClient`) **trust the base URL they are given** — `params.baseUrl ?? this.baseURL`, used raw, with no chat-time correction. There used to be a `normalizeConfiguredBaseUrl` workaround inside the clients that patched a bare host (e.g. `https://api.anthropic.com`) to its versioned form at request time; that has been removed in favor of fixing the value once, upstream, at the config-read seam.
+
+The correction policy itself lives in one public helper, `normalizeBaseUrlForProvider(providerId, url)` (`src/base-url.ts`, exported from the root entrypoint): it corrects a bare known host (anthropic/openai/gemini, tolerant of whitespace and trailing slashes) to `host/version`, and returns **any other input byte-for-byte unchanged** — so `result !== url` means precisely "bare-host fix applied." Consumers (Positron's `authentication-source.ts` and `fix-base-url-settings.ts`) use that identity check as their write-back/notification criterion. `normalizeProviderBaseUrl` (used by the model-discovery fetchers) is unrelated: it only fills in a host/version when the URL is unset and trims whitespace/trailing slashes for composition — it does not correct a configured bare host.
+
 ## Credentials
 
 `ProviderCredentials` is a discriminated union (`apikey`, `oauth`, `local`, `aws-credentials`, `google-cloud`) produced by `CredentialProvider` implementations. Client factories receive the resolved credential object and use it to authenticate every model-discovery and chat request.
