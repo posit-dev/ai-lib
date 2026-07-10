@@ -206,12 +206,14 @@ export class VscodeLmClient implements ModelClient {
 		estimateInput: () => Promise<number | undefined>,
 	): AsyncIterable<LMStreamPart> {
 		let sawUsage = false;
+		let sawToolCall = false;
 		let outputText = "";
 		for await (const part of vscodeStream) {
 			if (part instanceof vscode.LanguageModelTextPart) {
 				outputText += part.value;
 				yield { type: "text-delta", id: "0", text: part.value };
 			} else if (part instanceof vscode.LanguageModelToolCallPart) {
+				sawToolCall = true;
 				outputText += `${part.name}\n${JSON.stringify(part.input)}\n`;
 				yield {
 					type: "tool-call",
@@ -290,10 +292,11 @@ export class VscodeLmClient implements ModelClient {
 							}
 
 							sawUsage = true;
+							const finishReason = sawToolCall ? "tool-calls" : "stop";
 							yield {
 								type: "finish-step",
-								finishReason: "stop",
-								rawFinishReason: "stop",
+								finishReason,
+								rawFinishReason: finishReason,
 								usage: usageData,
 								response: {
 									id: "0",
@@ -323,10 +326,11 @@ export class VscodeLmClient implements ModelClient {
 				// Estimation failed; end the stream with no usage (previous behavior).
 				return;
 			}
+			const finishReason = sawToolCall ? "tool-calls" : "stop";
 			yield {
 				type: "finish-step",
-				finishReason: "stop",
-				rawFinishReason: "stop",
+				finishReason,
+				rawFinishReason: finishReason,
 				usage: {
 					inputTokens,
 					inputTokenDetails: {

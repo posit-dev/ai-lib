@@ -230,6 +230,53 @@ describe("VscodeLmClient estimated usage synthesis", () => {
 		expect(second.countTokensCalls[0]).toBe("out");
 	});
 
+	it("marks the synthesized finish-step as tool-calls when the stream emitted a tool call", async () => {
+		const { model } = makeFakeModel({
+			vendor: "copilot",
+			streamParts: [
+				new vscodeMock.LanguageModelTextPart("let me check"),
+				new vscodeMock.LanguageModelToolCallPart("call-1", "get_weather", {
+					location: "SF",
+				}),
+			],
+		});
+
+		const finishes = finishSteps(await runChat(model));
+		expect(finishes).toHaveLength(1);
+		expect(finishes[0].finishReason).toBe("tool-calls");
+		expect(finishes[0].rawFinishReason).toBe("tool-calls");
+	});
+
+	it("marks the synthesized finish-step as stop when no tool call was emitted", async () => {
+		const { model } = makeFakeModel({
+			vendor: "copilot",
+			streamParts: [new vscodeMock.LanguageModelTextPart("all done")],
+		});
+
+		const finishes = finishSteps(await runChat(model));
+		expect(finishes).toHaveLength(1);
+		expect(finishes[0].finishReason).toBe("stop");
+		expect(finishes[0].rawFinishReason).toBe("stop");
+	});
+
+	it("marks the real-usage finish-step as tool-calls when the stream emitted a tool call", async () => {
+		const { model } = makeFakeModel({
+			vendor: "anthropic-api",
+			streamParts: [
+				new vscodeMock.LanguageModelToolCallPart("call-1", "get_weather", { location: "SF" }),
+				vscodeMock.LanguageModelDataPart.json({
+					type: "usage",
+					data: { inputTokens: 58, outputTokens: 7, cachedTokens: 0 },
+				}),
+			],
+		});
+
+		const finishes = finishSteps(await runChat(model));
+		expect(finishes).toHaveLength(1);
+		expect(finishes[0].finishReason).toBe("tool-calls");
+		expect(finishes[0].rawFinishReason).toBe("tool-calls");
+	});
+
 	it("ends the stream without usage when countTokens fails, without failing the request", async () => {
 		const { model } = makeFakeModel({
 			vendor: "copilot",
