@@ -20,6 +20,7 @@ import {
 } from "../tool-result-images";
 import type { AiToolWithJsonSchema, CancellationToken, LMStreamPart, Logger } from "../types";
 import { fromAiMessages2 } from "./message-formats";
+import { estimateInputTokens, estimateOutputTokens } from "./token-estimation";
 import { ensureUint8Array } from "./utils";
 
 /**
@@ -167,6 +168,22 @@ export class VscodeLmClient implements ModelClient {
 			params.cancellationToken,
 		);
 
+		// Lazy input-token estimation over the final post-transform payload.
+		// Invoked by the converter only if the stream ends without a usage data
+		// part (e.g. Copilot), so providers that report real usage never pay
+		// the countTokens cost. The returned promise never rejects.
+		//
+		// For Copilot the system prompt was prepended as a user message above,
+		// so it must not be counted again as a separate system parameter.
+		const estimateInput = () =>
+			estimateInputTokens({
+				model: this.model,
+				messages: vscodeMessages,
+				systemPrompt: this.model.vendor === "copilot" ? undefined : systemPrompt,
+				tools: options.tools,
+				logger: this.logger,
+			});
+
 		// Convert response stream to platform-agnostic format
 		// Note: chatResponse.stream is typed as AsyncIterable<unknown> in VS Code API
 		return this.convertResponseStream(
@@ -175,6 +192,7 @@ export class VscodeLmClient implements ModelClient {
 				| vscode.LanguageModelToolCallPart
 				| vscode.LanguageModelDataPart
 			>,
+			estimateInput,
 		);
 	}
 
@@ -185,11 +203,18 @@ export class VscodeLmClient implements ModelClient {
 		vscodeStream: AsyncIterable<
 			vscode.LanguageModelTextPart | vscode.LanguageModelToolCallPart | vscode.LanguageModelDataPart
 		>,
+		estimateInput: () => Promise<number | undefined>,
 	): AsyncIterable<LMStreamPart> {
+		let sawUsage = false;
+		let sawToolCall = false;
+		let outputText = "";
 		for await (const part of vscodeStream) {
 			if (part instanceof vscode.LanguageModelTextPart) {
+				outputText += part.value;
 				yield { type: "text-delta", id: "0", text: part.value };
 			} else if (part instanceof vscode.LanguageModelToolCallPart) {
+				sawToolCall = true;
+				outputText += `${part.name}\n${JSON.stringify(part.input)}\n`;
 				yield {
 					type: "tool-call",
 					toolCallId: part.callId,
@@ -266,10 +291,12 @@ export class VscodeLmClient implements ModelClient {
 								}
 							}
 
+							sawUsage = true;
+							const finishReason = sawToolCall ? "tool-calls" : "stop";
 							yield {
 								type: "finish-step",
-								finishReason: "stop",
-								rawFinishReason: "stop",
+								finishReason,
+								rawFinishReason: finishReason,
 								usage: usageData,
 								response: {
 									id: "0",
@@ -286,6 +313,47 @@ export class VscodeLmClient implements ModelClient {
 					this.logger.warn("Failed to parse usage data in LLM response stream", e);
 				}
 			}
+		}
+
+		// The stream ended without a usage data part (e.g. Copilot, whose
+		// vscode.lm provider reports no usage). Synthesize estimated usage from
+		// local token counts. Consumers detect the estimate via the
+		// providerMetadata marker and must display it as approximate.
+		if (!sawUsage) {
+			const inputTokens = await estimateInput();
+			const outputTokens = await estimateOutputTokens(this.model, outputText, this.logger);
+			if (inputTokens === undefined || outputTokens === undefined) {
+				// Estimation failed; end the stream with no usage (previous behavior).
+				return;
+			}
+			const finishReason = sawToolCall ? "tool-calls" : "stop";
+			yield {
+				type: "finish-step",
+				finishReason,
+				rawFinishReason: finishReason,
+				usage: {
+					inputTokens,
+					inputTokenDetails: {
+						noCacheTokens: inputTokens,
+						cacheReadTokens: undefined,
+						cacheWriteTokens: undefined,
+					},
+					outputTokens,
+					outputTokenDetails: {
+						textTokens: outputTokens,
+						reasoningTokens: undefined,
+					},
+					totalTokens: inputTokens + outputTokens,
+				},
+				response: {
+					id: "0",
+					modelId: "",
+					timestamp: new Date(),
+				},
+				providerMetadata: {
+					positai: { usage: { isEstimated: true } },
+				},
+			};
 		}
 	}
 }
