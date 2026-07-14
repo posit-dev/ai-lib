@@ -38,26 +38,26 @@
  */
 
 // Re-export everything from the pure entry
-export * from "../index";
+export * from "../index.js";
 
 // --- Paths -----------------------------------------------------------------
-export { AI_CONFIG_DIR, PROVIDERS_CONFIG_PATH } from "./paths";
+export { AI_CONFIG_DIR, PROVIDERS_CONFIG_PATH } from "./paths.js";
 
 // --- Read seam (the single deep read seam) ---------------------------------
-export { loadResolvedProviderCatalog } from "./load-catalog";
+export { loadResolvedProviderCatalog } from "./load-catalog.js";
 
 // --- Source assembly (file + env fragments → ProviderConfigSource[]) -------
 // The deep seam is `loadConfigSources` + `resolveProviderCatalog`; the raw
 // file/env readers stay internal so callers can't recreate source-assembly or
 // fallback policy outside ai-config.
-export { loadConfigSources } from "./load-config";
-export type { LoadConfigSourcesOptions } from "./load-config";
+export { loadConfigSources } from "./load-config.js";
+export type { LoadConfigSourcesOptions } from "./load-config.js";
 
 // --- Write seam ------------------------------------------------------------
-export { mutateProvidersConfig } from "./mutate-config";
+export { mutateProvidersConfig } from "./mutate-config.js";
 
 // --- Watch seam (the single, source-aware watch seam) ----------------------
-export { watchResolvedProviderCatalog } from "./watch-catalog";
+export { watchResolvedProviderCatalog } from "./watch-catalog.js";
 
 // --- Types -----------------------------------------------------------------
 export type {
@@ -68,4 +68,4 @@ export type {
 	ProviderCatalogChange,
 	ProviderConfigSourceProvider,
 	WatchCatalogOptions,
-} from "./types";
+} from "./types.js";

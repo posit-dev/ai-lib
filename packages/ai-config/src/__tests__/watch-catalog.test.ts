@@ -8,10 +8,10 @@ import * as path from "path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ProviderCatalogChange, ProviderConfigSourceProvider } from "../node/types";
-import { watchResolvedProviderCatalog } from "../node/watch-catalog";
-import type { ProviderConfigSource } from "../resolve-catalog";
-import type { PlatformBaseline, ProvidersConfig } from "../types";
+import type { ProviderCatalogChange, ProviderConfigSourceProvider } from "../node/types.js";
+import { watchResolvedProviderCatalog } from "../node/watch-catalog.js";
+import type { ProviderConfigSource } from "../resolve-catalog.js";
+import type { PlatformBaseline, ProvidersConfig } from "../types.js";
 
 const mockLogger = {
 	debug: vi.fn(),

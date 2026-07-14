@@ -8,10 +8,10 @@ import * as path from "path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { loadResolvedProviderCatalog } from "../node/load-catalog";
-import { mutateProvidersConfig } from "../node/mutate-config";
-import type { ProvidersConfig, ResolvedProvider } from "../types";
-import type { PlatformBaseline } from "../types";
+import { loadResolvedProviderCatalog } from "../node/load-catalog.js";
+import { mutateProvidersConfig } from "../node/mutate-config.js";
+import type { ProvidersConfig, ResolvedProvider } from "../types.js";
+import type { PlatformBaseline } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

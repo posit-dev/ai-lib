@@ -4,9 +4,9 @@
 
 import { describe, it, expect } from "vitest";
 
-import type { EnablementLayer } from "../resolve-enabled";
-import { resolveEnabled } from "../resolve-enabled";
-import type { PlatformBaseline, ProvidersMap } from "../types";
+import type { EnablementLayer } from "../resolve-enabled.js";
+import { resolveEnabled } from "../resolve-enabled.js";
+import type { PlatformBaseline, ProvidersMap } from "../types.js";
 
 const standaloneBaseline: PlatformBaseline = { defaultEnabled: true };
 const rstudioBaseline: PlatformBaseline = {

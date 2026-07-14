@@ -7,7 +7,7 @@ import * as path from "path";
 
 import { describe, expect, it } from "vitest";
 
-import { AI_CONFIG_DIR, PROVIDERS_CONFIG_PATH, PROVIDERS_LOCKFILE_PATH } from "../paths";
+import { AI_CONFIG_DIR, PROVIDERS_CONFIG_PATH, PROVIDERS_LOCKFILE_PATH } from "../paths.js";
 
 describe("ai-config path constants", () => {
 	const home = os.homedir();

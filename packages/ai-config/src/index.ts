@@ -24,24 +24,24 @@ export {
 	PROTOCOL_VALUES,
 	RESERVED_PROVIDER_KEYS,
 	SUPPORTED_CUSTOM_CLIENT_KIND_VALUES,
-} from "./vocabulary";
+} from "./vocabulary.js";
 export type {
 	BuiltinProviderId,
 	ClientKind,
 	Protocol,
 	ReservedProviderKey,
 	SupportedCustomClientKind,
-} from "./vocabulary";
+} from "./vocabulary.js";
 
 // --- Schema ----------------------------------------------------------------
-export { enforcedProvidersConfigSchema, providersConfigSchema } from "./schema";
+export { enforcedProvidersConfigSchema, providersConfigSchema } from "./schema.js";
 
 // --- Types (inferred + catalog) --------------------------------------------
 export {
 	mintCustomProviderId,
 	MODEL_METADATA_FIELD_NAMES,
 	MODEL_ROUTING_FIELD_NAMES,
-} from "./types";
+} from "./types.js";
 export type {
 	BuiltinProviderBlock,
 	CustomModel,
@@ -61,7 +61,7 @@ export type {
 	ResolvedModelInfo,
 	ResolvedProvider,
 	ResolvedProviderId,
-} from "./types";
+} from "./types.js";
 
 // --- Defaults --------------------------------------------------------------
 export {
@@ -71,23 +71,23 @@ export {
 	OLLAMA_DEFAULTS,
 	POSIT_AI_DEFAULTS,
 	PROVIDER_CONNECTION_DEFAULTS,
-} from "./defaults";
+} from "./defaults.js";
 
 // --- Resolution helpers (public) -------------------------------------------
-export { resolveModels } from "./resolve-models";
+export { resolveModels } from "./resolve-models.js";
 
 // --- Deep resolver seam (owns the precedence stack) ------------------------
-export { resolveProviderCatalog } from "./resolve-catalog";
+export { resolveProviderCatalog } from "./resolve-catalog.js";
 export type {
 	ProviderConfigSource,
 	ProviderConfigSourceKind,
 	ResolveProviderCatalogOptions,
-} from "./resolve-catalog";
+} from "./resolve-catalog.js";
 
 // --- Watchable config-source contracts (pure) ------------------------------
 // The seam types a host source implements. Kept in the pure entry so
 // `ai-config/positron` can build a source without depending on `ai-config/node`.
-export type { Disposable, ProviderConfigSourceProvider } from "./config-source";
+export type { Disposable, ProviderConfigSourceProvider } from "./config-source.js";
 
 // --- Enforcement merge -----------------------------------------------------
-export { mergeConfigFragments, mergeEnforced } from "./enforce";
+export { mergeConfigFragments, mergeEnforced } from "./enforce.js";

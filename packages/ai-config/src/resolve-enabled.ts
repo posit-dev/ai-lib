@@ -15,7 +15,7 @@ import type {
 	EnforcedProvidersMap,
 	PlatformBaseline,
 	ProvidersMap,
-} from "./types";
+} from "./types.js";
 
 /** A single enablement layer — a providers map from one config source. */
 export type EnablementLayer = ProvidersMap | EnforcedProvidersMap | undefined;

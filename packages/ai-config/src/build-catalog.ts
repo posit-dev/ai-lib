@@ -11,9 +11,9 @@
  * models (those need credentials + a runtime fetcher ai-config cannot hold).
  */
 
-import { PROVIDER_CONNECTION_DEFAULTS } from "./defaults";
-import type { EnablementLayer } from "./resolve-enabled";
-import { resolveEnabled } from "./resolve-enabled";
+import { PROVIDER_CONNECTION_DEFAULTS } from "./defaults.js";
+import type { EnablementLayer } from "./resolve-enabled.js";
+import { resolveEnabled } from "./resolve-enabled.js";
 import type {
 	BuiltinProviderBlock,
 	CustomProviderEntry,
@@ -22,10 +22,10 @@ import type {
 	ProvidersMap,
 	ResolvedConnection,
 	ResolvedProvider,
-} from "./types";
-import { mintCustomProviderId } from "./types";
-import { BUILTIN_PROVIDER_IDS } from "./vocabulary";
-import type { BuiltinProviderId, ClientKind } from "./vocabulary";
+} from "./types.js";
+import { mintCustomProviderId } from "./types.js";
+import { BUILTIN_PROVIDER_IDS } from "./vocabulary.js";
+import type { BuiltinProviderId, ClientKind } from "./vocabulary.js";
 
 // ---------------------------------------------------------------------------
 // Non-secret connection env var mappings

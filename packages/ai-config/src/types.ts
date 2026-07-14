@@ -27,9 +27,9 @@ import type {
 	modelsBlockSchema,
 	providersConfigSchema,
 	providersMapSchema,
-} from "./schema";
-import { isBuiltinProviderId, RESERVED_PROVIDER_KEYS } from "./vocabulary";
-import type { BuiltinProviderId, ClientKind, Protocol } from "./vocabulary";
+} from "./schema.js";
+import { isBuiltinProviderId, RESERVED_PROVIDER_KEYS } from "./vocabulary.js";
+import type { BuiltinProviderId, ClientKind, Protocol } from "./vocabulary.js";
 
 // ---------------------------------------------------------------------------
 // Schema-inferred types (on-disk shapes)

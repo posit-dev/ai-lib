@@ -19,11 +19,11 @@ import * as path from "path";
 
 import lockfile from "proper-lockfile";
 
-import { PROVIDERS_CONFIG_VERSION } from "../index";
-import { providersConfigSchema } from "../schema";
-import type { ProvidersConfig } from "../types";
-import { PROVIDERS_CONFIG_PATH } from "./paths";
-import type { LoggerLike, MutateConfigOptions } from "./types";
+import { PROVIDERS_CONFIG_VERSION } from "../index.js";
+import { providersConfigSchema } from "../schema.js";
+import type { ProvidersConfig } from "../types.js";
+import { PROVIDERS_CONFIG_PATH } from "./paths.js";
+import type { LoggerLike, MutateConfigOptions } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Lock options

@@ -10,8 +10,8 @@
  * configMapper and schema validation.
  */
 
-import type { ResolvedConnection } from "./types";
-import type { BuiltinProviderId } from "./vocabulary";
+import type { ResolvedConnection } from "./types.js";
+import type { BuiltinProviderId } from "./vocabulary.js";
 
 /** Posit AI gateway defaults. */
 export const POSIT_AI_DEFAULTS = {

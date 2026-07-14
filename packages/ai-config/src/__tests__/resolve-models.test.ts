@@ -4,8 +4,8 @@
 
 import { describe, it, expect } from "vitest";
 
-import { resolveModels } from "../resolve-models";
-import type { ModelInfoLike, ModelsBlock, ResolvedConnection } from "../types";
+import { resolveModels } from "../resolve-models.js";
+import type { ModelInfoLike, ModelsBlock, ResolvedConnection } from "../types.js";
 
 function makeModel(id: string, overrides?: Partial<ModelInfoLike>): ModelInfoLike {
 	return {

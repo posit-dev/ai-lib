@@ -6,17 +6,17 @@
  * Types specific to the node (filesystem) entry of ai-config.
  */
 
-import type { ProviderConfigSourceProvider } from "../config-source";
-import type { LoggerLike, PlatformBaseline, ResolvedProvider } from "../types";
+import type { ProviderConfigSourceProvider } from "../config-source.js";
+import type { LoggerLike, PlatformBaseline, ResolvedProvider } from "../types.js";
 
 // Re-export the pure logger type so node consumers can import it from here.
-export type { LoggerLike } from "../types";
+export type { LoggerLike } from "../types.js";
 
 // Re-export the pure config-source contracts so existing `ai-config/node`
 // consumers keep importing them from here (the seam moved to the pure entry so
 // `ai-config/positron` can reference it without the node entry — see
 // `../config-source`).
-export type { Disposable, ProviderConfigSourceProvider } from "../config-source";
+export type { Disposable, ProviderConfigSourceProvider } from "../config-source.js";
 
 // ---------------------------------------------------------------------------
 // Load options
