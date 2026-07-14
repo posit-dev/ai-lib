@@ -14,7 +14,7 @@ import {
 	buildAuthenticationFragment,
 	type PositronAuthSettingDescriptor,
 	type PositronAuthSettingReader,
-} from "../positron/authentication-fragment";
+} from "../positron/authentication-fragment.js";
 
 function fakeReader(
 	overrides: {

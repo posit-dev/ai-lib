@@ -18,8 +18,8 @@ import {
 	PROTOCOL_VALUES,
 	RESERVED_PROVIDER_KEYS,
 	SUPPORTED_CUSTOM_CLIENT_KIND_VALUES,
-} from "./vocabulary";
-import type { BuiltinProviderId, SupportedCustomClientKind } from "./vocabulary";
+} from "./vocabulary.js";
+import type { BuiltinProviderId, SupportedCustomClientKind } from "./vocabulary.js";
 
 // ---------------------------------------------------------------------------
 // Leaf enums

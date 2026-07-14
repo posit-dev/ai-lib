@@ -8,8 +8,8 @@
  * Internal to the catalog builder and `resolveModels`.
  */
 
-import type { ResolvedConnection } from "./types";
-import type { Protocol } from "./vocabulary";
+import type { ResolvedConnection } from "./types.js";
+import type { Protocol } from "./vocabulary.js";
 
 /**
  * Resolve the base URL / endpoint for a model + protocol combination.

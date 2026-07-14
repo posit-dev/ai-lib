@@ -14,10 +14,10 @@
 
 import { promises as fs } from "fs";
 
-import type { ProviderConfigSource } from "../resolve-catalog";
-import { enforcedProvidersConfigSchema, providersConfigSchema } from "../schema";
-import type { EnforcedProvidersConfig, LoggerLike, ProvidersConfig } from "../types";
-import { DEFAULT_ENV_VAR, ENFORCED_ENV_VAR, PROVIDERS_CONFIG_PATH } from "./paths";
+import type { ProviderConfigSource } from "../resolve-catalog.js";
+import { enforcedProvidersConfigSchema, providersConfigSchema } from "../schema.js";
+import type { EnforcedProvidersConfig, LoggerLike, ProvidersConfig } from "../types.js";
+import { DEFAULT_ENV_VAR, ENFORCED_ENV_VAR, PROVIDERS_CONFIG_PATH } from "./paths.js";
 
 /** Options for assembling the default config sources. */
 export interface LoadConfigSourcesOptions {

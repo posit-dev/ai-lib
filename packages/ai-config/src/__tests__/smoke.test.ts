@@ -4,16 +4,16 @@
 
 import { describe, it, expect } from "vitest";
 
-import { mintCustomProviderId } from "../types";
+import { mintCustomProviderId } from "../types.js";
 
 describe("ai-config", () => {
 	it("pure entry module loads", async () => {
-		const mod = await import("../index");
+		const mod = await import("../index.js");
 		expect(mod).toBeDefined();
 	});
 
 	it("node entry module loads", async () => {
-		const mod = await import("../node/index");
+		const mod = await import("../node/index.js");
 		expect(mod).toBeDefined();
 	});
 });

@@ -4,8 +4,8 @@
 
 import { describe, it, expect } from "vitest";
 
-import { mergeEnforced } from "../enforce";
-import type { ProvidersConfig } from "../types";
+import { mergeEnforced } from "../enforce.js";
+import type { ProvidersConfig } from "../types.js";
 
 describe("mergeEnforced", () => {
 	it("returns user config when enforced is empty", () => {

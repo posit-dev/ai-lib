@@ -17,17 +17,17 @@
 import * as fs from "fs";
 import * as path from "path";
 
-import type { ProviderConfigSource } from "../resolve-catalog";
-import { resolveProviderCatalog } from "../resolve-catalog";
-import type { LoggerLike, ResolvedProvider } from "../types";
-import { readEnvFragment, readFileConfig } from "./load-config";
-import { DEFAULT_ENV_VAR, ENFORCED_ENV_VAR, PROVIDERS_CONFIG_PATH } from "./paths";
+import type { ProviderConfigSource } from "../resolve-catalog.js";
+import { resolveProviderCatalog } from "../resolve-catalog.js";
+import type { LoggerLike, ResolvedProvider } from "../types.js";
+import { readEnvFragment, readFileConfig } from "./load-config.js";
+import { DEFAULT_ENV_VAR, ENFORCED_ENV_VAR, PROVIDERS_CONFIG_PATH } from "./paths.js";
 import type {
 	Disposable,
 	ProviderCatalogChange,
 	ProviderConfigSourceProvider,
 	WatchCatalogOptions,
-} from "./types";
+} from "./types.js";
 
 /**
  * Watch the provider config sources for changes and emit typed

@@ -17,17 +17,17 @@
  * identical precedence semantics for free.
  */
 
-import { buildCatalog } from "./build-catalog";
-import { mergeConfigFragments } from "./enforce";
-import type { EnablementLayer } from "./resolve-enabled";
-import { providersConfigSchema } from "./schema";
+import { buildCatalog } from "./build-catalog.js";
+import { mergeConfigFragments } from "./enforce.js";
+import type { EnablementLayer } from "./resolve-enabled.js";
+import { providersConfigSchema } from "./schema.js";
 import type {
 	EnforcedProvidersConfig,
 	LoggerLike,
 	PlatformBaseline,
 	ProvidersConfig,
 	ResolvedProvider,
-} from "./types";
+} from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Source model

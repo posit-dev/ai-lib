@@ -11,7 +11,7 @@
  * - Primitives: enforced wins.
  */
 
-import type { EnforcedProvidersConfig, ProvidersConfig } from "./types";
+import type { EnforcedProvidersConfig, ProvidersConfig } from "./types.js";
 
 /**
  * Deep-merge `enforced` over `user`, returning a new config object.

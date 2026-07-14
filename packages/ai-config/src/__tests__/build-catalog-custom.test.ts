@@ -4,9 +4,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import { buildCatalog } from "../build-catalog";
-import type { EnablementLayer } from "../resolve-enabled";
-import type { PlatformBaseline, ProvidersConfig } from "../types";
+import { buildCatalog } from "../build-catalog.js";
+import type { EnablementLayer } from "../resolve-enabled.js";
+import type { PlatformBaseline, ProvidersConfig } from "../types.js";
 
 /** Build the highest-first enablement layer stack from a config's providers map. */
 function layersOf(config: ProvidersConfig): EnablementLayer[] {

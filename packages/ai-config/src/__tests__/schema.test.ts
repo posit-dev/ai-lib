@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from "vitest";
 
-import { enforcedProvidersConfigSchema, providersConfigSchema } from "../schema";
+import { enforcedProvidersConfigSchema, providersConfigSchema } from "../schema.js";
 
 describe("providersConfigSchema", () => {
 	it("accepts an empty config", () => {

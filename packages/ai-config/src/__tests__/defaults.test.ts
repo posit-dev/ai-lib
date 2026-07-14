@@ -11,7 +11,7 @@ import {
 	BEDROCK_DEFAULTS,
 	GOOGLE_VERTEX_DEFAULTS,
 	PROVIDER_CONNECTION_DEFAULTS,
-} from "../defaults";
+} from "../defaults.js";
 
 describe("provider connection defaults", () => {
 	it("POSIT_AI_DEFAULTS has expected shape", () => {

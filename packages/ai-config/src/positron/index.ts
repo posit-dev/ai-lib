@@ -22,13 +22,13 @@
 
 import * as vscode from "vscode";
 
-import type { Disposable, ProviderConfigSourceProvider } from "../config-source";
-import type { ProviderConfigSource } from "../resolve-catalog";
+import type { Disposable, ProviderConfigSourceProvider } from "../config-source.js";
+import type { ProviderConfigSource } from "../resolve-catalog.js";
 import {
 	buildAuthenticationFragment,
 	type PositronAuthSettingDescriptor,
 	type PositronAuthSettingReader,
-} from "./authentication-fragment";
+} from "./authentication-fragment.js";
 
 export { buildAuthenticationFragment };
 export type { PositronAuthSettingDescriptor, PositronAuthSettingReader };

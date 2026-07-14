@@ -18,8 +18,8 @@ import * as path from "path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { PROVIDERS_CONFIG_VERSION } from "../index";
-import { mutateProvidersConfig } from "../node/mutate-config";
+import { PROVIDERS_CONFIG_VERSION } from "../index.js";
+import { mutateProvidersConfig } from "../node/mutate-config.js";
 
 const mockLogger = {
 	debug: vi.fn(),

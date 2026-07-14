@@ -27,7 +27,7 @@
  * relative to provider config, so the pipeline tracks them separately.
  */
 
-import { resolveEndpoint } from "./resolve-connection";
+import { resolveEndpoint } from "./resolve-connection.js";
 import type {
 	CustomModel,
 	ModelInfoLike,
@@ -35,8 +35,8 @@ import type {
 	ModelsBlock,
 	ResolvedConnection,
 	ResolvedModelInfo,
-} from "./types";
-import type { Protocol } from "./vocabulary";
+} from "./types.js";
+import type { Protocol } from "./vocabulary.js";
 
 /**
  * Map from legacy bridge protocol values to the widened Protocol enum.

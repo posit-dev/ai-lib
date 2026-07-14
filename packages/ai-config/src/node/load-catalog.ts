@@ -14,10 +14,10 @@
  * seam; this function only reads the default node sources and delegates.
  */
 
-import { resolveProviderCatalog } from "../resolve-catalog";
-import type { ResolvedProvider } from "../types";
-import { loadConfigSources } from "./load-config";
-import type { LoadCatalogOptions } from "./types";
+import { resolveProviderCatalog } from "../resolve-catalog.js";
+import type { ResolvedProvider } from "../types.js";
+import { loadConfigSources } from "./load-config.js";
+import type { LoadCatalogOptions } from "./types.js";
 
 /**
  * Load ~/.posit/ai/providers.json, read the enforced/default env overlays,

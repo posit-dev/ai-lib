@@ -4,9 +4,9 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import type { ProviderConfigSource } from "../resolve-catalog";
-import { recoverValidStack, resolveProviderCatalog } from "../resolve-catalog";
-import type { PlatformBaseline, ResolvedProvider } from "../types";
+import type { ProviderConfigSource } from "../resolve-catalog.js";
+import { recoverValidStack, resolveProviderCatalog } from "../resolve-catalog.js";
+import type { PlatformBaseline, ResolvedProvider } from "../types.js";
 
 const STANDALONE: PlatformBaseline = { defaultEnabled: true };
 

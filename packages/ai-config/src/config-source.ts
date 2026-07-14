@@ -12,7 +12,7 @@
  * (`fs`) entry. The node entry re-exports both for back-compat.
  */
 
-import type { ProviderConfigSource } from "./resolve-catalog";
+import type { ProviderConfigSource } from "./resolve-catalog.js";
 
 /**
  * A resource that can be disposed.

@@ -20,7 +20,7 @@ import { fileURLToPath } from "url";
 
 import * as z from "zod/v4";
 
-import { providersConfigSchema } from "../src/schema";
+import { providersConfigSchema } from "../src/schema.js";
 
 // ---------------------------------------------------------------------------
 // Schema post-processing utilities

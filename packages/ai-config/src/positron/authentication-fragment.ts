@@ -23,7 +23,7 @@
  * truth for configKeys.
  */
 
-import type { BuiltinProviderBlock, EnforcedProvidersConfig } from "../types";
+import type { BuiltinProviderBlock, EnforcedProvidersConfig } from "../types.js";
 
 /**
  * Reads the `authentication.*` settings the host fragment needs, abstracted
