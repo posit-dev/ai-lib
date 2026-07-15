@@ -339,6 +339,28 @@ describe("resolveProviderCatalog — host layer merge semantics (Phase 6)", () =
 		});
 	});
 
+	it("snowflake home merges across user + host like the other snowflake keys", () => {
+		// host (e.g. the transitional authentication.* layer) supplies home; user
+		// supplies account → the merged connection carries both.
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("user", {
+					providers: { "snowflake-cortex": { snowflake: { account: "user-acct" } } },
+				}),
+				source("host", {
+					providers: { "snowflake-cortex": { snowflake: { home: "/managed/snowflake" } } },
+				}),
+			],
+			baseline: STANDALONE,
+			envVars: {},
+		});
+		// Typed access to `.home` is the point: it fails check-types until
+		// ResolvedConnection.snowflake carries the field.
+		const resolved = find(catalog, "snowflake-cortex")?.connection.snowflake;
+		expect(resolved?.home).toBe("/managed/snowflake");
+		expect(resolved?.account).toBe("user-acct");
+	});
+
 	it("AWS region ordering: env > host authentication setting > us-east-1 default", () => {
 		// host setting beats the us-east-1 default (revival of the previously-dead
 		// authentication.aws.credentials.AWS_REGION).
