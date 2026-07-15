@@ -204,7 +204,15 @@ and Gemma tables, since Posit AI routes both families.
 **`inferModelCapabilities(providerId, modelId)`** (`src/model-capabilities/infer.ts`)
 merges a conservative `GENERIC_BASELINE` (128k context, tools on, no images,
 no web search) under provider-family inference, with inference winning per
-field:
+field.
+
+The policy for every provider case: mirror the static caps the bridge's
+provider builder declares for that provider. Where a builder derives values
+from live API responses (e.g. Vertex token limits), inference approximates
+with the family table and keeps feature flags conservative — understating a
+capability degrades gracefully, overstating it breaks requests.
+
+Per-provider cases:
 
 - `anthropic` / `bedrock` → the Anthropic table (Bedrock ids carry the same
   `claude-*` family, just prefixed).
@@ -217,12 +225,22 @@ field:
   separate context-window figure, so `maxContextLength` is set equal to the
   table's `maxInputTokens` (mirroring how `deepseek-provider.ts` in the bridge
   already treats the input limit as the window).
-- `snowflake-cortex` → tries the Anthropic table first (Claude on Snowflake
-  speaks the Anthropic Messages API); if that misses, strips a leading
-  `openai-` prefix and tries the OpenAI table. Either branch sets `protocol`
-  (`"anthropic-messages"` or `"openai-chat"`) — the only case where inference
-  determines the wire protocol. Every other provider leaves `protocol`
-  `undefined`.
+- `google-vertex` → strips Vertex resource prefixes
+  (`publishers/<publisher>/models/...`), then routes Gemini ids to the Gemini
+  table and Anthropic partner ids to the Anthropic table (mirroring
+  `google-vertex-provider.ts`; the builder's live-API token limits match the
+  Gemini table's 1M/65k values).
+- `snowflake-cortex` → Snowflake serves a fixed catalog with its own caps, so
+  inference applies them rather than the upstream model limits: Claude ids get
+  the Anthropic Messages API shape (200k context / 16,384 output, tool-result
+  images on); anything else strips a leading `openai-` prefix, consults the
+  OpenAI table, and gets the Chat Completions shape (128k / 16,384,
+  tool-result images off, image support only when the upstream table lists
+  image media types). Only `family` and `thinkingEffortLevels` are borrowed
+  from the upstream tables (mirroring `snowflake-cortex-provider.ts`). Both
+  branches set `protocol` (`"anthropic-messages"` or `"openai-chat"`) — the
+  only case where inference determines the wire protocol. Every other
+  provider leaves `protocol` `undefined`.
 - Anything else (`ms-foundry`, `openai-compatible`, custom provider ids) stays
   at the generic baseline — those are unknown endpoints.
 
