@@ -81,4 +81,43 @@ describe("inferModelCapabilities", () => {
 		expect(caps.requiresChatTemplateKwargs).toBe(true);
 		expect(caps.thinkingEffortLevels).toEqual(["off", "on"]);
 	});
+
+	it("caps snowflake claude ids to Snowflake's limits, not the upstream table", () => {
+		// The Anthropic table gives Opus 4.7 a 1M window / 128k output; Snowflake
+		// Cortex serves it at 200k / 16k (snowflake-cortex-provider.ts).
+		const caps = inferModelCapabilities("snowflake-cortex", "claude-opus-4-7");
+		expect(caps.protocol).toBe("anthropic-messages");
+		expect(caps.maxContextLength).toBe(200_000);
+		expect(caps.maxInputTokens).toBe(200_000);
+		expect(caps.maxOutputTokens).toBe(16_384);
+		expect(caps.supportsToolResultImages).toBe(true);
+		expect(caps.family).toBe("claude-4.7"); // still borrowed from the table
+	});
+
+	it("caps snowflake openai ids and disables tool-result images", () => {
+		const caps = inferModelCapabilities("snowflake-cortex", "openai-gpt-5.2");
+		expect(caps.protocol).toBe("openai-chat");
+		expect(caps.maxContextLength).toBe(128_000);
+		expect(caps.maxInputTokens).toBe(128_000);
+		expect(caps.maxOutputTokens).toBe(16_384);
+		expect(caps.supportsImages).toBe(true); // gpt-5.x accepts images
+		expect(caps.supportsToolResultImages).toBe(false);
+	});
+
+	it("infers google-vertex gemini models from the gemini table", () => {
+		const caps = inferModelCapabilities("google-vertex", "gemini-2.5-pro");
+		expect(caps.maxContextLength).toBe(1_000_000);
+		expect(caps.supportsImages).toBe(true);
+		expect(caps.family).toBe("gemini-2.5");
+	});
+
+	it("infers google-vertex anthropic partner models, stripping resource prefixes", () => {
+		const caps = inferModelCapabilities(
+			"google-vertex",
+			"publishers/anthropic/models/claude-opus-4-7",
+		);
+		expect(caps.family).toBe("claude-4.7");
+		expect(caps.maxContextLength).toBe(1_000_000);
+		expect(caps.supportsImages).toBe(true);
+	});
 });

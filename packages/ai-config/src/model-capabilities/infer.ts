@@ -25,6 +25,49 @@ const GENERIC_BASELINE = {
 	maxContextLength: 128_000,
 } as const;
 
+const SNOWFLAKE_IMAGE_MEDIA_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+
+/**
+ * Snowflake Cortex serves a fixed catalog with its own caps, not the upstream
+ * model limits: Claude routes through the Anthropic Messages API (200k context
+ * / 16k output), everything else through Chat Completions (128k / 16k). Only
+ * `family` and thinking levels are borrowed from the upstream tables; token
+ * windows and feature flags follow snowflake-cortex-provider.ts. Snowflake
+ * OpenAI ids may carry an `openai-` prefix the OpenAI lookup must not see.
+ */
+function snowflakeDefaults(modelId: string): Partial<InferredModelCapabilities> {
+	const claude = getAnthropicModelCapabilities(modelId);
+	if (claude) {
+		return {
+			family: claude.family,
+			thinkingEffortLevels: claude.thinkingEffortLevels,
+			protocol: "anthropic-messages",
+			maxContextLength: 200_000,
+			maxInputTokens: 200_000,
+			maxOutputTokens: 16_384,
+			supportsTools: true,
+			supportsImages: true,
+			supportsToolResultImages: true,
+			supportedInputMediaTypes: SNOWFLAKE_IMAGE_MEDIA_TYPES,
+		};
+	}
+	const openai = getOpenAIModelCapabilities(modelId.replace(/^openai-/, ""));
+	const supportsImages =
+		openai?.supportedInputMediaTypes?.some((mediaType) => mediaType.startsWith("image/")) ?? false;
+	return {
+		family: openai?.family,
+		thinkingEffortLevels: openai?.thinkingEffortLevels,
+		protocol: "openai-chat",
+		maxContextLength: 128_000,
+		maxInputTokens: 128_000,
+		maxOutputTokens: 16_384,
+		supportsTools: true,
+		supportsImages,
+		supportsToolResultImages: false,
+		supportedInputMediaTypes: supportsImages ? SNOWFLAKE_IMAGE_MEDIA_TYPES : undefined,
+	};
+}
+
 /** Provider-family inference: which capability table applies for this provider's ids. */
 function familyDefaults(providerId: string, modelId: string): Partial<InferredModelCapabilities> {
 	switch (providerId) {
@@ -40,6 +83,13 @@ function familyDefaults(providerId: string, modelId: string): Partial<InferredMo
 			return getPositAiModelCapabilities(modelId) ?? {};
 		case "gemini":
 			return getGeminiModelCapabilities(modelId) ?? {};
+		case "google-vertex": {
+			// Vertex ids may be resource names (`publishers/google/models/...`).
+			// Gemini ids route to the Gemini table; Anthropic partner models to
+			// the Anthropic table (mirrors google-vertex-provider.ts).
+			const bare = modelId.replace(/^publishers\/[^/]+\/models\//, "");
+			return getGeminiModelCapabilities(bare) ?? getAnthropicModelCapabilities(bare) ?? {};
+		}
 		case "deepseek": {
 			const caps = getDeepSeekModelCapabilities(modelId);
 			return {
@@ -54,17 +104,8 @@ function familyDefaults(providerId: string, modelId: string): Partial<InferredMo
 				thinkingEffortLevels: caps.thinkingEffortLevels,
 			};
 		}
-		case "snowflake-cortex": {
-			// Claude on Snowflake speaks the Anthropic Messages API; everything
-			// else goes through Chat Completions. Snowflake ids may carry an
-			// `openai-` prefix the OpenAI lookup must not see.
-			const claude = getAnthropicModelCapabilities(modelId);
-			if (claude) {
-				return { ...claude, protocol: "anthropic-messages" };
-			}
-			const openai = getOpenAIModelCapabilities(modelId.replace(/^openai-/, ""));
-			return { ...(openai ?? {}), protocol: "openai-chat" };
-		}
+		case "snowflake-cortex":
+			return snowflakeDefaults(modelId);
 		default:
 			// ms-foundry, openai-compatible, custom provider ids: unknown
 			// endpoints, stay conservative.
