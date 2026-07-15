@@ -74,6 +74,7 @@ export {
 	openaiMaxInputTokens,
 } from "./model-capabilities/openai-helpers.js";
 export { getPositAiModelCapabilities } from "./model-capabilities/positai-helpers.js";
+export { inferModelCapabilities } from "./model-capabilities/infer.js";
 
 // --- Defaults --------------------------------------------------------------
 export {
