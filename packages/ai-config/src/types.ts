@@ -125,7 +125,7 @@ export interface ResolvedConnection {
 	positaiLogin?: { host?: string; clientId?: string; scope?: string };
 	aws?: { region?: string; profile?: string };
 	googleCloud?: { project?: string; location?: string };
-	snowflake?: { account?: string; host?: string };
+	snowflake?: { account?: string; host?: string; connectionName?: string };
 }
 
 /**

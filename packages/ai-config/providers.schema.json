@@ -1431,6 +1431,9 @@
                       "account": {
                         "type": "string"
                       },
+                      "connectionName": {
+                        "type": "string"
+                      },
                       "host": {
                         "type": "string"
                       }
@@ -5429,6 +5432,9 @@
               "additionalProperties": false,
               "properties": {
                 "account": {
+                  "type": "string"
+                },
+                "connectionName": {
                   "type": "string"
                 },
                 "host": {
