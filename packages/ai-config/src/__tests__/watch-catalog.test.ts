@@ -241,7 +241,7 @@ describe("watchResolvedProviderCatalog", () => {
 
 		if (changes.length > 0) {
 			const lastChange = changes[changes.length - 1];
-			expect(lastChange.catalog.length).toBe(14); // all built-ins
+			expect(lastChange.catalog.length).toBe(15); // all built-ins
 		}
 	});
 });

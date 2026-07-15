@@ -126,6 +126,7 @@ export interface ResolvedConnection {
 	aws?: { region?: string; profile?: string };
 	googleCloud?: { project?: string; location?: string };
 	snowflake?: { account?: string; host?: string };
+	databricks?: { host?: string };
 }
 
 /**

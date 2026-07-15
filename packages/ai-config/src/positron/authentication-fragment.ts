@@ -68,7 +68,9 @@ export interface PositronAuthSettingDescriptor {
 	 *   (+ `snowflake.customHeaders`), with `process.env` fallback for host/account.
 	 * - `"databricks"`: reads `databricks.credentials.DATABRICKS_HOST`
 	 *   (+ `databricks.customHeaders`), with `process.env` fallback for the host.
-	 *   The host is emitted as the provider `baseUrl` (via `normalizeBaseUrl`).
+	 *   The host is emitted as the `databricks` connection section — NOT as
+	 *   `baseUrl`, which would be picked up by per-model endpoint resolution and
+	 *   route chat to the bare workspace host.
 	 */
 	readonly read: "api-key-connection" | "aws-region" | "snowflake" | "databricks";
 	/**
@@ -134,7 +136,7 @@ function buildBlock(
 		case "snowflake":
 			return buildSnowflakeBlock(reader, descriptor.configKey);
 		case "databricks":
-			return buildDatabricksBlock(reader, descriptor.configKey, descriptor.normalizeBaseUrl);
+			return buildDatabricksBlock(reader, descriptor.configKey);
 	}
 }
 
@@ -192,16 +194,14 @@ function buildSnowflakeBlock(
 function buildDatabricksBlock(
 	reader: PositronAuthSettingReader,
 	configKey: string,
-	normalizeBaseUrl?: (url: string) => string,
 ): BuiltinProviderBlock | undefined {
 	const block: BuiltinProviderBlock = {};
 
-	// The workspace host doubles as the provider baseUrl. The consumer injects
-	// the bridge's host normalizer (scheme + trailing-slash hygiene) so this
-	// module stays free of provider-specific URL knowledge.
+	// The host is stored raw (like snowflake's) — the credential shaper and the
+	// bridge's Databricks provider normalize scheme/trailing-slash at use.
 	const host = reader.getDatabricks()?.host || undefined;
 	if (host) {
-		block.baseUrl = normalizeBaseUrl ? normalizeBaseUrl(host) : host;
+		block.databricks = { host };
 	}
 
 	const customHeaders = normalizeHeaders(reader.getCustomHeaders(configKey));

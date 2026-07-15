@@ -72,8 +72,8 @@ describe("loadResolvedProviderCatalog", () => {
 				logger: mockLogger,
 			});
 
-			// 14 built-in providers
-			expect(catalog.length).toBe(14);
+			// 15 built-in providers
+			expect(catalog.length).toBe(15);
 			expect(findProvider(catalog, "positai")?.enabled).toBe(true);
 			expect(findProvider(catalog, "anthropic")?.enabled).toBe(true);
 		});
@@ -87,7 +87,7 @@ describe("loadResolvedProviderCatalog", () => {
 				logger: mockLogger,
 			});
 
-			expect(catalog.length).toBe(14);
+			expect(catalog.length).toBe(15);
 		});
 
 		it("should apply RStudio baseline (positai only)", async () => {
@@ -216,7 +216,7 @@ describe("loadResolvedProviderCatalog", () => {
 				logger: mockLogger,
 			});
 
-			expect(catalog.length).toBe(14);
+			expect(catalog.length).toBe(15);
 			expect(mockLogger.warn).toHaveBeenCalledWith(
 				expect.stringContaining("Failed to parse TEST_ENFORCED"),
 			);
@@ -291,7 +291,7 @@ describe("loadResolvedProviderCatalog", () => {
 			});
 
 			// Should fall back to user config (no custom provider)
-			expect(catalog.length).toBe(14);
+			expect(catalog.length).toBe(15);
 			expect(findProvider(catalog, "env-only-gateway")).toBeUndefined();
 			expect(mockLogger.warn).toHaveBeenCalledWith(
 				expect.stringContaining("invalid merged result"),
@@ -474,8 +474,8 @@ describe("loadResolvedProviderCatalog", () => {
 				logger: mockLogger,
 			});
 
-			// 14 built-ins + 1 custom
-			expect(catalog.length).toBe(15);
+			// 15 built-ins + 1 custom
+			expect(catalog.length).toBe(16);
 
 			const custom = findProvider(catalog, "my-gateway");
 			expect(custom).toBeDefined();
@@ -558,7 +558,7 @@ describe("loadResolvedProviderCatalog", () => {
 				logger: mockLogger,
 			});
 
-			expect(catalog.length).toBe(14); // defaults
+			expect(catalog.length).toBe(15); // defaults
 			expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining("Failed to parse"));
 		});
 
@@ -572,7 +572,7 @@ describe("loadResolvedProviderCatalog", () => {
 				logger: mockLogger,
 			});
 
-			expect(catalog.length).toBe(14); // defaults
+			expect(catalog.length).toBe(15); // defaults
 			expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining("Validation errors"));
 		});
 
@@ -591,7 +591,7 @@ describe("loadResolvedProviderCatalog", () => {
 				logger: mockLogger,
 			});
 
-			expect(catalog.length).toBe(14); // defaults
+			expect(catalog.length).toBe(15); // defaults
 			expect(findProvider(catalog, "anthropic")?.connection.aws).toBeUndefined();
 			expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining("Validation errors"));
 		});
@@ -652,7 +652,7 @@ describe("loadResolvedProviderCatalog", () => {
 				additionalSources: [emptyHostSource],
 			});
 
-			expect(catalog.length).toBe(14);
+			expect(catalog.length).toBe(15);
 			expect(findProvider(catalog, "anthropic")?.connection.baseUrl).toBeUndefined();
 		});
 

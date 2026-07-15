@@ -142,6 +142,17 @@ export const snowflakeConfigSchema = z
 	})
 	.strict();
 
+/**
+ * Databricks workspace host (NOT a chat base URL — the bridge derives the
+ * serving-endpoints / AI Gateway URL from it). Kept out of `baseUrl` so the
+ * per-model endpoint resolution never routes chat to the bare host.
+ */
+export const databricksConfigSchema = z
+	.object({
+		host: z.string().optional(),
+	})
+	.strict();
+
 /** Per-protocol base-URL overrides (partial — only specified protocols). */
 export const endpointsSchema = z.record(protocolSchema, z.string().optional());
 
@@ -173,6 +184,7 @@ const CONNECTION_SECTION_SCHEMAS = {
 	aws: awsConfigSchema,
 	googleCloud: googleCloudConfigSchema,
 	snowflake: snowflakeConfigSchema,
+	databricks: databricksConfigSchema,
 	positaiLogin: positaiLoginConfigSchema,
 } as const;
 
@@ -189,6 +201,7 @@ const allConnectionFields = {
 	aws: awsConfigSchema.optional(),
 	googleCloud: googleCloudConfigSchema.optional(),
 	snowflake: snowflakeConfigSchema.optional(),
+	databricks: databricksConfigSchema.optional(),
 	positaiLogin: positaiLoginConfigSchema.optional(),
 };
 
@@ -246,7 +259,7 @@ const BUILTIN_CONNECTION_SECTIONS = {
 	"snowflake-cortex": ["snowflake"],
 	"ms-foundry": [],
 	deepseek: [],
-	databricks: [],
+	databricks: ["databricks"],
 } as const satisfies Record<BuiltinProviderId, readonly ConnectionSectionName[]>;
 
 /**

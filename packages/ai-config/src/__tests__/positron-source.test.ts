@@ -149,28 +149,22 @@ describe("buildAuthenticationFragment", () => {
 		});
 	});
 
-	it("emits the databricks host as baseUrl (+ customHeaders), keyed by provider id", () => {
+	it("emits the databricks host under the databricks section (+ customHeaders), not baseUrl", () => {
 		const reader = fakeReader({
 			databricks: { host: "https://adb-123.4.azuredatabricks.net" },
 			customHeaders: { databricks: { "x-databricks-use-coding-agent-mode": "true" } },
 		});
 		const fragment = buildAuthenticationFragment(reader, [DATABRICKS]);
+		// The host must NOT be emitted as baseUrl: per-model endpoint resolution
+		// falls back to the provider baseUrl, which would route chat requests to
+		// the bare workspace host instead of the serving-endpoints path.
 		expect(fragment).toEqual({
 			providers: {
 				databricks: {
-					baseUrl: "https://adb-123.4.azuredatabricks.net",
+					databricks: { host: "https://adb-123.4.azuredatabricks.net" },
 					customHeaders: { "x-databricks-use-coding-agent-mode": "true" },
 				},
 			},
-		});
-	});
-
-	it("applies the descriptor's normalizeBaseUrl to the databricks host", () => {
-		const normalizeBaseUrl = (url: string) => `https://${url.replace(/\/+$/, "")}`;
-		const reader = fakeReader({ databricks: { host: "my-workspace.cloud.databricks.com/" } });
-		const fragment = buildAuthenticationFragment(reader, [{ ...DATABRICKS, normalizeBaseUrl }]);
-		expect(fragment).toEqual({
-			providers: { databricks: { baseUrl: "https://my-workspace.cloud.databricks.com" } },
 		});
 	});
 

@@ -46,6 +46,7 @@ interface ConnectionEnvMapping {
 	positaiLogin?: { host?: string; clientId?: string; scope?: string };
 	aws?: { region?: string; profile?: string };
 	googleCloud?: { project?: string; location?: string };
+	databricks?: { host?: string };
 }
 
 const CONNECTION_ENV_MAPPINGS: Readonly<Record<string, ConnectionEnvMapping>> = {
@@ -74,9 +75,10 @@ const CONNECTION_ENV_MAPPINGS: Readonly<Record<string, ConnectionEnvMapping>> = 
 	"ms-foundry": { baseUrl: "MS_FOUNDRY_BASE_URL" },
 	"snowflake-cortex": { baseUrl: "SNOWFLAKE_BASE_URL" },
 	deepseek: { baseUrl: "DEEPSEEK_BASE_URL" },
-	// The standard Databricks CLI/SDK variable; the workspace host doubles as
-	// the provider base URL (clients normalize the scheme).
-	databricks: { baseUrl: "DATABRICKS_HOST" },
+	// The standard Databricks CLI/SDK variable. Maps into the `databricks`
+	// section (NOT baseUrl): the workspace host is not a chat base URL — the
+	// bridge derives the serving-endpoints / AI Gateway URL from it.
+	databricks: { databricks: { host: "DATABRICKS_HOST" } },
 };
 
 // ---------------------------------------------------------------------------
@@ -226,6 +228,7 @@ function resolveConnection(
 		aws: mergeOptionalSection(defaults.aws, fromBlock.aws),
 		googleCloud: mergeOptionalSection(defaults.googleCloud, fromBlock.googleCloud),
 		snowflake: mergeOptionalSection(defaults.snowflake, fromBlock.snowflake),
+		databricks: mergeOptionalSection(defaults.databricks, fromBlock.databricks),
 	};
 }
 
@@ -257,6 +260,7 @@ function resolveConnectionFromBlock(
 		aws: superset.aws,
 		googleCloud: superset.googleCloud,
 		snowflake: superset.snowflake,
+		databricks: superset.databricks,
 	};
 }
 
@@ -341,6 +345,14 @@ function applyEnvOverlay(
 		if (overlay) {
 			result = changed ? result : { ...result };
 			result.googleCloud = result.googleCloud ? { ...result.googleCloud, ...overlay } : overlay;
+			changed = true;
+		}
+	}
+	if (mapping.databricks) {
+		const overlay = readEnvSection(mapping.databricks, envVars);
+		if (overlay) {
+			result = changed ? result : { ...result };
+			result.databricks = result.databricks ? { ...result.databricks, ...overlay } : overlay;
 			changed = true;
 		}
 	}

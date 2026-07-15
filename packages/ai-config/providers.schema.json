@@ -2921,6 +2921,15 @@
               },
               "type": "object"
             },
+            "databricks": {
+              "additionalProperties": false,
+              "properties": {
+                "host": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
             "enabled": {
               "type": "boolean"
             },
