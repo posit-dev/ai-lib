@@ -35,7 +35,7 @@ export type { PositronAuthSettingDescriptor, PositronAuthSettingReader };
 
 /**
  * A reader over `vscode.workspace.getConfiguration("authentication")`, with
- * `process.env` fallbacks for the Snowflake host/account (host environments —
+ * `process.env` fallbacks for the Snowflake host/account/home (host environments —
  * TUI / node — set them there). Mirrors the bridge's `createVscodeCredentialConfig`.
  */
 function createVscodeAuthReader(): PositronAuthSettingReader {
@@ -59,6 +59,7 @@ function createVscodeAuthReader(): PositronAuthSettingReader {
 			return {
 				host: snowflakeConfig?.SNOWFLAKE_HOST || process.env.SNOWFLAKE_HOST,
 				account: snowflakeConfig?.SNOWFLAKE_ACCOUNT || process.env.SNOWFLAKE_ACCOUNT,
+				home: snowflakeConfig?.SNOWFLAKE_HOME || process.env.SNOWFLAKE_HOME,
 			};
 		},
 	};

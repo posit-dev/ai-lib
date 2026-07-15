@@ -21,7 +21,7 @@ function fakeReader(
 		baseUrls?: Record<string, string>;
 		customHeaders?: Record<string, Record<string, string>>;
 		awsRegion?: string;
-		snowflake?: { host?: string; account?: string };
+		snowflake?: { host?: string; account?: string; home?: string };
 	} = {},
 ): PositronAuthSettingReader {
 	return {
@@ -139,6 +139,20 @@ describe("buildAuthenticationFragment", () => {
 		const fragment = buildAuthenticationFragment(reader, [SNOWFLAKE]);
 		expect(fragment).toEqual({
 			providers: { "snowflake-cortex": { snowflake: { account: "org-acct" } } },
+		});
+	});
+
+	it("emits snowflake.home under snowflake-cortex", () => {
+		const reader = fakeReader({
+			snowflake: { host: "h.snowflakecomputing.com", home: "/managed/snowflake" },
+		});
+		const fragment = buildAuthenticationFragment(reader, [SNOWFLAKE]);
+		expect(fragment).toEqual({
+			providers: {
+				"snowflake-cortex": {
+					snowflake: { host: "h.snowflakecomputing.com", home: "/managed/snowflake" },
+				},
+			},
 		});
 	});
 
