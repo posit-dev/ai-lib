@@ -246,6 +246,7 @@ const BUILTIN_CONNECTION_SECTIONS = {
 	"snowflake-cortex": ["snowflake"],
 	"ms-foundry": [],
 	deepseek: [],
+	databricks: [],
 } as const satisfies Record<BuiltinProviderId, readonly ConnectionSectionName[]>;
 
 /**

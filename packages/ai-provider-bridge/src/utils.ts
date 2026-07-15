@@ -30,11 +30,15 @@ export function isClaudeModel(modelId: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Snowflake
+// Snowflake / Databricks
 // ---------------------------------------------------------------------------
 
 // Re-exported from ai-credentials/types (single source of truth)
-export { buildSnowflakeCortexUrl, buildSnowflakeCortexUrlFromHost } from "ai-credentials/types";
+export {
+	buildSnowflakeCortexUrl,
+	buildSnowflakeCortexUrlFromHost,
+	normalizeDatabricksHost,
+} from "ai-credentials/types";
 
 // ---------------------------------------------------------------------------
 // Posit AI

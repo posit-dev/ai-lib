@@ -3,7 +3,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * Snowflake Cortex URL construction helpers.
+ * Provider URL construction helpers (Snowflake Cortex, Databricks).
  *
  * Pure functions with no platform dependencies — safe for browser/renderer.
  */
@@ -31,4 +31,25 @@ export function buildSnowflakeCortexUrlFromHost(host: string): string {
  */
 export function buildSnowflakeCortexUrl(account: string): string {
 	return buildSnowflakeCortexUrlFromHost(`${account}.snowflakecomputing.com`);
+}
+
+// ---------------------------------------------------------------------------
+// Databricks
+// ---------------------------------------------------------------------------
+
+/**
+ * Normalize a Databricks workspace host to a bare `https://` origin.
+ *
+ * Accepts values with or without a scheme and with trailing slashes
+ * (users paste hosts in all of these shapes from the Databricks UI).
+ *
+ * @param raw - Workspace host (e.g. "adb-123.4.azuredatabricks.net/")
+ * @returns Normalized host (e.g. "https://adb-123.4.azuredatabricks.net")
+ */
+export function normalizeDatabricksHost(raw: string): string {
+	let host = raw.trim().replace(/\/+$/, "");
+	if (host && !/^https?:\/\//i.test(host)) {
+		host = `https://${host}`;
+	}
+	return host;
 }

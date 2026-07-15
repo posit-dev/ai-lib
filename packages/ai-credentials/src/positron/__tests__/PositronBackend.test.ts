@@ -63,6 +63,7 @@ const PROVIDER_MAP: Record<string, AuthProviderMapping> = {
 		fallbackScopes: [["read:user", "user:email", "repo", "workflow"], ["user:email"]],
 		credentialType: "apikey",
 	},
+	databricks: { authProviderId: "databricks", scopes: [], credentialType: "apikey" },
 };
 
 const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), trace: vi.fn() };
@@ -138,6 +139,100 @@ describe("createPositronBackend", () => {
 		// Connection-config invalidation flows solely through the catalog host
 		// source; wiring it here too would race the debounced catalog rebuild.
 		expect(configChangeHook.callback).toBeNull();
+	});
+
+	// --- Databricks host resolution (ported from the removed bridge auth suite) ---
+
+	it("resolves the Databricks base URL from authentication.databricks.credentials.DATABRICKS_HOST", async () => {
+		mockGetSession.mockResolvedValue(makeSession("databricks-bearer-token"));
+		mockGetConfigValue.mockImplementation((key: string) => {
+			if (key === "credentials") {
+				return { DATABRICKS_HOST: "https://adb-123.4.azuredatabricks.net" };
+			}
+			return undefined;
+		});
+		const backend = createPositronBackend({ logger, providerMap: PROVIDER_MAP });
+
+		expect(await backend.getCredentials("databricks")).toEqual({
+			type: "apikey",
+			apiKey: "databricks-bearer-token",
+			baseUrl: "https://adb-123.4.azuredatabricks.net",
+			customHeaders: undefined,
+		});
+		expect(mockGetSession).toHaveBeenCalledWith("databricks", [], { silent: true });
+	});
+
+	it("normalizes a scheme-less Databricks host with trailing slash", async () => {
+		mockGetSession.mockResolvedValue(makeSession("databricks-bearer-token"));
+		mockGetConfigValue.mockImplementation((key: string) => {
+			if (key === "credentials") {
+				return { DATABRICKS_HOST: "my-workspace.cloud.databricks.com/" };
+			}
+			return undefined;
+		});
+		const backend = createPositronBackend({ logger, providerMap: PROVIDER_MAP });
+
+		expect(await backend.getCredentials("databricks")).toMatchObject({
+			type: "apikey",
+			baseUrl: "https://my-workspace.cloud.databricks.com",
+		});
+	});
+
+	it("falls back to the DATABRICKS_HOST env var when the setting is absent", async () => {
+		mockGetSession.mockResolvedValue(makeSession("databricks-bearer-token"));
+		const backend = createPositronBackend({ logger, providerMap: PROVIDER_MAP });
+
+		const originalHost = process.env.DATABRICKS_HOST;
+		process.env.DATABRICKS_HOST = "https://env-workspace.cloud.databricks.com";
+		try {
+			expect(await backend.getCredentials("databricks")).toMatchObject({
+				baseUrl: "https://env-workspace.cloud.databricks.com",
+			});
+		} finally {
+			if (originalHost === undefined) {
+				delete process.env.DATABRICKS_HOST;
+			} else {
+				process.env.DATABRICKS_HOST = originalHost;
+			}
+		}
+	});
+
+	it("leaves the Databricks base URL undefined when no host is configured", async () => {
+		mockGetSession.mockResolvedValue(makeSession("databricks-bearer-token"));
+		const backend = createPositronBackend({ logger, providerMap: PROVIDER_MAP });
+
+		const originalHost = process.env.DATABRICKS_HOST;
+		delete process.env.DATABRICKS_HOST;
+		try {
+			expect(await backend.getCredentials("databricks")).toMatchObject({
+				baseUrl: undefined,
+			});
+		} finally {
+			if (originalHost !== undefined) {
+				process.env.DATABRICKS_HOST = originalHost;
+			}
+		}
+	});
+
+	it("reads Databricks customHeaders alongside the host", async () => {
+		mockGetSession.mockResolvedValue(makeSession("databricks-bearer-token"));
+		mockGetConfigValue.mockImplementation((key: string) => {
+			if (key === "credentials") {
+				return { DATABRICKS_HOST: "https://adb-123.4.azuredatabricks.net" };
+			}
+			if (key === "databricks.customHeaders") {
+				return { "x-databricks-use-coding-agent-mode": "true" };
+			}
+			return undefined;
+		});
+		const backend = createPositronBackend({ logger, providerMap: PROVIDER_MAP });
+
+		expect(await backend.getCredentials("databricks")).toEqual({
+			type: "apikey",
+			apiKey: "databricks-bearer-token",
+			baseUrl: "https://adb-123.4.azuredatabricks.net",
+			customHeaders: { "x-databricks-use-coding-agent-mode": "true" },
+		});
 	});
 
 	// --- Copilot fallback scopes (ported from the removed bridge auth suite) ---

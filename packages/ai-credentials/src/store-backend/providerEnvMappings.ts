@@ -77,4 +77,7 @@ export const PROVIDER_ENV_MAPPINGS: Record<string, ProviderEnvMapping> = {
 	deepseek: {
 		apiKey: "DEEPSEEK_API_KEY",
 	},
+	databricks: {
+		apiKey: "DATABRICKS_TOKEN",
+	},
 };

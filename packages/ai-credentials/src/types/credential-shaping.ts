@@ -20,7 +20,11 @@
 
 import type { ProviderCredentials } from "./credentials";
 import type { Logger } from "./logger";
-import { buildSnowflakeCortexUrl, buildSnowflakeCortexUrlFromHost } from "./utils";
+import {
+	buildSnowflakeCortexUrl,
+	buildSnowflakeCortexUrlFromHost,
+	normalizeDatabricksHost,
+} from "./utils";
 
 /**
  * Maps a provider to its auth extension registration and credential type.
@@ -59,6 +63,8 @@ export interface CredentialConfig {
 	getAwsRegion(): string | undefined;
 	/** Snowflake host/account (`authentication.snowflake.credentials`, env on the bridge side). */
 	getSnowflake(): { host?: string; account?: string } | undefined;
+	/** Databricks workspace host (`authentication.databricks.credentials`, env on the bridge side). */
+	getDatabricks(): { host?: string } | undefined;
 }
 
 /**
@@ -136,6 +142,13 @@ export function shapeCredentials(
 					baseUrl = buildSnowflakeCortexUrlFromHost(snowflake.host);
 				} else if (snowflake?.account) {
 					baseUrl = buildSnowflakeCortexUrl(snowflake.account);
+				}
+			} else if (mapping.authProviderId === "databricks") {
+				// Databricks workspace host, with env fallback for managed environments
+				// (e.g. Posit Workbench injecting DATABRICKS_HOST into sessions).
+				const databricks = config.getDatabricks();
+				if (databricks?.host) {
+					baseUrl = normalizeDatabricksHost(databricks.host);
 				}
 			} else {
 				baseUrl = config.getBaseUrl(configKey) || undefined;

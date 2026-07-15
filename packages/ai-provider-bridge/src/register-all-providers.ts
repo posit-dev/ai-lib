@@ -18,6 +18,7 @@ import {
 import { registerAnthropicProvider } from "./providers/anthropic-provider";
 import { registerBedrockProvider } from "./providers/bedrock-provider";
 import { registerCopilotProvider } from "./providers/copilot-provider";
+import { registerDatabricksProvider } from "./providers/databricks-provider";
 import { registerDeepSeekProvider } from "./providers/deepseek-provider";
 import { registerFoundryProvider } from "./providers/foundry-provider";
 import { registerGeminiProvider } from "./providers/gemini-provider";
@@ -82,6 +83,7 @@ export const PROVIDER_REGISTRARS: readonly [ProviderId, ProviderRegistrar][] = [
 	["ms-foundry", registerFoundryProvider],
 	["snowflake-cortex", registerSnowflakeCortexProvider],
 	["deepseek", registerDeepSeekProvider],
+	["databricks", registerDatabricksProvider],
 ];
 
 /**

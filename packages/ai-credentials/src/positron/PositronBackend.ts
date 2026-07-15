@@ -77,6 +77,14 @@ export function createVscodeCredentialConfig(): CredentialConfig {
 				account: snowflakeConfig?.SNOWFLAKE_ACCOUNT || process.env.SNOWFLAKE_ACCOUNT,
 			};
 		},
+		getDatabricks: () => {
+			const databricksConfig = vscode.workspace
+				.getConfiguration("authentication.databricks")
+				.get<Record<string, string>>("credentials");
+			return {
+				host: databricksConfig?.DATABRICKS_HOST || process.env.DATABRICKS_HOST,
+			};
+		},
 	};
 }
 

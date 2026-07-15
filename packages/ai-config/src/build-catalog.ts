@@ -74,6 +74,9 @@ const CONNECTION_ENV_MAPPINGS: Readonly<Record<string, ConnectionEnvMapping>> = 
 	"ms-foundry": { baseUrl: "MS_FOUNDRY_BASE_URL" },
 	"snowflake-cortex": { baseUrl: "SNOWFLAKE_BASE_URL" },
 	deepseek: { baseUrl: "DEEPSEEK_BASE_URL" },
+	// The standard Databricks CLI/SDK variable; the workspace host doubles as
+	// the provider base URL (clients normalize the scheme).
+	databricks: { baseUrl: "DATABRICKS_HOST" },
 };
 
 // ---------------------------------------------------------------------------
@@ -104,6 +107,7 @@ const BUILTIN_CLIENT_KIND = {
 	"snowflake-cortex": "snowflake",
 	"ms-foundry": "ms-foundry",
 	deepseek: "deepseek",
+	databricks: "databricks",
 } as const satisfies Record<BuiltinProviderId, ClientKind>;
 
 /**

@@ -42,6 +42,11 @@ export interface PositronAuthSettingReader {
 	 * SNOWFLAKE_ACCOUNT}`, `process.env` fallback).
 	 */
 	getSnowflake(): { host?: string; account?: string } | undefined;
+	/**
+	 * Databricks workspace host (`authentication.databricks.credentials.DATABRICKS_HOST`,
+	 * `process.env` fallback).
+	 */
+	getDatabricks(): { host?: string } | undefined;
 }
 
 /**
@@ -61,8 +66,11 @@ export interface PositronAuthSettingDescriptor {
 	 * - `"aws-region"`: reads `authentication.aws.credentials.AWS_REGION`.
 	 * - `"snowflake"`: reads `snowflake.credentials.{SNOWFLAKE_HOST,SNOWFLAKE_ACCOUNT}`
 	 *   (+ `snowflake.customHeaders`), with `process.env` fallback for host/account.
+	 * - `"databricks"`: reads `databricks.credentials.DATABRICKS_HOST`
+	 *   (+ `databricks.customHeaders`), with `process.env` fallback for the host.
+	 *   The host is emitted as the provider `baseUrl` (via `normalizeBaseUrl`).
 	 */
-	readonly read: "api-key-connection" | "aws-region" | "snowflake";
+	readonly read: "api-key-connection" | "aws-region" | "snowflake" | "databricks";
 	/**
 	 * Optional correction applied to the raw `baseUrl` setting value before it
 	 * enters the fragment (only meaningful for `"api-key-connection"` reads).
@@ -125,6 +133,8 @@ function buildBlock(
 			return buildAwsRegionBlock(reader);
 		case "snowflake":
 			return buildSnowflakeBlock(reader, descriptor.configKey);
+		case "databricks":
+			return buildDatabricksBlock(reader, descriptor.configKey, descriptor.normalizeBaseUrl);
 	}
 }
 
@@ -169,6 +179,29 @@ function buildSnowflakeBlock(
 	}
 	if (hasKeys(snowflake)) {
 		block.snowflake = snowflake;
+	}
+
+	const customHeaders = normalizeHeaders(reader.getCustomHeaders(configKey));
+	if (customHeaders) {
+		block.customHeaders = customHeaders;
+	}
+
+	return hasKeys(block) ? block : undefined;
+}
+
+function buildDatabricksBlock(
+	reader: PositronAuthSettingReader,
+	configKey: string,
+	normalizeBaseUrl?: (url: string) => string,
+): BuiltinProviderBlock | undefined {
+	const block: BuiltinProviderBlock = {};
+
+	// The workspace host doubles as the provider baseUrl. The consumer injects
+	// the bridge's host normalizer (scheme + trailing-slash hygiene) so this
+	// module stays free of provider-specific URL knowledge.
+	const host = reader.getDatabricks()?.host || undefined;
+	if (host) {
+		block.baseUrl = normalizeBaseUrl ? normalizeBaseUrl(host) : host;
 	}
 
 	const customHeaders = normalizeHeaders(reader.getCustomHeaders(configKey));

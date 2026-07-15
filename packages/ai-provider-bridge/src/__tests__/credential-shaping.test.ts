@@ -24,6 +24,7 @@ function fakeConfig(
 		customHeaders?: Record<string, Record<string, string>>;
 		awsRegion?: string;
 		snowflake?: { host?: string; account?: string };
+		databricks?: { host?: string };
 	} = {},
 ): CredentialConfig {
 	return {
@@ -31,6 +32,7 @@ function fakeConfig(
 		getCustomHeaders: (configKey) => overrides.customHeaders?.[configKey],
 		getAwsRegion: () => overrides.awsRegion,
 		getSnowflake: () => overrides.snowflake,
+		getDatabricks: () => overrides.databricks,
 	};
 }
 
@@ -40,6 +42,7 @@ const OAUTH = { authProviderId: "posit-ai", credentialType: "oauth" } as const;
 const AWS = { authProviderId: "amazon-bedrock", credentialType: "aws-credentials" } as const;
 const GCP = { authProviderId: "google-cloud", credentialType: "google-cloud" } as const;
 const SNOWFLAKE = { authProviderId: "snowflake-cortex", credentialType: "apikey" } as const;
+const DATABRICKS = { authProviderId: "databricks", credentialType: "apikey" } as const;
 
 describe("shapeCredentials", () => {
 	// --- oauth ---
@@ -109,6 +112,30 @@ describe("shapeCredentials", () => {
 		});
 
 		expect(shapeCredentials(SNOWFLAKE, "tok", fakeConfig())).toMatchObject({
+			baseUrl: undefined,
+		});
+	});
+
+	// --- databricks (apikey with normalized host URL) ---
+
+	it("normalizes a databricks host from config to a bare https:// origin", () => {
+		const config = fakeConfig({ databricks: { host: "https://adb-123.4.azuredatabricks.net" } });
+		expect(shapeCredentials(DATABRICKS, "dapi-tok", config)).toMatchObject({
+			type: "apikey",
+			apiKey: "dapi-tok",
+			baseUrl: "https://adb-123.4.azuredatabricks.net",
+		});
+	});
+
+	it("adds https:// scheme to a scheme-less databricks host and strips trailing slash", () => {
+		const config = fakeConfig({ databricks: { host: "my-workspace.cloud.databricks.com/" } });
+		expect(shapeCredentials(DATABRICKS, "dapi-tok", config)).toMatchObject({
+			baseUrl: "https://my-workspace.cloud.databricks.com",
+		});
+	});
+
+	it("returns undefined baseUrl for databricks when no host is configured", () => {
+		expect(shapeCredentials(DATABRICKS, "dapi-tok", fakeConfig())).toMatchObject({
 			baseUrl: undefined,
 		});
 	});
