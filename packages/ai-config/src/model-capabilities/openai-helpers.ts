@@ -2,7 +2,7 @@
  *  Copyright (C) 2025-2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import type { ModelInfo } from "../types";
+import type { InferredModelCapabilities as ModelInfo } from "../types.js";
 
 const OPENAI_THINKING_EFFORT_LEVELS = ["off", "low", "medium", "high"];
 

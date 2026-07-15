@@ -6,7 +6,7 @@
  * Type guards and utilities for Anthropic provider metadata.
  */
 
-import type { ModelInfo } from "../types";
+import type { InferredModelCapabilities as ModelInfo } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Anthropic model capability inference

@@ -9,14 +9,14 @@
  * enrichment for vscode.lm models.
  */
 
-import * as vscode from "vscode";
-
-import { getAnthropicModelCapabilities } from "../model-capabilities/anthropic-helpers";
-import { getGeminiModelCapabilities } from "../model-capabilities/gemini-helpers";
 import {
+	getAnthropicModelCapabilities,
+	getGeminiModelCapabilities,
 	getOpenAIModelCapabilities,
 	openaiMaxInputTokens,
-} from "../model-capabilities/openai-helpers";
+} from "ai-config";
+import * as vscode from "vscode";
+
 import { MAPPED_PROVIDER_IDS, PROVIDER_MAP } from "../provider-map";
 import type { ModelInfo, ProviderId } from "../types";
 import { PROVIDER_IDS } from "../types";

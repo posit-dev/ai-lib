@@ -2,7 +2,7 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import type { ModelInfo } from "../types";
+import type { InferredModelCapabilities as ModelInfo } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Gemma model capability inference

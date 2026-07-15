@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { getAnthropicModelCapabilities } from "../anthropic-helpers";
+import { getAnthropicModelCapabilities } from "../anthropic-helpers.js";
 
 describe("getAnthropicModelCapabilities", () => {
 	describe("claude-opus-4-8", () => {

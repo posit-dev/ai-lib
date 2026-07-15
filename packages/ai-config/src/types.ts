@@ -182,7 +182,23 @@ export interface ModelInfoLike {
 	supportedInputMediaTypes?: string[];
 	supportsWebSearch: boolean;
 	thinkingEffortLevels?: string[];
+	/** Whether the model requires vLLM-style `chat_template_kwargs` to enable thinking. */
+	requiresChatTemplateKwargs?: boolean;
 }
+
+/**
+ * The complete capability set the model-capability helpers can infer for a
+ * model known only by provider and id. Derived from {@link ModelInfoLike} so
+ * the package keeps a single ModelInfo mirror: identity/routing fields are
+ * dropped, and `protocol` is narrowed to the canonical {@link Protocol} union
+ * (set only where inference determines the wire protocol — Snowflake).
+ */
+export type InferredModelCapabilities = Omit<
+	ModelInfoLike,
+	"id" | "name" | "baseUrl" | "protocol"
+> & {
+	protocol?: Protocol;
+};
 
 /**
  * Output of `resolveModels()` — a model with resolved routing information.
