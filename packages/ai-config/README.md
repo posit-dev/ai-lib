@@ -8,12 +8,12 @@ This package is part of the [`ai-lib`](../../README.md) monorepo. It is a depend
 
 The package splits pure (browser/test-safe) logic from filesystem I/O:
 
-| Entrypoint                        | What it provides                                                                                                                                                                         | Node FS dep? |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
-| `ai-config`                       | Vocabulary (`BUILTIN_PROVIDER_IDS`, `PROTOCOL_VALUES`, `CLIENT_KIND_VALUES`, …), Zod schemas, inferred types, defaults, the `resolveProviderCatalog({ sources })` seam, and pure helpers | No           |
-| `ai-config/node`                  | The pure entry plus the three filesystem seams and path constants                                                                                                                        | Yes          |
-| `ai-config/positron`              | Builds a `host`-kind `ProviderConfigSource` from Positron `authentication.*` settings (+ change signal). The only entry that imports `vscode`.                                           | No (vscode)  |
-| `ai-config/providers.schema.json` | The generated JSON Schema, for editor validation/autocomplete of `providers.json`                                                                                                        | No           |
+| Entrypoint                        | What it provides                                                                                                                                                                                                                                 | Node FS dep? |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------ |
+| `ai-config`                       | Vocabulary (`BUILTIN_PROVIDER_IDS`, `PROTOCOL_VALUES`, `CLIENT_KIND_VALUES`, …), Zod schemas, inferred types, defaults, the `resolveProviderCatalog({ sources })` seam, pure helpers, and the model capability tables + `inferModelCapabilities` | No           |
+| `ai-config/node`                  | The pure entry plus the three filesystem seams and path constants                                                                                                                                                                                | Yes          |
+| `ai-config/positron`              | Builds a `host`-kind `ProviderConfigSource` from Positron `authentication.*` settings (+ change signal). The only entry that imports `vscode`.                                                                                                   | No (vscode)  |
+| `ai-config/providers.schema.json` | The generated JSON Schema, for editor validation/autocomplete of `providers.json`                                                                                                                                                                | No           |
 
 The three filesystem seams (`ai-config/node`):
 
@@ -137,6 +137,27 @@ import {
 ```
 
 Built-in default connection config (base URLs, endpoints) applied as the lowest precedence layer beneath the file and env-var overlays.
+
+#### Model capability inference
+
+```ts
+import {
+  getAnthropicModelCapabilities,
+  getDeepSeekModelCapabilities,
+  getGeminiModelCapabilities,
+  getGemmaModelCapabilities,
+  getOpenAIModelCapabilities,
+  openaiMaxInputTokens,
+  getPositAiModelCapabilities,
+  inferModelCapabilities,
+} from "ai-config";
+
+import type { InferredModelCapabilities } from "ai-config";
+```
+
+The per-provider `get*ModelCapabilities(modelId)` helpers are pure, regex-driven lookups that map a provider-specific model id to a `Partial<InferredModelCapabilities>` (or `undefined`/a default object when the id doesn't match that provider's family). `openaiMaxInputTokens(caps)` derives the OpenAI input-token ceiling from a capability object's context window and output-token reservation.
+
+`inferModelCapabilities(providerId, modelId): InferredModelCapabilities` is the single entry point that ties the tables together: it merges a conservative generic baseline (128k context, tools on, no images, no web search) under whichever provider-family table applies, with the table's values winning per field. It also derives `supportsImages` from a table's `supportedInputMediaTypes` when the table sets media types but leaves the flag itself unset, and resolves `protocol` for `snowflake-cortex` ids (Claude ids → `"anthropic-messages"`, everything else → `"openai-chat"` after stripping a leading `openai-` prefix). This is the function `ai-provider-bridge` re-exports at its root, and the intended delegation target for any consumer that needs model capabilities without the bridge's dependency tree.
 
 ---
 
