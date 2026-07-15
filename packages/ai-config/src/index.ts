@@ -34,7 +34,11 @@ export type {
 } from "./vocabulary.js";
 
 // --- Schema ----------------------------------------------------------------
-export { enforcedProvidersConfigSchema, providersConfigSchema } from "./schema.js";
+export {
+	customModelSchema,
+	enforcedProvidersConfigSchema,
+	providersConfigSchema,
+} from "./schema.js";
 
 // --- Types (inferred + catalog) --------------------------------------------
 export {
