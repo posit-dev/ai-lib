@@ -140,12 +140,22 @@ function inferProviderDefaults(
  * per field). Every required capability field is always present; optional
  * fields (family, media types, thinking levels, protocol) appear only when
  * inference determined them.
+ *
+ * The result is shaped to spread directly into a `models.custom` entry, so it
+ * excludes `requiresChatTemplateKwargs`: that flag is a runtime request-shaping
+ * detail (it tells the vLLM client to send `chat_template_kwargs`), re-derived
+ * from the model id at request time by the bridge's positai path, and it is not
+ * a field the strict `customModelSchema` accepts. The capability tables still
+ * carry it for that runtime use; it is dropped only here, at the migration seam.
  */
 export function inferModelCapabilities(
 	providerId: string,
 	modelId: string,
-): InferredModelCapabilities {
-	const inferred = inferProviderDefaults(providerId, modelId);
+): Omit<InferredModelCapabilities, "requiresChatTemplateKwargs"> {
+	const { requiresChatTemplateKwargs: _drop, ...inferred } = inferProviderDefaults(
+		providerId,
+		modelId,
+	);
 	// `??` per required field (not a bare spread) so a helper that explicitly
 	// sets a field to `undefined` cannot shadow the baseline.
 	return {

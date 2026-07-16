@@ -4,6 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
+import { customModelSchema } from "../../schema.js";
 import { inferModelCapabilities } from "../infer.js";
 
 describe("inferModelCapabilities", () => {
@@ -76,10 +77,40 @@ describe("inferModelCapabilities", () => {
 		expect(inferModelCapabilities("anthropic", "claude-sonnet-4-5").protocol).toBeUndefined();
 	});
 
-	it("passes gemma flags through the positai family", () => {
+	it("passes gemma thinking levels through the positai family", () => {
 		const caps = inferModelCapabilities("positai", "google/gemma-4-27b-it");
-		expect(caps.requiresChatTemplateKwargs).toBe(true);
 		expect(caps.thinkingEffortLevels).toEqual(["off", "on"]);
+	});
+
+	it("omits requiresChatTemplateKwargs so the result fits a models.custom entry", () => {
+		// The Gemma table sets this runtime-only flag, but the strict custom-model
+		// schema rejects it; inferModelCapabilities must not surface it.
+		const caps = inferModelCapabilities("positai", "google/gemma-4-27b-it");
+		expect(caps).not.toHaveProperty("requiresChatTemplateKwargs");
+	});
+
+	it("produces a spread that validates against the strict customModelSchema", () => {
+		// The migration use case: { id, name, ...inferModelCapabilities(...) } must
+		// parse. Gemma is the regression case — its table sets a key the schema
+		// rejects. Cover a representative id per provider family.
+		for (const [providerId, modelId] of [
+			["positai", "google/gemma-4-27b-it"],
+			["anthropic", "claude-opus-4-8"],
+			["openai", "gpt-4o"],
+			["gemini", "gemini-2.5-pro"],
+			["deepseek", "deepseek-chat"],
+			["snowflake-cortex", "claude-sonnet-4-5"],
+			["snowflake-cortex", "openai-gpt-5.2"],
+			["google-vertex", "gemini-2.5-pro"],
+			["openai-compatible", "totally-unknown-model"],
+		] as const) {
+			const result = customModelSchema.safeParse({
+				id: modelId,
+				name: modelId,
+				...inferModelCapabilities(providerId, modelId),
+			});
+			expect(result.success, `${providerId}/${modelId}: ${result.error?.message}`).toBe(true);
+		}
 	});
 
 	it("caps snowflake claude ids to Snowflake's limits, not the upstream table", () => {
