@@ -2,7 +2,8 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { getDeepSeekModelCapabilities } from "../model-capabilities/deepseek-helpers";
+import { getDeepSeekModelCapabilities } from "ai-config";
+
 import { DeepSeekClient } from "../model-clients/DeepSeekClient";
 import type { ApiKeyCredentials, Logger, ModelInfo } from "../types";
 import { createCachedModelFetcher } from "./cached-model-fetcher";

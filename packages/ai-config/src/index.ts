@@ -34,7 +34,11 @@ export type {
 } from "./vocabulary.js";
 
 // --- Schema ----------------------------------------------------------------
-export { enforcedProvidersConfigSchema, providersConfigSchema } from "./schema.js";
+export {
+	customModelSchema,
+	enforcedProvidersConfigSchema,
+	providersConfigSchema,
+} from "./schema.js";
 
 // --- Types (inferred + catalog) --------------------------------------------
 export {
@@ -61,7 +65,20 @@ export type {
 	ResolvedModelInfo,
 	ResolvedProvider,
 	ResolvedProviderId,
+	InferredModelCapabilities,
 } from "./types.js";
+
+// --- Model capability inference ---------------------------------------------
+export { getAnthropicModelCapabilities } from "./model-capabilities/anthropic-helpers.js";
+export { getDeepSeekModelCapabilities } from "./model-capabilities/deepseek-helpers.js";
+export { getGeminiModelCapabilities } from "./model-capabilities/gemini-helpers.js";
+export { getGemmaModelCapabilities } from "./model-capabilities/gemma-helpers.js";
+export {
+	getOpenAIModelCapabilities,
+	openaiMaxInputTokens,
+} from "./model-capabilities/openai-helpers.js";
+export { getPositAiModelCapabilities } from "./model-capabilities/positai-helpers.js";
+export { inferModelCapabilities } from "./model-capabilities/infer.js";
 
 // --- Defaults --------------------------------------------------------------
 export {

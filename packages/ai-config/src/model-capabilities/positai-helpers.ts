@@ -2,9 +2,9 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import type { ModelInfo } from "../types";
-import { getAnthropicModelCapabilities } from "./anthropic-helpers";
-import { getGemmaModelCapabilities } from "./gemma-helpers";
+import type { InferredModelCapabilities as ModelInfo } from "../types.js";
+import { getAnthropicModelCapabilities } from "./anthropic-helpers.js";
+import { getGemmaModelCapabilities } from "./gemma-helpers.js";
 
 /**
  * Infer model capabilities for a Posit AI model identifier.

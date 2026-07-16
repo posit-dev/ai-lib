@@ -2,9 +2,9 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
+import { getAnthropicModelCapabilities } from "ai-config";
 import { GoogleAuth } from "google-auth-library";
 
-import { getAnthropicModelCapabilities } from "../model-capabilities/anthropic-helpers";
 import { GoogleVertexClient } from "../model-clients/GoogleVertexClient";
 import type { Logger, ModelInfo, ProviderCredentials } from "../types";
 import { NOTIFICATION_ACTIONS } from "../types";

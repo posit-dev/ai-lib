@@ -2,7 +2,7 @@
  *  Copyright (C) 2025-2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import type { ModelInfo } from "../types";
+import type { InferredModelCapabilities as ModelInfo } from "../types.js";
 
 const OPENAI_THINKING_EFFORT_LEVELS = ["off", "low", "medium", "high"];
 
@@ -207,8 +207,18 @@ export function getOpenAIModelCapabilities(modelId: string): Partial<ModelInfo> 
 	return undefined;
 }
 
-/** OpenAI models share a context window; reserve space for output tokens. */
-export function openaiMaxInputTokens(model: Partial<ModelInfo>): number | undefined {
+/**
+ * OpenAI models share a context window; reserve space for output tokens.
+ *
+ * Accepts a minimal structural type — only the two token fields are read — so
+ * callers passing any capability shape (bridge `Partial<ModelInfo>`,
+ * `Partial<InferredModelCapabilities>`, …) stay assignable regardless of how
+ * each type narrows unrelated fields such as `protocol`.
+ */
+export function openaiMaxInputTokens(model: {
+	maxContextLength?: number;
+	maxOutputTokens?: number;
+}): number | undefined {
 	if (model.maxContextLength === undefined || model.maxOutputTokens === undefined) {
 		return undefined;
 	}
