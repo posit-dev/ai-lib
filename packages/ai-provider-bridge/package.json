@@ -53,7 +53,7 @@
     "format:check": "oxfmt --check",
     "hygiene": "tsx scripts/hygiene.ts",
     "precommit": "lint-staged",
-    "prepare": "husky"
+    "prepare": "husky || true"
   },
   "lint-staged": {
     "**/*.{ts,tsx,js,jsx,css,md}": [

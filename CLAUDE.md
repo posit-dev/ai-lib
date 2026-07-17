@@ -8,17 +8,17 @@ This file provides guidance to AI agents working in the `ai-lib` repository (Git
 
 The repo is consumed as a **git submodule** (`packages/ai-lib`) by the Posit Assistant monorepo, where all three packages are built from source as workspaces (resolved via `"<pkg>": "*"`), not installed from published tarballs.
 
-| Package              | Purpose                                                                                                                                                                                   |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ai-provider-bridge` | LLM provider infra: plugin registry, model clients (14 providers), credential abstractions, and a Positron VS Code layer                                                                  |
-| `ai-config`          | `~/.posit/ai/providers.json` schema, validation, defaults, and the load → enforce → build → watch resolution pipeline                                                                     |
-| `ai-credentials`     | Credential resolution: browser-safe types/shaping, a generic single-file KV store, the store-backed backend + on-disk format, a vscode backend, and a root resolver (device-flow/refresh) |
+| Package              | Purpose                                                                                                                                                                                                                                                                                |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ai-provider-bridge` | LLM provider infra: plugin registry, model clients (14 providers), credential abstractions, and a Positron VS Code layer                                                                                                                                                               |
+| `ai-config`          | `~/.posit/ai/providers.json` schema, validation, defaults, and the load → enforce → build → watch resolution pipeline; also owns shared model metadata: the capability tables and `inferModelCapabilities` (a deliberate charter expansion beyond providers.json handling — see below) |
+| `ai-credentials`     | Credential resolution: browser-safe types/shaping, a generic single-file KV store, the store-backed backend + on-disk format, a vscode backend, and a root resolver (device-flow/refresh)                                                                                              |
 
 ### Dependency relationships
 
 - `ai-provider-bridge` depends on `ai-config` and `ai-credentials` (`"ai-config": "*"`, `"ai-credentials": "*"`, resolve to workspaces) so both build first.
 - `ai-config` and `ai-credentials` are standalone leaves — neither depends on a sibling.
-- `ai-config` and `ai-provider-bridge` share a vocabulary (provider IDs, protocols, client kinds), but with **no import edge** between them. A compile-time **shape guard** in `typechecks/` keeps them compatible (see [Shape Guard](#shape-guard-cross-package-vocabulary-compatibility)).
+- `ai-config` must never import `ai-provider-bridge` (or any sibling); the bridge imports `ai-config` freely (types, capability helpers). The **vocabulary constants** (provider IDs, protocols, client kinds) remain duplicated on each side — never imported across — so a bridge type change cannot silently alter the disk format; the shape guard in `typechecks/` keeps them in sync (see [Shape Guard](#shape-guard-cross-package-vocabulary-compatibility)).
 
 ### Project Structure
 
@@ -40,7 +40,7 @@ ai-lib/
 ```
 packages/ai-provider-bridge/src/
 ├── model-clients/       # ModelClient implementations (one per provider)
-├── model-capabilities/  # Per-provider capability inference helpers
+├── model-capabilities/  # Gemini Interactions API allowlist (capability tables live in ai-config)
 ├── providers/           # register*Provider() modules + ProviderRegistry class
 ├── positron/            # VS Code integration (/positron entrypoint)
 ├── types.ts             # PROVIDER_IDS, credential types, ProviderId
@@ -68,7 +68,7 @@ packages/ai-provider-bridge/src/
 
 | Entrypoint                        | What it provides                                                                                                                             | Node FS dep? |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
-| `ai-config`                       | Vocabulary, Zod schemas, inferred types, defaults, pure resolution helpers                                                                   | No           |
+| `ai-config`                       | Vocabulary, Zod schemas, inferred types, defaults, pure resolution helpers, model capability tables, and `inferModelCapabilities`            | No           |
 | `ai-config/node`                  | The pure entry plus filesystem seams: `loadResolvedProviderCatalog`, `mutateProvidersConfig`, `watchResolvedProviderCatalog`, path constants | Yes          |
 | `ai-config/providers.schema.json` | Generated JSON Schema for editor validation/autocomplete of `providers.json`                                                                 | No           |
 
@@ -87,7 +87,7 @@ packages/ai-provider-bridge/src/
 - `ai-provider-bridge` root entrypoint must NOT import `vscode` -- only `/positron` may.
 - No package may depend on a consumer (host) package -- the dependency arrow is one-way inward.
 - `ai-config` splits pure logic (`ai-config`) from filesystem I/O (`ai-config/node`); the pure entry must stay free of Node FS APIs.
-- `ai-config` and `ai-provider-bridge` must not import each other; vocabulary compatibility is enforced by the shape guard.
+- `ai-config` must never import `ai-provider-bridge` (or any sibling); the bridge imports `ai-config` freely (types, capability helpers). The vocabulary constants remain duplicated on each side — never imported across — so a bridge type change cannot silently alter the disk format; the shape guard in `typechecks/` keeps them in sync.
 - `ai-credentials`: `/types` stays browser-safe (no `vscode`/SDK/Node-builtins); `/store` imports no sibling; the root never imports `/store` (backends are injected); `/store-backend` never imports `@assistant/*`. `/store-backend` and `/positron` are the platform-bound (fs/vscode) entries.
 - `ai-credentials`'s `providerEnvMappings.ts` has a `-external` variant (empty map — positai has no secret env vars), redirected by the consuming app's build config.
 
@@ -195,6 +195,7 @@ When adding a new provider:
 4. Export from `src/providers.ts`
 5. If it needs Positron auth, add to `PROVIDER_MAP` in `src/provider-map.ts`
 6. Add the matching ID to `BUILTIN_PROVIDER_IDS` in `ai-config` so the shape guard passes
+7. If the provider needs capability inference, add its table to `ai-config/src/model-capabilities/` and wire it into `inferModelCapabilities` (the tables live in `ai-config`, not the bridge)
 
 See `memory-bank/providerGuide.md` for the full step-by-step guide.
 

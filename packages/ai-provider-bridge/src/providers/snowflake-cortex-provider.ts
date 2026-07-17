@@ -2,8 +2,8 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { getAnthropicModelCapabilities } from "../model-capabilities/anthropic-helpers";
-import { getOpenAIModelCapabilities } from "../model-capabilities/openai-helpers";
+import { getAnthropicModelCapabilities, getOpenAIModelCapabilities } from "ai-config";
+
 import { SnowflakeClient } from "../model-clients/SnowflakeClient";
 import type { Logger, ModelInfo, ProviderCredentials } from "../types";
 import type { ProviderRegistry } from "./ProviderRegistry";

@@ -52,11 +52,11 @@ Implement `ModelClient` interface with `chat()` method that returns `AsyncIterab
 
 ## Step 3b: Add Capability Helpers (Optional)
 
-**File**: `src/model-capabilities/newprovider-helpers.ts`
+**File**: `packages/ai-config/src/model-capabilities/newprovider-helpers.ts`
 
-If the provider has model-specific capabilities (vision, thinking, embeddings), add a helper that maps model IDs to `ModelCapabilities`. This is used by the model fetcher to annotate each model.
+If the provider has model-specific capabilities (vision, thinking, embeddings), add a helper that maps model IDs to `ModelCapabilities`. This is used by the model fetcher to annotate each model. The capability tables live in `ai-config` (moved there in ai-lib#9 so any `ai-config` consumer can call `inferModelCapabilities` without the bridge's dependency tree); the bridge imports the helper from `ai-config` at its call sites.
 
-**Reference**: See `deepseek-helpers.ts`, `gemini-helpers.ts`, or `anthropic-helpers.ts`.
+**Reference**: See `deepseek-helpers.ts`, `gemini-helpers.ts`, or `anthropic-helpers.ts` in `packages/ai-config/src/model-capabilities/`.
 
 ## Step 4: Implement Model Fetcher
 
@@ -99,15 +99,15 @@ If it is a local endpoint provider, add it to `LOCAL_PROVIDER_IDS` in `src/local
 
 ## Files Summary
 
-| File                                    | Change                                    |
-| --------------------------------------- | ----------------------------------------- |
-| `src/types.ts`                          | Add to `PROVIDER_IDS`                     |
-| `src/model-clients/XyzClient.ts`        | New client class                          |
-| `src/model-capabilities/xyz-helpers.ts` | Optional: capability inference helpers    |
-| `src/providers/xyz-provider.ts`         | New provider module                       |
-| `src/providers.ts`                      | Export new registration function + client |
-| `src/provider-map.ts`                   | Optional: add Positron auth mapping       |
-| `src/positron/auth.ts`                  | Optional: add credential handling         |
+| File                                                 | Change                                                        |
+| ---------------------------------------------------- | ------------------------------------------------------------- |
+| `src/types.ts`                                       | Add to `PROVIDER_IDS`                                         |
+| `src/model-clients/XyzClient.ts`                     | New client class                                              |
+| `../ai-config/src/model-capabilities/xyz-helpers.ts` | Optional: capability inference helpers (lives in `ai-config`) |
+| `src/providers/xyz-provider.ts`                      | New provider module                                           |
+| `src/providers.ts`                                   | Export new registration function + client                     |
+| `src/provider-map.ts`                                | Optional: add Positron auth mapping                           |
+| `src/positron/auth.ts`                               | Optional: add credential handling                             |
 
 ## Thinking/Reasoning Support
 

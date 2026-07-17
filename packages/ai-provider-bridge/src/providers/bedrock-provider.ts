@@ -7,8 +7,8 @@ import {
 	ListFoundationModelsCommand,
 } from "@aws-sdk/client-bedrock";
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
+import { getAnthropicModelCapabilities } from "ai-config";
 
-import { getAnthropicModelCapabilities } from "../model-capabilities/anthropic-helpers";
 import { BedrockClient } from "../model-clients/BedrockClient";
 import type { AwsCredentials, Logger, ModelInfo, ProviderCredentials } from "../types";
 import { NOTIFICATION_ACTIONS } from "../types";

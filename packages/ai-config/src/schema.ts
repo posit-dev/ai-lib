@@ -139,6 +139,13 @@ export const snowflakeConfigSchema = z
 	.object({
 		account: z.string().optional(),
 		host: z.string().optional(),
+		/**
+		 * Directory containing `connections.toml` (the `SNOWFLAKE_HOME` override).
+		 * Points Snowflake credential discovery at a non-default location — e.g.
+		 * Workbench Managed Credentials, which place `connections.toml` in a
+		 * managed directory. Non-secret.
+		 */
+		home: z.string().optional(),
 	})
 	.strict();
 

@@ -27,11 +27,11 @@ enablement in Posit Assistant lives in the main monorepo's
 The package has three entrypoints, splitting pure (browser/test-safe) logic from
 filesystem I/O and vscode-bound wiring:
 
-| Entrypoint           | What it exports                                                                                                                                                                                      | External deps? |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
-| `ai-config`          | Vocabulary, Zod schemas, inferred types, defaults, the pure resolution helpers (`resolveModels`, `mergeEnforced`), and the config-source contracts                                                   | No             |
-| `ai-config/node`     | Re-exports the pure entry plus the three filesystem seams (`loadResolvedProviderCatalog`, `mutateProvidersConfig`, `watchResolvedProviderCatalog`) and path constants                                | Node FS        |
-| `ai-config/positron` | Builds a `host`-kind config source from Positron's `authentication.*` VS Code settings (injected via `additionalSources`); the pure `buildAuthenticationFragment` builder is testable without vscode | `vscode`       |
+| Entrypoint           | What it exports                                                                                                                                                                                            | External deps? |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| `ai-config`          | Vocabulary, Zod schemas, inferred types, defaults, the pure resolution helpers (`resolveModels`, `mergeEnforced`), the config-source contracts, and the model capability tables + `inferModelCapabilities` | No             |
+| `ai-config/node`     | Re-exports the pure entry plus the three filesystem seams (`loadResolvedProviderCatalog`, `mutateProvidersConfig`, `watchResolvedProviderCatalog`) and path constants                                      | Node FS        |
+| `ai-config/positron` | Builds a `host`-kind config source from Positron's `authentication.*` VS Code settings (injected via `additionalSources`); the pure `buildAuthenticationFragment` builder is testable without vscode       | `vscode`       |
 
 Each provider's `PositronAuthSettingDescriptor` (consumed by `buildAuthenticationFragment`) may carry an optional `normalizeBaseUrl?: (url: string) => string` hook, applied to the raw `baseUrl` setting before it enters the fragment. It's the seam for correcting known-bad values (e.g. a bare API host missing its version segment) without `ai-config` importing `ai-provider-bridge` — the consumer (`packages/positron`) injects the bridge's `normalizeBaseUrlForProvider` when building descriptors; `ai-config` only ever sees an opaque string-to-string function.
 | `ai-config/providers.schema.json` | The generated JSON Schema, exported so editors can validate/autocomplete `providers.json` | No |
@@ -176,6 +176,90 @@ without managing locking, atomicity, or watch lifecycle themselves.
   injection (`$schema`, `version`) on first creation, and a best-effort copy of
   `providers.schema.json` alongside the config for editor validation.
 
+## Model Capability Inference (`src/model-capabilities/`)
+
+`ai-config` also owns the shared model-metadata charter: per-provider capability
+tables and `inferModelCapabilities(providerId, modelId)`, the single function
+that turns a bare provider + model id into a complete capability set. This
+moved here from `ai-provider-bridge` (ai-lib#9) so any `ai-config` consumer —
+Positron's authentication extension, the assistant, future core — can
+synthesize model capabilities without taking the bridge's dependency tree
+(SDKs, `vscode` peer, etc.). The bridge re-exports the helpers it used to own
+(`getAnthropicModelCapabilities`, `getGeminiModelCapabilities`,
+`getOpenAIModelCapabilities`, `openaiMaxInputTokens`,
+`getPositAiModelCapabilities`) from `ai-config` so none of its existing
+consumers broke; its own `getGeminiInteractionsProfile` /
+`isInteractionsEligible` stayed behind as `gemini-interactions.ts`, since that
+allowlist is bridge SDK-routing logic (which wire API `GeminiClient` speaks),
+not a dependency-free capability table.
+
+**The tables** (`anthropic-helpers.ts`, `deepseek-helpers.ts`,
+`gemini-helpers.ts`, `gemma-helpers.ts`, `openai-helpers.ts`) are pure
+regex-driven lookups from a provider-specific model id to a partial capability
+set — no imports beyond `InferredModelCapabilities` (a projection of
+`ModelInfoLike` with identity/routing fields dropped and `protocol` narrowed to
+the canonical `Protocol` union). `positai-helpers.ts` composes the Anthropic
+and Gemma tables, since Posit AI routes both families.
+
+**`inferModelCapabilities(providerId, modelId)`** (`src/model-capabilities/infer.ts`)
+merges a conservative `GENERIC_BASELINE` (128k context, tools on, no images,
+no web search) under provider-family inference, with inference winning per
+field.
+
+The policy for every provider case: mirror the static caps the bridge's
+provider builder declares for that provider. Where a builder derives values
+from live API responses (e.g. Vertex token limits), inference approximates
+with the family table and keeps feature flags conservative — understating a
+capability degrades gracefully, overstating it breaks requests.
+
+Per-provider cases:
+
+- `anthropic` / `bedrock` → the Anthropic table (Bedrock ids carry the same
+  `claude-*` family, just prefixed).
+- `openai` → the OpenAI table, with `maxInputTokens` re-derived via
+  `openaiMaxInputTokens()` (context window minus reserved output budget) —
+  the table itself doesn't set it.
+- `positai` → the combined Anthropic/Gemma lookup.
+- `gemini` → the Gemini table.
+- `deepseek` → the DeepSeek table, mapped specially: DeepSeek publishes no
+  separate context-window figure, so `maxContextLength` is set equal to the
+  table's `maxInputTokens` (mirroring how `deepseek-provider.ts` in the bridge
+  already treats the input limit as the window).
+- `google-vertex` → strips Vertex resource prefixes
+  (`publishers/<publisher>/models/...`), then routes Gemini ids to the Gemini
+  table and Anthropic partner ids to the Anthropic table (mirroring
+  `google-vertex-provider.ts`; the builder's live-API token limits match the
+  Gemini table's 1M/65k values).
+- `snowflake-cortex` → Snowflake serves a fixed catalog with its own caps, so
+  inference applies them rather than the upstream model limits: Claude ids get
+  the Anthropic Messages API shape (200k context / 16,384 output, tool-result
+  images on); anything else strips a leading `openai-` prefix, consults the
+  OpenAI table, and gets the Chat Completions shape (128k / 16,384,
+  tool-result images off, image support only when the upstream table lists
+  image media types). Only `family` and `thinkingEffortLevels` are borrowed
+  from the upstream tables (mirroring `snowflake-cortex-provider.ts`). Both
+  branches set `protocol` (`"anthropic-messages"` or `"openai-chat"`) — the
+  only case where inference determines the wire protocol. Every other
+  provider leaves `protocol` `undefined`.
+- Anything else (`ms-foundry`, `openai-compatible`, custom provider ids) stays
+  at the generic baseline — those are unknown endpoints.
+
+One derivation sits above the per-family lookup: the Anthropic and Gemini
+tables list `supportedInputMediaTypes` (image MIME types) but never set
+`supportsImages` directly, so `inferProviderDefaults()` lifts `supportsImages`
+to `true` whenever a table leaves it unset AND lists an `image/*` media type —
+otherwise the baseline `false` would win for models that plainly accept
+images. A table's explicit value (e.g. GPT-3.5's `supportsImages: false`) is
+never overridden.
+
+`inferModelCapabilities` is the intended delegation target for
+posit-dev/positron#14708 Task 8 and for the assistant's
+`model-override.ts` (its `GENERIC_BASELINE` + inference chain is mirrored
+here, with three improvements over that copy: the `openai` case now derives
+`maxInputTokens` instead of leaving the 128k baseline, a `deepseek` case uses
+the DeepSeek table, and `supportsImages` is derived from media types as
+described above).
+
 ## Shape Guard
 
 `typechecks/shape-guard.typecheck.ts` holds compile-time assertions (type-checked
@@ -198,28 +282,30 @@ the bridge's `ModelInfo` — compatible by contract, not by import.
 
 ## Code Layout
 
-| Location                     | What it does                                                                                                        |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `src/vocabulary.ts`          | Provider-ID / protocol / client-kind / reserved-key value tuples + type guards                                      |
-| `src/schema.ts`              | Zod schemas (full + enforced variants) for `providers.json`                                                         |
-| `src/types.ts`               | Types inferred from Zod + resolution outputs + branded `CustomProviderId` / `mintCustomProviderId`                  |
-| `src/defaults.ts`            | Built-in provider connection defaults; `PROVIDER_CONNECTION_DEFAULTS`                                               |
-| `src/enforce.ts`             | `mergeEnforced()` deep-merge of enforced over user config                                                           |
-| `src/resolve-enabled.ts`     | `resolveEnabled()` enablement precedence ladder                                                                     |
-| `src/resolve-connection.ts`  | Internal baseUrl/endpoint resolution precedence                                                                     |
-| `src/resolve-models.ts`      | `resolveModels()` model selection + routing pipeline                                                                |
-| `src/index.ts`               | Pure entrypoint exports                                                                                             |
-| `src/node/paths.ts`          | `AI_CONFIG_DIR`, `PROVIDERS_CONFIG_PATH`, enforced env-var name, lockfile path                                      |
-| `src/node/types.ts`          | Node seam option/result types (`LoadCatalogOptions`, `ProviderCatalogChange`, `Disposable`, …)                      |
-| `src/resolve-catalog.ts`     | `resolveProviderCatalog()` — pure deep resolver seam; owns the precedence stack + sealed-enforced invariant         |
-| `src/build-catalog.ts`       | `buildCatalog()` — assemble `ResolvedProvider[]` from the resolved config + baseline + env overlay (pure entry)     |
-| `src/node/load-config.ts`    | `loadConfigSources()` / `readFileConfig()` / `readEnvFragment()` — assemble the ordered `ProviderConfigSource` list |
-| `src/node/load-catalog.ts`   | `loadResolvedProviderCatalog()` — public read seam (assemble sources → `resolveProviderCatalog`)                    |
-| `src/node/mutate-config.ts`  | `mutateProvidersConfig()` — locked, atomic, serialized mutation                                                     |
-| `src/node/watch-catalog.ts`  | `watchResolvedProviderCatalog()` — watch, reload, diff, emit typed changes                                          |
-| `src/node/index.ts`          | Node entrypoint; re-exports pure entry + filesystem seams                                                           |
-| `providers.schema.json`      | Generated JSON Schema, exported for editor validation                                                               |
-| `scripts/generate-schema.ts` | Regenerates `providers.schema.json` from the Zod schemas                                                            |
+| Location                              | What it does                                                                                                        |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `src/vocabulary.ts`                   | Provider-ID / protocol / client-kind / reserved-key value tuples + type guards                                      |
+| `src/schema.ts`                       | Zod schemas (full + enforced variants) for `providers.json`                                                         |
+| `src/types.ts`                        | Types inferred from Zod + resolution outputs + branded `CustomProviderId` / `mintCustomProviderId`                  |
+| `src/defaults.ts`                     | Built-in provider connection defaults; `PROVIDER_CONNECTION_DEFAULTS`                                               |
+| `src/enforce.ts`                      | `mergeEnforced()` deep-merge of enforced over user config                                                           |
+| `src/resolve-enabled.ts`              | `resolveEnabled()` enablement precedence ladder                                                                     |
+| `src/resolve-connection.ts`           | Internal baseUrl/endpoint resolution precedence                                                                     |
+| `src/resolve-models.ts`               | `resolveModels()` model selection + routing pipeline                                                                |
+| `src/model-capabilities/*-helpers.ts` | Per-provider capability tables (moved from the bridge, ai-lib#9)                                                    |
+| `src/model-capabilities/infer.ts`     | `inferModelCapabilities()` — baseline + provider-family merge, Snowflake protocol rule                              |
+| `src/index.ts`                        | Pure entrypoint exports                                                                                             |
+| `src/node/paths.ts`                   | `AI_CONFIG_DIR`, `PROVIDERS_CONFIG_PATH`, enforced env-var name, lockfile path                                      |
+| `src/node/types.ts`                   | Node seam option/result types (`LoadCatalogOptions`, `ProviderCatalogChange`, `Disposable`, …)                      |
+| `src/resolve-catalog.ts`              | `resolveProviderCatalog()` — pure deep resolver seam; owns the precedence stack + sealed-enforced invariant         |
+| `src/build-catalog.ts`                | `buildCatalog()` — assemble `ResolvedProvider[]` from the resolved config + baseline + env overlay (pure entry)     |
+| `src/node/load-config.ts`             | `loadConfigSources()` / `readFileConfig()` / `readEnvFragment()` — assemble the ordered `ProviderConfigSource` list |
+| `src/node/load-catalog.ts`            | `loadResolvedProviderCatalog()` — public read seam (assemble sources → `resolveProviderCatalog`)                    |
+| `src/node/mutate-config.ts`           | `mutateProvidersConfig()` — locked, atomic, serialized mutation                                                     |
+| `src/node/watch-catalog.ts`           | `watchResolvedProviderCatalog()` — watch, reload, diff, emit typed changes                                          |
+| `src/node/index.ts`                   | Node entrypoint; re-exports pure entry + filesystem seams                                                           |
+| `providers.schema.json`               | Generated JSON Schema, exported for editor validation                                                               |
+| `scripts/generate-schema.ts`          | Regenerates `providers.schema.json` from the Zod schemas                                                            |
 
 ## Invariants & Design Decisions
 

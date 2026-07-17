@@ -89,6 +89,18 @@ describe("providersConfigSchema", () => {
 		expect(result.success).toBe(true);
 	});
 
+	it("accepts snowflake.home on built-in and custom snowflake providers", () => {
+		const result = providersConfigSchema.safeParse({
+			providers: {
+				"snowflake-cortex": { snowflake: { account: "MYORG-MYACCT", home: "/opt/snowflake" } },
+				custom: {
+					"snowflake-2": { type: "snowflake", snowflake: { home: "/opt/snowflake" } },
+				},
+			},
+		});
+		expect(result.success).toBe(true);
+	});
+
 	it("accepts baseUrl in model overrides", () => {
 		const result = providersConfigSchema.safeParse({
 			providers: {

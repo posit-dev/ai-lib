@@ -18,7 +18,7 @@ import type { ModelMessage } from "ai";
 import { streamText } from "ai";
 
 import { safeSdkCustomHeaders } from "../custom-headers";
-import { getGeminiInteractionsProfile } from "../model-capabilities/gemini-helpers";
+import { getGeminiInteractionsProfile } from "../model-capabilities/gemini-interactions";
 import type { AiToolWithJsonSchema, LMStreamPart, Logger } from "../types";
 import {
 	convertAiSdkStreamToPlatform,

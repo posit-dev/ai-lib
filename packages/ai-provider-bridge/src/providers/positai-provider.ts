@@ -2,7 +2,8 @@
  *  Copyright (C) 2025 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { getPositAiModelCapabilities } from "../model-capabilities/positai-helpers";
+import { getPositAiModelCapabilities } from "ai-config";
+
 import { PositAiClient } from "../model-clients/PositAiClient";
 import type {
 	Logger,

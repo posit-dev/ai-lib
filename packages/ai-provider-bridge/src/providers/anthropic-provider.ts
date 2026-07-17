@@ -2,7 +2,8 @@
  *  Copyright (C) 2025-2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { getAnthropicModelCapabilities } from "../model-capabilities/anthropic-helpers";
+import { getAnthropicModelCapabilities } from "ai-config";
+
 import {
 	ANTHROPIC_API_VERSION,
 	ANTHROPIC_HOST,

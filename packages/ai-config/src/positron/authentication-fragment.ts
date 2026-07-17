@@ -38,10 +38,10 @@ export interface PositronAuthSettingReader {
 	/** AWS region (`authentication.aws.credentials.AWS_REGION`, `process.env` fallback). */
 	getAwsRegion(): string | undefined;
 	/**
-	 * Snowflake host/account (`authentication.snowflake.credentials.{SNOWFLAKE_HOST,
-	 * SNOWFLAKE_ACCOUNT}`, `process.env` fallback).
+	 * Snowflake host/account/home (`authentication.snowflake.credentials.{SNOWFLAKE_HOST,
+	 * SNOWFLAKE_ACCOUNT,SNOWFLAKE_HOME}`, `process.env` fallback).
 	 */
-	getSnowflake(): { host?: string; account?: string } | undefined;
+	getSnowflake(): { host?: string; account?: string; home?: string } | undefined;
 	/**
 	 * Databricks workspace host (`authentication.databricks.credentials.DATABRICKS_HOST`,
 	 * `process.env` fallback).
@@ -64,8 +64,8 @@ export interface PositronAuthSettingDescriptor {
 	 * - `"api-key-connection"`: reads BOTH `baseUrl` and `customHeaders` (they
 	 *   share the `authentication.<configKey>` namespace).
 	 * - `"aws-region"`: reads `authentication.aws.credentials.AWS_REGION`.
-	 * - `"snowflake"`: reads `snowflake.credentials.{SNOWFLAKE_HOST,SNOWFLAKE_ACCOUNT}`
-	 *   (+ `snowflake.customHeaders`), with `process.env` fallback for host/account.
+	 * - `"snowflake"`: reads `snowflake.credentials.{SNOWFLAKE_HOST,SNOWFLAKE_ACCOUNT,
+	 *   SNOWFLAKE_HOME}` (+ `snowflake.customHeaders`), with `process.env` fallback.
 	 * - `"databricks"`: reads `databricks.credentials.DATABRICKS_HOST`
 	 *   (+ `databricks.customHeaders`), with `process.env` fallback for the host.
 	 *   The host is emitted as the `databricks` connection section — NOT as
@@ -172,12 +172,15 @@ function buildSnowflakeBlock(
 	const block: BuiltinProviderBlock = {};
 
 	const snow = reader.getSnowflake();
-	const snowflake: { host?: string; account?: string } = {};
+	const snowflake: { host?: string; account?: string; home?: string } = {};
 	if (snow?.host) {
 		snowflake.host = snow.host;
 	}
 	if (snow?.account) {
 		snowflake.account = snow.account;
+	}
+	if (snow?.home) {
+		snowflake.home = snow.home;
 	}
 	if (hasKeys(snowflake)) {
 		block.snowflake = snowflake;

@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import {
 	getGeminiInteractionsProfile,
 	isInteractionsEligible,
-} from "../model-capabilities/gemini-helpers";
+} from "../model-capabilities/gemini-interactions";
 import {
 	buildInteractionsOptions,
 	extractPreviousInteractionId,

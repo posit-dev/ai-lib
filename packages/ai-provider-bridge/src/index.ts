@@ -70,19 +70,20 @@ export type { AuthProviderMapping } from "./provider-map";
 // the vscode-coupled `ai-provider-bridge/positron` module.
 export { CONFIG_KEY_OVERRIDES } from "./credential-shaping";
 
-// Model capability inference
-export { getAnthropicModelCapabilities } from "./model-capabilities/anthropic-helpers";
+// Model capability inference (tables live in ai-config — ai-lib#9; the
+// Gemini Interactions API allowlist is bridge routing logic and stays here)
 export {
+	getAnthropicModelCapabilities,
 	getGeminiModelCapabilities,
+	getOpenAIModelCapabilities,
+	getPositAiModelCapabilities,
+	openaiMaxInputTokens,
+} from "ai-config";
+export {
 	getGeminiInteractionsProfile,
 	isInteractionsEligible,
-} from "./model-capabilities/gemini-helpers";
-export type { GeminiInteractionsProfile } from "./model-capabilities/gemini-helpers";
-export {
-	getOpenAIModelCapabilities,
-	openaiMaxInputTokens,
-} from "./model-capabilities/openai-helpers";
-export { getPositAiModelCapabilities } from "./model-capabilities/positai-helpers";
+} from "./model-capabilities/gemini-interactions";
+export type { GeminiInteractionsProfile } from "./model-capabilities/gemini-interactions";
 
 // Tool result image transformation for Chat Completions API compatibility
 export {
