@@ -14,7 +14,7 @@
     "format": "oxfmt",
     "format:check": "oxfmt --check",
     "precommit": "lint-staged",
-    "prepare": "husky"
+    "prepare": "husky || true"
   },
   "lint-staged": {
     "**/*.{ts,tsx,js,jsx,css,md}": [
