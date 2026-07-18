@@ -11,9 +11,9 @@
  * no override and fall back to the provider's conservative defaults.
  */
 
+import { getAnthropicModelCapabilities, getOpenAIModelCapabilities } from "ai-config";
+
 import type { ModelInfo } from "../types";
-import { getAnthropicModelCapabilities } from "./anthropic-helpers";
-import { getOpenAIModelCapabilities } from "./openai-helpers";
 
 /**
  * Image MIME types accepted through the Databricks OpenAI-compatible surface.
