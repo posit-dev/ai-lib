@@ -6,15 +6,15 @@
  * createCredentialProvider — the deep resolver seam over a host-selected backend.
  *
  * Wraps any {@link Backend} into the full {@link CredentialProvider} resolver
- * surface. The root owns the device-flow/refresh state machine ({@link OAuthEngine});
- * the backend supplies material, OAuth config, and token persistence.
+ * surface. The root owns the device-flow/refresh state machine; the backend
+ * supplies material, OAuth config, and token persistence.
  *
  * Routing:
  * - `getCredentials`: OAuth providers (backend exposes `oauth` config for the id)
  *   route through `getAccessToken` and wrap the token; everything else defers to
  *   `backend.getCredentials`.
- * - `getAccessToken` / `startDeviceAuth`: delegate to the engine, which returns
- *   null / throws for providers with no device-flow config.
+ * - `getAccessToken` / `startDeviceAuth`: use the generalized acquisition
+ *   controller when available, otherwise the legacy device-only engine.
  */
 
 import { AcquisitionEngine } from "./acquisition";
@@ -66,10 +66,11 @@ export function createCredentialProvider(
 	options: CreateCredentialProviderOptions,
 ): CredentialProviderHandle {
 	const { backend, logger } = options;
-	const engine = backend.oauth ? new OAuthEngine(backend.oauth, logger) : undefined;
 	const acquisition = backend.acquisition
 		? new AcquisitionEngine(backend.acquisition, logger)
 		: undefined;
+	const legacyEngine =
+		!acquisition && backend.oauth ? new OAuthEngine(backend.oauth, logger) : undefined;
 
 	async function getAccessToken(providerId: string): Promise<string | null> {
 		if (acquisition) {
@@ -80,8 +81,8 @@ export function createCredentialProvider(
 				return null;
 			}
 		}
-		if (!engine) return null;
-		return engine.getAccessToken(providerId);
+		if (!legacyEngine) return null;
+		return legacyEngine.getAccessToken(providerId);
 	}
 
 	async function getCredentials(providerId: string): Promise<ProviderCredentials | null> {
@@ -124,12 +125,12 @@ export function createCredentialProvider(
 
 	function startDeviceAuth(providerId: string): Promise<DeviceAuthInfo> {
 		if (acquisition) return acquisition.startDeviceAuthentication(providerId);
-		if (!engine) {
+		if (!legacyEngine) {
 			return Promise.reject(
 				new Error(`OAuth device auth not supported for provider: ${providerId}`),
 			);
 		}
-		return engine.startDeviceAuth(providerId);
+		return legacyEngine.startDeviceAuth(providerId);
 	}
 
 	function onDidChangeCredentials(callback: (providerIds: string[]) => void): Disposable {
@@ -141,11 +142,11 @@ export function createCredentialProvider(
 			acquisition.cancelProvider(providerId);
 			return;
 		}
-		engine?.cancelPolling(providerId);
+		legacyEngine?.cancelPolling(providerId);
 	}
 
 	async function dispose(): Promise<void> {
-		engine?.dispose();
+		legacyEngine?.dispose();
 		await acquisition?.dispose();
 	}
 

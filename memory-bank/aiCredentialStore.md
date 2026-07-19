@@ -21,13 +21,13 @@ platform dependencies are isolated to `/store`, `/store-backend`, and
 
 ## Entrypoints
 
-| Entrypoint                | Purpose                                                                           | Browser-safe? |
-| ------------------------- | --------------------------------------------------------------------------------- | ------------- |
-| `ai-credentials`          | CredentialProvider factory, unified acquisition controller, OAuth helpers         | Yes           |
-| `ai-credentials/types`    | Credential interfaces, `shapeCredentials()`, `AuthProviderMapping`, `Logger`      | **Yes**       |
-| `ai-credentials/store`    | `SingleFileStore` class, `createDefaultStore`, `getDefaultStorePath`, store types | No (Node FS)  |
-| `ai-credentials/store-backend` | Credential-aware store/env resolver, disk schema, transactions              | No (Node FS)  |
-| `ai-credentials/positron` | `vscode.authentication` backend                                                    | No (VS Code)  |
+| Entrypoint                     | Purpose                                                                           | Browser-safe? |
+| ------------------------------ | --------------------------------------------------------------------------------- | ------------- |
+| `ai-credentials`               | CredentialProvider factory, unified acquisition controller, OAuth helpers         | Yes           |
+| `ai-credentials/types`         | Credential interfaces, `shapeCredentials()`, `AuthProviderMapping`, `Logger`      | **Yes**       |
+| `ai-credentials/store`         | `SingleFileStore` class, `createDefaultStore`, `getDefaultStorePath`, store types | No (Node FS)  |
+| `ai-credentials/store-backend` | Credential-aware store/env resolver, disk schema, transactions                    | No (Node FS)  |
+| `ai-credentials/positron`      | `vscode.authentication` backend                                                   | No (VS Code)  |
 
 ### `/types` — Browser-safe credential types and shaping
 
@@ -178,8 +178,8 @@ directories (`0o700`) and an empty `{}` file (`0o600`).
 | `src/store/defaults.ts`           | `getDefaultStorePath()` and `createDefaultStore()` — canonical default path convention                                                   |
 | `src/store/index.ts`              | `/store` entrypoint exports                                                                                                              |
 | `src/index.ts`                    | Root CredentialProvider/acquisition entrypoint                                                                                           |
-| `src/acquisition.ts`              | Unified device-code, PKCE, M2M, refresh, cancellation, and awaited disposal controller                                                  |
-| `src/store-backend/`              | Credential disk schema, store/env resolution, normalization, generation transactions, and status                                       |
+| `src/acquisition.ts`              | Unified device-code, PKCE, M2M, refresh, cancellation, and awaited disposal controller                                                   |
+| `src/store-backend/`              | Credential disk schema, store/env resolution, normalization, generation transactions, and status                                         |
 | `src/positron/index.ts`           | `/positron` vscode.authentication backend                                                                                                |
 
 ## Invariants & Design Decisions
@@ -201,3 +201,6 @@ directories (`0o700`) and an empty `{}` file (`0o600`).
 - **Graceful degradation** — invalid JSON and watcher-init failures log and
   recover rather than throw.
 - **Disposable watch lifecycle** — mirrors VS Code's resource pattern.
+- **One acquisition controller per provider handle** — generalized store-backed
+  backends instantiate only `AcquisitionEngine`; `OAuthEngine` exists solely as
+  a fallback for older backends without generalized acquisition hooks.
