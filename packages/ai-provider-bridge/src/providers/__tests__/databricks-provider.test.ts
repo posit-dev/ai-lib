@@ -93,6 +93,13 @@ const SERVING_ENDPOINTS_FIXTURE = {
 			name: "feature-serving-endpoint",
 			state: { ready: "READY" },
 		},
+		// Route-optimized requires endpoint-scoped authorization_details — excluded.
+		{
+			name: "route-optimized-chat",
+			route_optimized: true,
+			task: "llm/v1/chat",
+			state: { ready: "READY" },
+		},
 	],
 };
 
@@ -160,6 +167,21 @@ const FOUNDATION_MODELS_FIXTURE = {
 							name: "legacy-v1-only-chat",
 							api_types: ["mlflow/v1/chat/completions"],
 							ai_gateway_v2_supported: false,
+						},
+					},
+				],
+			},
+		},
+		{
+			name: "route-optimized-foundation",
+			route_optimized: true,
+			config: {
+				served_entities: [
+					{
+						foundation_model: {
+							name: "route-optimized-foundation",
+							api_types: ["mlflow/v1/chat/completions"],
+							ai_gateway_v2_supported: true,
 						},
 					},
 				],

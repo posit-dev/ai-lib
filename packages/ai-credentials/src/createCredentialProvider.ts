@@ -17,8 +17,16 @@
  *   null / throws for providers with no device-flow config.
  */
 
-import type { Backend } from "./Backend";
-import type { CredentialProvider, Disposable } from "./CredentialProvider";
+import { AcquisitionEngine } from "./acquisition";
+import type { Backend, MutableBackend } from "./Backend";
+import type {
+	AuthenticationStartResult,
+	CredentialMutation,
+	CredentialProvider,
+	CredentialStatus,
+	Disposable,
+	MutableCredentialProvider,
+} from "./CredentialProvider";
 import { OAuthEngine } from "./device-auth";
 import type { DeviceAuthInfo, Logger, ProviderCredentials } from "./types";
 
@@ -43,12 +51,25 @@ export interface CredentialProviderHandle extends CredentialProvider {
 	dispose(): void;
 }
 
+export interface MutableCredentialProviderHandle
+	extends CredentialProviderHandle, MutableCredentialProvider {}
+
+export function createCredentialProvider(
+	options: CreateCredentialProviderOptions & { backend: MutableBackend },
+): MutableCredentialProviderHandle;
+export function createCredentialProvider(
+	options: CreateCredentialProviderOptions,
+): CredentialProviderHandle;
+
 /** Build a {@link CredentialProvider} over the given backend. */
 export function createCredentialProvider(
 	options: CreateCredentialProviderOptions,
 ): CredentialProviderHandle {
 	const { backend, logger } = options;
 	const engine = backend.oauth ? new OAuthEngine(backend.oauth, logger) : undefined;
+	const acquisition = backend.acquisition
+		? new AcquisitionEngine(backend.acquisition, logger)
+		: undefined;
 
 	async function getAccessToken(providerId: string): Promise<string | null> {
 		if (!engine) return null;
@@ -56,6 +77,10 @@ export function createCredentialProvider(
 	}
 
 	async function getCredentials(providerId: string): Promise<ProviderCredentials | null> {
+		if (acquisition) {
+			const result = await acquisition.getCredentials(providerId);
+			if (result.handled) return result.credentials;
+		}
 		// Device-flow OAuth providers (backend exposes config) resolve through the
 		// engine so refresh is handled. Non-OAuth (and OAuth-via-vscode) defer to
 		// the backend.
@@ -64,6 +89,29 @@ export function createCredentialProvider(
 			return accessToken ? { type: "oauth", accessToken } : null;
 		}
 		return backend.getCredentials(providerId);
+	}
+
+	function startAuthentication(providerId: string): Promise<AuthenticationStartResult> {
+		if (acquisition) return acquisition.startAuthentication(providerId);
+		return startDeviceAuth(providerId).then((info) => ({
+			status: "started" as const,
+			challenge: {
+				kind: "device-code" as const,
+				attemptId: providerId,
+				verificationUri: info.verificationUri,
+				verificationUriComplete: info.verificationUriComplete,
+				userCode: info.userCode,
+				expiresIn: info.expiresIn,
+			},
+		}));
+	}
+
+	function cancelAuthentication(attemptId: string): void {
+		if (acquisition) {
+			acquisition.cancelAuthentication(attemptId);
+			return;
+		}
+		cancelDeviceAuth(attemptId);
 	}
 
 	function startDeviceAuth(providerId: string): Promise<DeviceAuthInfo> {
@@ -85,14 +133,37 @@ export function createCredentialProvider(
 
 	function dispose(): void {
 		engine?.dispose();
+		acquisition?.dispose();
 	}
 
-	return {
+	const result: CredentialProviderHandle = {
 		getCredentials,
+		startAuthentication,
+		cancelAuthentication,
 		getAccessToken,
 		startDeviceAuth,
 		onDidChangeCredentials,
 		cancelDeviceAuth,
 		dispose,
 	};
+
+	if (isMutableBackend(backend)) {
+		const mutable = result as MutableCredentialProviderHandle;
+		mutable.mutateCredentials = async (
+			providerId: string,
+			mutation: CredentialMutation,
+		): Promise<void> => {
+			acquisition?.cancelProvider(providerId, false);
+			await backend.mutateCredentials(providerId, mutation);
+		};
+		mutable.getCredentialStatus = (providerId: string): Promise<CredentialStatus> =>
+			backend.getCredentialStatus(providerId);
+		return mutable;
+	}
+
+	return result;
+}
+
+function isMutableBackend(backend: Backend): backend is MutableBackend {
+	return "mutateCredentials" in backend && "getCredentialStatus" in backend;
 }

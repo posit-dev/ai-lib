@@ -20,7 +20,12 @@
  *   providers resolve through {@link Backend.getCredentials}.
  */
 
-import type { Disposable } from "./CredentialProvider";
+import type {
+	CredentialMutation,
+	CredentialSourceInput,
+	CredentialStatus,
+	Disposable,
+} from "./CredentialProvider";
 import type { ProviderCredentials, TokenData } from "./types";
 
 /**
@@ -38,6 +43,70 @@ export interface OAuthProviderConfig {
 	/** OAuth client id, e.g. `databot`. */
 	clientId: string;
 }
+
+export interface AuthorizationCodeCallback {
+	code?: string;
+	error?: string;
+	errorDescription?: string;
+}
+
+export interface PreparedAuthorizationCodeReceiver {
+	redirectUri: string;
+	waitForCallback(): Promise<AuthorizationCodeCallback>;
+	dispose(): void;
+}
+
+/** Host adapter for a loopback callback (or an in-memory test receiver). */
+export interface AuthorizationCodeReceiver {
+	prepare(input: {
+		attemptId: string;
+		state: string;
+		timeoutMs: number;
+	}): Promise<PreparedAuthorizationCodeReceiver>;
+}
+
+/** Provider-neutral OAuth grant configuration consumed by the acquisition engine. */
+export type OAuthGrantConfig =
+	| {
+			grantType: "device-code";
+			credentialBaseUrl?: string;
+			clientId: string;
+			scope: string;
+			deviceAuthorizationEndpoint: string;
+			tokenEndpoint: string;
+	  }
+	| {
+			grantType: "authorization-code";
+			credentialBaseUrl?: string;
+			clientId: string;
+			scope: string;
+			authorizationEndpoint: string;
+			tokenEndpoint: string;
+			receiver: AuthorizationCodeReceiver;
+			timeoutMs?: number;
+			challengeExpiresIn?: number;
+	  }
+	| {
+			grantType: "client-credentials";
+			credentialBaseUrl?: string;
+			clientId: string;
+			clientSecret: string;
+			scope?: string;
+			tokenEndpoint: string;
+			/** Non-secret identity used for process-memory token caching. */
+			cacheKey: string;
+	  };
+
+export type CredentialSourceContext =
+	| { type: "oauth-device"; origin: "stored" | "implicit" }
+	| { type: "oauth-u2m"; origin: "stored"; workspaceHost: string }
+	| {
+			type: "oauth-m2m";
+			origin: "stored" | "environment";
+			workspaceHost: string;
+			clientId: string;
+			clientSecret: string;
+	  };
 
 /**
  * Currently-stored OAuth tokens for a provider, as read back by the backend.
@@ -98,6 +167,34 @@ export interface OAuthBackendHooks {
 	notifyReady(providerId: string): void;
 }
 
+export type AuthenticationCommitResult = "committed" | "superseded";
+
+/** Durable hooks used by the generalized acquisition engine. */
+export interface AcquisitionBackendHooks {
+	configForProvider(providerId: string): Promise<OAuthGrantConfig | undefined>;
+	readTokens(providerId: string): Promise<StoredOAuthTokens | null>;
+	beginAuthentication(providerId: string): Promise<string>;
+	commitAuthentication(
+		providerId: string,
+		generation: string,
+		tokens: TokenData,
+	): Promise<AuthenticationCommitResult>;
+	finishAuthentication(
+		providerId: string,
+		generation: string,
+		error: string,
+	): Promise<AuthenticationCommitResult>;
+	persistRefreshedTokens(providerId: string, tokens: TokenData): Promise<void>;
+	persistRefreshError(providerId: string, error: string): Promise<void>;
+	withRefreshTransaction<T>(providerId: string, operation: () => Promise<T>): Promise<T>;
+	shapeToken(
+		providerId: string,
+		accessToken: string,
+		config: OAuthGrantConfig,
+	): ProviderCredentials;
+	notifyReady(providerId: string): void;
+}
+
 /**
  * The host-selected credential material seam. See the file header.
  */
@@ -115,4 +212,14 @@ export interface Backend {
 
 	/** OAuth device-flow hooks; absent when the backend has no device flow. */
 	oauth?: OAuthBackendHooks;
+
+	/** Generalized OAuth acquisition hooks used by upgraded store backends. */
+	acquisition?: AcquisitionBackendHooks;
+}
+
+export interface MutableBackend extends Backend {
+	mutateCredentials(providerId: string, mutation: CredentialMutation): Promise<void>;
+	getCredentialStatus(providerId: string): Promise<CredentialStatus>;
+	/** Resolve the active source without exposing its disk representation. */
+	getCredentialSource(providerId: string): Promise<CredentialSourceInput | null>;
 }

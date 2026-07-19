@@ -34,6 +34,8 @@ const tokenDataSchema = z.object({
 	scope: z.string(),
 });
 
+const credentialSourceSchema = z.enum(["api-key", "oauth-device", "oauth-u2m", "oauth-m2m"]);
+
 /**
  * Tolerant Zod schema for a single credential record in data.json.
  *
@@ -48,6 +50,9 @@ export const storedProviderCredentialsSchema = z.object({
 	authenticated: z.boolean().optional(),
 	error: z.string().optional(),
 	metadata: z.record(z.string(), z.unknown()).optional(),
+	generation: z.string().optional(),
+	readiness: z.enum(["pending", "ready", "unauthenticated"]).optional(),
+	source: credentialSourceSchema.optional(),
 
 	// Auth-method-specific fields (only one should be populated)
 	apiKeyAuth: z
@@ -59,9 +64,18 @@ export const storedProviderCredentialsSchema = z.object({
 
 	oauthAuth: z
 		.object({
-			tokenData: tokenDataSchema,
-			expiresAt: z.string(),
-			scope: z.string(),
+			tokenData: tokenDataSchema.optional(),
+			expiresAt: z.string().optional(),
+			scope: z.string().optional(),
+			workspaceHost: z.string().optional(),
+		})
+		.optional(),
+
+	clientCredentialsAuth: z
+		.object({
+			clientId: z.string(),
+			clientSecret: z.string(),
+			workspaceHost: z.string(),
 		})
 		.optional(),
 

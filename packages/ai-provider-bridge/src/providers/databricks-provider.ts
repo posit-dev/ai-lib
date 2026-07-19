@@ -140,6 +140,8 @@ interface ServedEntity {
 interface ServingEndpoint {
 	name?: string;
 	task?: string;
+	/** Requires endpoint-scoped OAuth authorization_details; excluded for now. */
+	route_optimized?: boolean;
 	state?: { ready?: string };
 	config?: { served_entities?: ServedEntity[] };
 }
@@ -194,6 +196,7 @@ export function parseServingEndpointsResponse(data: unknown): ModelInfo[] {
 	const models: ModelInfo[] = [];
 	for (const endpoint of endpoints) {
 		if (!endpoint.name) continue;
+		if (endpoint.route_optimized === true) continue;
 		if (endpoint.state?.ready !== "READY") continue;
 		if (!isChatEndpoint(endpoint)) continue;
 		models.push(toModelInfo(endpoint));
@@ -211,6 +214,7 @@ export function parseFoundationModelsResponse(data: unknown): ModelInfo[] {
 	const models: ModelInfo[] = [];
 	for (const endpoint of endpoints) {
 		if (!endpoint.name) continue;
+		if (endpoint.route_optimized === true) continue;
 		const entities = endpoint.config?.served_entities ?? [];
 		const gatewayChatCapable = entities.some(
 			(entity) =>
