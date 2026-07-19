@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 
 import { normalizeDatabricksWorkspaceHost } from "../databricks-oauth";
+import { normalizeDatabricksHost } from "../types";
 
 describe("Databricks OAuth workspace validation", () => {
 	it("normalizes secure workspace hosts", () => {
@@ -21,4 +22,11 @@ describe("Databricks OAuth workspace validation", () => {
 			);
 		},
 	);
+
+	it("uses the same HTTPS-only parser from the browser-safe types entrypoint", () => {
+		expect(normalizeDatabricksHost("workspace.example.com/path?q=1")).toBe(
+			"https://workspace.example.com",
+		);
+		expect(() => normalizeDatabricksHost("http://workspace.example.com")).toThrow("must use HTTPS");
+	});
 });

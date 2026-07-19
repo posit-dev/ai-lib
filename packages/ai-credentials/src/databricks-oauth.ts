@@ -3,9 +3,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import type { AuthorizationCodeReceiver, OAuthGrantConfig } from "./Backend";
-
-export const DATABRICKS_OAUTH_CLIENT_ID = "databricks-cli";
-export const DATABRICKS_OAUTH_SCOPES = "all-apis offline_access";
+import { normalizeDatabricksHost } from "./types";
 
 export interface DatabricksOidcEndpoints {
 	authorizationEndpoint: string;
@@ -16,16 +14,7 @@ const endpointDiscovery = new Map<string, Promise<DatabricksOidcEndpoints>>();
 
 /** Normalize and validate a workspace URL without retaining path/query fragments. */
 export function normalizeDatabricksWorkspaceHost(raw: string): string {
-	let value = raw.trim();
-	if (!value) throw new Error("Databricks workspace URL is required");
-	if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(value)) value = `https://${value}`;
-	const url = new URL(value);
-	if (url.protocol !== "https:") {
-		throw new Error("Databricks workspace URL must use HTTPS");
-	}
-	if (url.username || url.password)
-		throw new Error("Databricks workspace URL cannot contain credentials");
-	return `${url.protocol}//${url.host}`;
+	return normalizeDatabricksHost(raw);
 }
 
 /** Discover workspace OAuth endpoints, falling back to the documented workspace paths. */
@@ -69,16 +58,16 @@ async function discoverEndpoints(host: string): Promise<DatabricksOidcEndpoints>
 export async function createDatabricksAuthorizationCodeGrant(input: {
 	workspaceHost: string;
 	receiver: AuthorizationCodeReceiver;
-	clientId?: string;
-	scope?: string;
+	clientId: string;
+	scope: string;
 	timeoutMs?: number;
 }): Promise<OAuthGrantConfig> {
 	const endpoints = await discoverDatabricksOidcEndpoints(input.workspaceHost);
 	return {
 		grantType: "authorization-code",
 		credentialBaseUrl: normalizeDatabricksWorkspaceHost(input.workspaceHost),
-		clientId: input.clientId ?? DATABRICKS_OAUTH_CLIENT_ID,
-		scope: input.scope ?? DATABRICKS_OAUTH_SCOPES,
+		clientId: input.clientId,
+		scope: input.scope,
 		authorizationEndpoint: endpoints.authorizationEndpoint,
 		tokenEndpoint: endpoints.tokenEndpoint,
 		receiver: input.receiver,

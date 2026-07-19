@@ -48,8 +48,6 @@ export type {
 export {
 	createDatabricksAuthorizationCodeGrant,
 	createDatabricksClientCredentialsGrant,
-	DATABRICKS_OAUTH_CLIENT_ID,
-	DATABRICKS_OAUTH_SCOPES,
 	discoverDatabricksOidcEndpoints,
 	normalizeDatabricksWorkspaceHost,
 } from "./databricks-oauth";

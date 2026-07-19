@@ -48,7 +48,7 @@ export interface CredentialProviderHandle extends CredentialProvider {
 	 * No-op when the backend has no device flow or no polling is active.
 	 */
 	cancelDeviceAuth(providerId: string): void;
-	dispose(): void;
+	dispose(): Promise<void>;
 }
 
 export interface MutableCredentialProviderHandle
@@ -72,6 +72,14 @@ export function createCredentialProvider(
 		: undefined;
 
 	async function getAccessToken(providerId: string): Promise<string | null> {
+		if (acquisition) {
+			const result = await acquisition.getCredentials(providerId);
+			if (result.handled) {
+				if (result.credentials?.type === "oauth") return result.credentials.accessToken;
+				if (result.credentials?.type === "apikey") return result.credentials.apiKey;
+				return null;
+			}
+		}
 		if (!engine) return null;
 		return engine.getAccessToken(providerId);
 	}
@@ -115,6 +123,7 @@ export function createCredentialProvider(
 	}
 
 	function startDeviceAuth(providerId: string): Promise<DeviceAuthInfo> {
+		if (acquisition) return acquisition.startDeviceAuthentication(providerId);
 		if (!engine) {
 			return Promise.reject(
 				new Error(`OAuth device auth not supported for provider: ${providerId}`),
@@ -128,12 +137,16 @@ export function createCredentialProvider(
 	}
 
 	function cancelDeviceAuth(providerId: string): void {
+		if (acquisition) {
+			acquisition.cancelProvider(providerId);
+			return;
+		}
 		engine?.cancelPolling(providerId);
 	}
 
-	function dispose(): void {
+	async function dispose(): Promise<void> {
 		engine?.dispose();
-		acquisition?.dispose();
+		await acquisition?.dispose();
 	}
 
 	const result: CredentialProviderHandle = {

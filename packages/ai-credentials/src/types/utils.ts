@@ -47,9 +47,15 @@ export function buildSnowflakeCortexUrl(account: string): string {
  * @returns Normalized host (e.g. "https://adb-123.4.azuredatabricks.net")
  */
 export function normalizeDatabricksHost(raw: string): string {
-	let host = raw.trim().replace(/\/+$/, "");
-	if (host && !/^https?:\/\//i.test(host)) {
-		host = `https://${host}`;
+	let value = raw.trim();
+	if (!value) throw new Error("Databricks workspace URL is required");
+	if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(value)) value = `https://${value}`;
+	const url = new URL(value);
+	if (url.protocol !== "https:") {
+		throw new Error("Databricks workspace URL must use HTTPS");
 	}
-	return host;
+	if (url.username || url.password) {
+		throw new Error("Databricks workspace URL cannot contain credentials");
+	}
+	return url.origin;
 }

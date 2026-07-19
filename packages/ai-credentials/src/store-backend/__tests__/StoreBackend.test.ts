@@ -296,6 +296,27 @@ describe("createStoreBackend", () => {
 	});
 
 	describe("Databricks environment source selection", () => {
+		it("rejects an insecure environment M2M workspace without falling back", async () => {
+			const backend = createStoreBackend({
+				store,
+				resolveAuthMethod,
+				oauthConfigForProvider: () => undefined,
+				env: {
+					DATABRICKS_AUTH_TYPE: "oauth-m2m",
+					DATABRICKS_HOST: "http://workspace.test",
+					DATABRICKS_CLIENT_ID: "client",
+					DATABRICKS_CLIENT_SECRET: "secret",
+				},
+			});
+
+			expect(await backend.getCredentials("databricks")).toBeNull();
+			expect(await backend.getCredentialStatus("databricks")).toMatchObject({
+				configured: false,
+				authenticated: false,
+				error: "Databricks workspace URL must use HTTPS",
+			});
+		});
+
 		it("does not report PAT readiness when explicitly selected M2M is incomplete", async () => {
 			const backend = createStoreBackend({
 				store,

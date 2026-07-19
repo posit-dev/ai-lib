@@ -19,7 +19,7 @@ import type {
 } from "../CredentialProvider";
 import type { SingleFileStore } from "../store";
 import type { Logger, ProviderCredentials, TokenData } from "../types";
-import { storageKeyFor } from "../types";
+import { normalizeDatabricksHost, storageKeyFor } from "../types";
 import { resolveCredentialsFromEnv } from "./envCredentialResolver";
 import {
 	storedProviderCredentialsSchema,
@@ -139,13 +139,14 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 			};
 		}
 
-		if (record.oauthAuth && (record.source === undefined || record.source === "oauth-device")) {
+		if (record.source === "oauth-device" || (record.source === undefined && record.oauthAuth)) {
+			const tokenData = record.oauthAuth?.tokenData;
 			return {
-				readiness: readiness ?? (record.oauthAuth.tokenData ? "ready" : "unauthenticated"),
+				readiness: readiness ?? (tokenData ? "ready" : "unauthenticated"),
 				generation: record.generation,
 				source: { type: "oauth-device" },
 				tokens:
-					readiness === "ready" || (readiness === undefined && record.oauthAuth.tokenData)
+					readiness === "ready" || (readiness === undefined && tokenData)
 						? storedTokens(record)
 						: undefined,
 				error: record.error,
@@ -210,6 +211,16 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 			return credentials ? { kind: "credentials", credentials } : { kind: "none" };
 		}
 		if (env.DATABRICKS_CLIENT_ID && env.DATABRICKS_CLIENT_SECRET && env.DATABRICKS_HOST) {
+			let workspaceHost: string;
+			try {
+				workspaceHost = normalizeDatabricksHost(env.DATABRICKS_HOST);
+			} catch (error) {
+				return {
+					kind: "incomplete-oauth-m2m",
+					workspaceHost: env.DATABRICKS_HOST,
+					error: error instanceof Error ? error.message : "Invalid Databricks workspace URL",
+				};
+			}
 			return {
 				kind: "oauth-m2m",
 				source: {
@@ -217,7 +228,7 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 					origin: "environment",
 					clientId: env.DATABRICKS_CLIENT_ID,
 					clientSecret: env.DATABRICKS_CLIENT_SECRET,
-					workspaceHost: env.DATABRICKS_HOST,
+					workspaceHost,
 				},
 			};
 		}

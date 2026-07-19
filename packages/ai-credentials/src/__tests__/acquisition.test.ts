@@ -13,6 +13,7 @@ import type {
 	AuthorizationCodeReceiver,
 	CredentialSourceContext,
 	OAuthGrantConfig,
+	OAuthProviderConfig,
 	PreparedAuthorizationCodeReceiver,
 } from "../Backend";
 import { createCredentialProvider } from "../createCredentialProvider";
@@ -71,12 +72,18 @@ describe("generalized store-backed acquisition", () => {
 			store,
 			env,
 			generationFactory: () => `generation-${++generations}`,
-			resolveAuthMethod: (providerId) =>
-				providerId === "databricks" ? { authMethodId: "apikey" } : undefined,
+			resolveAuthMethod: (providerId) => {
+				if (providerId === "databricks") return { authMethodId: "apikey" };
+				if (providerId === "positai") return { authMethodId: "oauth" };
+				return undefined;
+			},
 			oauthConfigForProvider: (
-				_providerId: string,
+				providerId: string,
 				source?: CredentialSourceContext,
-			): OAuthGrantConfig | undefined => {
+			): OAuthGrantConfig | OAuthProviderConfig | undefined => {
+				if (providerId === "positai") {
+					return { authHost: "auth.test", clientId: "posit-ai", scope: "prism" };
+				}
 				if (source?.type === "oauth-u2m") {
 					return {
 						grantType: "authorization-code",
@@ -278,5 +285,127 @@ describe("generalized store-backed acquisition", () => {
 			});
 		});
 		expect(await firstProcess.getCredentials("databricks")).toMatchObject({ apiKey: "current" });
+	});
+
+	describe("Posit AI device authentication through the store backend", () => {
+		beforeEach(() => vi.useFakeTimers());
+		afterEach(() => vi.useRealTimers());
+
+		function deviceCodeResponse(): Response {
+			return ok({
+				user_code: "WXYZ",
+				verification_uri: "https://auth.test/device",
+				verification_uri_complete: "https://auth.test/device?code=WXYZ",
+				device_code: "device-code",
+				interval: 1,
+				expires_in: 900,
+			});
+		}
+
+		it("commits success and records cancellation and errors as terminal generations", async () => {
+			const provider = createProvider();
+			const fetchMock = vi
+				.fn()
+				.mockResolvedValueOnce(deviceCodeResponse())
+				.mockResolvedValueOnce(
+					ok({
+						access_token: "posit-access",
+						refresh_token: "posit-refresh",
+						expires_in: 3600,
+						token_type: "Bearer",
+						scope: "prism",
+					}),
+				);
+			vi.stubGlobal("fetch", fetchMock);
+
+			const successful = await provider.startAuthentication("positai");
+			expect(successful.status).toBe("started");
+			await vi.advanceTimersByTimeAsync(1000);
+			await vi.waitFor(async () => {
+				expect(await provider.getCredentials("positai")).toEqual({
+					type: "oauth",
+					accessToken: "posit-access",
+				});
+			});
+
+			fetchMock.mockResolvedValueOnce(deviceCodeResponse());
+			const cancelled = await provider.startAuthentication("positai");
+			if (cancelled.status !== "started") throw new Error("Expected authentication to start");
+			provider.cancelAuthentication(cancelled.challenge.attemptId);
+			await vi.waitFor(async () => {
+				expect(await store.get<StoredProviderCredentials>("auth:positai:oauth")).toMatchObject({
+					readiness: "unauthenticated",
+					error: "cancelled",
+				});
+			});
+
+			fetchMock.mockResolvedValueOnce(deviceCodeResponse()).mockResolvedValueOnce(
+				new Response(JSON.stringify({ error: "access_denied" }), {
+					status: 400,
+					headers: { "Content-Type": "application/json" },
+				}),
+			);
+			await provider.startAuthentication("positai");
+			await vi.advanceTimersByTimeAsync(1000);
+			await vi.waitFor(async () => {
+				expect(await store.get<StoredProviderCredentials>("auth:positai:oauth")).toMatchObject({
+					readiness: "unauthenticated",
+					error: "access_denied",
+				});
+			});
+		});
+
+		it("shares one attempt across generic and compatibility surfaces", async () => {
+			const provider = createProvider();
+			vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(deviceCodeResponse()));
+
+			await provider.startDeviceAuth("positai");
+			expect(await provider.startAuthentication("positai")).toEqual({
+				status: "already-in-progress",
+			});
+			provider.cancelDeviceAuth("positai");
+			await provider.dispose();
+		});
+
+		it("does not let compatibility polling resurrect credentials after clear", async () => {
+			const provider = createProvider();
+			const fetchMock = vi
+				.fn()
+				.mockResolvedValueOnce(deviceCodeResponse())
+				.mockResolvedValueOnce(
+					ok({
+						access_token: "stale",
+						refresh_token: "stale-refresh",
+						expires_in: 3600,
+						token_type: "Bearer",
+						scope: "prism",
+					}),
+				);
+			vi.stubGlobal("fetch", fetchMock);
+
+			await provider.startDeviceAuth("positai");
+			await provider.mutateCredentials("positai", { kind: "clear" });
+			await vi.advanceTimersByTimeAsync(5000);
+			expect(fetchMock).toHaveBeenCalledOnce();
+			expect(await provider.getCredentials("positai")).toBeNull();
+			expect(await store.get<StoredProviderCredentials>("auth:positai:oauth")).toMatchObject({
+				readiness: "unauthenticated",
+				configured: false,
+			});
+			await provider.dispose();
+		});
+
+		it("durably terminates pending authentication during graceful disposal", async () => {
+			const provider = createProvider();
+			vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(deviceCodeResponse()));
+			await provider.startAuthentication("positai");
+
+			await provider.dispose();
+
+			expect(await store.get<StoredProviderCredentials>("auth:positai:oauth")).toMatchObject({
+				readiness: "unauthenticated",
+				error: "cancelled",
+			});
+		});
 	});
 });

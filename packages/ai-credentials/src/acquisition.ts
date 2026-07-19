@@ -9,7 +9,7 @@ import type {
 	StoredOAuthTokens,
 } from "./Backend";
 import type { AuthenticationStartResult } from "./CredentialProvider";
-import type { Logger, ProviderCredentials, TokenData } from "./types";
+import type { DeviceAuthInfo, Logger, ProviderCredentials, TokenData } from "./types";
 
 interface TokenResponse {
 	access_token?: unknown;
@@ -25,6 +25,12 @@ interface ActiveAttempt {
 	generation: string;
 	controller: AbortController;
 	receiver?: PreparedAuthorizationCodeReceiver;
+	terminalPromise?: Promise<void>;
+}
+
+interface DeviceAuthenticationStart {
+	result: AuthenticationStartResult;
+	info: DeviceAuthInfo;
 }
 
 const DEFAULT_AUTHORIZATION_TIMEOUT_MS = 5 * 60 * 1000;
@@ -37,6 +43,10 @@ export class AcquisitionEngine {
 	private readonly refreshPromises = new Map<string, Promise<ProviderCredentials | null>>();
 	private readonly clientCredentialTokens = new Map<string, StoredOAuthTokens>();
 	private readonly refreshJitterMinutes = 4 + Math.random() * 2;
+	private readonly startPromises = new Set<Promise<unknown>>();
+	private readonly terminalPromises = new Set<Promise<void>>();
+	private disposed = false;
+	private disposalPromise: Promise<void> | undefined;
 
 	constructor(
 		private readonly hooks: AcquisitionBackendHooks,
@@ -65,21 +75,52 @@ export class AcquisitionEngine {
 		return { handled: true, credentials: await this.refreshStored(providerId, config) };
 	}
 
-	async startAuthentication(providerId: string): Promise<AuthenticationStartResult> {
+	startAuthentication(providerId: string): Promise<AuthenticationStartResult> {
+		if (this.disposed) return Promise.reject(new Error("Credential provider is disposed"));
 		if (this.activeByProvider.has(providerId) || this.startingProviders.has(providerId)) {
-			return { status: "already-in-progress" };
+			return Promise.resolve({ status: "already-in-progress" });
 		}
 		this.startingProviders.add(providerId);
+		const start = this.startReserved(providerId, false).then((value) => value.result);
+		return this.trackStart(providerId, start);
+	}
 
+	startDeviceAuthentication(providerId: string): Promise<DeviceAuthInfo> {
+		if (this.disposed) return Promise.reject(new Error("Credential provider is disposed"));
+		if (this.activeByProvider.has(providerId) || this.startingProviders.has(providerId)) {
+			return Promise.reject(new Error(`Authentication is already in progress for ${providerId}`));
+		}
+		this.startingProviders.add(providerId);
+		const start = this.startReserved(providerId, true).then((value) => {
+			if (!value.device) {
+				throw new Error(`OAuth device auth not supported for provider: ${providerId}`);
+			}
+			return value.device.info;
+		});
+		return this.trackStart(providerId, start);
+	}
+
+	private async startReserved(
+		providerId: string,
+		deviceOnly: boolean,
+	): Promise<{ result: AuthenticationStartResult; device?: DeviceAuthenticationStart }> {
 		let attempt: ActiveAttempt | undefined;
 		try {
 			const config = await this.hooks.configForProvider(providerId);
+			if (this.disposed) throw new Error("Credential provider is disposed");
 			if (!config || config.grantType === "client-credentials") {
 				throw new Error(`Interactive authentication is not supported for provider: ${providerId}`);
+			}
+			if (deviceOnly && config.grantType !== "device-code") {
+				throw new Error(`OAuth device auth not supported for provider: ${providerId}`);
 			}
 
 			const attemptId = randomOpaque(16);
 			const generation = await this.hooks.beginAuthentication(providerId);
+			if (this.disposed) {
+				await this.hooks.finishAuthentication(providerId, generation, "cancelled");
+				throw new Error("Credential provider is disposed");
+			}
 			attempt = {
 				attemptId,
 				providerId,
@@ -88,17 +129,15 @@ export class AcquisitionEngine {
 			};
 			this.activeByProvider.set(providerId, attempt);
 			this.activeById.set(attemptId, attempt);
-			this.startingProviders.delete(providerId);
 
 			if (config.grantType === "device-code") {
-				return await this.startDeviceCode(attempt, config);
+				const device = await this.startDeviceCode(attempt, config);
+				return { result: device.result, device };
 			}
-			return await this.startAuthorizationCode(attempt, config);
+			return { result: await this.startAuthorizationCode(attempt, config) };
 		} catch (error) {
-			this.startingProviders.delete(providerId);
 			if (attempt) {
-				this.removeAttempt(attempt);
-				await this.hooks.finishAuthentication(providerId, attempt.generation, errorCode(error));
+				await this.terminateAttempt(attempt, errorCode(error));
 			}
 			throw error;
 		}
@@ -107,35 +146,39 @@ export class AcquisitionEngine {
 	cancelAuthentication(attemptId: string): void {
 		const attempt = this.activeById.get(attemptId);
 		if (!attempt) return;
-		attempt.controller.abort();
-		attempt.receiver?.dispose();
-		this.removeAttempt(attempt);
-		void this.hooks.finishAuthentication(attempt.providerId, attempt.generation, "cancelled");
+		void this.terminateAttempt(attempt, "cancelled");
 	}
 
 	cancelProvider(providerId: string, persistTerminal = true): void {
 		const attempt = this.activeByProvider.get(providerId);
 		if (!attempt) return;
-		attempt.controller.abort();
-		attempt.receiver?.dispose();
-		this.removeAttempt(attempt);
 		if (persistTerminal) {
-			void this.hooks.finishAuthentication(providerId, attempt.generation, "cancelled");
-		}
-	}
-
-	dispose(): void {
-		for (const attempt of [...this.activeById.values()]) {
+			void this.terminateAttempt(attempt, "cancelled");
+		} else {
 			attempt.controller.abort();
 			attempt.receiver?.dispose();
 			this.removeAttempt(attempt);
 		}
 	}
 
+	dispose(): Promise<void> {
+		if (this.disposalPromise) return this.disposalPromise;
+		this.disposed = true;
+		const terminalWrites = [...this.activeById.values()].map((attempt) =>
+			this.terminateAttempt(attempt, "cancelled"),
+		);
+		this.disposalPromise = Promise.allSettled([
+			...this.startPromises,
+			...this.terminalPromises,
+			...terminalWrites,
+		]).then(() => undefined);
+		return this.disposalPromise;
+	}
+
 	private async startDeviceCode(
 		attempt: ActiveAttempt,
 		config: Extract<OAuthGrantConfig, { grantType: "device-code" }>,
-	): Promise<AuthenticationStartResult> {
+	): Promise<DeviceAuthenticationStart> {
 		const response = await postForm(
 			config.deviceAuthorizationEndpoint,
 			{
@@ -160,13 +203,23 @@ export class AcquisitionEngine {
 		});
 
 		return {
-			status: "started",
-			challenge: {
-				kind: "device-code",
-				attemptId: attempt.attemptId,
+			result: {
+				status: "started",
+				challenge: {
+					kind: "device-code",
+					attemptId: attempt.attemptId,
+					verificationUri,
+					verificationUriComplete,
+					userCode,
+					expiresIn,
+				},
+			},
+			info: {
 				verificationUri,
 				verificationUriComplete,
 				userCode,
+				deviceCode,
+				interval,
 				expiresIn,
 			},
 		};
@@ -391,6 +444,32 @@ export class AcquisitionEngine {
 
 	private isCurrent(attempt: ActiveAttempt): boolean {
 		return this.activeById.get(attempt.attemptId) === attempt;
+	}
+
+	private trackStart<T>(providerId: string, start: Promise<T>): Promise<T> {
+		this.startPromises.add(start);
+		return start.finally(() => {
+			this.startPromises.delete(start);
+			this.startingProviders.delete(providerId);
+		});
+	}
+
+	private terminateAttempt(attempt: ActiveAttempt, error: string): Promise<void> {
+		attempt.controller.abort();
+		attempt.receiver?.dispose();
+		this.removeAttempt(attempt);
+		if (!attempt.terminalPromise) {
+			const terminalPromise = this.hooks
+				.finishAuthentication(attempt.providerId, attempt.generation, error)
+				.then(() => undefined);
+			attempt.terminalPromise = terminalPromise;
+			this.terminalPromises.add(terminalPromise);
+			void terminalPromise.then(
+				() => this.terminalPromises.delete(terminalPromise),
+				() => this.terminalPromises.delete(terminalPromise),
+			);
+		}
+		return attempt.terminalPromise;
 	}
 
 	private removeAttempt(attempt: ActiveAttempt): void {

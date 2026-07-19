@@ -8,27 +8,26 @@ package: ai-credentials
 
 ## Overview
 
-`ai-credentials` provides browser-safe credential types and shaping logic, plus
-a generic typed key-value secret store for disk persistence. It serves as the
-single source of truth for credential interfaces (`ProviderCredentials`,
-`ApiKeyCredentials`, etc.) and the `shapeCredentials()` function that transforms
-raw auth tokens into provider-ready credential objects.
+`ai-credentials` provides browser-safe credential types and shaping logic, a
+provider-neutral OAuth acquisition controller, a generic typed key-value secret
+store, and a credential-aware store backend. It is the single source of truth
+for runtime credential interfaces and for the generation protocol that prevents
+stale OAuth completions from resurrecting replaced credentials.
 
-It is a **leaf** package: it imports nothing from `ai-config`,
-`ai-provider-bridge`, or any host application, and the two sibling packages do
-not import it (they re-export from it). Its only runtime dependencies are
-`chokidar` (watching) and `proper-lockfile` (cross-process locking), used by the
-`/store` entrypoint. The `/types` entrypoint is fully browser-safe with zero
-platform dependencies.
+It imports nothing from `ai-config`, `ai-provider-bridge`, or any host
+application. The pure root and `/types` entrypoints remain browser-safe;
+platform dependencies are isolated to `/store`, `/store-backend`, and
+`/positron`.
 
 ## Entrypoints
 
 | Entrypoint                | Purpose                                                                           | Browser-safe? |
 | ------------------------- | --------------------------------------------------------------------------------- | ------------- |
-| `ai-credentials`          | Stub root entry (Phase 4: CredentialProvider interface + factory)                 | Yes           |
+| `ai-credentials`          | CredentialProvider factory, unified acquisition controller, OAuth helpers         | Yes           |
 | `ai-credentials/types`    | Credential interfaces, `shapeCredentials()`, `AuthProviderMapping`, `Logger`      | **Yes**       |
 | `ai-credentials/store`    | `SingleFileStore` class, `createDefaultStore`, `getDefaultStorePath`, store types | No (Node FS)  |
-| `ai-credentials/positron` | Stub entry (Phase 4: vscode.authentication backend)                               | N/A           |
+| `ai-credentials/store-backend` | Credential-aware store/env resolver, disk schema, transactions              | No (Node FS)  |
+| `ai-credentials/positron` | `vscode.authentication` backend                                                    | No (VS Code)  |
 
 ### `/types` — Browser-safe credential types and shaping
 
@@ -53,10 +52,10 @@ The store entrypoint provides a typed key-value store backed by a single JSON
 file on disk. It is built for small amounts of sensitive data (credentials,
 OAuth tokens, API keys).
 
-**The store owns where and how bytes hit disk; it does not own credential
-meaning.** OAuth semantics, provider grouping, and auth status stay with the
-caller. Values are fully generic — callers supply their own types via method
-type parameters.
+**The generic `/store` entrypoint owns where and how bytes hit disk; it does not
+own credential meaning.** The separate `/store-backend` entrypoint owns tolerant
+credential parsing, source normalization, environment precedence, status, and
+compare-and-commit OAuth transactions. Values in `/store` remain fully generic.
 
 ```ts
 import { createDefaultStore, getDefaultStorePath } from "ai-credentials/store";
@@ -178,8 +177,10 @@ directories (`0o700`) and an empty `{}` file (`0o600`).
 | `src/store/SingleFileStore.ts`    | The store: read/write/lock/watch + private helpers (`writeStore`, `readStore`, `withWriteLock`, `ensureFileExists`, `ensurePermissions`) |
 | `src/store/defaults.ts`           | `getDefaultStorePath()` and `createDefaultStore()` — canonical default path convention                                                   |
 | `src/store/index.ts`              | `/store` entrypoint exports                                                                                                              |
-| `src/index.ts`                    | Root entrypoint (stub for Phase 4)                                                                                                       |
-| `src/positron/index.ts`           | `/positron` entrypoint (stub for Phase 4)                                                                                                |
+| `src/index.ts`                    | Root CredentialProvider/acquisition entrypoint                                                                                           |
+| `src/acquisition.ts`              | Unified device-code, PKCE, M2M, refresh, cancellation, and awaited disposal controller                                                  |
+| `src/store-backend/`              | Credential disk schema, store/env resolution, normalization, generation transactions, and status                                       |
+| `src/positron/index.ts`           | `/positron` vscode.authentication backend                                                                                                |
 
 ## Invariants & Design Decisions
 
