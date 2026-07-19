@@ -20,8 +20,7 @@ export function normalizeDatabricksWorkspaceHost(raw: string): string {
 	if (!value) throw new Error("Databricks workspace URL is required");
 	if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(value)) value = `https://${value}`;
 	const url = new URL(value);
-	const isLoopback = url.hostname === "127.0.0.1" || url.hostname === "localhost";
-	if (url.protocol !== "https:" && !(url.protocol === "http:" && isLoopback)) {
+	if (url.protocol !== "https:") {
 		throw new Error("Databricks workspace URL must use HTTPS");
 	}
 	if (url.username || url.password)

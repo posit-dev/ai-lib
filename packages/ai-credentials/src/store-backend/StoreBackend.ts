@@ -148,6 +148,7 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 					readiness === "ready" || (readiness === undefined && record.oauthAuth.tokenData)
 						? storedTokens(record)
 						: undefined,
+				error: record.error,
 			};
 		}
 
@@ -179,24 +180,56 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 		return normalize(await readRecord(providerId));
 	}
 
-	function databricksEnvironmentSource(): Extract<
-		CredentialSourceContext,
-		{ type: "oauth-m2m" }
-	> | null {
+	type EnvironmentResolution =
+		| {
+				kind: "credentials";
+				credentials: ProviderCredentials;
+		  }
+		| {
+				kind: "oauth-m2m";
+				source: Extract<CredentialSourceContext, { type: "oauth-m2m" }>;
+		  }
+		| {
+				kind: "incomplete-oauth-m2m";
+				workspaceHost?: string;
+				error: string;
+		  }
+		| { kind: "none" };
+
+	function environmentResolution(providerId: string): EnvironmentResolution {
 		const env = currentEnvironment();
+		if (providerId !== "databricks") {
+			const credentials = resolveCredentialsFromEnv(providerId, env);
+			return credentials ? { kind: "credentials", credentials } : { kind: "none" };
+		}
+
 		const token = env.DATABRICKS_TOKEN;
 		const explicitlyM2m = env.DATABRICKS_AUTH_TYPE === "oauth-m2m";
-		if (token && !explicitlyM2m) return null;
+		if (token && !explicitlyM2m) {
+			const credentials = resolveCredentialsFromEnv(providerId, env);
+			return credentials ? { kind: "credentials", credentials } : { kind: "none" };
+		}
 		if (env.DATABRICKS_CLIENT_ID && env.DATABRICKS_CLIENT_SECRET && env.DATABRICKS_HOST) {
 			return {
-				type: "oauth-m2m",
-				origin: "environment",
-				clientId: env.DATABRICKS_CLIENT_ID,
-				clientSecret: env.DATABRICKS_CLIENT_SECRET,
-				workspaceHost: env.DATABRICKS_HOST,
+				kind: "oauth-m2m",
+				source: {
+					type: "oauth-m2m",
+					origin: "environment",
+					clientId: env.DATABRICKS_CLIENT_ID,
+					clientSecret: env.DATABRICKS_CLIENT_SECRET,
+					workspaceHost: env.DATABRICKS_HOST,
+				},
 			};
 		}
-		return null;
+		if (explicitlyM2m) {
+			return {
+				kind: "incomplete-oauth-m2m",
+				workspaceHost: env.DATABRICKS_HOST,
+				error:
+					"Databricks OAuth M2M requires DATABRICKS_HOST, DATABRICKS_CLIENT_ID, and DATABRICKS_CLIENT_SECRET",
+			};
+		}
+		return { kind: "none" };
 	}
 
 	async function sourceContext(providerId: string): Promise<CredentialSourceContext | undefined> {
@@ -213,7 +246,10 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 			}
 			return undefined;
 		}
-		if (providerId === "databricks") return databricksEnvironmentSource() ?? undefined;
+		if (providerId === "databricks") {
+			const environment = environmentResolution(providerId);
+			return environment.kind === "oauth-m2m" ? environment.source : undefined;
+		}
 		if (resolveAuthMethod(providerId)?.authMethodId === "oauth") {
 			return { type: "oauth-device", origin: "implicit" };
 		}
@@ -258,13 +294,8 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 					return null;
 			}
 		}
-		if (
-			providerId === "databricks" &&
-			(databricksEnvironmentSource() || currentEnvironment().DATABRICKS_AUTH_TYPE === "oauth-m2m")
-		) {
-			return null;
-		}
-		return resolveCredentialsFromEnv(providerId, currentEnvironment());
+		const environment = environmentResolution(providerId);
+		return environment.kind === "credentials" ? environment.credentials : null;
 	}
 
 	async function mutateCredentials(
@@ -310,25 +341,37 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 				metadata,
 			};
 		}
-		const envM2m = providerId === "databricks" ? databricksEnvironmentSource() : null;
-		if (envM2m) {
+		const environment = environmentResolution(providerId);
+		if (environment.kind === "oauth-m2m") {
 			return {
 				configured: true,
 				authenticated: true,
 				readiness: "ready",
 				source: "oauth-m2m",
 				origin: "environment",
-				metadata: { workspaceHost: envM2m.workspaceHost },
+				metadata: { workspaceHost: environment.source.workspaceHost },
 			};
 		}
-		const envCredentials = resolveCredentialsFromEnv(providerId, currentEnvironment());
-		if (envCredentials) {
+		if (environment.kind === "credentials") {
 			return {
 				configured: true,
 				authenticated: true,
 				readiness: "ready",
 				source: "api-key",
 				origin: "environment",
+			};
+		}
+		if (environment.kind === "incomplete-oauth-m2m") {
+			return {
+				configured: false,
+				authenticated: false,
+				readiness: "unauthenticated",
+				source: "oauth-m2m",
+				origin: "environment",
+				error: environment.error,
+				metadata: environment.workspaceHost
+					? { workspaceHost: environment.workspaceHost }
+					: undefined,
 			};
 		}
 		return {
@@ -444,11 +487,9 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 		config: OAuthGrantConfig,
 	): ProviderCredentials {
 		const descriptor = resolveAuthMethod(providerId);
-		const sourcePromise = sourceContext(providerId);
 		// shapeToken is intentionally synchronous. The source was already resolved
 		// by configForProvider, so provider-specific shaping can be derived from the
 		// descriptor/config. Databricks baseUrl is attached by Node's catalog merge.
-		void sourcePromise;
 		if (shapeToken) {
 			// Custom shapers that need the source should encode its non-secret identity
 			// in the resolved grant configuration. Keep secrets out of errors/logs.

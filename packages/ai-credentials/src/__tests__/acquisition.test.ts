@@ -104,7 +104,7 @@ describe("generalized store-backed acquisition", () => {
 		return createCredentialProvider({ backend });
 	}
 
-	it("completes authorization-code PKCE and rejects a second local start", async () => {
+	it("completes authorization-code PKCE and rejects a genuinely concurrent local start", async () => {
 		const provider = createProvider();
 		await provider.mutateCredentials("databricks", {
 			kind: "replace",
@@ -123,9 +123,12 @@ describe("generalized store-backed acquisition", () => {
 			),
 		);
 
-		const started = await provider.startAuthentication("databricks");
+		const [started, concurrent] = await Promise.all([
+			provider.startAuthentication("databricks"),
+			provider.startAuthentication("databricks"),
+		]);
 		expect(started.status).toBe("started");
-		expect(await provider.startAuthentication("databricks")).toEqual({
+		expect(concurrent).toEqual({
 			status: "already-in-progress",
 		});
 		const pending = await store.get<StoredProviderCredentials>("auth:databricks:apikey");

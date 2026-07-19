@@ -33,6 +33,7 @@ const DEFAULT_AUTHORIZATION_TIMEOUT_MS = 5 * 60 * 1000;
 export class AcquisitionEngine {
 	private readonly activeByProvider = new Map<string, ActiveAttempt>();
 	private readonly activeById = new Map<string, ActiveAttempt>();
+	private readonly startingProviders = new Set<string>();
 	private readonly refreshPromises = new Map<string, Promise<ProviderCredentials | null>>();
 	private readonly clientCredentialTokens = new Map<string, StoredOAuthTokens>();
 	private readonly refreshJitterMinutes = 4 + Math.random() * 2;
@@ -65,32 +66,40 @@ export class AcquisitionEngine {
 	}
 
 	async startAuthentication(providerId: string): Promise<AuthenticationStartResult> {
-		if (this.activeByProvider.has(providerId)) return { status: "already-in-progress" };
-
-		const config = await this.hooks.configForProvider(providerId);
-		if (!config || config.grantType === "client-credentials") {
-			throw new Error(`Interactive authentication is not supported for provider: ${providerId}`);
+		if (this.activeByProvider.has(providerId) || this.startingProviders.has(providerId)) {
+			return { status: "already-in-progress" };
 		}
+		this.startingProviders.add(providerId);
 
-		const attemptId = randomOpaque(16);
-		const generation = await this.hooks.beginAuthentication(providerId);
-		const attempt: ActiveAttempt = {
-			attemptId,
-			providerId,
-			generation,
-			controller: new AbortController(),
-		};
-		this.activeByProvider.set(providerId, attempt);
-		this.activeById.set(attemptId, attempt);
-
+		let attempt: ActiveAttempt | undefined;
 		try {
+			const config = await this.hooks.configForProvider(providerId);
+			if (!config || config.grantType === "client-credentials") {
+				throw new Error(`Interactive authentication is not supported for provider: ${providerId}`);
+			}
+
+			const attemptId = randomOpaque(16);
+			const generation = await this.hooks.beginAuthentication(providerId);
+			attempt = {
+				attemptId,
+				providerId,
+				generation,
+				controller: new AbortController(),
+			};
+			this.activeByProvider.set(providerId, attempt);
+			this.activeById.set(attemptId, attempt);
+			this.startingProviders.delete(providerId);
+
 			if (config.grantType === "device-code") {
 				return await this.startDeviceCode(attempt, config);
 			}
 			return await this.startAuthorizationCode(attempt, config);
 		} catch (error) {
-			this.removeAttempt(attempt);
-			await this.hooks.finishAuthentication(providerId, generation, errorCode(error));
+			this.startingProviders.delete(providerId);
+			if (attempt) {
+				this.removeAttempt(attempt);
+				await this.hooks.finishAuthentication(providerId, attempt.generation, errorCode(error));
+			}
 			throw error;
 		}
 	}
