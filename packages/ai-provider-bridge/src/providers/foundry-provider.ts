@@ -9,7 +9,7 @@ import type { ProviderRegistry } from "./ProviderRegistry";
 
 const FOUNDRY_MODEL: ModelInfo = {
 	id: "model-router",
-	name: "Microsoft Foundry",
+	name: "Model Router",
 	providerId: "ms-foundry",
 	vendor: "ms-foundry",
 	supportsTools: true,
