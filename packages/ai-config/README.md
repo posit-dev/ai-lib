@@ -101,11 +101,11 @@ The **deep resolver seam** — the one place that owns the entire precedence sta
 function resolveProviderCatalog(opts: {
   sources: readonly ProviderConfigSource[]; // any order — ranked by `kind`
   baseline: PlatformBaseline;
-  envVars?: Record<string, string | undefined>; // non-secret connection overlay (default {})
+  envVars?: Record<string, string | undefined>; // non-secret connection source ranked below enforced (default {})
 }): readonly ResolvedProvider[];
 ```
 
-A `ProviderConfigSource` declares _what it is_ via `kind`, not _where it sits_. The resolver maps each kind to a fixed rank, highest → lowest: **`enforced` > `user` > `host` > `default`**, with the `PlatformBaseline` beneath all sources. The `enforced` layer is a **sealed overlay** — no lower source can overwrite an enforced key (a correctness invariant). Object fields deep-merge per leaf-key; `allow`/`deny` arrays wholesale-replace.
+A `ProviderConfigSource` declares _what it is_ via `kind`, not _where it sits_. The resolver maps each kind to a fixed rank, highest → lowest: **`enforced` > connection env > `user` > `host` > `default`**, with the `PlatformBaseline` beneath all sources. The `enforced` layer is a **sealed overlay** — no lower source can overwrite an enforced key (a correctness invariant). Connection env vars (from `envVars`) are converted into a resolver-owned source ranked below `enforced` but above `user`, so admin pins always win while env vars still override file-based config. Object fields deep-merge per leaf-key; `allow`/`deny` arrays wholesale-replace.
 
 `mergeEnforced` (two-layer) and `mergeConfigFragments` (layered) remain exported as the low-level merge primitives, but consumers should assemble sources and call `resolveProviderCatalog` rather than merging by hand.
 
@@ -186,15 +186,15 @@ const catalog = await loadResolvedProviderCatalog({
 
 `LoadCatalogOptions`:
 
-| Field                 | Description                                                                                                                                    |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `baseline` (required) | `PlatformBaseline` — enablement defaults for this platform.                                                                                    |
-| `configPath?`         | Override the file path (testing).                                                                                                              |
-| `enforcedEnvVar?`     | Override the enforced env-var name (defaults to `POSIT_AI_PROVIDERS_ENFORCED`; testing).                                                       |
-| `defaultEnvVar?`      | Override the defaults env-var name (defaults to `POSIT_AI_PROVIDERS_DEFAULT`; testing).                                                        |
-| `envVars?`            | Source for the non-secret connection overlay **and** the enforced/default fragment env vars (defaults to `process.env`).                       |
-| `additionalSources?`  | Extra watchable `ProviderConfigSourceProvider`s (e.g. a Positron `authentication.*` `host` source). Folded into both the load and watch paths. |
-| `logger?`             | `LoggerLike` for diagnostics/validation warnings.                                                                                              |
+| Field                 | Description                                                                                                                                                                                        |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `baseline` (required) | `PlatformBaseline` — enablement defaults for this platform.                                                                                                                                        |
+| `configPath?`         | Override the file path (testing).                                                                                                                                                                  |
+| `enforcedEnvVar?`     | Override the enforced env-var name (defaults to `POSIT_AI_PROVIDERS_ENFORCED`; testing).                                                                                                           |
+| `defaultEnvVar?`      | Override the defaults env-var name (defaults to `POSIT_AI_PROVIDERS_DEFAULT`; testing).                                                                                                            |
+| `envVars?`            | Source for non-secret connection env vars (converted into a resolver-owned source ranked below `enforced`) **and** for reading the enforced/default fragment env vars (defaults to `process.env`). |
+| `additionalSources?`  | Extra watchable `ProviderConfigSourceProvider`s (e.g. a Positron `authentication.*` `host` source). Folded into both the load and watch paths.                                                     |
+| `logger?`             | `LoggerLike` for diagnostics/validation warnings.                                                                                                                                                  |
 
 #### `mutateProvidersConfig(mutator, opts?): Promise<void>`
 
@@ -272,7 +272,7 @@ sub.dispose();
 Config flows through **assemble sources → resolve → watch**:
 
 1. **Assemble sources**: the node seam reads the user file (missing → `{}`, validated against `providersConfigSchema`), the enforced fragment from `POSIT_AI_PROVIDERS_ENFORCED`, and the defaults fragment from `POSIT_AI_PROVIDERS_DEFAULT` (both validated against the relaxed `enforcedProvidersConfigSchema`), plus any `additionalSources` (e.g. a Positron `authentication.*` `host` source). Each becomes a `ProviderConfigSource` tagged with its `kind`.
-2. **Resolve** (`resolveProviderCatalog`): rank the sources by kind (`enforced` > `user` > `host` > `default`), fold them low → high so the sealed `enforced` overlay can never be overwritten, apply the `PlatformBaseline` beneath, and build `ResolvedProvider[]` — objects deep-merge per leaf-key, `allow`/`deny` arrays wholesale-replace, and a non-secret env-var overlay applies on top.
+2. **Resolve** (`resolveProviderCatalog`): rank the sources by kind (`enforced` > connection env > `user` > `host` > `default`), fold them low → high so the sealed `enforced` overlay can never be overwritten, apply the `PlatformBaseline` beneath, and build `ResolvedProvider[]` — objects deep-merge per leaf-key, `allow`/`deny` arrays wholesale-replace. Connection env vars are a resolver-owned source below `enforced`, not a post-resolution overlay.
 3. **Watch** (`watchResolvedProviderCatalog`): debounced (~300ms), ancestor-aware watch over **every** source (file via `fs.watch`; host sources emit their own change signals; env sources are static) that re-resolves, diffs against the previous catalog, and emits a typed change only when something actually changed.
 
 The read path **degrades gracefully**: malformed or missing files log a warning and fall back rather than throwing.

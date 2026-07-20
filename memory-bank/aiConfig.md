@@ -126,7 +126,8 @@ Config flows through three stages: **assemble sources → resolve → watch**. P
    so the sealed `enforced` overlay can never be overwritten, apply the
    `PlatformBaseline` beneath, and build `ResolvedProvider[]` via `build-catalog.ts`.
    Objects deep-merge per leaf-key (`mergeConfigFragments`), `allow`/`deny` arrays
-   wholesale-replace, and a non-secret env-var overlay applies on top.
+   wholesale-replace. Connection env vars are a resolver-owned source ranked
+   below `enforced` but above `user`/`host`/`default` — not a post-resolution overlay.
    `loadResolvedProviderCatalog()` (`src/node/load-catalog.ts`) is the public read
    seam that composes assembly + resolve and returns `readonly ResolvedProvider[]`.
    (`mergeEnforced` — the two-layer merge — remains exported as a low-level
@@ -149,7 +150,7 @@ reusable independent of the catalog builder.
 - **Enablement** (`resolveEnabled`): enforced per-provider > enforced default >
   user per-provider > user default > platform-baseline per-provider > baseline
   default.
-- **Connection**: non-secret env-var overlay (highest) > enforced > user file >
+- **Connection**: enforced > connection env vars > user file >
   injected `host` sources (e.g. Positron `authentication.*` via
   `additionalSources`) > built-in defaults. Object keys deep-merge across layers.
 - **Model routing**: user config (override/custom) > provider config > discovered
@@ -298,7 +299,7 @@ the bridge's `ModelInfo` — compatible by contract, not by import.
 | `src/node/paths.ts`                   | `AI_CONFIG_DIR`, `PROVIDERS_CONFIG_PATH`, enforced env-var name, lockfile path                                      |
 | `src/node/types.ts`                   | Node seam option/result types (`LoadCatalogOptions`, `ProviderCatalogChange`, `Disposable`, …)                      |
 | `src/resolve-catalog.ts`              | `resolveProviderCatalog()` — pure deep resolver seam; owns the precedence stack + sealed-enforced invariant         |
-| `src/build-catalog.ts`                | `buildCatalog()` — assemble `ResolvedProvider[]` from the resolved config + baseline + env overlay (pure entry)     |
+| `src/build-catalog.ts`                | `buildCatalog()` — assemble `ResolvedProvider[]` from merged config + enablement layers + baseline (pure entry)     |
 | `src/node/load-config.ts`             | `loadConfigSources()` / `readFileConfig()` / `readEnvFragment()` — assemble the ordered `ProviderConfigSource` list |
 | `src/node/load-catalog.ts`            | `loadResolvedProviderCatalog()` — public read seam (assemble sources → `resolveProviderCatalog`)                    |
 | `src/node/mutate-config.ts`           | `mutateProvidersConfig()` — locked, atomic, serialized mutation                                                     |
