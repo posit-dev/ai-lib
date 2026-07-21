@@ -47,7 +47,7 @@
     "clean": "rm -rf dist .bridge-watch tsconfig.tsbuildinfo",
     "check-types": "tsc --noEmit && tsc -p tsconfig.node.json",
     "test": "vitest run",
-    "test:build-coordinator": "vitest run tests/build-coordinator.test.ts",
+    "test:build-coordinator": "vitest run -c vitest.build-coordinator.config.ts",
     "test:watch": "vitest",
     "lint": "oxlint -c oxlint.config.json src",
     "format": "oxfmt",
