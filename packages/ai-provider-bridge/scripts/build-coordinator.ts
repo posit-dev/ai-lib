@@ -153,7 +153,7 @@ async function observeLock(targetLockDirectory: string): Promise<LockObservation
 		);
 		if (isLockRecord(parsed)) owner = parsed;
 	} catch {
-		// A newly created lock directory can briefly precede its atomic owner record.
+		// Legacy or interrupted lock formats may not contain a valid owner record.
 	}
 	return {
 		identity: `${lockStat.dev}:${lockStat.ino}:${lockStat.birthtimeMs}`,
@@ -163,11 +163,37 @@ async function observeLock(targetLockDirectory: string): Promise<LockObservation
 	};
 }
 
-async function publishLockOwner(targetLockDirectory: string, record: LockRecord): Promise<void> {
-	const ownerFile = path.join(targetLockDirectory, "owner.json");
-	const temporary = path.join(targetLockDirectory, `owner-${record.token}.tmp`);
-	await writeFile(temporary, `${JSON.stringify(record)}\n`);
-	await rename(temporary, ownerFile);
+async function prepareLockDirectory(
+	targetLockDirectory: string,
+	record: LockRecord,
+): Promise<string> {
+	const preparedDirectory = `${targetLockDirectory}.pending-${record.token}`;
+	await mkdir(preparedDirectory);
+	try {
+		await writeFile(path.join(preparedDirectory, "owner.json"), `${JSON.stringify(record)}\n`);
+		return preparedDirectory;
+	} catch (error) {
+		await rm(preparedDirectory, { recursive: true, force: true });
+		throw error;
+	}
+}
+
+async function publishPreparedLock(
+	preparedDirectory: string,
+	targetLockDirectory: string,
+): Promise<boolean> {
+	try {
+		await rename(preparedDirectory, targetLockDirectory);
+		return true;
+	} catch (error) {
+		try {
+			await stat(targetLockDirectory);
+			return false;
+		} catch (observationError) {
+			if ((observationError as NodeJS.ErrnoException).code === "ENOENT") throw error;
+			throw observationError;
+		}
+	}
 }
 
 function liveOwnerError(owner: LockRecord): Error {
@@ -178,23 +204,20 @@ function liveOwnerError(owner: LockRecord): Error {
 
 export async function acquireCoordinatorLock(
 	targetLockDirectory = lockDirectory,
+	beforePublish: () => Promise<void> = async () => {},
 ): Promise<() => Promise<void>> {
 	await mkdir(path.dirname(targetLockDirectory), { recursive: true });
 	const token = randomUUID();
 	const record: LockRecord = { pid: process.pid, token, startedAt: new Date().toISOString() };
+	let preparedDirectory = await prepareLockDirectory(targetLockDirectory, record);
 
-	for (;;) {
-		try {
-			await mkdir(targetLockDirectory);
-			try {
-				await publishLockOwner(targetLockDirectory, record);
-			} catch (error) {
-				await rm(targetLockDirectory, { recursive: true, force: true });
-				throw error;
+	try {
+		await beforePublish();
+		for (;;) {
+			if (await publishPreparedLock(preparedDirectory, targetLockDirectory)) {
+				preparedDirectory = "";
+				break;
 			}
-			break;
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
 
 			let observed: LockObservation;
 			try {
@@ -284,6 +307,10 @@ export async function acquireCoordinatorLock(
 				throw renameError;
 			}
 			await rm(quarantineDirectory, { recursive: true, force: true });
+		}
+	} finally {
+		if (preparedDirectory) {
+			await rm(preparedDirectory, { recursive: true, force: true });
 		}
 	}
 

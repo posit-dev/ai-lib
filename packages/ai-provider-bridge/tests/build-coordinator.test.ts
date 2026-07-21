@@ -114,6 +114,28 @@ describe("bridge coordinator locking", () => {
 		await expect(acquireCoordinatorLock(lock)).rejects.toThrow(/initializ|active/i);
 	});
 
+	it("does not let a delayed initializer acquire alongside a published contender", async () => {
+		const root = await temporaryDirectory("bridge-lock-delayed-initializer-");
+		const lock = path.join(root, "coordinator.lock");
+		const initializerPaused = deferred();
+		const resumeInitializer = deferred();
+		const delayedAcquisition = acquireCoordinatorLock(lock, async () => {
+			initializerPaused.resolve();
+			await resumeInitializer.promise;
+		});
+		await initializerPaused.promise;
+		try {
+			const staleTime = new Date(Date.now() - 10_000);
+			await utimes(lock, staleTime, staleTime);
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+		}
+		const releaseContender = await acquireCoordinatorLock(lock);
+		resumeInitializer.resolve();
+		await expect(delayedAcquisition).rejects.toThrow(/active/);
+		await releaseContender();
+	});
+
 	it("allows only one contender to replace a stale lock", async () => {
 		const root = await temporaryDirectory("bridge-lock-race-");
 		const lock = path.join(root, "coordinator.lock");
