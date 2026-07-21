@@ -447,10 +447,15 @@ describe("resolveProviderCatalog — snowflake + legacy vertex env vars", () => 
 		const catalog = resolveProviderCatalog({
 			sources: [],
 			baseline: STANDALONE,
-			envVars: { SNOWFLAKE_ACCOUNT: "acme-prod", SNOWFLAKE_HOME: "/opt/sf" },
+			envVars: {
+				SNOWFLAKE_ACCOUNT: "acme-prod",
+				SNOWFLAKE_HOST: "acme-prod.privatelink.snowflakecomputing.com",
+				SNOWFLAKE_HOME: "/opt/sf",
+			},
 		});
 		expect(find(catalog, "snowflake-cortex")?.connection.snowflake).toEqual({
 			account: "acme-prod",
+			host: "acme-prod.privatelink.snowflakecomputing.com",
 			home: "/opt/sf",
 		});
 	});

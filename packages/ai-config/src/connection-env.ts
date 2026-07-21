@@ -37,7 +37,7 @@ interface ConnectionEnvMapping {
 	positaiLogin?: { host?: EnvNames; clientId?: EnvNames; scope?: EnvNames };
 	aws?: { region?: EnvNames; profile?: EnvNames };
 	googleCloud?: { project?: EnvNames; location?: EnvNames };
-	snowflake?: { account?: EnvNames; home?: EnvNames };
+	snowflake?: { account?: EnvNames; host?: EnvNames; home?: EnvNames };
 }
 
 /**
@@ -73,7 +73,7 @@ const CONNECTION_ENV_MAPPINGS: Partial<Record<BuiltinProviderId, ConnectionEnvMa
 	"ms-foundry": { baseUrl: "MS_FOUNDRY_BASE_URL" },
 	"snowflake-cortex": {
 		baseUrl: "SNOWFLAKE_BASE_URL",
-		snowflake: { account: "SNOWFLAKE_ACCOUNT", home: "SNOWFLAKE_HOME" },
+		snowflake: { account: "SNOWFLAKE_ACCOUNT", host: "SNOWFLAKE_HOST", home: "SNOWFLAKE_HOME" },
 	},
 	deepseek: { baseUrl: "DEEPSEEK_BASE_URL" },
 };
