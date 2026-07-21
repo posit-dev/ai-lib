@@ -41,12 +41,13 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsx esbuild.config.ts && tsc -p . --emitDeclarationOnly --noCheck && tsc -p tsconfig.positron.json --emitDeclarationOnly",
+    "build": "tsx scripts/build-coordinator.ts --clean",
     "build:unbundled": "tsc -p .",
-    "watch": "concurrently -n esbuild,dts,dts-positron \"tsx esbuild.config.ts --watch\" \"tsc -p . --emitDeclarationOnly --noCheck --watch --preserveWatchOutput\" \"tsc -p tsconfig.positron.json --emitDeclarationOnly --watch --preserveWatchOutput\" --clear-screen=false",
-    "clean": "rm -rf dist tsconfig.tsbuildinfo",
+    "watch": "tsx scripts/build-coordinator.ts --watch",
+    "clean": "rm -rf dist .bridge-watch tsconfig.tsbuildinfo",
     "check-types": "tsc --noEmit && tsc -p tsconfig.node.json",
     "test": "vitest run",
+    "test:build-coordinator": "vitest run -c vitest.build-coordinator.config.ts",
     "test:watch": "vitest",
     "lint": "oxlint -c oxlint.config.json src",
     "format": "oxfmt",

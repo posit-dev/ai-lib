@@ -8,10 +8,6 @@ export default defineConfig({
 	test: {
 		environment: "node",
 		globals: true,
-		include: ["src/**/__tests__/**/*.test.ts", "tests/**/*.test.ts"],
-		// build-coordinator tests require a prior build (they validate dist/).
-		// They run in the bridge-generation CI job via test:build-coordinator,
-		// which uses its own config.
-		exclude: ["tests/build-coordinator.test.ts"],
+		include: ["tests/build-coordinator.test.ts"],
 	},
 });
