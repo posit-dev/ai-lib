@@ -33,3 +33,18 @@ jobs:
 
       - name: Test
         run: npm test -w ai-provider-bridge
+
+  bridge-generation:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: "npm"
+      - run: npm ci
+      - run: npm run build -w ai-config -w ai-credentials -w ai-provider-bridge
+      - run: npm run test:build-coordinator -w ai-provider-bridge
