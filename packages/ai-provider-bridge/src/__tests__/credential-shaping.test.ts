@@ -23,6 +23,7 @@ function fakeConfig(
 		baseUrls?: Record<string, string>;
 		customHeaders?: Record<string, Record<string, string>>;
 		awsRegion?: string;
+		awsProfile?: string;
 		snowflake?: { host?: string; account?: string };
 	} = {},
 ): CredentialConfig {
@@ -30,6 +31,7 @@ function fakeConfig(
 		getBaseUrl: (configKey) => overrides.baseUrls?.[configKey],
 		getCustomHeaders: (configKey) => overrides.customHeaders?.[configKey],
 		getAwsRegion: () => overrides.awsRegion,
+		getAwsProfile: () => overrides.awsProfile,
 		getSnowflake: () => overrides.snowflake,
 	};
 }

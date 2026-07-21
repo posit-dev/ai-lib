@@ -28,6 +28,7 @@ function fakeConfig(snowflake?: { host?: string; account?: string }): Credential
 		getBaseUrl: () => undefined,
 		getCustomHeaders: () => undefined,
 		getAwsRegion: () => undefined,
+		getAwsProfile: () => undefined,
 		getSnowflake: () => snowflake,
 	};
 }
@@ -38,6 +39,7 @@ function config(overrides: Partial<CredentialConfig> = {}): CredentialConfig {
 		getBaseUrl: () => undefined,
 		getCustomHeaders: () => undefined,
 		getAwsRegion: () => undefined,
+		getAwsProfile: () => undefined,
 		getSnowflake: () => undefined,
 		...overrides,
 	};
@@ -95,6 +97,15 @@ describe("shapeCredentials — AWS credentials JSON", () => {
 
 	it("returns null when accessKeyId or secretAccessKey is missing", () => {
 		expect(shapeCredentials(AWS, JSON.stringify({ accessKeyId: "AKIA" }), config())).toBeNull();
+	});
+
+	it("includes the configured profile", () => {
+		const cfg = config({ getAwsRegion: () => "eu-west-1", getAwsProfile: () => "work" });
+		expect(shapeCredentials(AWS, awsToken, cfg)).toMatchObject({
+			type: "aws-credentials",
+			region: "eu-west-1",
+			profile: "work",
+		});
 	});
 });
 

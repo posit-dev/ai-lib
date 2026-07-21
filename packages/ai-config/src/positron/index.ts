@@ -36,7 +36,7 @@ export type { PositronAuthSettingDescriptor, PositronAuthSettingReader };
 /**
  * A reader over `vscode.workspace.getConfiguration("authentication")`, with
  * `process.env` fallbacks for the Snowflake host/account/home (host environments —
- * TUI / node — set them there). Mirrors the bridge's `createVscodeCredentialConfig`.
+ * TUI / node — set them there).
  */
 function createVscodeAuthReader(): PositronAuthSettingReader {
 	return {

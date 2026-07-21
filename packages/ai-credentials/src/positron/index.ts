@@ -9,5 +9,5 @@
  * conditional exports, so the pure `/types` and root entries stay vscode-free.
  */
 
-export { createPositronBackend, createVscodeCredentialConfig } from "./PositronBackend";
+export { createPositronBackend } from "./PositronBackend";
 export type { CreatePositronBackendOptions, PositronBackend, ProviderMap } from "./PositronBackend";
