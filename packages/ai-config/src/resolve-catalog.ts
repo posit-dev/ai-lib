@@ -18,6 +18,7 @@
  */
 
 import { buildCatalog } from "./build-catalog.js";
+import { readEnvConnectionConfig } from "./connection-env.js";
 import { mergeConfigFragments } from "./enforce.js";
 import type { EnablementLayer } from "./resolve-enabled.js";
 import { providersConfigSchema } from "./schema.js";
@@ -48,12 +49,35 @@ import type {
  */
 export type ProviderConfigSourceKind = "enforced" | "user" | "host" | "default";
 
-/** Fixed precedence rank per source kind — lower number = higher precedence. */
-const KIND_RANK: Readonly<Record<ProviderConfigSourceKind, number>> = {
+// ---------------------------------------------------------------------------
+// Private ranked-source union (env stays internal to the resolver)
+// ---------------------------------------------------------------------------
+
+/**
+ * A connection-only source synthesized from `envVars` by the resolver.
+ * Ranked below `enforced` so admin pins are never overridden, but above
+ * `user`/`host`/`default` so env vars still beat file-based config.
+ *
+ * Private — never appears in `ProviderConfigSourceKind` or the public API.
+ */
+type ConnectionEnvSource = { kind: "env"; label: string; config: EnforcedProvidersConfig };
+
+/** Union of all source types the resolver handles internally. */
+type RankedConfigSource = ProviderConfigSource | ConnectionEnvSource;
+
+/**
+ * Fixed precedence rank — lower number = higher precedence.
+ *
+ * `env` is internal: connection env vars rank below `enforced` (so admin
+ * pins are never overridden) but above `user`/`host`/`default` (preserving
+ * env's documented purpose of overriding file-based config).
+ */
+const RANK: Readonly<Record<RankedConfigSource["kind"], number>> = {
 	enforced: 0,
-	user: 1,
-	host: 2,
-	default: 3,
+	env: 1,
+	user: 2,
+	host: 3,
+	default: 4,
 };
 
 /**
@@ -90,11 +114,13 @@ export interface ResolveProviderCatalogOptions {
 	readonly baseline: PlatformBaseline;
 
 	/**
-	 * Environment variables for the non-secret connection overlay.
-	 * Env vars have highest precedence: env > file > defaults.
+	 * Environment variables for non-secret connection fields. The resolver
+	 * converts these into an internal connection source ranked **below
+	 * `enforced`** but above `user`/`host`/`default`, so admin-pinned values
+	 * always win while env vars still override file-based config.
 	 *
 	 * This is a **pure** function: when omitted it defaults to `{}` (no env
-	 * overlay), never `process.env`. Node callers that want the process
+	 * source), never `process.env`. Node callers that want the process
 	 * environment inject it explicitly (the `ai-config/node` seams do).
 	 */
 	readonly envVars?: Record<string, string | undefined>;
@@ -130,14 +156,26 @@ export function resolveProviderCatalog(
 ): readonly ResolvedProvider[] {
 	const { sources, baseline, envVars, logger } = opts;
 
+	// Synthesize the private env source from envVars. Skipped when the
+	// fragment is empty so an inert source never enters the stack.
+	const envConfig = readEnvConnectionConfig(envVars ?? {});
+	const hasEnvConfig = envConfig.providers && Object.keys(envConfig.providers).length > 0;
+	const ranked: RankedConfigSource[] = hasEnvConfig
+		? [...sources, { kind: "env", label: "connection env vars", config: envConfig }]
+		: [...sources];
+
 	// Order sources by precedence rank (highest precedence first). Array.sort
 	// is stable, so same-kind sources keep their array order (earlier wins).
-	const highestFirst = [...sources].sort((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind]);
+	const highestFirst = ranked.sort((a, b) => RANK[a.kind] - RANK[b.kind]);
 
 	const { kept, config } = recoverValidStack(highestFirst, logger);
 
-	const enabledLayers = kept.map<EnablementLayer>((s) => s.config.providers);
-	return buildCatalog(config, enabledLayers, baseline, { envVars });
+	// Derive enablement layers excluding the env source — it carries only
+	// connection fields, so it must never influence enablement resolution.
+	const enabledLayers = kept
+		.filter((s): s is ProviderConfigSource => s.kind !== "env")
+		.map<EnablementLayer>((s) => s.config.providers);
+	return buildCatalog(config, enabledLayers, baseline);
 }
 
 // ---------------------------------------------------------------------------
@@ -147,7 +185,7 @@ export function resolveProviderCatalog(
 /** The largest valid sub-stack plus its validated merged config. */
 export interface RecoveredStack {
 	/** Kept sources, highest precedence first. */
-	readonly kept: readonly ProviderConfigSource[];
+	readonly kept: readonly RankedConfigSource[];
 	/** The validated merged config for the kept sources. */
 	readonly config: ProvidersConfig;
 }
@@ -169,7 +207,7 @@ export interface RecoveredStack {
  * which overlay to drop, then re-validates, until the stack is valid.
  */
 export function recoverValidStack(
-	highestFirst: readonly ProviderConfigSource[],
+	highestFirst: readonly RankedConfigSource[],
 	logger?: LoggerLike,
 ): RecoveredStack {
 	let kept = highestFirst;
@@ -203,8 +241,8 @@ export function recoverValidStack(
  * `undefined` when there are no relaxed overlays left to drop.
  */
 function chooseDroppedSource(
-	highestFirst: readonly ProviderConfigSource[],
-): ProviderConfigSource | undefined {
+	highestFirst: readonly RankedConfigSource[],
+): RankedConfigSource | undefined {
 	// Lowest precedence first, so a preferred single-removal fix and the
 	// last-resort drop both bias toward keeping higher-precedence sources.
 	const relaxedLowestFirst = highestFirst.filter((s) => s.kind !== "user").reverse();
@@ -226,7 +264,7 @@ function chooseDroppedSource(
  * single config and validate it with the full schema.
  */
 function mergeAndValidate(
-	highestFirst: readonly ProviderConfigSource[],
+	highestFirst: readonly RankedConfigSource[],
 ): ReturnType<typeof providersConfigSchema.safeParse> {
 	let merged: EnforcedProvidersConfig = {};
 	for (let i = highestFirst.length - 1; i >= 0; i--) {
@@ -236,13 +274,13 @@ function mergeAndValidate(
 }
 
 function without(
-	sources: readonly ProviderConfigSource[],
-	victim: ProviderConfigSource,
-): ProviderConfigSource[] {
+	sources: readonly RankedConfigSource[],
+	victim: RankedConfigSource,
+): RankedConfigSource[] {
 	return sources.filter((s) => s !== victim);
 }
 
-function describeSource(source: ProviderConfigSource): string {
+function describeSource(source: RankedConfigSource): string {
 	return source.label ? `"${source.label}" (${source.kind})` : source.kind;
 }
 

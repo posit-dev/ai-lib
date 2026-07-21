@@ -389,13 +389,66 @@ describe("resolveProviderCatalog — host layer merge semantics (Phase 6)", () =
 	});
 });
 
+describe("resolveProviderCatalog — enforced beats connection env", () => {
+	it("enforced baseUrl wins over connection env var", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("enforced", {
+					providers: { anthropic: { baseUrl: "https://enforced.example.com" } },
+				}),
+				source("user", { providers: {} }),
+			],
+			baseline: STANDALONE,
+			envVars: { ANTHROPIC_BASE_URL: "https://env.example.com" },
+		});
+		expect(find(catalog, "anthropic")?.connection.baseUrl).toBe("https://enforced.example.com");
+	});
+
+	it("env beats user/default when no enforced source pins the field", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("user", {
+					providers: { anthropic: { baseUrl: "https://user.example.com" } },
+				}),
+				source("default", {
+					providers: { anthropic: { baseUrl: "https://default.example.com" } },
+				}),
+			],
+			baseline: STANDALONE,
+			envVars: { ANTHROPIC_BASE_URL: "https://env.example.com" },
+		});
+		expect(find(catalog, "anthropic")?.connection.baseUrl).toBe("https://env.example.com");
+	});
+
+	it("enforced positaiLogin.host wins over POSITAI_AUTH_HOST env, env-only sub-key still lands", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("enforced", {
+					providers: { positai: { positaiLogin: { host: "enforced.login.com" } } },
+				}),
+				source("user", { providers: {} }),
+			],
+			baseline: STANDALONE,
+			envVars: {
+				POSITAI_AUTH_HOST: "env.login.com",
+				POSITAI_CLIENT_ID: "env-client-id",
+			},
+		});
+		const login = find(catalog, "positai")?.connection.positaiLogin;
+		// Enforced host wins over env
+		expect(login?.host).toBe("enforced.login.com");
+		// Env-only sub-key (clientId not in enforced) still lands
+		expect(login?.clientId).toBe("env-client-id");
+	});
+});
+
 describe("recoverValidStack — choose dropped source", () => {
 	/** Custom entry with no `type` — uncompletable unless another source supplies it. */
 	const badCustom = (name: string): ProviderConfigSource["config"] => ({
 		providers: { custom: { [name]: { enabled: false } } },
 	});
 
-	function keptKinds(sources: readonly ProviderConfigSource[]): string[] {
+	function keptKinds(sources: readonly { readonly kind: string }[]): string[] {
 		return sources.map((s) => s.kind);
 	}
 
