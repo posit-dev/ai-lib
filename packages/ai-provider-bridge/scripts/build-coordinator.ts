@@ -6,7 +6,17 @@
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
-import { copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import {
+	copyFile,
+	link,
+	mkdir,
+	readdir,
+	readFile,
+	rename,
+	rm,
+	stat,
+	writeFile,
+} from "node:fs/promises";
 import { builtinModules, createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -67,7 +77,7 @@ interface LockRecord {
 
 interface LockObservation {
 	identity: string;
-	kind: "directory" | "legacy-file";
+	kind: "directory" | "file";
 	owner: LockRecord | null;
 	ageMs: number;
 }
@@ -157,37 +167,27 @@ async function observeLock(targetLockDirectory: string): Promise<LockObservation
 	}
 	return {
 		identity: `${lockStat.dev}:${lockStat.ino}:${lockStat.birthtimeMs}`,
-		kind: lockStat.isDirectory() ? "directory" : "legacy-file",
+		kind: lockStat.isDirectory() ? "directory" : "file",
 		owner,
 		ageMs: Date.now() - lockStat.mtimeMs,
 	};
 }
 
-async function prepareLockDirectory(
-	targetLockDirectory: string,
-	record: LockRecord,
-): Promise<string> {
-	const preparedDirectory = `${targetLockDirectory}.pending-${record.token}`;
-	await mkdir(preparedDirectory);
-	try {
-		await writeFile(path.join(preparedDirectory, "owner.json"), `${JSON.stringify(record)}\n`);
-		return preparedDirectory;
-	} catch (error) {
-		await rm(preparedDirectory, { recursive: true, force: true });
-		throw error;
-	}
+async function prepareLockFile(targetLockPath: string, record: LockRecord): Promise<string> {
+	const preparedFile = `${targetLockPath}.pending-${record.token}`;
+	await writeFile(preparedFile, `${JSON.stringify(record)}\n`, { flag: "wx" });
+	return preparedFile;
 }
 
-async function publishPreparedLock(
-	preparedDirectory: string,
-	targetLockDirectory: string,
-): Promise<boolean> {
+async function publishPreparedLock(preparedFile: string, targetLockPath: string): Promise<boolean> {
 	try {
-		await rename(preparedDirectory, targetLockDirectory);
+		// A hard link is an atomic no-replace claim: unlike rename, it cannot replace
+		// an existing empty directory left by an older coordinator implementation.
+		await link(preparedFile, targetLockPath);
 		return true;
 	} catch (error) {
 		try {
-			await stat(targetLockDirectory);
+			await stat(targetLockPath);
 			return false;
 		} catch (observationError) {
 			if ((observationError as NodeJS.ErrnoException).code === "ENOENT") throw error;
@@ -204,18 +204,18 @@ function liveOwnerError(owner: LockRecord): Error {
 
 export async function acquireCoordinatorLock(
 	targetLockDirectory = lockDirectory,
-	beforePublish: () => Promise<void> = async () => {},
 ): Promise<() => Promise<void>> {
 	await mkdir(path.dirname(targetLockDirectory), { recursive: true });
 	const token = randomUUID();
 	const record: LockRecord = { pid: process.pid, token, startedAt: new Date().toISOString() };
-	let preparedDirectory = await prepareLockDirectory(targetLockDirectory, record);
+	let preparedFile = await prepareLockFile(targetLockDirectory, record);
 
 	try {
-		await beforePublish();
 		for (;;) {
-			if (await publishPreparedLock(preparedDirectory, targetLockDirectory)) {
-				preparedDirectory = "";
+			if (await publishPreparedLock(preparedFile, targetLockDirectory)) {
+				const publishedFile = preparedFile;
+				preparedFile = "";
+				await rm(publishedFile, { force: true }).catch(() => {});
 				break;
 			}
 
@@ -233,14 +233,14 @@ export async function acquireCoordinatorLock(
 				throw new Error("Another bridge coordinator lock is still initializing.");
 			}
 
-			if (observed.kind === "legacy-file") {
+			if (observed.kind === "file") {
 				const legacyTakeoverDirectory = `${targetLockDirectory}.legacy-takeover`;
 				try {
 					await mkdir(legacyTakeoverDirectory);
 				} catch (takeoverError) {
 					const code = (takeoverError as NodeJS.ErrnoException).code;
 					if (code === "EEXIST") {
-						throw new Error("Another bridge coordinator is recovering a legacy stale lock.");
+						throw new Error("Another bridge coordinator is recovering a stale file lock.");
 					}
 					throw takeoverError;
 				}
@@ -248,7 +248,7 @@ export async function acquireCoordinatorLock(
 					const claimed = await observeLock(targetLockDirectory);
 					if (
 						claimed.identity !== observed.identity ||
-						claimed.kind !== "legacy-file" ||
+						claimed.kind !== "file" ||
 						(claimed.owner && processIsAlive(claimed.owner.pid))
 					) {
 						continue;
@@ -309,17 +309,15 @@ export async function acquireCoordinatorLock(
 			await rm(quarantineDirectory, { recursive: true, force: true });
 		}
 	} finally {
-		if (preparedDirectory) {
-			await rm(preparedDirectory, { recursive: true, force: true });
+		if (preparedFile) {
+			await rm(preparedFile, { force: true });
 		}
 	}
 
 	return async () => {
 		try {
-			const parsed: unknown = JSON.parse(
-				await readFile(path.join(targetLockDirectory, "owner.json"), "utf8"),
-			);
-			if (isLockRecord(parsed) && parsed.token === token) {
+			const observed = await observeLock(targetLockDirectory);
+			if (observed.owner?.token === token) {
 				await rm(targetLockDirectory, { recursive: true, force: true });
 			}
 		} catch {
