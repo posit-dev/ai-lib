@@ -58,7 +58,7 @@ type PositAiModelFetcher = ((
 /**
  * Map API protocol string from the Posit AI /models endpoint to the canonical
  * Protocol enum. The upstream gateway already returns values like
- * `"anthropic-messages"`, `"openai-chat"`, `"openai-responses"`.
+ * `"anthropic-messages"`, `"openai-chat-completions"`, `"openai-responses"`.
  *
  * Only protocols that `PositAiClient` can actually handle are mapped; others
  * return `undefined` so the client falls back to model-id inference. In
@@ -69,6 +69,7 @@ type PositAiModelFetcher = ((
 function mapProtocol(apiProtocol: string): "anthropic-messages" | "openai-chat" | undefined {
 	if (apiProtocol === "anthropic-messages") return "anthropic-messages";
 	if (apiProtocol === "openai-chat") return "openai-chat";
+	if (apiProtocol === "openai-chat-completions") return "openai-chat";
 	return undefined;
 }
 
