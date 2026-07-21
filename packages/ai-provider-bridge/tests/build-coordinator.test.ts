@@ -2,6 +2,7 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
+import { createHash } from "node:crypto";
 import { cp, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -12,6 +13,7 @@ import {
 	acquireCoordinatorLock,
 	GenerationBuildLoop,
 	promoteGeneration,
+	reusableGeneration,
 	validateGeneration,
 } from "../scripts/build-coordinator";
 
@@ -174,7 +176,7 @@ describe("bridge generation build loop", () => {
 		const initialBuild = deferred();
 		const fingerprints = ["initial", "edited"];
 		const buildNextGeneration = vi
-			.fn<() => Promise<void>>()
+			.fn<(fingerprint: string) => Promise<void>>()
 			.mockImplementationOnce(() => initialBuild.promise)
 			.mockResolvedValue(undefined);
 		const reportFailure = vi.fn();
@@ -212,5 +214,90 @@ describe("bridge generation build loop", () => {
 			expect.objectContaining({ message: "source disappeared" }),
 		);
 		expect(buildNextGeneration).toHaveBeenCalledTimes(2);
+	});
+
+	it("skips the rebuild when seeded with the current fingerprint", async () => {
+		let fingerprint = "seeded";
+		const buildNextGeneration = vi.fn<(fingerprint: string) => Promise<void>>(async () => {});
+		const reportFailure = vi.fn();
+		const loop = new GenerationBuildLoop(
+			async () => fingerprint,
+			buildNextGeneration,
+			reportFailure,
+		);
+
+		loop.seed("seeded");
+		await loop.request();
+		expect(buildNextGeneration).not.toHaveBeenCalled();
+
+		fingerprint = "edited";
+		await loop.request();
+		expect(buildNextGeneration).toHaveBeenCalledTimes(1);
+		expect(buildNextGeneration).toHaveBeenCalledWith("edited");
+		expect(reportFailure).not.toHaveBeenCalled();
+	});
+});
+
+describe("bridge generation reuse", () => {
+	async function liveGeneration(files: Record<string, string>, fingerprint: string) {
+		const root = await temporaryDirectory("bridge-reuse-");
+		const live = path.join(root, "dist");
+		await mkdir(live, { recursive: true });
+		const digests: Record<string, string> = {};
+		for (const [name, content] of Object.entries(files)) {
+			await writeFile(path.join(live, name), content);
+			digests[name] = createHash("sha256").update(content).digest("hex");
+		}
+		const recordFile = path.join(root, "generation.json");
+		const record = {
+			generation: 7,
+			inputFingerprint: fingerprint,
+			manifest: Object.keys(files).sort(),
+			digests,
+			completedAt: new Date().toISOString(),
+		};
+		await writeFile(recordFile, JSON.stringify(record));
+		return { live, recordFile, digests };
+	}
+
+	it("reuses a generation whose inputs and live outputs are unchanged", async () => {
+		const { live, recordFile } = await liveGeneration({ "index.js": "export {};" }, "fp");
+		await expect(reusableGeneration("fp", live, recordFile)).resolves.toMatchObject({
+			generation: 7,
+		});
+	});
+
+	it("rejects reuse when the recorded input fingerprint differs", async () => {
+		const { live, recordFile } = await liveGeneration({ "index.js": "export {};" }, "fp");
+		await expect(reusableGeneration("other", live, recordFile)).resolves.toBeNull();
+	});
+
+	it("rejects reuse when a live output was modified", async () => {
+		const { live, recordFile } = await liveGeneration({ "index.js": "export {};" }, "fp");
+		await writeFile(path.join(live, "index.js"), "tampered");
+		await expect(reusableGeneration("fp", live, recordFile)).resolves.toBeNull();
+	});
+
+	it("rejects reuse when a live output is missing", async () => {
+		const { live, recordFile } = await liveGeneration(
+			{ "index.js": "export {};", "chunk.js": "export const chunk = 1;" },
+			"fp",
+		);
+		await rm(path.join(live, "chunk.js"));
+		await expect(reusableGeneration("fp", live, recordFile)).resolves.toBeNull();
+	});
+
+	it("rejects reuse of a legacy record without a fingerprint", async () => {
+		const { live, recordFile, digests } = await liveGeneration({ "index.js": "export {};" }, "fp");
+		await writeFile(
+			recordFile,
+			JSON.stringify({
+				generation: 7,
+				manifest: ["index.js"],
+				digests,
+				completedAt: new Date().toISOString(),
+			}),
+		);
+		await expect(reusableGeneration("fp", live, recordFile)).resolves.toBeNull();
 	});
 });

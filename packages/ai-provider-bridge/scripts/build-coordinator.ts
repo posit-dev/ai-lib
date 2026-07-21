@@ -64,6 +64,7 @@ const nodeBuiltins = builtinModules.flatMap((moduleName) => [moduleName, `node:$
 
 export interface GenerationRecord {
 	generation: number;
+	inputFingerprint: string;
 	manifest: string[];
 	digests: Record<string, string>;
 	completedAt: string;
@@ -114,19 +115,56 @@ async function digestFiles(
 	return result;
 }
 
+// Build configuration beyond src/: the tsconfig chain, and this script itself,
+// which is the build definition (entry points, externals, esbuild options).
+const configFingerprintInputs = [
+	"package.json",
+	"tsconfig.declarations.json",
+	"../../tsconfig.base.json",
+	"scripts/build-coordinator.ts",
+];
+
+// esbuild inlines these workspace siblings from their built dist, so a
+// generation is only reusable while their output is unchanged too. node_modules
+// dependencies are deliberately not fingerprinted: the root postinstall reruns
+// this script with --clean after every install, which rebuilds from scratch and
+// refreshes the generation record.
+const inlinedWorkspaceDependencyDirs = [
+	path.resolve(packageDir, "..", "ai-config"),
+	path.resolve(packageDir, "..", "ai-credentials"),
+];
+
+async function listFilesIfPresent(root: string): Promise<string[]> {
+	try {
+		return await listFiles(root);
+	} catch (error) {
+		// A missing dependency dist cannot be fingerprinted; the build itself
+		// will surface the real resolution error.
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+		throw error;
+	}
+}
+
 async function inputFingerprint(): Promise<string> {
-	const sourceFiles = await listFiles(path.join(packageDir, "src"));
-	const inputs = [
-		...sourceFiles.map((relative) => `src/${relative}`),
-		"package.json",
-		"tsconfig.declarations.json",
-	];
 	const hash = createHash("sha256");
-	for (const relative of inputs) {
-		hash.update(relative);
+	const append = async (label: string, absolutePath: string) => {
+		hash.update(label);
 		hash.update("\0");
-		hash.update(await readFile(path.join(packageDir, relative)));
+		hash.update(await readFile(absolutePath));
 		hash.update("\0");
+	};
+	for (const relative of await listFiles(path.join(packageDir, "src"))) {
+		await append(`src/${relative}`, path.join(packageDir, "src", relative));
+	}
+	for (const relative of configFingerprintInputs) {
+		await append(relative, path.resolve(packageDir, relative));
+	}
+	for (const dependencyDir of inlinedWorkspaceDependencyDirs) {
+		const name = path.basename(dependencyDir);
+		await append(`${name}/package.json`, path.join(dependencyDir, "package.json"));
+		for (const relative of await listFilesIfPresent(path.join(dependencyDir, "dist"))) {
+			await append(`${name}/dist/${relative}`, path.join(dependencyDir, "dist", relative));
+		}
 	}
 	return hash.digest("hex");
 }
@@ -510,12 +548,60 @@ export async function promoteGeneration(
 	}
 }
 
-async function readPreviousRecord(): Promise<GenerationRecord | null> {
+function isGenerationRecord(value: unknown): value is GenerationRecord {
+	if (!value || typeof value !== "object") return false;
+	const candidate = Object.getOwnPropertyDescriptors(value);
+	const manifest: unknown = candidate.manifest?.value;
+	const digests: unknown = candidate.digests?.value;
+	return (
+		typeof candidate.generation?.value === "number" &&
+		typeof candidate.inputFingerprint?.value === "string" &&
+		typeof candidate.completedAt?.value === "string" &&
+		Array.isArray(manifest) &&
+		manifest.every((file) => typeof file === "string") &&
+		!!digests &&
+		typeof digests === "object" &&
+		Object.values(digests).every((digest) => typeof digest === "string")
+	);
+}
+
+async function readPreviousRecord(recordFile = generationFile): Promise<GenerationRecord | null> {
 	try {
-		return JSON.parse(await readFile(generationFile, "utf8")) as GenerationRecord;
+		const parsed: unknown = JSON.parse(await readFile(recordFile, "utf8"));
+		return isGenerationRecord(parsed) ? parsed : null;
 	} catch {
 		return null;
 	}
+}
+
+/**
+ * Returns the previous generation when its recorded inputs match
+ * `currentFingerprint` and the live dist files still match its digests, so
+ * startup can skip an identical rebuild. Any doubt — a missing or legacy
+ * record, or a missing or modified output — disqualifies reuse.
+ */
+export async function reusableGeneration(
+	currentFingerprint: string,
+	destinationDir = distDir,
+	recordFile = generationFile,
+): Promise<GenerationRecord | null> {
+	const record = await readPreviousRecord(recordFile);
+	if (!record || record.inputFingerprint !== currentFingerprint || record.manifest.length === 0) {
+		return null;
+	}
+	try {
+		const liveDigests = await digestFiles(destinationDir, record.manifest);
+		if (record.manifest.some((file) => liveDigests[file] !== record.digests[file])) return null;
+	} catch {
+		return null;
+	}
+	return record;
+}
+
+function announceGeneration(record: GenerationRecord): void {
+	console.log(
+		`${BRIDGE_GENERATION_EVENT} ${JSON.stringify({ generation: record.generation, completedAt: record.completedAt })}`,
+	);
 }
 
 async function publishRecord(record: GenerationRecord): Promise<void> {
@@ -523,12 +609,10 @@ async function publishRecord(record: GenerationRecord): Promise<void> {
 	const temporary = `${generationFile}.${randomUUID()}.tmp`;
 	await writeFile(temporary, `${JSON.stringify(record, null, 2)}\n`);
 	await rename(temporary, generationFile);
-	console.log(
-		`${BRIDGE_GENERATION_EVENT} ${JSON.stringify({ generation: record.generation, completedAt: record.completedAt })}`,
-	);
+	announceGeneration(record);
 }
 
-async function buildGeneration(): Promise<void> {
+async function buildGeneration(fingerprint: string): Promise<void> {
 	const previous = await readPreviousRecord();
 	const generation = (previous?.generation ?? 0) + 1;
 	const stageDir = path.join(stagingRoot, `${generation}-${randomUUID()}`);
@@ -547,6 +631,7 @@ async function buildGeneration(): Promise<void> {
 
 		await publishRecord({
 			generation,
+			inputFingerprint: fingerprint,
 			manifest,
 			digests: await digestFiles(stageDir, manifest),
 			completedAt: new Date().toISOString(),
@@ -572,13 +657,21 @@ export class GenerationBuildLoop {
 
 	constructor(
 		private readonly fingerprint: () => Promise<string>,
-		private readonly buildNextGeneration: () => Promise<void>,
+		private readonly buildNextGeneration: (fingerprint: string) => Promise<void>,
 		private readonly reportIncrementalFailure: (error: unknown) => void,
 	) {}
 
 	initialize(): Promise<void> {
 		this.pending = true;
 		return this.ensureRunning(true);
+	}
+
+	/**
+	 * Adopts a fingerprint whose build outputs are already live (a verified
+	 * previous generation), so requests with identical inputs skip the rebuild.
+	 */
+	seed(fingerprint: string): void {
+		this.lastSuccessfulInput = fingerprint;
 	}
 
 	request(): Promise<void> {
@@ -607,7 +700,7 @@ export class GenerationBuildLoop {
 			try {
 				const currentInput = await this.fingerprint();
 				if (currentInput === this.lastSuccessfulInput) continue;
-				await this.buildNextGeneration();
+				await this.buildNextGeneration(currentInput);
 				this.lastSuccessfulInput = currentInput;
 			} catch (error) {
 				if (propagateFirstFailure && firstAttempt) throw error;
@@ -644,7 +737,19 @@ async function watchGenerations(): Promise<void> {
 		for (const file of ["package.json", "tsconfig.declarations.json"]) {
 			watchers.push(watch(path.join(packageDir, file), schedule));
 		}
-		await loop.initialize();
+		// Watchers are registered before the reuse check so an edit landing
+		// mid-check still schedules a rebuild.
+		const startupFingerprint = await inputFingerprint();
+		const reusable = await reusableGeneration(startupFingerprint);
+		if (reusable) {
+			loop.seed(startupFingerprint);
+			console.log(
+				`bridge coordinator: reusing generation ${reusable.generation} (inputs unchanged)`,
+			);
+			announceGeneration(reusable);
+		} else {
+			await loop.initialize();
+		}
 		console.log("bridge coordinator: watching for changes...");
 		await stopped;
 	} finally {
@@ -666,7 +771,18 @@ async function main(): Promise<void> {
 		}
 		await mkdir(distDir, { recursive: true });
 		if (process.argv.includes("--watch")) await watchGenerations();
-		else await buildGeneration();
+		else {
+			const fingerprint = await inputFingerprint();
+			const reusable = await reusableGeneration(fingerprint);
+			if (reusable) {
+				console.log(
+					`bridge coordinator: reusing generation ${reusable.generation} (inputs unchanged)`,
+				);
+				announceGeneration(reusable);
+			} else {
+				await buildGeneration(fingerprint);
+			}
+		}
 	} finally {
 		await releaseLock();
 	}
