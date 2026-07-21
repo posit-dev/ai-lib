@@ -6,17 +6,7 @@
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
-import {
-	copyFile,
-	mkdir,
-	open,
-	readdir,
-	readFile,
-	rename,
-	rm,
-	stat,
-	writeFile,
-} from "node:fs/promises";
+import { copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { builtinModules, createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -28,7 +18,8 @@ const distDir = path.join(packageDir, "dist");
 const stateDir = path.join(packageDir, ".bridge-watch");
 const stagingRoot = path.join(stateDir, "staging");
 const generationFile = path.join(stateDir, "generation.json");
-const lockFile = path.join(stateDir, "coordinator.lock");
+const lockDirectory = path.join(stateDir, "coordinator.lock");
+const LOCK_INITIALIZATION_GRACE_MS = 5_000;
 
 export const BRIDGE_GENERATION_EVENT = "@@ai-provider-bridge-generation";
 
@@ -72,6 +63,13 @@ interface LockRecord {
 	pid: number;
 	token: string;
 	startedAt: string;
+}
+
+interface LockObservation {
+	identity: string;
+	kind: "directory" | "legacy-file";
+	owner: LockRecord | null;
+	ageMs: number;
 }
 
 async function exists(filePath: string): Promise<boolean> {
@@ -132,38 +130,171 @@ function processIsAlive(pid: number): boolean {
 	}
 }
 
-async function acquireLock(): Promise<() => Promise<void>> {
-	await mkdir(stateDir, { recursive: true });
+function isLockRecord(value: unknown): value is LockRecord {
+	if (!value || typeof value !== "object") return false;
+	const candidate = Object.getOwnPropertyDescriptors(value);
+	return (
+		typeof candidate.pid?.value === "number" &&
+		Number.isInteger(candidate.pid.value) &&
+		typeof candidate.token?.value === "string" &&
+		typeof candidate.startedAt?.value === "string"
+	);
+}
+
+async function observeLock(targetLockDirectory: string): Promise<LockObservation> {
+	const lockStat = await stat(targetLockDirectory);
+	let owner: LockRecord | null = null;
+	try {
+		const parsed: unknown = JSON.parse(
+			await readFile(
+				lockStat.isDirectory() ? path.join(targetLockDirectory, "owner.json") : targetLockDirectory,
+				"utf8",
+			),
+		);
+		if (isLockRecord(parsed)) owner = parsed;
+	} catch {
+		// A newly created lock directory can briefly precede its atomic owner record.
+	}
+	return {
+		identity: `${lockStat.dev}:${lockStat.ino}:${lockStat.birthtimeMs}`,
+		kind: lockStat.isDirectory() ? "directory" : "legacy-file",
+		owner,
+		ageMs: Date.now() - lockStat.mtimeMs,
+	};
+}
+
+async function publishLockOwner(targetLockDirectory: string, record: LockRecord): Promise<void> {
+	const ownerFile = path.join(targetLockDirectory, "owner.json");
+	const temporary = path.join(targetLockDirectory, `owner-${record.token}.tmp`);
+	await writeFile(temporary, `${JSON.stringify(record)}\n`);
+	await rename(temporary, ownerFile);
+}
+
+function liveOwnerError(owner: LockRecord): Error {
+	return new Error(
+		`Another bridge coordinator is active (pid ${owner.pid}, started ${owner.startedAt}). Stop it before starting this watch.`,
+	);
+}
+
+export async function acquireCoordinatorLock(
+	targetLockDirectory = lockDirectory,
+): Promise<() => Promise<void>> {
+	await mkdir(path.dirname(targetLockDirectory), { recursive: true });
 	const token = randomUUID();
 	const record: LockRecord = { pid: process.pid, token, startedAt: new Date().toISOString() };
 
 	for (;;) {
 		try {
-			const handle = await open(lockFile, "wx");
-			await handle.writeFile(`${JSON.stringify(record)}\n`);
-			await handle.close();
+			await mkdir(targetLockDirectory);
+			try {
+				await publishLockOwner(targetLockDirectory, record);
+			} catch (error) {
+				await rm(targetLockDirectory, { recursive: true, force: true });
+				throw error;
+			}
 			break;
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-			let owner: LockRecord | null = null;
+
+			let observed: LockObservation;
 			try {
-				owner = JSON.parse(await readFile(lockFile, "utf8")) as LockRecord;
-			} catch {
-				// An unreadable lock cannot identify a live owner and is recoverable.
+				observed = await observeLock(targetLockDirectory);
+			} catch (observationError) {
+				if ((observationError as NodeJS.ErrnoException).code === "ENOENT") continue;
+				throw observationError;
 			}
-			if (owner && processIsAlive(owner.pid)) {
-				throw new Error(
-					`Another bridge coordinator is active (pid ${owner.pid}, started ${owner.startedAt}). Stop it before starting this watch.`,
-				);
+			if (observed.owner && processIsAlive(observed.owner.pid)) {
+				throw liveOwnerError(observed.owner);
 			}
-			await rm(lockFile, { force: true });
+			if (!observed.owner && observed.ageMs < LOCK_INITIALIZATION_GRACE_MS) {
+				throw new Error("Another bridge coordinator lock is still initializing.");
+			}
+
+			if (observed.kind === "legacy-file") {
+				const legacyTakeoverDirectory = `${targetLockDirectory}.legacy-takeover`;
+				try {
+					await mkdir(legacyTakeoverDirectory);
+				} catch (takeoverError) {
+					const code = (takeoverError as NodeJS.ErrnoException).code;
+					if (code === "EEXIST") {
+						throw new Error("Another bridge coordinator is recovering a legacy stale lock.");
+					}
+					throw takeoverError;
+				}
+				try {
+					const claimed = await observeLock(targetLockDirectory);
+					if (
+						claimed.identity !== observed.identity ||
+						claimed.kind !== "legacy-file" ||
+						(claimed.owner && processIsAlive(claimed.owner.pid))
+					) {
+						continue;
+					}
+					const quarantineFile = `${targetLockDirectory}.stale-${randomUUID()}`;
+					await rename(targetLockDirectory, quarantineFile);
+					await rm(quarantineFile, { force: true });
+				} catch (claimError) {
+					if ((claimError as NodeJS.ErrnoException).code !== "ENOENT") throw claimError;
+				} finally {
+					await rm(legacyTakeoverDirectory, { recursive: true, force: true });
+				}
+				continue;
+			}
+
+			const takeoverDirectory = path.join(targetLockDirectory, ".stale-takeover");
+			try {
+				await mkdir(takeoverDirectory);
+			} catch (takeoverError) {
+				const code = (takeoverError as NodeJS.ErrnoException).code;
+				if (code === "ENOENT") continue;
+				if (code === "EEXIST") {
+					throw new Error("Another bridge coordinator is recovering a stale lock.");
+				}
+				throw takeoverError;
+			}
+
+			let claimed: LockObservation;
+			try {
+				claimed = await observeLock(targetLockDirectory);
+				if (claimed.identity !== observed.identity) {
+					await rm(takeoverDirectory, { recursive: true, force: true });
+					if (claimed.owner && processIsAlive(claimed.owner.pid)) {
+						throw liveOwnerError(claimed.owner);
+					}
+					continue;
+				}
+				if (claimed.owner && processIsAlive(claimed.owner.pid)) {
+					await rm(takeoverDirectory, { recursive: true, force: true });
+					throw liveOwnerError(claimed.owner);
+				}
+				if (!claimed.owner && observed.ageMs < LOCK_INITIALIZATION_GRACE_MS) {
+					await rm(takeoverDirectory, { recursive: true, force: true });
+					throw new Error("Another bridge coordinator lock is still initializing.");
+				}
+			} catch (claimError) {
+				if ((claimError as NodeJS.ErrnoException).code === "ENOENT") continue;
+				throw claimError;
+			}
+
+			const quarantineDirectory = `${targetLockDirectory}.stale-${randomUUID()}`;
+			try {
+				await rename(targetLockDirectory, quarantineDirectory);
+			} catch (renameError) {
+				if ((renameError as NodeJS.ErrnoException).code === "ENOENT") continue;
+				throw renameError;
+			}
+			await rm(quarantineDirectory, { recursive: true, force: true });
 		}
 	}
 
 	return async () => {
 		try {
-			const owner = JSON.parse(await readFile(lockFile, "utf8")) as LockRecord;
-			if (owner.token === token) await rm(lockFile, { force: true });
+			const parsed: unknown = JSON.parse(
+				await readFile(path.join(targetLockDirectory, "owner.json"), "utf8"),
+			);
+			if (isLockRecord(parsed) && parsed.token === token) {
+				await rm(targetLockDirectory, { recursive: true, force: true });
+			}
 		} catch {
 			// The owner token prevents this process from removing a replacement lock.
 		}
@@ -409,57 +540,100 @@ async function sourceDirectories(root: string): Promise<string[]> {
 	return directories;
 }
 
-async function watchGenerations(): Promise<void> {
-	let running = false;
-	let pending = false;
-	let timer: NodeJS.Timeout | undefined;
-	let lastSuccessfulInput = await inputFingerprint();
-	const rebuild = async () => {
-		if (running) {
-			pending = true;
-			return;
-		}
-		running = true;
-		do {
-			pending = false;
-			const currentInput = await inputFingerprint();
-			if (currentInput === lastSuccessfulInput) continue;
-			try {
-				await buildGeneration();
-				lastSuccessfulInput = currentInput;
-			} catch (error) {
-				console.error(`Bridge generation failed; keeping last-good exports: ${String(error)}`);
-			}
-		} while (pending);
-		running = false;
-	};
+export class GenerationBuildLoop {
+	private running: Promise<void> | null = null;
+	private pending = false;
+	private lastSuccessfulInput: string | null = null;
 
-	await buildGeneration();
+	constructor(
+		private readonly fingerprint: () => Promise<string>,
+		private readonly buildNextGeneration: () => Promise<void>,
+		private readonly reportIncrementalFailure: (error: unknown) => void,
+	) {}
+
+	initialize(): Promise<void> {
+		this.pending = true;
+		return this.ensureRunning(true);
+	}
+
+	request(): Promise<void> {
+		this.pending = true;
+		const running = this.ensureRunning(false);
+		// Callers such as fs.watch intentionally fire and forget. Attach a terminal
+		// rejection handler even though incremental failures are normally absorbed
+		// inside drain(), so an unexpected loop failure is never unhandled.
+		void running.catch(this.reportIncrementalFailure);
+		return running;
+	}
+
+	private ensureRunning(propagateFirstFailure: boolean): Promise<void> {
+		if (this.running) return this.running;
+		const running = this.drain(propagateFirstFailure).finally(() => {
+			if (this.running === running) this.running = null;
+		});
+		this.running = running;
+		return running;
+	}
+
+	private async drain(propagateFirstFailure: boolean): Promise<void> {
+		let firstAttempt = true;
+		while (this.pending) {
+			this.pending = false;
+			try {
+				const currentInput = await this.fingerprint();
+				if (currentInput === this.lastSuccessfulInput) continue;
+				await this.buildNextGeneration();
+				this.lastSuccessfulInput = currentInput;
+			} catch (error) {
+				if (propagateFirstFailure && firstAttempt) throw error;
+				this.reportIncrementalFailure(error);
+			} finally {
+				firstAttempt = false;
+			}
+		}
+	}
+}
+
+async function watchGenerations(): Promise<void> {
+	let timer: NodeJS.Timeout | undefined;
 	const watchers: FSWatcher[] = [];
+	const loop = new GenerationBuildLoop(inputFingerprint, buildGeneration, (error) => {
+		console.error(`Bridge generation failed; keeping last-good exports: ${String(error)}`);
+	});
 	const schedule = () => {
 		clearTimeout(timer);
-		timer = setTimeout(() => void rebuild(), 75);
+		timer = setTimeout(() => void loop.request(), 75);
 	};
-	for (const directory of await sourceDirectories(path.join(packageDir, "src"))) {
-		watchers.push(watch(directory, schedule));
-	}
-	for (const file of ["package.json", "tsconfig.declarations.json"]) {
-		watchers.push(watch(path.join(packageDir, file), schedule));
-	}
-	console.log("bridge coordinator: watching for changes...");
-	await new Promise<void>((resolve) => {
-		const stop = () => {
+
+	let stop: (() => void) | null = null;
+	const stopped = new Promise<void>((resolve) => {
+		stop = resolve;
+	});
+	const handleSignal = () => stop?.();
+	process.once("SIGINT", handleSignal);
+	process.once("SIGTERM", handleSignal);
+	try {
+		for (const directory of await sourceDirectories(path.join(packageDir, "src"))) {
+			watchers.push(watch(directory, schedule));
+		}
+		for (const file of ["package.json", "tsconfig.declarations.json"]) {
+			watchers.push(watch(path.join(packageDir, file), schedule));
+		}
+		await loop.initialize();
+		console.log("bridge coordinator: watching for changes...");
+		await stopped;
+	} finally {
+		process.off("SIGINT", handleSignal);
+		process.off("SIGTERM", handleSignal);
+		if (stop) {
 			clearTimeout(timer);
 			for (const watcher of watchers) watcher.close();
-			resolve();
-		};
-		process.once("SIGINT", stop);
-		process.once("SIGTERM", stop);
-	});
+		}
+	}
 }
 
 async function main(): Promise<void> {
-	const releaseLock = await acquireLock();
+	const releaseLock = await acquireCoordinatorLock();
 	try {
 		if (process.argv.includes("--clean")) {
 			await rm(distDir, { recursive: true, force: true });

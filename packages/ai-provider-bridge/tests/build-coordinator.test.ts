@@ -2,15 +2,28 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { promoteGeneration, validateGeneration } from "../scripts/build-coordinator";
+import {
+	acquireCoordinatorLock,
+	GenerationBuildLoop,
+	promoteGeneration,
+	validateGeneration,
+} from "../scripts/build-coordinator";
 
 const temporaryDirectories: string[] = [];
+
+function deferred() {
+	let resolve!: () => void;
+	const promise = new Promise<void>((done) => {
+		resolve = done;
+	});
+	return { promise, resolve };
+}
 
 async function temporaryDirectory(prefix: string): Promise<string> {
 	const directory = await mkdtemp(path.join(os.tmpdir(), prefix));
@@ -88,5 +101,107 @@ describe("bridge generation promotion", () => {
 			"Bridge promotion failed",
 		);
 		expect(await readFile(path.join(live, "a.js"), "utf8")).toBe("old");
+	});
+});
+
+describe("bridge coordinator locking", () => {
+	it("does not take over a freshly created lock whose owner record is incomplete", async () => {
+		const root = await temporaryDirectory("bridge-lock-incomplete-");
+		const lock = path.join(root, "coordinator.lock");
+		await mkdir(lock);
+		await writeFile(path.join(lock, "owner.json"), "");
+
+		await expect(acquireCoordinatorLock(lock)).rejects.toThrow(/initializ|active/i);
+	});
+
+	it("allows only one contender to replace a stale lock", async () => {
+		const root = await temporaryDirectory("bridge-lock-race-");
+		const lock = path.join(root, "coordinator.lock");
+		await mkdir(lock);
+		await writeFile(
+			path.join(lock, "owner.json"),
+			JSON.stringify({ pid: 2_147_483_647, token: "stale", startedAt: new Date(0).toISOString() }),
+		);
+
+		const contenders = await Promise.allSettled([
+			acquireCoordinatorLock(lock),
+			acquireCoordinatorLock(lock),
+		]);
+		const winners = contenders.filter(
+			(result): result is PromiseFulfilledResult<() => Promise<void>> =>
+				result.status === "fulfilled",
+		);
+		expect(winners).toHaveLength(1);
+		await winners[0]?.value();
+	});
+
+	it("recovers an old malformed lock after the initialization grace period", async () => {
+		const root = await temporaryDirectory("bridge-lock-malformed-stale-");
+		const lock = path.join(root, "coordinator.lock");
+		await mkdir(lock);
+		await writeFile(path.join(lock, "owner.json"), "incomplete");
+		const staleTime = new Date(Date.now() - 10_000);
+		await utimes(lock, staleTime, staleTime);
+
+		const release = await acquireCoordinatorLock(lock);
+		await release();
+	});
+
+	it("migrates a stale lock file left by the previous coordinator", async () => {
+		const root = await temporaryDirectory("bridge-lock-legacy-");
+		const lock = path.join(root, "coordinator.lock");
+		await writeFile(
+			lock,
+			JSON.stringify({ pid: 2_147_483_647, token: "legacy", startedAt: new Date(0).toISOString() }),
+		);
+
+		const release = await acquireCoordinatorLock(lock);
+		await release();
+	});
+});
+
+describe("bridge generation build loop", () => {
+	it("reconciles an edit that arrives during the initial build", async () => {
+		const initialBuild = deferred();
+		const fingerprints = ["initial", "edited"];
+		const buildNextGeneration = vi
+			.fn<() => Promise<void>>()
+			.mockImplementationOnce(() => initialBuild.promise)
+			.mockResolvedValue(undefined);
+		const reportFailure = vi.fn();
+		const loop = new GenerationBuildLoop(
+			async () => fingerprints.shift() ?? "edited",
+			buildNextGeneration,
+			reportFailure,
+		);
+
+		const initializing = loop.initialize();
+		await vi.waitFor(() => expect(buildNextGeneration).toHaveBeenCalledOnce());
+		void loop.request();
+		initialBuild.resolve();
+		await initializing;
+
+		expect(buildNextGeneration).toHaveBeenCalledTimes(2);
+		expect(reportFailure).not.toHaveBeenCalled();
+	});
+
+	it("recovers after a fingerprint race without wedging the loop", async () => {
+		const fingerprint = vi
+			.fn<() => Promise<string>>()
+			.mockResolvedValueOnce("initial")
+			.mockRejectedValueOnce(new Error("source disappeared"))
+			.mockResolvedValueOnce("edited");
+		const buildNextGeneration = vi.fn(async () => {});
+		const reportFailure = vi.fn();
+		const loop = new GenerationBuildLoop(fingerprint, buildNextGeneration, reportFailure);
+
+		await loop.initialize();
+		await loop.request();
+		await loop.request();
+
+		expect(reportFailure).toHaveBeenCalledWith(
+			expect.objectContaining({ message: "source disappeared" }),
+		);
+		expect(buildNextGeneration).toHaveBeenCalledTimes(2);
 	});
 });
