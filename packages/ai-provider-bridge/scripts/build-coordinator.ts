@@ -5,7 +5,6 @@
 
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { watch, type FSWatcher } from "node:fs";
 import {
 	copyFile,
 	link,
@@ -23,6 +22,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { build, type BuildOptions } from "esbuild";
 
+import { createBuildInputs } from "./build-inputs";
+
 const packageDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const distDir = path.join(packageDir, "dist");
 const stateDir = path.join(packageDir, ".bridge-watch");
@@ -30,6 +31,7 @@ const stagingRoot = path.join(stateDir, "staging");
 const generationFile = path.join(stateDir, "generation.json");
 const lockDirectory = path.join(stateDir, "coordinator.lock");
 const LOCK_INITIALIZATION_GRACE_MS = 5_000;
+const buildInputs = createBuildInputs(packageDir);
 
 export const BRIDGE_GENERATION_EVENT = "@@ai-provider-bridge-generation";
 
@@ -62,12 +64,16 @@ const externalDeps = [
 
 const nodeBuiltins = builtinModules.flatMap((moduleName) => [moduleName, `node:${moduleName}`]);
 
-export interface GenerationRecord {
+interface StoredGenerationRecord {
 	generation: number;
-	inputFingerprint: string;
+	inputFingerprint?: string;
 	manifest: string[];
 	digests: Record<string, string>;
 	completedAt: string;
+}
+
+export interface GenerationRecord extends StoredGenerationRecord {
+	inputFingerprint: string;
 }
 
 interface LockRecord {
@@ -113,60 +119,6 @@ async function digestFiles(
 		result[relative] = createHash("sha256").update(content).digest("hex");
 	}
 	return result;
-}
-
-// Build configuration beyond src/: the tsconfig chain, and this script itself,
-// which is the build definition (entry points, externals, esbuild options).
-const configFingerprintInputs = [
-	"package.json",
-	"tsconfig.declarations.json",
-	"../../tsconfig.base.json",
-	"scripts/build-coordinator.ts",
-];
-
-// esbuild inlines these workspace siblings from their built dist, so a
-// generation is only reusable while their output is unchanged too. node_modules
-// dependencies are deliberately not fingerprinted: the root postinstall reruns
-// this script with --clean after every install, which rebuilds from scratch and
-// refreshes the generation record.
-const inlinedWorkspaceDependencyDirs = [
-	path.resolve(packageDir, "..", "ai-config"),
-	path.resolve(packageDir, "..", "ai-credentials"),
-];
-
-async function listFilesIfPresent(root: string): Promise<string[]> {
-	try {
-		return await listFiles(root);
-	} catch (error) {
-		// A missing dependency dist cannot be fingerprinted; the build itself
-		// will surface the real resolution error.
-		if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
-		throw error;
-	}
-}
-
-async function inputFingerprint(): Promise<string> {
-	const hash = createHash("sha256");
-	const append = async (label: string, absolutePath: string) => {
-		hash.update(label);
-		hash.update("\0");
-		hash.update(await readFile(absolutePath));
-		hash.update("\0");
-	};
-	for (const relative of await listFiles(path.join(packageDir, "src"))) {
-		await append(`src/${relative}`, path.join(packageDir, "src", relative));
-	}
-	for (const relative of configFingerprintInputs) {
-		await append(relative, path.resolve(packageDir, relative));
-	}
-	for (const dependencyDir of inlinedWorkspaceDependencyDirs) {
-		const name = path.basename(dependencyDir);
-		await append(`${name}/package.json`, path.join(dependencyDir, "package.json"));
-		for (const relative of await listFilesIfPresent(path.join(dependencyDir, "dist"))) {
-			await append(`${name}/dist/${relative}`, path.join(dependencyDir, "dist", relative));
-		}
-	}
-	return hash.digest("hex");
 }
 
 function processIsAlive(pid: number): boolean {
@@ -548,14 +500,15 @@ export async function promoteGeneration(
 	}
 }
 
-function isGenerationRecord(value: unknown): value is GenerationRecord {
+function isStoredGenerationRecord(value: unknown): value is StoredGenerationRecord {
 	if (!value || typeof value !== "object") return false;
 	const candidate = Object.getOwnPropertyDescriptors(value);
 	const manifest: unknown = candidate.manifest?.value;
 	const digests: unknown = candidate.digests?.value;
+	const inputFingerprint: unknown = candidate.inputFingerprint?.value;
 	return (
 		typeof candidate.generation?.value === "number" &&
-		typeof candidate.inputFingerprint?.value === "string" &&
+		(inputFingerprint === undefined || typeof inputFingerprint === "string") &&
 		typeof candidate.completedAt?.value === "string" &&
 		Array.isArray(manifest) &&
 		manifest.every((file) => typeof file === "string") &&
@@ -565,10 +518,16 @@ function isGenerationRecord(value: unknown): value is GenerationRecord {
 	);
 }
 
-async function readPreviousRecord(recordFile = generationFile): Promise<GenerationRecord | null> {
+function hasInputFingerprint(record: StoredGenerationRecord): record is GenerationRecord {
+	return typeof record.inputFingerprint === "string";
+}
+
+async function readPreviousRecord(
+	recordFile = generationFile,
+): Promise<StoredGenerationRecord | null> {
 	try {
 		const parsed: unknown = JSON.parse(await readFile(recordFile, "utf8"));
-		return isGenerationRecord(parsed) ? parsed : null;
+		return isStoredGenerationRecord(parsed) ? parsed : null;
 	} catch {
 		return null;
 	}
@@ -586,7 +545,12 @@ export async function reusableGeneration(
 	recordFile = generationFile,
 ): Promise<GenerationRecord | null> {
 	const record = await readPreviousRecord(recordFile);
-	if (!record || record.inputFingerprint !== currentFingerprint || record.manifest.length === 0) {
+	if (
+		!record ||
+		!hasInputFingerprint(record) ||
+		record.inputFingerprint !== currentFingerprint ||
+		record.manifest.length === 0
+	) {
 		return null;
 	}
 	try {
@@ -639,15 +603,6 @@ async function buildGeneration(fingerprint: string): Promise<void> {
 	} finally {
 		await rm(stageDir, { recursive: true, force: true });
 	}
-}
-
-async function sourceDirectories(root: string): Promise<string[]> {
-	const directories = [root];
-	for (const entry of await readdir(root, { withFileTypes: true })) {
-		if (entry.isDirectory())
-			directories.push(...(await sourceDirectories(path.join(root, entry.name))));
-	}
-	return directories;
 }
 
 export class GenerationBuildLoop {
@@ -714,10 +669,13 @@ export class GenerationBuildLoop {
 
 async function watchGenerations(): Promise<void> {
 	let timer: NodeJS.Timeout | undefined;
-	const watchers: FSWatcher[] = [];
-	const loop = new GenerationBuildLoop(inputFingerprint, buildGeneration, (error) => {
-		console.error(`Bridge generation failed; keeping last-good exports: ${String(error)}`);
-	});
+	const loop = new GenerationBuildLoop(
+		() => buildInputs.snapshot(),
+		buildGeneration,
+		(error) => {
+			console.error(`Bridge generation failed; keeping last-good exports: ${String(error)}`);
+		},
+	);
 	const schedule = () => {
 		clearTimeout(timer);
 		timer = setTimeout(() => void loop.request(), 75);
@@ -730,17 +688,38 @@ async function watchGenerations(): Promise<void> {
 	const handleSignal = () => stop?.();
 	process.once("SIGINT", handleSignal);
 	process.once("SIGTERM", handleSignal);
+	let restartRequired: string | null = null;
+	let watcherFailure: unknown = null;
+	const inputWatcher = await buildInputs.watch((change) => {
+		if (change.kind === "error") {
+			watcherFailure = change.error;
+			console.error(`Bridge build-input watcher failed: ${String(change.error)}`);
+			process.exitCode = 1;
+			stop?.();
+			return;
+		}
+		if (change.kind === "restart") {
+			restartRequired = change.changedPath;
+			console.error(`Bridge build definition changed; restart required: ${change.changedPath}`);
+			process.exitCode = 1;
+			stop?.();
+			return;
+		}
+		schedule();
+	});
 	try {
-		for (const directory of await sourceDirectories(path.join(packageDir, "src"))) {
-			watchers.push(watch(directory, schedule));
-		}
-		for (const file of ["package.json", "tsconfig.declarations.json"]) {
-			watchers.push(watch(path.join(packageDir, file), schedule));
-		}
-		// Watchers are registered before the reuse check so an edit landing
-		// mid-check still schedules a rebuild.
-		const startupFingerprint = await inputFingerprint();
+		// The build-input module watches the same inventory it fingerprints. It
+		// starts before the reuse check so any concurrent change is reconciled.
+		const startupFingerprint = await buildInputs.snapshot();
 		const reusable = await reusableGeneration(startupFingerprint);
+		if (watcherFailure !== null) {
+			throw new Error("Bridge build-input watcher failed during startup", {
+				cause: watcherFailure,
+			});
+		}
+		if (restartRequired) {
+			throw new Error(`Bridge build definition changed during startup: ${restartRequired}`);
+		}
 		if (reusable) {
 			loop.seed(startupFingerprint);
 			console.log(
@@ -755,10 +734,8 @@ async function watchGenerations(): Promise<void> {
 	} finally {
 		process.off("SIGINT", handleSignal);
 		process.off("SIGTERM", handleSignal);
-		if (stop) {
-			clearTimeout(timer);
-			for (const watcher of watchers) watcher.close();
-		}
+		clearTimeout(timer);
+		await inputWatcher.close();
 	}
 }
 
@@ -772,15 +749,18 @@ async function main(): Promise<void> {
 		await mkdir(distDir, { recursive: true });
 		if (process.argv.includes("--watch")) await watchGenerations();
 		else {
-			const fingerprint = await inputFingerprint();
+			const fingerprint = await buildInputs.snapshot();
 			const reusable = await reusableGeneration(fingerprint);
-			if (reusable) {
+			// A one-shot run has no watcher to reconcile an edit during output
+			// verification, so confirm the input snapshot before announcing reuse.
+			const confirmedFingerprint = reusable ? await buildInputs.snapshot() : fingerprint;
+			if (reusable && confirmedFingerprint === fingerprint) {
 				console.log(
 					`bridge coordinator: reusing generation ${reusable.generation} (inputs unchanged)`,
 				);
 				announceGeneration(reusable);
 			} else {
-				await buildGeneration(fingerprint);
+				await buildGeneration(confirmedFingerprint);
 			}
 		}
 	} finally {
