@@ -15,10 +15,15 @@
  * (vscode) and are injected here.
  */
 
-export type { CredentialProvider, Disposable } from "./CredentialProvider";
-export type { Backend, OAuthBackendHooks, OAuthProviderConfig, StoredOAuthTokens } from "./Backend";
-export { createCredentialProvider } from "./createCredentialProvider";
+export type { CredentialProvider, Disposable } from "./CredentialProvider.js";
+export type {
+	Backend,
+	OAuthBackendHooks,
+	OAuthProviderConfig,
+	StoredOAuthTokens,
+} from "./Backend.js";
+export { createCredentialProvider } from "./createCredentialProvider.js";
 export type {
 	CreateCredentialProviderOptions,
 	CredentialProviderHandle,
-} from "./createCredentialProvider";
+} from "./createCredentialProvider.js";

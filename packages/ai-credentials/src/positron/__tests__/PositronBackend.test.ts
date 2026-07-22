@@ -49,8 +49,8 @@ vi.mock("vscode", () => ({
 	},
 }));
 
-const { createPositronBackend } = await import("../PositronBackend");
-import type { AuthProviderMapping, CredentialConfig } from "../../types";
+const { createPositronBackend } = await import("../PositronBackend.js");
+import type { AuthProviderMapping, CredentialConfig } from "../../types/index.js";
 
 const PROVIDER_MAP: Record<string, AuthProviderMapping> = {
 	anthropic: { authProviderId: "anthropic-api", scopes: [], credentialType: "apikey" },

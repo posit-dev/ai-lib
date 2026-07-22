@@ -19,18 +19,18 @@
  */
 
 // Store-backed credential Backend
-export { createStoreBackend } from "./StoreBackend";
-export type { AuthMethodDescriptor, CreateStoreBackendOptions } from "./StoreBackend";
+export { createStoreBackend } from "./StoreBackend.js";
+export type { AuthMethodDescriptor, CreateStoreBackendOptions } from "./StoreBackend.js";
 
 // StoredProviderCredentials — on-disk format + Zod schema
 export {
 	storedProviderCredentialsSchema,
 	type StoredProviderCredentials,
 	type StoredProviderCredentialsKeys,
-} from "./StoredProviderCredentials";
+} from "./StoredProviderCredentials.js";
 
 // Environment variable credential resolver
-export { hasEnvCredentials, resolveCredentialsFromEnv } from "./envCredentialResolver";
+export { hasEnvCredentials, resolveCredentialsFromEnv } from "./envCredentialResolver.js";
 
 // Provider env mappings
-export { PROVIDER_ENV_MAPPINGS, type ProviderEnvMapping } from "./providerEnvMappings";
+export { PROVIDER_ENV_MAPPINGS, type ProviderEnvMapping } from "./providerEnvMappings.js";

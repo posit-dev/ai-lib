@@ -15,7 +15,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { type CredentialConfig, shapeCredentials } from "../credential-shaping";
+import { type CredentialConfig, shapeCredentials } from "../credential-shaping.js";
 
 const SNOWFLAKE = { authProviderId: "snowflake-cortex", credentialType: "apikey" } as const;
 const AWS = { authProviderId: "bedrock", credentialType: "aws-credentials" } as const;

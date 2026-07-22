@@ -17,10 +17,10 @@
  *   null / throws for providers with no device-flow config.
  */
 
-import type { Backend } from "./Backend";
-import type { CredentialProvider, Disposable } from "./CredentialProvider";
-import { OAuthEngine } from "./device-auth";
-import type { DeviceAuthInfo, Logger, ProviderCredentials } from "./types";
+import type { Backend } from "./Backend.js";
+import type { CredentialProvider, Disposable } from "./CredentialProvider.js";
+import { OAuthEngine } from "./device-auth.js";
+import type { DeviceAuthInfo, Logger, ProviderCredentials } from "./types/index.js";
 
 export interface CreateCredentialProviderOptions {
 	/** Host-selected backend (store+env outside Positron, vscode inside). */

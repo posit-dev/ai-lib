@@ -16,9 +16,9 @@ import type {
 	OAuthBackendHooks,
 	OAuthProviderConfig,
 	StoredOAuthTokens,
-} from "../Backend";
-import { createCredentialProvider } from "../createCredentialProvider";
-import type { ProviderCredentials, TokenData } from "../types";
+} from "../Backend.js";
+import { createCredentialProvider } from "../createCredentialProvider.js";
+import type { ProviderCredentials, TokenData } from "../types/index.js";
 
 function isoIn(minutes: number): string {
 	return new Date(Date.now() + minutes * 60 * 1000).toISOString();

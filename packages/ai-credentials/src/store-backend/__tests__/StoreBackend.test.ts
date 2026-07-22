@@ -15,11 +15,11 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { SingleFileStore } from "../../store";
-import { storageKeyFor } from "../../types";
-import type { AuthMethodDescriptor } from "../StoreBackend";
-import { createStoreBackend } from "../StoreBackend";
-import type { StoredProviderCredentials } from "../StoredProviderCredentials";
+import { SingleFileStore } from "../../store/index.js";
+import { storageKeyFor } from "../../types/index.js";
+import type { AuthMethodDescriptor } from "../StoreBackend.js";
+import { createStoreBackend } from "../StoreBackend.js";
+import type { StoredProviderCredentials } from "../StoredProviderCredentials.js";
 
 const DESCRIPTORS: Record<string, AuthMethodDescriptor> = {
 	anthropic: { authMethodId: "apikey" },

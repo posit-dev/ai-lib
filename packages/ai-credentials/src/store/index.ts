@@ -19,6 +19,6 @@
  * not here.
  */
 
-export { SingleFileStore } from "./SingleFileStore";
-export { createDefaultStore, getDefaultStorePath } from "./defaults";
-export type { Disposable, LoggerLike, SingleFileStoreConfig } from "./types";
+export { SingleFileStore } from "./SingleFileStore.js";
+export { createDefaultStore, getDefaultStorePath } from "./defaults.js";
+export type { Disposable, LoggerLike, SingleFileStoreConfig } from "./types.js";

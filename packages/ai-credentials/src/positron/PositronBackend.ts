@@ -21,10 +21,15 @@
 
 import * as vscode from "vscode";
 
-import type { Backend, OAuthBackendHooks } from "../Backend";
-import type { Disposable } from "../CredentialProvider";
-import type { AuthProviderMapping, CredentialConfig, Logger, ProviderCredentials } from "../types";
-import { shapeCredentials } from "../types";
+import type { Backend, OAuthBackendHooks } from "../Backend.js";
+import type { Disposable } from "../CredentialProvider.js";
+import type {
+	AuthProviderMapping,
+	CredentialConfig,
+	Logger,
+	ProviderCredentials,
+} from "../types/index.js";
+import { shapeCredentials } from "../types/index.js";
 
 /** A provider-id → auth mapping table (injected from the bridge's PROVIDER_MAP). */
 export type ProviderMap = Readonly<Record<string, AuthProviderMapping | undefined>>;
