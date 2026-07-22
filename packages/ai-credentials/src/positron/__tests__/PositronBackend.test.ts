@@ -74,8 +74,7 @@ function testConfig(overrides: Partial<CredentialConfig> = {}): CredentialConfig
 	return {
 		getBaseUrl: () => undefined,
 		getCustomHeaders: () => undefined,
-		getAwsRegion: () => undefined,
-		getAwsProfile: () => undefined,
+		getAws: () => undefined,
 		getSnowflake: () => undefined,
 		...overrides,
 	};

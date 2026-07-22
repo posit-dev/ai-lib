@@ -55,10 +55,8 @@ export interface CredentialConfig {
 	getBaseUrl(configKey: string): string | undefined;
 	/** `authentication.<configKey>.customHeaders`. */
 	getCustomHeaders(configKey: string): Record<string, string> | undefined;
-	/** AWS region (`authentication.aws.credentials.AWS_REGION`, env on the bridge side). */
-	getAwsRegion(): string | undefined;
-	/** AWS profile, from the resolved catalog's `connection.aws.profile`. */
-	getAwsProfile(): string | undefined;
+	/** AWS region/profile, from the resolved catalog's `connection.aws`. */
+	getAws(): { region?: string; profile?: string } | undefined;
 	/** Snowflake host/account (`authentication.snowflake.credentials`, env on the bridge side). */
 	getSnowflake(): { host?: string; account?: string } | undefined;
 }
@@ -118,13 +116,14 @@ export function shapeCredentials(
 				return null;
 			}
 			// Region is not in the session -- the adapter resolves settings/env, default us-east-1.
+			const aws = config.getAws();
 			return {
 				type: "aws-credentials",
-				region: config.getAwsRegion() || "us-east-1",
+				region: aws?.region || "us-east-1",
 				accessKeyId,
 				secretAccessKey,
 				sessionToken: getStringField(parsed, "sessionToken"),
-				profile: config.getAwsProfile(),
+				profile: aws?.profile,
 			};
 		}
 

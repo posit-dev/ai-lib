@@ -30,8 +30,10 @@ function fakeConfig(
 	return {
 		getBaseUrl: (configKey) => overrides.baseUrls?.[configKey],
 		getCustomHeaders: (configKey) => overrides.customHeaders?.[configKey],
-		getAwsRegion: () => overrides.awsRegion,
-		getAwsProfile: () => overrides.awsProfile,
+		getAws: () =>
+			overrides.awsRegion === undefined && overrides.awsProfile === undefined
+				? undefined
+				: { region: overrides.awsRegion, profile: overrides.awsProfile },
 		getSnowflake: () => overrides.snowflake,
 	};
 }
