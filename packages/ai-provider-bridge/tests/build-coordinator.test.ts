@@ -10,11 +10,21 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-	acquireCoordinatorLock,
+	acquireCoordinatorRole,
+	claimWriterLock,
+	followGenerations,
 	GenerationBuildLoop,
+	GenerationObserver,
 	promoteGeneration,
+	publishGeneration,
 	reusableGeneration,
+	runCoordinator,
 	validateGeneration,
+	type Closeable,
+	type CoordinatorPaths,
+	type GenerationObserverAdapters,
+	type GenerationRecord,
+	type ObservedWatchOwner,
 } from "../scripts/build-coordinator";
 
 const temporaryDirectories: string[] = [];
@@ -31,6 +41,91 @@ async function temporaryDirectory(prefix: string): Promise<string> {
 	const directory = await mkdtemp(path.join(os.tmpdir(), prefix));
 	temporaryDirectories.push(directory);
 	return directory;
+}
+
+function coordinatorPaths(root: string): CoordinatorPaths {
+	const state = path.join(root, ".bridge-watch");
+	return {
+		distDir: path.join(root, "dist"),
+		stateDir: state,
+		stagingRoot: path.join(state, "staging"),
+		generationFile: path.join(state, "generation.json"),
+		readyFile: path.join(state, "ready.json"),
+		lockDirectory: path.join(state, "coordinator.lock"),
+	};
+}
+
+async function writeLiveOwner(
+	lock: string,
+	mode: "watch" | "oneshot" | undefined,
+	pid = 42,
+): Promise<void> {
+	await mkdir(path.dirname(lock), { recursive: true });
+	await writeFile(
+		lock,
+		JSON.stringify({
+			pid,
+			token: `owner-${pid}`,
+			startedAt: new Date(0).toISOString(),
+			...(mode ? { mode } : {}),
+		}),
+	);
+}
+
+async function writeGeneration(
+	paths: CoordinatorPaths,
+	generation: number,
+	token: string,
+): Promise<GenerationRecord> {
+	await Promise.all([
+		mkdir(paths.distDir, { recursive: true }),
+		mkdir(paths.stateDir, { recursive: true }),
+	]);
+	const content = `export const generation = ${generation};`;
+	await writeFile(path.join(paths.distDir, "index.js"), content);
+	const record: GenerationRecord = {
+		generation,
+		inputFingerprint: `fingerprint-${generation}`,
+		manifest: ["index.js"],
+		digests: { "index.js": createHash("sha256").update(content).digest("hex") },
+		completedAt: new Date(generation * 1_000).toISOString(),
+	};
+	await Promise.all([
+		writeFile(paths.generationFile, JSON.stringify(record)),
+		writeFile(paths.readyFile, JSON.stringify({ token, generation })),
+	]);
+	return record;
+}
+
+async function writeObserverOwner(
+	paths: CoordinatorPaths,
+	owner: ObservedWatchOwner,
+): Promise<void> {
+	await mkdir(paths.stateDir, { recursive: true });
+	await writeFile(paths.lockDirectory, JSON.stringify(owner));
+}
+
+function observationHarness() {
+	let onChange: (() => void) | null = null;
+	let onPoll: (() => void) | null = null;
+	let watchClosed = false;
+	let pollClosed = false;
+	const adapters: GenerationObserverAdapters = {
+		watchDirectory: (_directory, callback) => {
+			onChange = callback;
+			return { close: () => (watchClosed = true) };
+		},
+		schedulePoll: (callback) => {
+			onPoll = callback;
+			return { close: () => (pollClosed = true) };
+		},
+	};
+	return {
+		adapters,
+		change: () => onChange?.(),
+		poll: () => onPoll?.(),
+		closed: () => ({ watchClosed, pollClosed }),
+	};
 }
 
 afterEach(async () => {
@@ -113,7 +208,7 @@ describe("bridge coordinator locking", () => {
 		await mkdir(lock);
 		await writeFile(path.join(lock, "owner.json"), "");
 
-		await expect(acquireCoordinatorLock(lock)).rejects.toThrow(/initializ|active/i);
+		await expect(claimWriterLock("watch", lock)).rejects.toThrow(/initializ|active/i);
 	});
 
 	it("does not replace a fresh empty lock directory", async () => {
@@ -121,7 +216,7 @@ describe("bridge coordinator locking", () => {
 		const lock = path.join(root, "coordinator.lock");
 		await mkdir(lock);
 
-		await expect(acquireCoordinatorLock(lock)).rejects.toThrow(/initializ|active/i);
+		await expect(claimWriterLock("watch", lock)).rejects.toThrow(/initializ|active/i);
 		await expect(writeFile(path.join(lock, "owner.json"), "still owned")).resolves.toBeUndefined();
 	});
 
@@ -135,15 +230,15 @@ describe("bridge coordinator locking", () => {
 		);
 
 		const contenders = await Promise.allSettled([
-			acquireCoordinatorLock(lock),
-			acquireCoordinatorLock(lock),
+			claimWriterLock("watch", lock),
+			claimWriterLock("watch", lock),
 		]);
 		const winners = contenders.filter(
-			(result): result is PromiseFulfilledResult<() => Promise<void>> =>
+			(result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof claimWriterLock>>> =>
 				result.status === "fulfilled",
 		);
 		expect(winners).toHaveLength(1);
-		await winners[0]?.value();
+		await winners[0]?.value.release();
 	});
 
 	it("recovers an old malformed lock after the initialization grace period", async () => {
@@ -154,8 +249,8 @@ describe("bridge coordinator locking", () => {
 		const staleTime = new Date(Date.now() - 10_000);
 		await utimes(lock, staleTime, staleTime);
 
-		const release = await acquireCoordinatorLock(lock);
-		await release();
+		const claim = await claimWriterLock("watch", lock);
+		await claim.release();
 	});
 
 	it("migrates a stale lock file left by the previous coordinator", async () => {
@@ -166,8 +261,284 @@ describe("bridge coordinator locking", () => {
 			JSON.stringify({ pid: 2_147_483_647, token: "legacy", startedAt: new Date(0).toISOString() }),
 		);
 
-		const release = await acquireCoordinatorLock(lock);
-		await release();
+		const claim = await claimWriterLock("watch", lock);
+		await claim.release();
+	});
+
+	it("records the declared owner intent and returns the published identity", async () => {
+		const root = await temporaryDirectory("bridge-lock-owner-");
+		const lock = path.join(root, "coordinator.lock");
+		const claim = await claimWriterLock("watch", lock);
+
+		expect(JSON.parse(await readFile(lock, "utf8"))).toEqual(claim.owner);
+		expect(claim.owner.mode).toBe("watch");
+		await claim.release();
+	});
+});
+
+describe("bridge coordinator roles", () => {
+	it("makes a watch contender follow a live watch owner", async () => {
+		const root = await temporaryDirectory("bridge-role-follow-");
+		const lock = path.join(root, "coordinator.lock");
+		await writeLiveOwner(lock, "watch");
+
+		await expect(
+			acquireCoordinatorRole("watch", { lockDirectory: lock, processIsAlive: () => true }),
+		).resolves.toMatchObject({ kind: "follower", owner: { mode: "watch", token: "owner-42" } });
+	});
+
+	it("waits out a one-shot owner before becoming the watch writer", async () => {
+		const root = await temporaryDirectory("bridge-role-wait-");
+		const lock = path.join(root, "coordinator.lock");
+		await writeLiveOwner(lock, "oneshot");
+		let alive = true;
+
+		const role = await acquireCoordinatorRole("watch", {
+			lockDirectory: lock,
+			processIsAlive: () => alive,
+			wait: async () => {
+				alive = false;
+			},
+		});
+
+		expect(role.kind).toBe("writer");
+		if (role.kind === "writer") await role.release();
+	});
+
+	it.each([["watch"], ["oneshot"]] satisfies ["watch" | "oneshot"][])(
+		"fails a one-shot contender clearly against a live %s owner",
+		async (ownerMode) => {
+			const root = await temporaryDirectory(`bridge-role-exclusive-${ownerMode}-`);
+			const lock = path.join(root, "coordinator.lock");
+			await writeLiveOwner(lock, ownerMode);
+
+			await expect(
+				acquireCoordinatorRole("oneshot", {
+					lockDirectory: lock,
+					processIsAlive: () => true,
+				}),
+			).rejects.toThrow(/active/i);
+		},
+	);
+
+	it("handles a live legacy owner conservatively with bounded grace", async () => {
+		const root = await temporaryDirectory("bridge-role-legacy-");
+		const lock = path.join(root, "coordinator.lock");
+		await writeLiveOwner(lock, undefined);
+		let now = 0;
+
+		await expect(
+			acquireCoordinatorRole("watch", {
+				lockDirectory: lock,
+				processIsAlive: () => true,
+				now: () => now,
+				wait: async (milliseconds) => {
+					now += milliseconds;
+				},
+				unknownOwnerGraceMs: 200,
+			}),
+		).rejects.toThrow(/legacy lock/i);
+	});
+});
+
+describe("bridge generation publication", () => {
+	it("publishes generation, watch readiness, then announces", async () => {
+		const root = await temporaryDirectory("bridge-publication-");
+		const paths = coordinatorPaths(root);
+		const record = await writeGeneration(paths, 3, "old-token");
+		const announce = vi.fn();
+
+		await publishGeneration(record, { kind: "watch", token: "current-token" }, paths, announce);
+
+		expect(JSON.parse(await readFile(paths.generationFile, "utf8"))).toEqual(record);
+		expect(JSON.parse(await readFile(paths.readyFile, "utf8"))).toEqual({
+			token: "current-token",
+			generation: 3,
+		});
+		expect(announce).toHaveBeenCalledWith(record);
+	});
+
+	it("does not announce when the readiness stamp fails", async () => {
+		const root = await temporaryDirectory("bridge-publication-failure-");
+		const paths = coordinatorPaths(root);
+		const record = await writeGeneration(paths, 4, "old-token");
+		await rm(paths.readyFile);
+		await mkdir(paths.readyFile);
+		const announce = vi.fn();
+
+		await expect(
+			publishGeneration(record, { kind: "watch", token: "current-token" }, paths, announce),
+		).rejects.toThrow();
+		expect(announce).not.toHaveBeenCalled();
+	});
+});
+
+describe("bridge generation observation", () => {
+	function owner(token = "writer-token"): ObservedWatchOwner {
+		return {
+			pid: 42,
+			token,
+			startedAt: new Date(0).toISOString(),
+			mode: "watch",
+		};
+	}
+
+	it("rejects stale or mismatched readiness until token and generation both match", async () => {
+		const root = await temporaryDirectory("bridge-observer-readiness-");
+		const paths = coordinatorPaths(root);
+		const watchOwner = owner();
+		await writeGeneration(paths, 7, "prior-session");
+		await writeObserverOwner(paths, watchOwner);
+		const harness = observationHarness();
+		const records: GenerationRecord[] = [];
+		const subscription = new GenerationObserver(watchOwner, {
+			paths,
+			adapters: harness.adapters,
+			processIsAlive: () => true,
+		}).observe((record) => records.push(record));
+
+		harness.poll();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(records).toHaveLength(0);
+
+		await writeFile(paths.readyFile, JSON.stringify({ token: "writer-token", generation: 6 }));
+		harness.change();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(records).toHaveLength(0);
+
+		await writeFile(paths.readyFile, JSON.stringify({ token: "writer-token", generation: 7 }));
+		await writeObserverOwner(paths, owner("replacement-token"));
+		harness.change();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(records).toHaveLength(0);
+
+		await writeObserverOwner(paths, watchOwner);
+		harness.change();
+		await vi.waitFor(() => expect(records.map((record) => record.generation)).toEqual([7]));
+		subscription.close();
+	});
+
+	it("deduplicates repeated scans and converges to the newest coalesced generation", async () => {
+		const root = await temporaryDirectory("bridge-observer-coalesced-");
+		const paths = coordinatorPaths(root);
+		const watchOwner = owner();
+		await writeObserverOwner(paths, watchOwner);
+		const harness = observationHarness();
+		const records: GenerationRecord[] = [];
+		const subscription = new GenerationObserver(watchOwner, {
+			paths,
+			adapters: harness.adapters,
+			processIsAlive: () => true,
+		}).observe((record) => records.push(record));
+
+		await writeGeneration(paths, 8, "writer-token");
+		await writeGeneration(paths, 9, "writer-token");
+		harness.change();
+		await vi.waitFor(() => expect(records.map((record) => record.generation)).toEqual([9]));
+		harness.change();
+		harness.poll();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(records.map((record) => record.generation)).toEqual([9]);
+
+		subscription.close();
+		expect(harness.closed()).toEqual({ watchClosed: true, pollClosed: true });
+	});
+
+	it("falls back to polling when the state directory temporarily does not exist", async () => {
+		const root = await temporaryDirectory("bridge-observer-enoent-");
+		const paths = coordinatorPaths(root);
+		const watchOwner = owner();
+		await writeObserverOwner(paths, watchOwner);
+		let poll: () => void = () => {
+			throw new Error("poll callback was not registered");
+		};
+		let pollClosed = false;
+		const adapters: GenerationObserverAdapters = {
+			watchDirectory: () => {
+				throw Object.assign(new Error("missing"), { code: "ENOENT" });
+			},
+			schedulePoll: (callback) => {
+				poll = callback;
+				return { close: () => (pollClosed = true) };
+			},
+		};
+		const records: GenerationRecord[] = [];
+		const subscription = new GenerationObserver(watchOwner, {
+			paths,
+			adapters,
+			processIsAlive: () => true,
+		}).observe((record) => records.push(record));
+
+		await writeGeneration(paths, 1, "writer-token");
+		poll();
+		await vi.waitFor(() => expect(records.map((record) => record.generation)).toEqual([1]));
+		subscription.close();
+		expect(pollClosed).toBe(true);
+	});
+
+	it("relays initial and later generations and closes when the writer exits", async () => {
+		const root = await temporaryDirectory("bridge-follower-relay-");
+		const paths = coordinatorPaths(root);
+		const watchOwner = owner();
+		await writeGeneration(paths, 1, watchOwner.token);
+		await writeObserverOwner(paths, watchOwner);
+		const harness = observationHarness();
+		const observer = new GenerationObserver(watchOwner, {
+			paths,
+			adapters: harness.adapters,
+			processIsAlive: () => true,
+		});
+		let checkLiveness: () => void = () => {
+			throw new Error("liveness callback was not registered");
+		};
+		let livenessClosed = false;
+		let writerAlive = true;
+		const announced = vi.fn();
+		const following = followGenerations(watchOwner, {
+			observer,
+			processIsAlive: () => writerAlive,
+			monitorLiveness: (check): Closeable => {
+				checkLiveness = check;
+				return { close: () => (livenessClosed = true) };
+			},
+			announce: announced,
+		});
+		await vi.waitFor(() => expect(announced).toHaveBeenCalledTimes(1));
+
+		await writeGeneration(paths, 2, watchOwner.token);
+		harness.change();
+		await vi.waitFor(() => expect(announced).toHaveBeenCalledTimes(2));
+		expect(announced.mock.calls.map(([record]) => record.generation)).toEqual([1, 2]);
+
+		writerAlive = false;
+		checkLiveness();
+		await expect(following).rejects.toThrow(/cannot promote/i);
+		expect(livenessClosed).toBe(true);
+		expect(harness.closed()).toEqual({ watchClosed: true, pollClosed: true });
+	});
+});
+
+describe("bridge coordinator main seam", () => {
+	it("does not clean outputs when a one-shot encounters a live watch", async () => {
+		const root = await temporaryDirectory("bridge-main-exclusive-");
+		const paths = coordinatorPaths(root);
+		await Promise.all([
+			mkdir(paths.distDir, { recursive: true }),
+			mkdir(paths.stateDir, { recursive: true }),
+		]);
+		await writeFile(path.join(paths.distDir, "sentinel.txt"), "keep dist");
+		await writeFile(paths.generationFile, "keep generation");
+		const writer = await claimWriterLock("watch", paths.lockDirectory);
+
+		try {
+			await expect(runCoordinator(["--clean"], { paths })).rejects.toThrow(
+				/stop the bridge watch/i,
+			);
+			expect(await readFile(path.join(paths.distDir, "sentinel.txt"), "utf8")).toBe("keep dist");
+			expect(await readFile(paths.generationFile, "utf8")).toBe("keep generation");
+		} finally {
+			await writer.release();
+		}
 	});
 });
 
