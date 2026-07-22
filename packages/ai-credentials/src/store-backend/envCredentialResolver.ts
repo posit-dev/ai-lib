@@ -17,8 +17,8 @@
  * credentials without importing @assistant/*.
  */
 
-import type { ProviderCredentials } from "../types/credentials";
-import { PROVIDER_ENV_MAPPINGS, type ProviderEnvMapping } from "./providerEnvMappings";
+import type { ProviderCredentials } from "../types/credentials.js";
+import { PROVIDER_ENV_MAPPINGS, type ProviderEnvMapping } from "./providerEnvMappings.js";
 
 /**
  * Attempt to resolve credentials for a provider from environment variables.

@@ -20,8 +20,8 @@
  *   providers resolve through {@link Backend.getCredentials}.
  */
 
-import type { Disposable } from "./CredentialProvider";
-import type { ProviderCredentials, TokenData } from "./types";
+import type { Disposable } from "./CredentialProvider.js";
+import type { ProviderCredentials, TokenData } from "./types/index.js";
 
 /**
  * OAuth connection config for a device-flow provider.

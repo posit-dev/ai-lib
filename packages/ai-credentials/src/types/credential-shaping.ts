@@ -18,9 +18,9 @@
  * it that way.
  */
 
-import type { ProviderCredentials } from "./credentials";
-import type { Logger } from "./logger";
-import { buildSnowflakeCortexUrl, buildSnowflakeCortexUrlFromHost } from "./utils";
+import type { ProviderCredentials } from "./credentials.js";
+import type { Logger } from "./logger.js";
+import { buildSnowflakeCortexUrl, buildSnowflakeCortexUrlFromHost } from "./utils.js";
 
 /**
  * Maps a provider to its auth extension registration and credential type.

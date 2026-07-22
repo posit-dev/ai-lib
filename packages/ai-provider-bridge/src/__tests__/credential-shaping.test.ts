@@ -208,7 +208,7 @@ describe("credential-shaping stays browser-safe", () => {
 			expect(imp).toMatch(/^\.\//);
 		}
 		// Specifically: it imports the URL helper from ./utils
-		expect(valueImports).toEqual(["./utils"]);
+		expect(valueImports).toEqual(["./utils.js"]);
 		// No dynamic imports
 		expect(source).not.toMatch(/\bimport\s*\(/);
 	});

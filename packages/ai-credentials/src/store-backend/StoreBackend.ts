@@ -26,16 +26,16 @@ import type {
 	OAuthBackendHooks,
 	OAuthProviderConfig,
 	StoredOAuthTokens,
-} from "../Backend";
-import type { Disposable } from "../CredentialProvider";
-import type { SingleFileStore } from "../store";
-import type { Logger, ProviderCredentials, TokenData } from "../types";
-import { storageKeyFor } from "../types";
-import { resolveCredentialsFromEnv } from "./envCredentialResolver";
+} from "../Backend.js";
+import type { Disposable } from "../CredentialProvider.js";
+import type { SingleFileStore } from "../store/index.js";
+import type { Logger, ProviderCredentials, TokenData } from "../types/index.js";
+import { storageKeyFor } from "../types/index.js";
+import { resolveCredentialsFromEnv } from "./envCredentialResolver.js";
 import {
 	storedProviderCredentialsSchema,
 	type StoredProviderCredentials,
-} from "./StoredProviderCredentials";
+} from "./StoredProviderCredentials.js";
 
 /** Auth descriptor for a provider (injected — derived from registry/catalog). */
 export interface AuthMethodDescriptor {

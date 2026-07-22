@@ -11,7 +11,7 @@
  * `withLock` retries and eventually acquires after the child releases.
  */
 
-import { SingleFileStore } from "../../SingleFileStore";
+import { SingleFileStore } from "../../SingleFileStore.js";
 
 const filePath = process.argv[2];
 if (!filePath) {
