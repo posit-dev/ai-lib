@@ -442,6 +442,61 @@ describe("resolveProviderCatalog — enforced beats connection env", () => {
 	});
 });
 
+describe("resolveProviderCatalog — snowflake + legacy vertex env vars", () => {
+	it("folds SNOWFLAKE_* env vars into snowflake-cortex connection", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [],
+			baseline: STANDALONE,
+			envVars: {
+				SNOWFLAKE_ACCOUNT: "acme-prod",
+				SNOWFLAKE_HOST: "acme-prod.privatelink.snowflakecomputing.com",
+				SNOWFLAKE_HOME: "/opt/sf",
+			},
+		});
+		expect(find(catalog, "snowflake-cortex")?.connection.snowflake).toEqual({
+			account: "acme-prod",
+			host: "acme-prod.privatelink.snowflakecomputing.com",
+			home: "/opt/sf",
+		});
+	});
+
+	it("maps GOOGLE_VERTEX_BASE_URL to google-vertex baseUrl", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [],
+			baseline: STANDALONE,
+			envVars: { GOOGLE_VERTEX_BASE_URL: "https://vertex.example.com" },
+		});
+		expect(find(catalog, "google-vertex")?.connection.baseUrl).toBe("https://vertex.example.com");
+	});
+
+	it("legacy GOOGLE_VERTEX_* names apply only when GOOGLE_CLOUD_* are unset", () => {
+		const legacyOnly = resolveProviderCatalog({
+			sources: [],
+			baseline: STANDALONE,
+			envVars: { GOOGLE_VERTEX_PROJECT: "legacy-proj", GOOGLE_VERTEX_LOCATION: "us-west1" },
+		});
+		expect(find(legacyOnly, "google-vertex")?.connection.googleCloud).toEqual({
+			project: "legacy-proj",
+			location: "us-west1",
+		});
+
+		const primaryWins = resolveProviderCatalog({
+			sources: [],
+			baseline: STANDALONE,
+			envVars: {
+				GOOGLE_CLOUD_PROJECT: "primary-proj",
+				GOOGLE_VERTEX_PROJECT: "legacy-proj",
+				GOOGLE_VERTEX_LOCATION: "us-west1",
+			},
+		});
+		// Primary project wins; legacy location still fills the unset field.
+		expect(find(primaryWins, "google-vertex")?.connection.googleCloud).toEqual({
+			project: "primary-proj",
+			location: "us-west1",
+		});
+	});
+});
+
 describe("recoverValidStack — choose dropped source", () => {
 	/** Custom entry with no `type` — uncompletable unless another source supplies it. */
 	const badCustom = (name: string): ProviderConfigSource["config"] => ({

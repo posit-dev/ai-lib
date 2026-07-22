@@ -46,38 +46,8 @@ export interface CreatePositronBackendOptions {
 	logger: Logger;
 	/** Provider-id → auth mapping (the bridge's PROVIDER_MAP). */
 	providerMap: ProviderMap;
-	/** CredentialConfig factory; defaults to {@link createVscodeCredentialConfig}. */
-	credentialConfigFactory?: () => CredentialConfig;
-}
-
-/**
- * A {@link CredentialConfig} backed by VS Code settings, with `process.env`
- * fallbacks for host environments (TUI / node) that set them.
- */
-export function createVscodeCredentialConfig(): CredentialConfig {
-	return {
-		getBaseUrl: (configKey) =>
-			vscode.workspace.getConfiguration("authentication").get<string>(`${configKey}.baseUrl`),
-		getCustomHeaders: (configKey) =>
-			vscode.workspace
-				.getConfiguration("authentication")
-				.get<Record<string, string>>(`${configKey}.customHeaders`),
-		getAwsRegion: () => {
-			const awsConfig = vscode.workspace
-				.getConfiguration("authentication.aws")
-				.get<Record<string, string>>("credentials");
-			return awsConfig?.AWS_REGION || process.env.AWS_REGION;
-		},
-		getSnowflake: () => {
-			const snowflakeConfig = vscode.workspace
-				.getConfiguration("authentication.snowflake")
-				.get<Record<string, string>>("credentials");
-			return {
-				host: snowflakeConfig?.SNOWFLAKE_HOST || process.env.SNOWFLAKE_HOST,
-				account: snowflakeConfig?.SNOWFLAKE_ACCOUNT || process.env.SNOWFLAKE_ACCOUNT,
-			};
-		},
-	};
+	/** CredentialConfig factory (the host injects its catalog-backed adapter). */
+	credentialConfigFactory: () => CredentialConfig;
 }
 
 /**
@@ -101,8 +71,7 @@ async function tryGetSession(
 
 /** Build a Positron {@link Backend} over the injected provider map. */
 export function createPositronBackend(options: CreatePositronBackendOptions): PositronBackend {
-	const { logger, providerMap } = options;
-	const credentialConfigFactory = options.credentialConfigFactory ?? createVscodeCredentialConfig;
+	const { logger, providerMap, credentialConfigFactory } = options;
 
 	const mappedProviderIds = Object.keys(providerMap).filter((id) => providerMap[id] !== undefined);
 

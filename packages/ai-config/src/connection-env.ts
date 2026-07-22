@@ -19,6 +19,10 @@ import type { BuiltinProviderId } from "./vocabulary.js";
 // Non-secret connection env var mappings
 // ---------------------------------------------------------------------------
 
+// An env var name, or a list of names consulted in order (first set wins)
+// so legacy fallbacks stay subordinate to the primary name.
+type EnvNames = string | readonly string[];
+
 /**
  * Maps environment variable names to non-secret connection fields for a
  * built-in provider.
@@ -28,11 +32,12 @@ import type { BuiltinProviderId } from "./vocabulary.js";
  * `@assistant/node`.
  */
 interface ConnectionEnvMapping {
-	baseUrl?: string;
-	endpoint?: string;
-	positaiLogin?: { host?: string; clientId?: string; scope?: string };
-	aws?: { region?: string; profile?: string };
-	googleCloud?: { project?: string; location?: string };
+	baseUrl?: EnvNames;
+	endpoint?: EnvNames;
+	positaiLogin?: { host?: EnvNames; clientId?: EnvNames; scope?: EnvNames };
+	aws?: { region?: EnvNames; profile?: EnvNames };
+	googleCloud?: { project?: EnvNames; location?: EnvNames };
+	snowflake?: { account?: EnvNames; host?: EnvNames; home?: EnvNames };
 }
 
 /**
@@ -58,14 +63,18 @@ const CONNECTION_ENV_MAPPINGS: Partial<Record<BuiltinProviderId, ConnectionEnvMa
 	lmstudio: { endpoint: "LMSTUDIO_ENDPOINT" },
 	bedrock: { aws: { region: "AWS_REGION", profile: "AWS_PROFILE" } },
 	"google-vertex": {
+		baseUrl: "GOOGLE_VERTEX_BASE_URL",
 		googleCloud: {
-			project: "GOOGLE_CLOUD_PROJECT",
-			location: "GOOGLE_CLOUD_LOCATION",
+			project: ["GOOGLE_CLOUD_PROJECT", "GOOGLE_VERTEX_PROJECT"],
+			location: ["GOOGLE_CLOUD_LOCATION", "GOOGLE_VERTEX_LOCATION"],
 		},
 	},
 	"openai-compatible": { baseUrl: "OPENAI_COMPATIBLE_BASE_URL" },
 	"ms-foundry": { baseUrl: "MS_FOUNDRY_BASE_URL" },
-	"snowflake-cortex": { baseUrl: "SNOWFLAKE_BASE_URL" },
+	"snowflake-cortex": {
+		baseUrl: "SNOWFLAKE_BASE_URL",
+		snowflake: { account: "SNOWFLAKE_ACCOUNT", host: "SNOWFLAKE_HOST", home: "SNOWFLAKE_HOME" },
+	},
 	deepseek: { baseUrl: "DEEPSEEK_BASE_URL" },
 };
 
@@ -91,11 +100,11 @@ export function readEnvConnectionConfig(
 
 		const block: BuiltinProviderBlock = {};
 		if (mapping.baseUrl) {
-			const val = envVars[mapping.baseUrl];
+			const val = readEnv(mapping.baseUrl, envVars);
 			if (val) block.baseUrl = val;
 		}
 		if (mapping.endpoint) {
-			const val = envVars[mapping.endpoint];
+			const val = readEnv(mapping.endpoint, envVars);
 			if (val) block.endpoint = val;
 		}
 
@@ -108,9 +117,25 @@ export function readEnvConnectionConfig(
 		const googleCloud = mapping.googleCloud && readEnvSection(mapping.googleCloud, envVars);
 		if (googleCloud) block.googleCloud = googleCloud;
 
+		const snowflake = mapping.snowflake && readEnvSection(mapping.snowflake, envVars);
+		if (snowflake) block.snowflake = snowflake;
+
 		if (Object.keys(block).length > 0) providers[id] = block;
 	}
 	return { providers };
+}
+
+/**
+ * Read the first set env var among `names`, consulted in order so legacy
+ * fallback names stay subordinate to the primary name.
+ */
+function readEnv(names: EnvNames, envVars: Record<string, string | undefined>): string | undefined {
+	const candidates = typeof names === "string" ? [names] : names;
+	for (const name of candidates) {
+		const val = envVars[name];
+		if (val) return val;
+	}
+	return undefined;
 }
 
 /**
@@ -118,14 +143,14 @@ export function readEnvConnectionConfig(
  * and return an object with only the fields whose env vars are set.
  * Returns `undefined` if no env vars in the section are set.
  */
-function readEnvSection<T extends Record<string, string | undefined>>(
+function readEnvSection<T extends Record<string, EnvNames | undefined>>(
 	mapping: T,
 	envVars: Record<string, string | undefined>,
 ): Record<string, string> | undefined {
 	let result: Record<string, string> | undefined;
-	for (const [field, envVarName] of Object.entries(mapping)) {
-		if (!envVarName) continue;
-		const val = envVars[envVarName];
+	for (const [field, envVarNames] of Object.entries(mapping)) {
+		if (!envVarNames) continue;
+		const val = readEnv(envVarNames, envVars);
 		if (val) {
 			result ??= {};
 			result[field] = val;
