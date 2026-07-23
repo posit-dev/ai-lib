@@ -82,6 +82,22 @@ describe("inferModelCapabilities", () => {
 		expect(caps.thinkingEffortLevels).toEqual(["off", "on"]);
 	});
 
+	it("resolves Baseten Model APIs models through the positai family", () => {
+		const glm = inferModelCapabilities("positai", "zai-org/GLM-5.2");
+		expect(glm.family).toBe("glm");
+		expect(glm.thinkingEffortLevels).toEqual(["off", "on"]);
+		expect(glm.supportsImages).toBe(false);
+		expect(glm.maxContextLength).toBe(256_000);
+
+		const kimi = inferModelCapabilities("positai", "moonshotai/Kimi-K2.7-Code");
+		expect(kimi.family).toBe("kimi");
+		expect(kimi.thinkingEffortLevels).toEqual(["off", "on"]);
+		// The table lists image media types without the flag; the derivation
+		// must lift supportsImages for this vision-capable model.
+		expect(kimi.supportsImages).toBe(true);
+		expect(kimi.maxContextLength).toBe(262_000);
+	});
+
 	it("omits requiresChatTemplateKwargs so the result fits a models.custom entry", () => {
 		// The Gemma table sets this runtime-only flag, but the strict custom-model
 		// schema rejects it; inferModelCapabilities must not surface it.
@@ -95,6 +111,8 @@ describe("inferModelCapabilities", () => {
 		// rejects. Cover a representative id per provider family.
 		for (const [providerId, modelId] of [
 			["positai", "google/gemma-4-27b-it"],
+			["positai", "zai-org/GLM-5.2"],
+			["positai", "moonshotai/Kimi-K2.7-Code"],
 			["anthropic", "claude-opus-4-8"],
 			["openai", "gpt-4o"],
 			["gemini", "gemini-2.5-pro"],

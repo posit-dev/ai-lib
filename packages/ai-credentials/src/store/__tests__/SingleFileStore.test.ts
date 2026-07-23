@@ -10,7 +10,7 @@ import { fileURLToPath } from "url";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { SingleFileStore } from "../SingleFileStore";
+import { SingleFileStore } from "../SingleFileStore.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 

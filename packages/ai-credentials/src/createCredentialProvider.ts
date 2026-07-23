@@ -17,8 +17,8 @@
  *   controller when available, otherwise the legacy device-only engine.
  */
 
-import { AcquisitionEngine } from "./acquisition";
-import type { Backend, MutableBackend } from "./Backend";
+import { AcquisitionEngine } from "./acquisition.js";
+import type { Backend, MutableBackend } from "./Backend.js";
 import type {
 	AuthenticationStartResult,
 	CredentialMutation,
@@ -26,9 +26,9 @@ import type {
 	CredentialStatus,
 	Disposable,
 	MutableCredentialProvider,
-} from "./CredentialProvider";
-import { OAuthEngine } from "./device-auth";
-import type { DeviceAuthInfo, Logger, ProviderCredentials } from "./types";
+} from "./CredentialProvider.js";
+import { OAuthEngine } from "./device-auth.js";
+import type { DeviceAuthInfo, Logger, ProviderCredentials } from "./types/index.js";
 
 export interface CreateCredentialProviderOptions {
 	/** Host-selected backend (store+env outside Positron, vscode inside). */

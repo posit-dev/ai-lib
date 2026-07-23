@@ -25,8 +25,8 @@ import type {
 	CredentialSourceInput,
 	CredentialStatus,
 	Disposable,
-} from "./CredentialProvider";
-import type { ProviderCredentials, TokenData } from "./types";
+} from "./CredentialProvider.js";
+import type { ProviderCredentials, TokenData } from "./types/index.js";
 
 /**
  * OAuth connection config for a device-flow provider.

@@ -121,7 +121,7 @@ describe("ai-credentials purity — /types is browser-safe", () => {
 	});
 
 	it("exposes storageKeyFor from the pure entry", async () => {
-		const mod = await import("../types");
+		const mod = await import("../types/index.js");
 		expect(typeof mod.storageKeyFor).toBe("function");
 		expect(mod.storageKeyFor("anthropic", "apikey")).toBe("auth:anthropic:apikey");
 	});

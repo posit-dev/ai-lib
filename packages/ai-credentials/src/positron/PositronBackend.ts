@@ -21,10 +21,15 @@
 
 import * as vscode from "vscode";
 
-import type { Backend, OAuthBackendHooks } from "../Backend";
-import type { Disposable } from "../CredentialProvider";
-import type { AuthProviderMapping, CredentialConfig, Logger, ProviderCredentials } from "../types";
-import { shapeCredentials } from "../types";
+import type { Backend, OAuthBackendHooks } from "../Backend.js";
+import type { Disposable } from "../CredentialProvider.js";
+import type {
+	AuthProviderMapping,
+	CredentialConfig,
+	Logger,
+	ProviderCredentials,
+} from "../types/index.js";
+import { shapeCredentials } from "../types/index.js";
 
 /** A provider-id → auth mapping table (injected from the bridge's PROVIDER_MAP). */
 export type ProviderMap = Readonly<Record<string, AuthProviderMapping | undefined>>;
@@ -46,46 +51,8 @@ export interface CreatePositronBackendOptions {
 	logger: Logger;
 	/** Provider-id → auth mapping (the bridge's PROVIDER_MAP). */
 	providerMap: ProviderMap;
-	/** CredentialConfig factory; defaults to {@link createVscodeCredentialConfig}. */
-	credentialConfigFactory?: () => CredentialConfig;
-}
-
-/**
- * A {@link CredentialConfig} backed by VS Code settings, with `process.env`
- * fallbacks for host environments (TUI / node) that set them.
- */
-export function createVscodeCredentialConfig(): CredentialConfig {
-	return {
-		getBaseUrl: (configKey) =>
-			vscode.workspace.getConfiguration("authentication").get<string>(`${configKey}.baseUrl`),
-		getCustomHeaders: (configKey) =>
-			vscode.workspace
-				.getConfiguration("authentication")
-				.get<Record<string, string>>(`${configKey}.customHeaders`),
-		getAwsRegion: () => {
-			const awsConfig = vscode.workspace
-				.getConfiguration("authentication.aws")
-				.get<Record<string, string>>("credentials");
-			return awsConfig?.AWS_REGION || process.env.AWS_REGION;
-		},
-		getSnowflake: () => {
-			const snowflakeConfig = vscode.workspace
-				.getConfiguration("authentication.snowflake")
-				.get<Record<string, string>>("credentials");
-			return {
-				host: snowflakeConfig?.SNOWFLAKE_HOST || process.env.SNOWFLAKE_HOST,
-				account: snowflakeConfig?.SNOWFLAKE_ACCOUNT || process.env.SNOWFLAKE_ACCOUNT,
-			};
-		},
-		getDatabricks: () => {
-			const databricksConfig = vscode.workspace
-				.getConfiguration("authentication.databricks")
-				.get<Record<string, string>>("credentials");
-			return {
-				host: databricksConfig?.DATABRICKS_HOST || process.env.DATABRICKS_HOST,
-			};
-		},
-	};
+	/** CredentialConfig factory (the host injects its catalog-backed adapter). */
+	credentialConfigFactory: () => CredentialConfig;
 }
 
 /**
@@ -109,8 +76,7 @@ async function tryGetSession(
 
 /** Build a Positron {@link Backend} over the injected provider map. */
 export function createPositronBackend(options: CreatePositronBackendOptions): PositronBackend {
-	const { logger, providerMap } = options;
-	const credentialConfigFactory = options.credentialConfigFactory ?? createVscodeCredentialConfig;
+	const { logger, providerMap, credentialConfigFactory } = options;
 
 	const mappedProviderIds = Object.keys(providerMap).filter((id) => providerMap[id] !== undefined);
 

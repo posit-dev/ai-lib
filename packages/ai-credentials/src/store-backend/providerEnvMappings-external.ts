@@ -13,7 +13,7 @@
  */
 
 // Re-export types from the full registry (type-only imports are erased by TypeScript)
-export type { ProviderEnvMapping } from "./providerEnvMappings";
-import type { ProviderEnvMapping } from "./providerEnvMappings";
+export type { ProviderEnvMapping } from "./providerEnvMappings.js";
+import type { ProviderEnvMapping } from "./providerEnvMappings.js";
 
 export const PROVIDER_ENV_MAPPINGS: Record<string, ProviderEnvMapping> = {};

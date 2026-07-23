@@ -389,13 +389,133 @@ describe("resolveProviderCatalog — host layer merge semantics (Phase 6)", () =
 	});
 });
 
+describe("resolveProviderCatalog — enforced beats connection env", () => {
+	it("enforced baseUrl wins over connection env var", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("enforced", {
+					providers: { anthropic: { baseUrl: "https://enforced.example.com" } },
+				}),
+				source("user", { providers: {} }),
+			],
+			baseline: STANDALONE,
+			envVars: { ANTHROPIC_BASE_URL: "https://env.example.com" },
+		});
+		expect(find(catalog, "anthropic")?.connection.baseUrl).toBe("https://enforced.example.com");
+	});
+
+	it("env beats user/default when no enforced source pins the field", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("user", {
+					providers: { anthropic: { baseUrl: "https://user.example.com" } },
+				}),
+				source("default", {
+					providers: { anthropic: { baseUrl: "https://default.example.com" } },
+				}),
+			],
+			baseline: STANDALONE,
+			envVars: { ANTHROPIC_BASE_URL: "https://env.example.com" },
+		});
+		expect(find(catalog, "anthropic")?.connection.baseUrl).toBe("https://env.example.com");
+	});
+
+	it("enforced positaiLogin.host wins over POSITAI_AUTH_HOST env, env-only sub-key still lands", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("enforced", {
+					providers: { positai: { positaiLogin: { host: "enforced.login.com" } } },
+				}),
+				source("user", { providers: {} }),
+			],
+			baseline: STANDALONE,
+			envVars: {
+				POSITAI_AUTH_HOST: "env.login.com",
+				POSITAI_CLIENT_ID: "env-client-id",
+			},
+		});
+		const login = find(catalog, "positai")?.connection.positaiLogin;
+		// Enforced host wins over env
+		expect(login?.host).toBe("enforced.login.com");
+		// Env-only sub-key (clientId not in enforced) still lands
+		expect(login?.clientId).toBe("env-client-id");
+	});
+});
+
+describe("resolveProviderCatalog — snowflake + legacy vertex env vars", () => {
+	it("folds SNOWFLAKE_* env vars into snowflake-cortex connection", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [],
+			baseline: STANDALONE,
+			envVars: {
+				SNOWFLAKE_ACCOUNT: "acme-prod",
+				SNOWFLAKE_HOST: "acme-prod.privatelink.snowflakecomputing.com",
+				SNOWFLAKE_HOME: "/opt/sf",
+			},
+		});
+		expect(find(catalog, "snowflake-cortex")?.connection.snowflake).toEqual({
+			account: "acme-prod",
+			host: "acme-prod.privatelink.snowflakecomputing.com",
+			home: "/opt/sf",
+		});
+	});
+
+	it("folds DATABRICKS_HOST into databricks connection (not baseUrl)", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [],
+			baseline: STANDALONE,
+			envVars: { DATABRICKS_HOST: "https://adb-123.4.azuredatabricks.net" },
+		});
+		expect(find(catalog, "databricks")?.connection.databricks).toEqual({
+			host: "https://adb-123.4.azuredatabricks.net",
+		});
+		expect(find(catalog, "databricks")?.connection.baseUrl).toBeUndefined();
+	});
+
+	it("maps GOOGLE_VERTEX_BASE_URL to google-vertex baseUrl", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [],
+			baseline: STANDALONE,
+			envVars: { GOOGLE_VERTEX_BASE_URL: "https://vertex.example.com" },
+		});
+		expect(find(catalog, "google-vertex")?.connection.baseUrl).toBe("https://vertex.example.com");
+	});
+
+	it("legacy GOOGLE_VERTEX_* names apply only when GOOGLE_CLOUD_* are unset", () => {
+		const legacyOnly = resolveProviderCatalog({
+			sources: [],
+			baseline: STANDALONE,
+			envVars: { GOOGLE_VERTEX_PROJECT: "legacy-proj", GOOGLE_VERTEX_LOCATION: "us-west1" },
+		});
+		expect(find(legacyOnly, "google-vertex")?.connection.googleCloud).toEqual({
+			project: "legacy-proj",
+			location: "us-west1",
+		});
+
+		const primaryWins = resolveProviderCatalog({
+			sources: [],
+			baseline: STANDALONE,
+			envVars: {
+				GOOGLE_CLOUD_PROJECT: "primary-proj",
+				GOOGLE_VERTEX_PROJECT: "legacy-proj",
+				GOOGLE_VERTEX_LOCATION: "us-west1",
+			},
+		});
+		// Primary project wins; legacy location still fills the unset field.
+		expect(find(primaryWins, "google-vertex")?.connection.googleCloud).toEqual({
+			project: "primary-proj",
+			location: "us-west1",
+		});
+	});
+});
+
 describe("recoverValidStack — choose dropped source", () => {
 	/** Custom entry with no `type` — uncompletable unless another source supplies it. */
 	const badCustom = (name: string): ProviderConfigSource["config"] => ({
 		providers: { custom: { [name]: { enabled: false } } },
 	});
 
-	function keptKinds(sources: readonly ProviderConfigSource[]): string[] {
+	function keptKinds(sources: readonly { readonly kind: string }[]): string[] {
 		return sources.map((s) => s.kind);
 	}
 

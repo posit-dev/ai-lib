@@ -18,13 +18,13 @@
  * it that way.
  */
 
-import type { ProviderCredentials } from "./credentials";
-import type { Logger } from "./logger";
+import type { ProviderCredentials } from "./credentials.js";
+import type { Logger } from "./logger.js";
 import {
 	buildSnowflakeCortexUrl,
 	buildSnowflakeCortexUrlFromHost,
 	normalizeDatabricksHost,
-} from "./utils";
+} from "./utils.js";
 
 /**
  * Maps a provider to its auth extension registration and credential type.
@@ -48,19 +48,19 @@ export const CONFIG_KEY_OVERRIDES: Record<string, string> = {
 };
 
 /**
- * Reads the provider-extra settings that shaping needs, abstracted over the
- * config source. The bridge's adapter reads `vscode.workspace.getConfiguration`
- * (and folds in `process.env`); Positron's renderer adapter reads
- * `IConfigurationService`. The shaper owns *which* keys to read (via `configKey`)
- * so neither caller has to.
+ * Reads the provider-extra config that shaping needs, abstracted over the
+ * config source. Hosts inject catalog-backed adapters (reading the resolved
+ * provider catalog's connection fields); Positron's renderer adapter reads its
+ * own `IConfigurationService`. The shaper owns *which* keys to read (via
+ * `configKey`) so neither caller has to.
  */
 export interface CredentialConfig {
 	/** `authentication.<configKey>.baseUrl` (the shaper normalizes empty -> undefined). */
 	getBaseUrl(configKey: string): string | undefined;
 	/** `authentication.<configKey>.customHeaders`. */
 	getCustomHeaders(configKey: string): Record<string, string> | undefined;
-	/** AWS region (`authentication.aws.credentials.AWS_REGION`, env on the bridge side). */
-	getAwsRegion(): string | undefined;
+	/** AWS region/profile, from the resolved catalog's `connection.aws`. */
+	getAws(): { region?: string; profile?: string } | undefined;
 	/** Snowflake host/account (`authentication.snowflake.credentials`, env on the bridge side). */
 	getSnowflake(): { host?: string; account?: string } | undefined;
 	/** Databricks workspace host (`authentication.databricks.credentials`, env on the bridge side). */
@@ -122,12 +122,14 @@ export function shapeCredentials(
 				return null;
 			}
 			// Region is not in the session -- the adapter resolves settings/env, default us-east-1.
+			const aws = config.getAws();
 			return {
 				type: "aws-credentials",
-				region: config.getAwsRegion() || "us-east-1",
+				region: aws?.region || "us-east-1",
 				accessKeyId,
 				secretAccessKey,
 				sessionToken: getStringField(parsed, "sessionToken"),
+				profile: aws?.profile,
 			};
 		}
 

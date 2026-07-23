@@ -7,9 +7,9 @@ import type {
 	OAuthGrantConfig,
 	PreparedAuthorizationCodeReceiver,
 	StoredOAuthTokens,
-} from "./Backend";
-import type { AuthenticationStartResult } from "./CredentialProvider";
-import type { DeviceAuthInfo, Logger, ProviderCredentials, TokenData } from "./types";
+} from "./Backend.js";
+import type { AuthenticationStartResult } from "./CredentialProvider.js";
+import type { DeviceAuthInfo, Logger, ProviderCredentials, TokenData } from "./types/index.js";
 
 interface TokenResponse {
 	access_token?: unknown;
@@ -458,18 +458,19 @@ export class AcquisitionEngine {
 		attempt.controller.abort();
 		attempt.receiver?.dispose();
 		this.removeAttempt(attempt);
-		if (!attempt.terminalPromise) {
-			const terminalPromise = this.hooks
-				.finishAuthentication(attempt.providerId, attempt.generation, error)
-				.then(() => undefined);
-			attempt.terminalPromise = terminalPromise;
-			this.terminalPromises.add(terminalPromise);
-			void terminalPromise.then(
-				() => this.terminalPromises.delete(terminalPromise),
-				() => this.terminalPromises.delete(terminalPromise),
-			);
+		if (attempt.terminalPromise) {
+			return attempt.terminalPromise;
 		}
-		return attempt.terminalPromise;
+		const terminalPromise = this.hooks
+			.finishAuthentication(attempt.providerId, attempt.generation, error)
+			.then(() => undefined);
+		attempt.terminalPromise = terminalPromise;
+		this.terminalPromises.add(terminalPromise);
+		void terminalPromise.then(
+			() => this.terminalPromises.delete(terminalPromise),
+			() => this.terminalPromises.delete(terminalPromise),
+		);
+		return terminalPromise;
 	}
 
 	private removeAttempt(attempt: ActiveAttempt): void {

@@ -23,6 +23,7 @@ function fakeConfig(
 		baseUrls?: Record<string, string>;
 		customHeaders?: Record<string, Record<string, string>>;
 		awsRegion?: string;
+		awsProfile?: string;
 		snowflake?: { host?: string; account?: string };
 		databricks?: { host?: string };
 	} = {},
@@ -30,7 +31,10 @@ function fakeConfig(
 	return {
 		getBaseUrl: (configKey) => overrides.baseUrls?.[configKey],
 		getCustomHeaders: (configKey) => overrides.customHeaders?.[configKey],
-		getAwsRegion: () => overrides.awsRegion,
+		getAws: () =>
+			overrides.awsRegion === undefined && overrides.awsProfile === undefined
+				? undefined
+				: { region: overrides.awsRegion, profile: overrides.awsProfile },
 		getSnowflake: () => overrides.snowflake,
 		getDatabricks: () => overrides.databricks,
 	};
@@ -231,7 +235,7 @@ describe("credential-shaping stays browser-safe", () => {
 			expect(imp).toMatch(/^\.\//);
 		}
 		// Specifically: it imports the URL helper from ./utils
-		expect(valueImports).toEqual(["./utils"]);
+		expect(valueImports).toEqual(["./utils.js"]);
 		// No dynamic imports
 		expect(source).not.toMatch(/\bimport\s*\(/);
 	});

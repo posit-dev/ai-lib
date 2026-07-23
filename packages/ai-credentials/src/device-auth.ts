@@ -14,8 +14,8 @@
  * No fs / vscode / @assistant/* / SDK imports — pure fetch + timers.
  */
 
-import type { OAuthBackendHooks, OAuthProviderConfig } from "./Backend";
-import type { DeviceAuthInfo, Logger, TokenData } from "./types";
+import type { OAuthBackendHooks, OAuthProviderConfig } from "./Backend.js";
+import type { DeviceAuthInfo, Logger, TokenData } from "./types/index.js";
 
 /** Token endpoint response shape (RFC 8628 §3.5 / OAuth token response). */
 interface TokenResponse {

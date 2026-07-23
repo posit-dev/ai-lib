@@ -33,7 +33,7 @@ import * as path from "path";
 import { watch as chokidarWatch, type FSWatcher } from "chokidar";
 import lockfile from "proper-lockfile";
 
-import type { Disposable, LoggerLike, SingleFileStoreConfig } from "./types";
+import type { Disposable, LoggerLike, SingleFileStoreConfig } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Lock options for cross-process locking

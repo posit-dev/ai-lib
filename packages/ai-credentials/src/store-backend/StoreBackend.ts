@@ -10,21 +10,21 @@ import type {
 	OAuthGrantConfig,
 	OAuthProviderConfig,
 	StoredOAuthTokens,
-} from "../Backend";
+} from "../Backend.js";
 import type {
 	CredentialMutation,
 	CredentialSourceInput,
 	CredentialStatus,
 	Disposable,
-} from "../CredentialProvider";
-import type { SingleFileStore } from "../store";
-import type { Logger, ProviderCredentials, TokenData } from "../types";
-import { normalizeDatabricksHost, storageKeyFor } from "../types";
-import { resolveCredentialsFromEnv } from "./envCredentialResolver";
+} from "../CredentialProvider.js";
+import type { SingleFileStore } from "../store/index.js";
+import type { Logger, ProviderCredentials, TokenData } from "../types/index.js";
+import { normalizeDatabricksHost, storageKeyFor } from "../types/index.js";
+import { resolveCredentialsFromEnv } from "./envCredentialResolver.js";
 import {
 	storedProviderCredentialsSchema,
 	type StoredProviderCredentials,
-} from "./StoredProviderCredentials";
+} from "./StoredProviderCredentials.js";
 
 export interface AuthMethodDescriptor {
 	authMethodId: string;

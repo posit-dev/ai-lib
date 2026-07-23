@@ -2,8 +2,8 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import type { AuthorizationCodeReceiver, OAuthGrantConfig } from "./Backend";
-import { normalizeDatabricksHost } from "./types";
+import type { AuthorizationCodeReceiver, OAuthGrantConfig } from "./Backend.js";
+import { normalizeDatabricksHost } from "./types/index.js";
 
 export interface DatabricksOidcEndpoints {
 	authorizationEndpoint: string;

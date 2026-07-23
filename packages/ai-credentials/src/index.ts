@@ -24,7 +24,7 @@ export type {
 	CredentialStatus,
 	Disposable,
 	MutableCredentialProvider,
-} from "./CredentialProvider";
+} from "./CredentialProvider.js";
 export type {
 	AcquisitionBackendHooks,
 	AuthenticationCommitResult,
@@ -38,17 +38,17 @@ export type {
 	OAuthProviderConfig,
 	PreparedAuthorizationCodeReceiver,
 	StoredOAuthTokens,
-} from "./Backend";
-export { createCredentialProvider } from "./createCredentialProvider";
+} from "./Backend.js";
+export { createCredentialProvider } from "./createCredentialProvider.js";
 export type {
 	CreateCredentialProviderOptions,
 	CredentialProviderHandle,
 	MutableCredentialProviderHandle,
-} from "./createCredentialProvider";
+} from "./createCredentialProvider.js";
 export {
 	createDatabricksAuthorizationCodeGrant,
 	createDatabricksClientCredentialsGrant,
 	discoverDatabricksOidcEndpoints,
 	normalizeDatabricksWorkspaceHost,
-} from "./databricks-oauth";
-export type { DatabricksOidcEndpoints } from "./databricks-oauth";
+} from "./databricks-oauth.js";
+export type { DatabricksOidcEndpoints } from "./databricks-oauth.js";

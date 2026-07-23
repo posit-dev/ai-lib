@@ -80,7 +80,7 @@ packages/ai-provider-bridge/src/
 | `ai-credentials/types`         | Browser-safe credential types (`ProviderCredentials`), `shapeCredentials()`, `AuthProviderMapping`, OAuth protocol/runtime types (`DeviceAuthInfo`/`TokenData`), custom-provider `clientKind → authMethodId` descriptors, `storageKeyFor()`, `Logger` | No            |
 | `ai-credentials/store`         | Generic type-parametric `SingleFileStore` (`get<T>`/`set<T>`) plus `SingleFileStoreConfig` / `LoggerLike` / `Disposable` types. No sibling imports (not even `/types`)                                                                                | fs            |
 | `ai-credentials/store-backend` | Store-backed backend (`createStoreBackend`): `StoredProviderCredentials` + tolerant Zod schema (on-disk format), env resolver + `PROVIDER_ENV_MAPPINGS`, `store → env → null` resolution. No `@assistant/*` import                                    | fs            |
-| `ai-credentials/positron`      | vscode.authentication backend (`createPositronBackend` + `createVscodeCredentialConfig`)                                                                                                                                                              | **vscode**    |
+| `ai-credentials/positron`      | vscode.authentication backend (`createPositronBackend`; the host injects its catalog-backed `CredentialConfig` factory)                                                                                                                               | **vscode**    |
 
 ### Key Invariants
 

@@ -18,8 +18,8 @@
 import * as os from "os";
 import * as path from "path";
 
-import { SingleFileStore } from "./SingleFileStore";
-import type { LoggerLike } from "./types";
+import { SingleFileStore } from "./SingleFileStore.js";
+import type { LoggerLike } from "./types.js";
 
 /**
  * Return the canonical default credential store file path:

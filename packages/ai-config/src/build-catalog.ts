@@ -28,60 +28,6 @@ import { BUILTIN_PROVIDER_IDS } from "./vocabulary.js";
 import type { BuiltinProviderId, ClientKind } from "./vocabulary.js";
 
 // ---------------------------------------------------------------------------
-// Non-secret connection env var mappings
-// ---------------------------------------------------------------------------
-
-/**
- * Maps environment variable names to non-secret connection fields for
- * built-in providers. Env vars have the highest precedence in the
- * connection resolution chain: env > file (providers.json) > defaults.
- *
- * Only non-secret connection config goes here. Secret env vars (API keys,
- * AWS secret keys) are handled by the separate `envCredentialResolver` in
- * `@assistant/node`.
- */
-interface ConnectionEnvMapping {
-	baseUrl?: string;
-	endpoint?: string;
-	positaiLogin?: { host?: string; clientId?: string; scope?: string };
-	aws?: { region?: string; profile?: string };
-	googleCloud?: { project?: string; location?: string };
-	databricks?: { host?: string };
-}
-
-const CONNECTION_ENV_MAPPINGS: Readonly<Record<string, ConnectionEnvMapping>> = {
-	anthropic: { baseUrl: "ANTHROPIC_BASE_URL" },
-	openai: { baseUrl: "OPENAI_BASE_URL" },
-	gemini: { baseUrl: "GEMINI_BASE_URL" },
-	positai: {
-		baseUrl: "POSITAI_BASE_URL",
-		positaiLogin: {
-			host: "POSITAI_AUTH_HOST",
-			clientId: "POSITAI_CLIENT_ID",
-			scope: "POSITAI_SCOPE",
-		},
-	},
-	openrouter: { baseUrl: "OPENROUTER_BASE_URL" },
-	ollama: { endpoint: "OLLAMA_ENDPOINT" },
-	lmstudio: { endpoint: "LMSTUDIO_ENDPOINT" },
-	bedrock: { aws: { region: "AWS_REGION", profile: "AWS_PROFILE" } },
-	"google-vertex": {
-		googleCloud: {
-			project: "GOOGLE_CLOUD_PROJECT",
-			location: "GOOGLE_CLOUD_LOCATION",
-		},
-	},
-	"openai-compatible": { baseUrl: "OPENAI_COMPATIBLE_BASE_URL" },
-	"ms-foundry": { baseUrl: "MS_FOUNDRY_BASE_URL" },
-	"snowflake-cortex": { baseUrl: "SNOWFLAKE_BASE_URL" },
-	deepseek: { baseUrl: "DEEPSEEK_BASE_URL" },
-	// The standard Databricks CLI/SDK variable. Maps into the `databricks`
-	// section (NOT baseUrl): the workspace host is not a chat base URL — the
-	// bridge derives the serving-endpoints / AI Gateway URL from it.
-	databricks: { databricks: { host: "DATABRICKS_HOST" } },
-};
-
-// ---------------------------------------------------------------------------
 // Built-in provider id → client kind mapping
 // ---------------------------------------------------------------------------
 
@@ -119,7 +65,8 @@ const BUILTIN_CLIENT_KIND = {
  * This is the **catalog builder** behind `resolveProviderCatalog` — consumers
  * iterate the result instead of the static registry. Connection, model
  * policy, and client kind are read from `mergedConfig` (the deep-merged
- * result where higher-precedence sources win per key). Enablement is resolved
+ * result where higher-precedence sources win per key, including connection
+ * env vars already folded by the resolver). Enablement is resolved
  * separately from `enabledLayers` (highest precedence first) so the sealed
  * enforced overlay can never be overridden and per-layer "id beats default"
  * semantics are preserved.
@@ -128,27 +75,15 @@ export function buildCatalog(
 	mergedConfig: ProvidersConfig,
 	enabledLayers: readonly EnablementLayer[],
 	baseline: PlatformBaseline,
-	options?: {
-		/**
-		 * Environment variables for the non-secret connection overlay. Pure —
-		 * defaults to `{}` (no overlay) when omitted, never `process.env`. Node
-		 * callers inject `process.env` explicitly.
-		 */
-		envVars?: Record<string, string | undefined>;
-	},
 ): readonly ResolvedProvider[] {
 	const providers = mergedConfig.providers;
 	const catalog: ResolvedProvider[] = [];
-	// This builder is part of the PURE entry — never reach for `process.env`
-	// here (a browser/renderer/notebooks caller may have no `process`). Node
-	// callers inject `process.env` via the ai-config/node seams.
-	const envVars = options?.envVars ?? {};
 
 	// 1. Built-in providers
 	for (const id of BUILTIN_PROVIDER_IDS) {
 		const block = getBuiltinBlock(providers, id);
 		const enabled = resolveEnabled(id, enabledLayers, baseline);
-		const connection = applyEnvOverlay(id, resolveConnection(id, block), envVars);
+		const connection = resolveConnection(id, block);
 
 		catalog.push({
 			id,
@@ -282,101 +217,4 @@ function mergeOptionalSection<T extends Record<string, unknown>>(
 		return defaults;
 	}
 	return { ...defaults, ...block };
-}
-
-// ---------------------------------------------------------------------------
-// Environment variable overlay
-// ---------------------------------------------------------------------------
-
-/**
- * Apply non-secret connection env vars on top of the resolved connection.
- * Env vars have the highest precedence: env > file (providers.json) > defaults.
- *
- * Only overrides fields where the corresponding env var is set (non-empty).
- */
-function applyEnvOverlay(
-	providerId: string,
-	connection: ResolvedConnection,
-	envVars: Record<string, string | undefined>,
-): ResolvedConnection {
-	const mapping = CONNECTION_ENV_MAPPINGS[providerId];
-	if (!mapping) return connection;
-
-	let result = connection;
-	let changed = false;
-
-	// Top-level scalar fields
-	if (mapping.baseUrl) {
-		const val = envVars[mapping.baseUrl];
-		if (val) {
-			result = changed ? result : { ...result };
-			result.baseUrl = val;
-			changed = true;
-		}
-	}
-	if (mapping.endpoint) {
-		const val = envVars[mapping.endpoint];
-		if (val) {
-			result = changed ? result : { ...result };
-			result.endpoint = val;
-			changed = true;
-		}
-	}
-
-	// Nested sections — only override fields where the env var is set
-	if (mapping.positaiLogin) {
-		const overlay = readEnvSection(mapping.positaiLogin, envVars);
-		if (overlay) {
-			result = changed ? result : { ...result };
-			result.positaiLogin = result.positaiLogin ? { ...result.positaiLogin, ...overlay } : overlay;
-			changed = true;
-		}
-	}
-	if (mapping.aws) {
-		const overlay = readEnvSection(mapping.aws, envVars);
-		if (overlay) {
-			result = changed ? result : { ...result };
-			result.aws = result.aws ? { ...result.aws, ...overlay } : overlay;
-			changed = true;
-		}
-	}
-	if (mapping.googleCloud) {
-		const overlay = readEnvSection(mapping.googleCloud, envVars);
-		if (overlay) {
-			result = changed ? result : { ...result };
-			result.googleCloud = result.googleCloud ? { ...result.googleCloud, ...overlay } : overlay;
-			changed = true;
-		}
-	}
-	if (mapping.databricks) {
-		const overlay = readEnvSection(mapping.databricks, envVars);
-		if (overlay) {
-			result = changed ? result : { ...result };
-			result.databricks = result.databricks ? { ...result.databricks, ...overlay } : overlay;
-			changed = true;
-		}
-	}
-
-	return result;
-}
-
-/**
- * Read a nested env-mapping section (e.g. `{ host: "ENV_VAR_NAME", ... }`)
- * and return an object with only the fields whose env vars are set.
- * Returns `undefined` if no env vars in the section are set.
- */
-function readEnvSection<T extends Record<string, string | undefined>>(
-	mapping: T,
-	envVars: Record<string, string | undefined>,
-): Record<string, string> | undefined {
-	let result: Record<string, string> | undefined;
-	for (const [field, envVarName] of Object.entries(mapping)) {
-		if (!envVarName) continue;
-		const val = envVars[envVarName];
-		if (val) {
-			result ??= {};
-			result[field] = val;
-		}
-	}
-	return result;
 }

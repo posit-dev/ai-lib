@@ -17,7 +17,7 @@ vi.mock("os", async (importOriginal) => {
 });
 
 // Import AFTER mocks are registered.
-const { getDefaultStorePath, createDefaultStore } = await import("../defaults");
+const { getDefaultStorePath, createDefaultStore } = await import("../defaults.js");
 
 describe("getDefaultStorePath", () => {
 	let tmpHome: string;

@@ -2,7 +2,7 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import type { DeviceAuthInfo, ProviderCredentials } from "./types";
+import type { DeviceAuthInfo, ProviderCredentials } from "./types/index.js";
 
 export type AuthenticationChallenge =
 	| {

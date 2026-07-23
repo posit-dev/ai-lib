@@ -51,10 +51,10 @@ export interface LoadCatalogOptions {
 	readonly logger?: LoggerLike;
 
 	/**
-	 * Environment variables for non-secret connection overlay AND for reading
-	 * the enforced/default fragment env vars.
-	 * Env vars have highest precedence: env > file > defaults.
-	 * Defaults to `process.env` when omitted. Useful for testing.
+	 * Environment variables for non-secret connection fields (converted into a
+	 * resolver-owned source ranked below `enforced` but above
+	 * `user`/`host`/`default`) AND for reading the enforced/default fragment
+	 * env vars. Defaults to `process.env` when omitted. Useful for testing.
 	 */
 	readonly envVars?: Record<string, string | undefined>;
 
