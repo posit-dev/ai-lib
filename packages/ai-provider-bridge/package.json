@@ -92,7 +92,7 @@
     "@smithy/eventstream-codec": "^4.3.3",
     "@smithy/util-utf8": "^4.3.3",
     "@types/node": "22.x",
-    "@types/vscode": "^1.100.0",
+    "@types/positron-vscode": "npm:@types/vscode@^1.100.0",
     "ai": "^6.0.189",
     "concurrently": "^9.2.1",
     "esbuild": "^0.25.0",
