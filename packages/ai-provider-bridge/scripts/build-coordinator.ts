@@ -5,7 +5,7 @@
 
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { fstatSync, watch } from "node:fs";
+import { watch } from "node:fs";
 import {
 	copyFile,
 	link,
@@ -18,6 +18,7 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { builtinModules, createRequire } from "node:module";
+import { Socket } from "node:net";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -825,20 +826,26 @@ export interface Closeable {
 }
 
 /**
- * Whether `stream` is a pipe or socket the launcher can hold open as a
- * death-pipe. A TTY (interactive run) or a character device such as
- * `/dev/null` (`stdio: "ignore"`) is not, so those never arm — avoiding a
- * spurious immediate-EOF exit. Node's `stdio: "pipe"` handles are sockets on
- * Unix and FIFOs on Windows, so both kinds count.
+ * Whether `stream` is a pipe the launcher can hold open as a death-pipe. A
+ * launcher spawns us with `stdio: "pipe"`, which Node models as a `net.Socket`
+ * on both Unix (a `socketpair()`) and Windows (a named-pipe handle). The two
+ * cases that must NOT arm are each a different stream type, so keying off the
+ * type classifies all three correctly and portably:
+ *
+ *   - a TTY (interactive run) is a `tty.ReadStream` — a `net.Socket` subclass,
+ *     so it is ruled out by the `isTTY` check first (arming it would consume
+ *     terminal input and never EOF);
+ *   - `/dev/null`/`NUL` (`stdio: "ignore"`) is an `fs.ReadStream`, not a
+ *     `Socket`, so it is excluded — avoiding a spurious immediate-EOF exit.
+ *
+ * An earlier version classified via `fstatSync(stream.fd)` (socket/FIFO). That
+ * silently shipped the feature disabled on Windows: a piped stdin there is a
+ * `net.Socket` with no stable numeric `fd`, so the `fstatSync` threw and nothing
+ * ever armed.
  */
 function launcherPipeIsArmable(stream: NodeJS.ReadStream): boolean {
 	if (stream.isTTY) return false;
-	try {
-		const stats = fstatSync(stream.fd);
-		return stats.isSocket() || stats.isFIFO();
-	} catch {
-		return false;
-	}
+	return stream instanceof Socket;
 }
 
 /**
@@ -856,17 +863,21 @@ function launcherPipeIsArmable(stream: NodeJS.ReadStream): boolean {
  * The same launcher holds the read ends of our piped stdout/stderr, so its
  * death also closes those: any output emitted during the ensuing graceful stop
  * (startup logs, an in-flight build's diagnostics) would hit a broken pipe, and
- * an unhandled EPIPE on stdout/stderr is fatal — it would abort cleanup before
- * the writer lock is released. While armed we therefore swallow EPIPE on both
- * streams (any other error still surfaces). The handler itself writes nothing,
- * since by the time it runs the only reader is already gone.
+ * an unhandled write error on stdout/stderr is fatal — it would abort cleanup
+ * before the writer lock is released. While armed we therefore swallow the
+ * broken-pipe family on both streams (`EPIPE` on Unix; Windows reports a closed
+ * pipe's write as `EOF`/`ECONNRESET`), so any output the graceful stop emits
+ * after the reader is gone cannot crash cleanup. Any other error still surfaces.
+ * The handler itself writes nothing, since by the time it runs the only reader
+ * is already gone.
  */
 export function armLauncherDeathPipe(onLauncherGone: () => void): Closeable {
 	if (!launcherPipeIsArmable(process.stdin)) {
 		return { close: () => {} };
 	}
+	const brokenPipeCodes = new Set(["EPIPE", "EOF", "ECONNRESET"]);
 	const ignoreBrokenPipe = (error: NodeJS.ErrnoException) => {
-		if (error.code !== "EPIPE") throw error;
+		if (!brokenPipeCodes.has(error.code ?? "")) throw error;
 	};
 	process.stdout.on("error", ignoreBrokenPipe);
 	process.stderr.on("error", ignoreBrokenPipe);
