@@ -9,8 +9,18 @@ import { build, type BuildOptions, context } from "esbuild";
 
 const watch = process.argv.includes("--watch");
 
-rmSync("dist", { recursive: true, force: true });
-rmSync("tsconfig.tsbuildinfo", { force: true });
+// Only clean before a one-shot build. In watch mode, this script starts
+// concurrently with the two tsc --emitDeclarationOnly --watch processes (see
+// the "watch" script), with no guaranteed ordering between them. If a tsc
+// watcher completes its first emit before this rmSync runs, the rmSync wipes
+// out the .d.ts files it just wrote — and since tsc's watch mode only
+// re-emits on source changes (not on missing/deleted outputs), those
+// declarations then never come back.
+if (!watch) {
+	rmSync("dist", { recursive: true, force: true });
+	rmSync("tsconfig.tsbuildinfo", { force: true });
+	rmSync("tsconfig.positron.tsbuildinfo", { force: true });
+}
 
 const entrypoints = [
 	"src/index.ts",
