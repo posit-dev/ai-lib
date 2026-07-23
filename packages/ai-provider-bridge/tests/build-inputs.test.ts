@@ -67,6 +67,28 @@ class FakeWatchAdapter implements BuildInputWatchAdapter {
 	}
 }
 
+/**
+ * Records every watcher it hands out and throws on the Nth watch() call, so a
+ * test can force a startup refresh to reject after at least one fs watcher has
+ * already been registered.
+ */
+class ThrowingWatchAdapter implements BuildInputWatchAdapter {
+	readonly created: { closed: boolean }[] = [];
+	private calls = 0;
+
+	constructor(private readonly throwOnCall: number) {}
+
+	watch(): { close(): void } {
+		this.calls += 1;
+		if (this.calls === this.throwOnCall) {
+			throw new Error("watch registration failed");
+		}
+		const handle = { closed: false };
+		this.created.push(handle);
+		return { close: () => (handle.closed = true) };
+	}
+}
+
 async function createFixture(): Promise<BuildInputFixture> {
 	const root = await mkdtemp(path.join(os.tmpdir(), "bridge-build-inputs-"));
 	temporaryDirectories.push(root);
@@ -196,6 +218,19 @@ describe("bridge build inputs", () => {
 		} finally {
 			await watcher.close();
 		}
+	});
+
+	it("closes already-registered watchers when a startup refresh rejects", async () => {
+		const { bridgeDir } = await createFixture();
+		// Throw on the second watch registration so the first watcher is already
+		// installed when the startup refresh rejects.
+		const watchAdapter = new ThrowingWatchAdapter(2);
+		const inputs = createBuildInputsWithAdapter(bridgeDir, watchAdapter);
+
+		await expect(inputs.watch(() => {})).rejects.toThrow("watch registration failed");
+
+		expect(watchAdapter.created.length).toBeGreaterThan(0);
+		expect(watchAdapter.created.every((handle) => handle.closed)).toBe(true);
 	});
 
 	it("adds watch coverage when package metadata introduces a workspace dependency", async () => {
