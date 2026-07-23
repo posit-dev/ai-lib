@@ -18,6 +18,7 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { builtinModules, createRequire } from "node:module";
+import { Socket } from "node:net";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -824,6 +825,84 @@ export interface Closeable {
 	close(): void;
 }
 
+/**
+ * Whether `stream` is a pipe the launcher can hold open as a death-pipe. A
+ * launcher spawns us with `stdio: "pipe"`, which Node models as a `net.Socket`
+ * on both Unix (a `socketpair()`) and Windows (a named-pipe handle). The two
+ * cases that must NOT arm are each a different stream type, so keying off the
+ * type classifies all three correctly and portably:
+ *
+ *   - a TTY (interactive run) is a `tty.ReadStream` — a `net.Socket` subclass,
+ *     so it is ruled out by the `isTTY` check first (arming it would consume
+ *     terminal input and never EOF);
+ *   - `/dev/null`/`NUL` (`stdio: "ignore"`) is an `fs.ReadStream`, not a
+ *     `Socket`, so it is excluded — avoiding a spurious immediate-EOF exit.
+ *
+ * An earlier version classified via `fstatSync(stream.fd)` (socket/FIFO). That
+ * silently shipped the feature disabled on Windows: a piped stdin there is a
+ * `net.Socket` with no stable numeric `fd`, so the `fstatSync` threw and nothing
+ * ever armed.
+ */
+function launcherPipeIsArmable(stream: NodeJS.ReadStream): boolean {
+	if (stream.isTTY) return false;
+	return stream instanceof Socket;
+}
+
+/**
+ * Arms a death-pipe on `process.stdin`: when the launcher that spawned this
+ * coordinator dies for any reason (including SIGKILL/crash), the kernel closes
+ * the write end it held, stdin reports EOF, and `onLauncherGone` runs the same
+ * graceful stop as SIGTERM. Mirrors esbuild's watch-mode "exit when stdin
+ * closes" behavior.
+ *
+ * The listener is attached before `resume()` (so an already-closed pipe still
+ * fires) and stdin is `unref()`'d, so a leaked listener can never keep the
+ * event loop alive — the failure mode is inert. If stdin is not a pipe/socket
+ * (TTY, `/dev/null`), nothing is armed.
+ *
+ * The same launcher holds the read ends of our piped stdout/stderr, so its
+ * death also closes those: any output emitted during the ensuing graceful stop
+ * (startup logs, an in-flight build's diagnostics) would hit a broken pipe, and
+ * an unhandled write error on stdout/stderr is fatal — it would abort cleanup
+ * before the writer lock is released. While armed we therefore swallow the
+ * broken-pipe family on both streams (`EPIPE` on Unix; Windows reports a closed
+ * pipe's write as `EOF`/`ECONNRESET`), so any output the graceful stop emits
+ * after the reader is gone cannot crash cleanup. Any other error still surfaces.
+ * The handler itself writes nothing, since by the time it runs the only reader
+ * is already gone.
+ */
+export function armLauncherDeathPipe(onLauncherGone: () => void): Closeable {
+	if (!launcherPipeIsArmable(process.stdin)) {
+		return { close: () => {} };
+	}
+	const brokenPipeCodes = new Set(["EPIPE", "EOF", "ECONNRESET"]);
+	const ignoreBrokenPipe = (error: NodeJS.ErrnoException) => {
+		if (!brokenPipeCodes.has(error.code ?? "")) throw error;
+	};
+	process.stdout.on("error", ignoreBrokenPipe);
+	process.stderr.on("error", ignoreBrokenPipe);
+	let fired = false;
+	const handler = () => {
+		if (fired) return;
+		fired = true;
+		onLauncherGone();
+	};
+	process.stdin.on("end", handler);
+	process.stdin.on("close", handler);
+	process.stdin.on("error", handler);
+	process.stdin.resume();
+	process.stdin.unref();
+	return {
+		close: () => {
+			process.stdin.off("end", handler);
+			process.stdin.off("close", handler);
+			process.stdin.off("error", handler);
+			process.stdout.off("error", ignoreBrokenPipe);
+			process.stderr.off("error", ignoreBrokenPipe);
+		},
+	};
+}
+
 export interface GenerationObserverAdapters {
 	watchDirectory: (directory: string, onChange: () => void) => Closeable;
 	schedulePoll: (onPoll: () => void, milliseconds: number) => Closeable;
@@ -968,6 +1047,16 @@ export class GenerationBuildLoop {
 		this.lastSuccessfulInput = fingerprint;
 	}
 
+	/**
+	 * Resolves once no generation build is in flight (including any pending
+	 * rebuild the current drain still has queued). Shutdown awaits this before
+	 * releasing the writer lock so a replacement writer cannot start while the
+	 * old build is still staging or promoting output.
+	 */
+	async waitForIdle(): Promise<void> {
+		while (this.running) await this.running;
+	}
+
 	request(): Promise<void> {
 		this.pending = true;
 		const running = this.ensureRunning(false);
@@ -1031,6 +1120,7 @@ async function watchGenerations(
 	const handleSignal = () => stop?.();
 	process.once("SIGINT", handleSignal);
 	process.once("SIGTERM", handleSignal);
+	const deathPipe = armLauncherDeathPipe(handleSignal);
 	let restartRequired: string | null = null;
 	let watcherFailure: unknown = null;
 	const inputWatcher = await buildInputs.watch((change) => {
@@ -1083,6 +1173,12 @@ async function watchGenerations(
 		process.off("SIGTERM", handleSignal);
 		clearTimeout(timer);
 		await inputWatcher.close();
+		// No new builds can be scheduled now (timer cleared, watcher closed); let
+		// any in-flight build finish staging/promoting before the caller releases
+		// the writer lock. Close the death-pipe last so its EPIPE guard covers any
+		// output that drain emits after an abnormal launcher death.
+		await loop.waitForIdle();
+		deathPipe.close();
 	}
 }
 
@@ -1113,6 +1209,7 @@ export async function followGenerations(
 	const handleSignal = () => finish();
 	process.once("SIGINT", handleSignal);
 	process.once("SIGTERM", handleSignal);
+	const deathPipe = armLauncherDeathPipe(handleSignal);
 	const subscription = observer.observe(announce);
 	const liveness = monitorLiveness(() => {
 		if (!isAlive(owner.pid)) {
@@ -1129,6 +1226,7 @@ export async function followGenerations(
 	} finally {
 		process.off("SIGINT", handleSignal);
 		process.off("SIGTERM", handleSignal);
+		deathPipe.close();
 		liveness.close();
 		subscription.close();
 	}

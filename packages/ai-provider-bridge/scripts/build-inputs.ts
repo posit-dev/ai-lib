@@ -329,9 +329,18 @@ export function createBuildInputsWithAdapter(
 			};
 
 			// The first pass installs watchers for control metadata; the second
-			// reconciles changes that landed before those watchers existed.
-			await refresh();
-			await refresh();
+			// reconciles changes that landed before those watchers existed. If
+			// either pass rejects after registering watchers, close them so a
+			// failed startup does not leak fs handles.
+			try {
+				await refresh();
+				await refresh();
+			} catch (error) {
+				closed = true;
+				for (const { watcher } of watchers.values()) watcher.close();
+				watchers.clear();
+				throw error;
+			}
 			return {
 				async close() {
 					closed = true;
