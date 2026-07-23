@@ -1,7 +1,7 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "types": ["node", "vscode"],
+    "types": ["node", "positron-vscode"],
     "rootDir": "src",
     "outDir": "dist",
     "composite": true
