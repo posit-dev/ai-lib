@@ -2,10 +2,13 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { cp, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -607,6 +610,33 @@ describe("bridge generation build loop", () => {
 		expect(buildNextGeneration).toHaveBeenCalledWith("edited");
 		expect(reportFailure).not.toHaveBeenCalled();
 	});
+
+	// Shutdown awaits waitForIdle() before releasing the writer lock so a
+	// replacement writer cannot start while the old build is still staging or
+	// promoting output.
+	it("waitForIdle stays pending until an in-flight build settles", async () => {
+		const build = deferred();
+		const buildNextGeneration = vi
+			.fn<(fingerprint: string) => Promise<void>>()
+			.mockReturnValue(build.promise);
+		const reportFailure = vi.fn();
+		const loop = new GenerationBuildLoop(async () => "initial", buildNextGeneration, reportFailure);
+
+		void loop.request();
+		await vi.waitFor(() => expect(buildNextGeneration).toHaveBeenCalledOnce());
+
+		let settled = false;
+		const idle = loop.waitForIdle().then(() => {
+			settled = true;
+		});
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(settled).toBe(false);
+
+		build.resolve();
+		await idle;
+		expect(settled).toBe(true);
+		expect(reportFailure).not.toHaveBeenCalled();
+	});
 });
 
 describe("bridge generation reuse", () => {
@@ -671,4 +701,114 @@ describe("bridge generation reuse", () => {
 		);
 		await expect(reusableGeneration("fp", live, recordFile)).resolves.toBeNull();
 	});
+});
+
+describe("launcher death-pipe", () => {
+	const packageDir = fileURLToPath(new URL("..", import.meta.url));
+	const childFixture = fileURLToPath(new URL("./fixtures/death-pipe-child.ts", import.meta.url));
+
+	interface ChildOutcome {
+		code: number | null;
+		output: string;
+	}
+
+	// Spawns the real death-pipe child against a given stdin and resolves with its
+	// exit code and stdout. Rejects if the child fails to exit — the failure mode
+	// a missing `unref()` would produce (the pipe stays open, so a still-refed
+	// stdin listener would keep the event loop alive forever).
+	function runChild(stdin: "pipe" | "ignore"): Promise<ChildOutcome> {
+		return new Promise((resolve, reject) => {
+			const child = spawn(process.execPath, ["--import", "tsx", childFixture], {
+				cwd: packageDir,
+				stdio: [stdin, "pipe", "inherit"],
+			});
+			let output = "";
+			const timeout = setTimeout(() => {
+				child.kill("SIGKILL");
+				reject(new Error(`death-pipe child never exited; output: ${JSON.stringify(output)}`));
+			}, 15_000);
+			child.stdout.on("data", (chunk: Buffer) => {
+				output += chunk.toString();
+			});
+			child.on("error", (error) => {
+				clearTimeout(timeout);
+				reject(error);
+			});
+			child.on("exit", (code) => {
+				clearTimeout(timeout);
+				resolve({ code, output });
+			});
+		});
+	}
+
+	function waitForReady(child: ReturnType<typeof spawn>): Promise<void> {
+		return new Promise((resolve, reject) => {
+			let output = "";
+			const timeout = setTimeout(
+				() => reject(new Error(`child never signalled ready; output: ${JSON.stringify(output)}`)),
+				15_000,
+			);
+			child.stdout?.on("data", (chunk: Buffer) => {
+				output += chunk.toString();
+				if (output.includes("ready")) {
+					clearTimeout(timeout);
+					resolve();
+				}
+			});
+			child.once("error", (error) => {
+				clearTimeout(timeout);
+				reject(error);
+			});
+		});
+	}
+
+	// Mode 1: the real launcher-death topology. An abnormally-dying launcher
+	// closes every pipe end it held — the stdin write end (which delivers EOF and
+	// arms the stop) AND the stdout/stderr read ends. The coordinator's shutdown
+	// output then hits a broken pipe, so this is the regression for the EPIPE
+	// crash: without the guard, the unhandled EPIPE aborts the child before its
+	// asynchronous cleanup writes the on-disk marker. It also automatically
+	// guards the empirical fact that Node's piped stdin is a socket (Unix) / FIFO
+	// (Windows) that `launcherPipeIsArmable` must accept — otherwise nothing arms
+	// and the marker is never written.
+	it("completes asynchronous cleanup when the launcher dies mid-output", async () => {
+		const markerDirectory = await temporaryDirectory("bridge-death-pipe-");
+		const markerPath = path.join(markerDirectory, "cleanup-done");
+		const child = spawn(process.execPath, ["--import", "tsx", childFixture, markerPath], {
+			cwd: packageDir,
+			stdio: ["pipe", "pipe", "pipe"],
+		});
+		const exited = new Promise<number | null>((resolve, reject) => {
+			child.once("exit", (code) => resolve(code));
+			child.once("error", reject);
+		});
+		await waitForReady(child);
+
+		// Close every pipe end the launcher owned, as its death would.
+		child.stdout?.destroy();
+		child.stderr?.destroy();
+		child.stdin?.end();
+
+		const code = await exited;
+		expect(existsSync(markerPath)).toBe(true);
+		expect(code).toBe(0);
+	}, 20_000);
+
+	// Mode 2: with the write end held open, the armed, resumed, unref'd stdin
+	// listener must not keep the event loop alive — the child exits on its own
+	// once its work finishes, without firing the handler.
+	it("does not keep the process alive while the pipe stays open", async () => {
+		const { code, output } = await runChild("pipe");
+		expect(output).not.toContain("launcher-gone");
+		expect(code).toBe(0);
+	}, 20_000);
+
+	// Mode 3: `stdio: "ignore"` gives the child `/dev/null`, whose immediate EOF
+	// must not be mistaken for a launcher death — a character device is not
+	// armable, so nothing is attached.
+	it("does not arm on a non-pipe stdin", async () => {
+		const { code, output } = await runChild("ignore");
+		expect(output).not.toContain("launcher-gone");
+		expect(code).toBe(0);
+	}, 20_000);
 });
