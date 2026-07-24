@@ -185,6 +185,19 @@ The `/positron` entrypoint is the only place where `vscode` may be imported. All
 - Strict typing is very important. Never cast types `as` unless absolutely necessary.
 - Use creative solutions to achieve strict typing rather than escaping with casts.
 
+### Tests: Scaffolding vs. Regression
+
+While developing, it's fine to write temporary "scaffolding" tests (reproducing a bug, probing intermediate behavior, verifying an assumption about a dependency). Before finishing, do a cleanup pass:
+
+- **Keep** tests that would fail on a real regression: public API contracts, fixed bugs (the repro test, cleaned up), edge cases, and persisted/on-disk formats.
+- **Remove** tests of implementation details the final design doesn't promise, and exploratory tests whose coverage is now subsumed elsewhere.
+
+The sorting question: "If this test fails in six months, will it point at a real regression, or just at a refactor?" Apply it to the test you're about to write, not just the ones you remove.
+
+**Adding a row to a data table doesn't need its own test.** This repo is full of such tables — provider capability rules, pricing, model-ID normalization maps. When you extend one, don't add a test that copies the new entry's values back as the expected result — it can only fail on a data edit or a refactor, never on a real bug. Test the table's _mechanism_ once — lookup, first-match precedence, fallback, ID normalization — plus its genuine edge cases; new rows ride on that coverage. Similar per-row tests already in the file are not a license to add another.
+
+**A bug fix's repro test must fail on the unfixed code.** Run it before writing the fix; if it passes, it's aimed at the wrong boundary.
+
 ### Provider Implementation (`ai-provider-bridge`)
 
 When adding a new provider:
