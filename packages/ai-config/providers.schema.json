@@ -2909,6 +2909,241 @@
           },
           "type": "object"
         },
+        "databricks": {
+          "additionalProperties": false,
+          "properties": {
+            "baseUrl": {
+              "type": "string"
+            },
+            "customHeaders": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "databricks": {
+              "additionalProperties": false,
+              "properties": {
+                "host": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "endpoint": {
+              "type": "string"
+            },
+            "endpoints": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "propertyNames": {
+                "enum": [
+                  "anthropic-messages",
+                  "openai-chat",
+                  "openai-responses",
+                  "bedrock-converse",
+                  "google-generative"
+                ],
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "models": {
+              "additionalProperties": false,
+              "properties": {
+                "allow": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "custom": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "baseUrl": {
+                        "type": "string"
+                      },
+                      "family": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "maxContextLength": {
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991,
+                        "type": "integer"
+                      },
+                      "maxInputTokens": {
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991,
+                        "type": "integer"
+                      },
+                      "maxOutputTokens": {
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991,
+                        "type": "integer"
+                      },
+                      "name": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "protocol": {
+                        "enum": [
+                          "anthropic-messages",
+                          "openai-chat",
+                          "openai-responses",
+                          "bedrock-converse",
+                          "google-generative"
+                        ],
+                        "type": "string"
+                      },
+                      "supportedInputMediaTypes": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "supportsImages": {
+                        "type": "boolean"
+                      },
+                      "supportsToolResultImages": {
+                        "type": "boolean"
+                      },
+                      "supportsTools": {
+                        "type": "boolean"
+                      },
+                      "supportsWebSearch": {
+                        "type": "boolean"
+                      },
+                      "thinkingEffortLevels": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name",
+                      "maxContextLength",
+                      "supportsTools",
+                      "supportsImages",
+                      "supportsToolResultImages",
+                      "supportsWebSearch"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "deny": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "discovery": {
+                  "enum": [
+                    "auto",
+                    "off"
+                  ],
+                  "type": "string"
+                },
+                "overrides": {
+                  "additionalProperties": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "baseUrl": {
+                        "type": "string"
+                      },
+                      "family": {
+                        "type": "string"
+                      },
+                      "maxContextLength": {
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991,
+                        "type": "integer"
+                      },
+                      "maxInputTokens": {
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991,
+                        "type": "integer"
+                      },
+                      "maxOutputTokens": {
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991,
+                        "type": "integer"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "protocol": {
+                        "enum": [
+                          "anthropic-messages",
+                          "openai-chat",
+                          "openai-responses",
+                          "bedrock-converse",
+                          "google-generative"
+                        ],
+                        "type": "string"
+                      },
+                      "supportedInputMediaTypes": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "supportsImages": {
+                        "type": "boolean"
+                      },
+                      "supportsToolResultImages": {
+                        "type": "boolean"
+                      },
+                      "supportsTools": {
+                        "type": "boolean"
+                      },
+                      "supportsWebSearch": {
+                        "type": "boolean"
+                      },
+                      "thinkingEffortLevels": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "type": "object"
+                }
+              },
+              "type": "object"
+            },
+            "protocol": {
+              "enum": [
+                "anthropic-messages",
+                "openai-chat",
+                "openai-responses",
+                "bedrock-converse",
+                "google-generative"
+              ],
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
         "deepseek": {
           "additionalProperties": false,
           "properties": {

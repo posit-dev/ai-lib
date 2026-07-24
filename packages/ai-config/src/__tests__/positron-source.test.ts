@@ -22,6 +22,7 @@ function fakeReader(
 		customHeaders?: Record<string, Record<string, string>>;
 		awsRegion?: string;
 		snowflake?: { host?: string; account?: string; home?: string };
+		databricks?: { host?: string };
 	} = {},
 ): PositronAuthSettingReader {
 	return {
@@ -29,6 +30,7 @@ function fakeReader(
 		getCustomHeaders: (configKey) => overrides.customHeaders?.[configKey],
 		getAwsRegion: () => overrides.awsRegion,
 		getSnowflake: () => overrides.snowflake,
+		getDatabricks: () => overrides.databricks,
 	};
 }
 
@@ -52,6 +54,11 @@ const SNOWFLAKE: PositronAuthSettingDescriptor = {
 	providerId: "snowflake-cortex",
 	configKey: "snowflake",
 	read: "snowflake",
+};
+const DATABRICKS: PositronAuthSettingDescriptor = {
+	providerId: "databricks",
+	configKey: "databricks",
+	read: "databricks",
 };
 
 describe("buildAuthenticationFragment", () => {
@@ -154,6 +161,30 @@ describe("buildAuthenticationFragment", () => {
 				},
 			},
 		});
+	});
+
+	it("emits the databricks host under the databricks section (+ customHeaders), not baseUrl", () => {
+		const reader = fakeReader({
+			databricks: { host: "https://adb-123.4.azuredatabricks.net" },
+			customHeaders: { databricks: { "x-databricks-use-coding-agent-mode": "true" } },
+		});
+		const fragment = buildAuthenticationFragment(reader, [DATABRICKS]);
+		// The host must NOT be emitted as baseUrl: per-model endpoint resolution
+		// falls back to the provider baseUrl, which would route chat requests to
+		// the bare workspace host instead of the serving-endpoints path.
+		expect(fragment).toEqual({
+			providers: {
+				databricks: {
+					databricks: { host: "https://adb-123.4.azuredatabricks.net" },
+					customHeaders: { "x-databricks-use-coding-agent-mode": "true" },
+				},
+			},
+		});
+	});
+
+	it("omits databricks when no host is set", () => {
+		const fragment = buildAuthenticationFragment(fakeReader(), [DATABRICKS]);
+		expect(fragment).toEqual({});
 	});
 
 	it("applies the descriptor's normalizeBaseUrl to a set base URL", () => {

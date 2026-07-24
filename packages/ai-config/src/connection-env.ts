@@ -38,6 +38,7 @@ interface ConnectionEnvMapping {
 	aws?: { region?: EnvNames; profile?: EnvNames };
 	googleCloud?: { project?: EnvNames; location?: EnvNames };
 	snowflake?: { account?: EnvNames; host?: EnvNames; home?: EnvNames };
+	databricks?: { host?: EnvNames };
 }
 
 /**
@@ -76,6 +77,10 @@ const CONNECTION_ENV_MAPPINGS: Partial<Record<BuiltinProviderId, ConnectionEnvMa
 		snowflake: { account: "SNOWFLAKE_ACCOUNT", host: "SNOWFLAKE_HOST", home: "SNOWFLAKE_HOME" },
 	},
 	deepseek: { baseUrl: "DEEPSEEK_BASE_URL" },
+	// The standard Databricks CLI/SDK variable. Maps into the `databricks`
+	// section (NOT baseUrl): the workspace host is not a chat base URL — the
+	// bridge derives the serving-endpoints / AI Gateway URL from it.
+	databricks: { databricks: { host: "DATABRICKS_HOST" } },
 };
 
 // ---------------------------------------------------------------------------
@@ -119,6 +124,9 @@ export function readEnvConnectionConfig(
 
 		const snowflake = mapping.snowflake && readEnvSection(mapping.snowflake, envVars);
 		if (snowflake) block.snowflake = snowflake;
+
+		const databricks = mapping.databricks && readEnvSection(mapping.databricks, envVars);
+		if (databricks) block.databricks = databricks;
 
 		if (Object.keys(block).length > 0) providers[id] = block;
 	}

@@ -27,6 +27,7 @@ const DESCRIPTORS: Record<string, AuthMethodDescriptor> = {
 	ollama: { authMethodId: "local" },
 	bedrock: { authMethodId: "aws-credentials" },
 	positai: { authMethodId: "oauth" },
+	databricks: { authMethodId: "apikey" },
 };
 
 function resolveAuthMethod(id: string): AuthMethodDescriptor | undefined {
@@ -241,6 +242,10 @@ describe("createStoreBackend", () => {
 			expect(await oauth.readTokens("positai")).toBeNull();
 			const stored = await store.get<StoredProviderCredentials>(storageKeyFor("positai", "oauth"));
 			expect(stored?.error).toBe("access_denied");
+			expect(await backend.getCredentialStatus("positai")).toMatchObject({
+				authenticated: false,
+				error: "access_denied",
+			});
 		});
 
 		it("clearError resets a prior error record to a clean unauthenticated state", async () => {
@@ -287,6 +292,84 @@ describe("createStoreBackend", () => {
 				env: {},
 			});
 			expect(await backend.oauth?.readTokens("positai")).toBeNull();
+		});
+	});
+
+	describe("Databricks environment source selection", () => {
+		it("rejects an insecure environment M2M workspace without falling back", async () => {
+			const backend = createStoreBackend({
+				store,
+				resolveAuthMethod,
+				oauthConfigForProvider: () => undefined,
+				env: {
+					DATABRICKS_AUTH_TYPE: "oauth-m2m",
+					DATABRICKS_HOST: "http://workspace.test",
+					DATABRICKS_CLIENT_ID: "client",
+					DATABRICKS_CLIENT_SECRET: "secret",
+				},
+			});
+
+			expect(await backend.getCredentials("databricks")).toBeNull();
+			expect(await backend.getCredentialStatus("databricks")).toMatchObject({
+				configured: false,
+				authenticated: false,
+				error: "Databricks workspace URL must use HTTPS",
+			});
+		});
+
+		it("does not report PAT readiness when explicitly selected M2M is incomplete", async () => {
+			const backend = createStoreBackend({
+				store,
+				resolveAuthMethod,
+				env: {
+					DATABRICKS_AUTH_TYPE: "oauth-m2m",
+					DATABRICKS_TOKEN: "must-not-be-used",
+					DATABRICKS_HOST: "https://workspace.test",
+					DATABRICKS_CLIENT_ID: "incomplete-client",
+				},
+			});
+
+			expect(await backend.getCredentials("databricks")).toBeNull();
+			expect(await backend.getCredentialStatus("databricks")).toMatchObject({
+				configured: false,
+				authenticated: false,
+				readiness: "unauthenticated",
+				source: "oauth-m2m",
+				origin: "environment",
+			});
+		});
+
+		it("uses the same complete M2M source for material and status", async () => {
+			const backend = createStoreBackend({
+				store,
+				resolveAuthMethod,
+				oauthConfigForProvider: (_providerId, source) =>
+					source?.type === "oauth-m2m"
+						? {
+								grantType: "client-credentials",
+								clientId: source.clientId,
+								clientSecret: source.clientSecret,
+								tokenEndpoint: `${source.workspaceHost}/token`,
+								credentialBaseUrl: source.workspaceHost,
+								cacheKey: source.clientId,
+							}
+						: undefined,
+				env: {
+					DATABRICKS_AUTH_TYPE: "oauth-m2m",
+					DATABRICKS_TOKEN: "must-not-be-used",
+					DATABRICKS_HOST: "https://workspace.test",
+					DATABRICKS_CLIENT_ID: "client",
+					DATABRICKS_CLIENT_SECRET: "secret",
+				},
+			});
+
+			expect(await backend.getCredentials("databricks")).toBeNull();
+			expect(await backend.getCredentialStatus("databricks")).toMatchObject({
+				configured: true,
+				authenticated: true,
+				source: "oauth-m2m",
+				origin: "environment",
+			});
 		});
 	});
 

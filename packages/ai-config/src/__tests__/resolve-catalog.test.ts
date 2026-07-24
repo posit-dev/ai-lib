@@ -138,8 +138,8 @@ describe("resolveProviderCatalog — invalid merge tolerance", () => {
 			logger,
 		});
 
-		// 14 built-ins, no custom provider leaked in.
-		expect(catalog.length).toBe(14);
+		// 15 built-ins, no custom provider leaked in.
+		expect(catalog.length).toBe(15);
 		expect(find(catalog, "ghost-gw")).toBeUndefined();
 		expect(find(catalog, "anthropic")?.enabled).toBe(true);
 		expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("invalid merged result"));
@@ -186,7 +186,7 @@ describe("resolveProviderCatalog — tightened-schema recovery", () => {
 		});
 
 		// The valid user source still resolves; the forbidden overlay is gone.
-		expect(catalog.length).toBe(14);
+		expect(catalog.length).toBe(15);
 		expect(find(catalog, "openai")?.enabled).toBe(true);
 		expect(find(catalog, "anthropic")?.connection.aws).toBeUndefined();
 		expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("invalid merged result"));
@@ -458,6 +458,18 @@ describe("resolveProviderCatalog — snowflake + legacy vertex env vars", () => 
 			host: "acme-prod.privatelink.snowflakecomputing.com",
 			home: "/opt/sf",
 		});
+	});
+
+	it("folds DATABRICKS_HOST into databricks connection (not baseUrl)", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [],
+			baseline: STANDALONE,
+			envVars: { DATABRICKS_HOST: "https://adb-123.4.azuredatabricks.net" },
+		});
+		expect(find(catalog, "databricks")?.connection.databricks).toEqual({
+			host: "https://adb-123.4.azuredatabricks.net",
+		});
+		expect(find(catalog, "databricks")?.connection.baseUrl).toBeUndefined();
 	});
 
 	it("maps GOOGLE_VERTEX_BASE_URL to google-vertex baseUrl", () => {

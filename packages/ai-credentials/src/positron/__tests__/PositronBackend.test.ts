@@ -61,6 +61,7 @@ const PROVIDER_MAP: Record<string, AuthProviderMapping> = {
 		fallbackScopes: [["read:user", "user:email", "repo", "workflow"], ["user:email"]],
 		credentialType: "apikey",
 	},
+	databricks: { authProviderId: "databricks", scopes: [], credentialType: "apikey" },
 };
 
 const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), trace: vi.fn() };
@@ -76,6 +77,7 @@ function testConfig(overrides: Partial<CredentialConfig> = {}): CredentialConfig
 		getCustomHeaders: () => undefined,
 		getAws: () => undefined,
 		getSnowflake: () => undefined,
+		getDatabricks: () => undefined,
 		...overrides,
 	};
 }
@@ -154,6 +156,63 @@ describe("createPositronBackend", () => {
 		// Connection-config invalidation flows solely through the catalog host
 		// source; wiring it here too would race the debounced catalog rebuild.
 		expect(configChangeHook.callback).toBeNull();
+	});
+
+	// --- Databricks host resolution (ported from the removed bridge auth suite) ---
+	// The workspace host now arrives via the injected CredentialConfig
+	// (`getDatabricks`); env/setting fallbacks are folded into the catalog by the
+	// host adapter, so they are exercised at the catalog layer, not here.
+
+	it("resolves the Databricks base URL from the injected credential config", async () => {
+		mockGetSession.mockResolvedValue(makeSession("databricks-bearer-token"));
+		const backend = makeBackend({
+			getDatabricks: () => ({ host: "https://adb-123.4.azuredatabricks.net" }),
+		});
+
+		expect(await backend.getCredentials("databricks")).toEqual({
+			type: "apikey",
+			apiKey: "databricks-bearer-token",
+			baseUrl: "https://adb-123.4.azuredatabricks.net",
+			customHeaders: undefined,
+		});
+		expect(mockGetSession).toHaveBeenCalledWith("databricks", [], { silent: true });
+	});
+
+	it("normalizes a scheme-less Databricks host with trailing slash", async () => {
+		mockGetSession.mockResolvedValue(makeSession("databricks-bearer-token"));
+		const backend = makeBackend({
+			getDatabricks: () => ({ host: "my-workspace.cloud.databricks.com/" }),
+		});
+
+		expect(await backend.getCredentials("databricks")).toMatchObject({
+			type: "apikey",
+			baseUrl: "https://my-workspace.cloud.databricks.com",
+		});
+	});
+
+	it("leaves the Databricks base URL undefined when no host is configured", async () => {
+		mockGetSession.mockResolvedValue(makeSession("databricks-bearer-token"));
+		const backend = makeBackend({ getDatabricks: () => undefined });
+
+		expect(await backend.getCredentials("databricks")).toMatchObject({
+			baseUrl: undefined,
+		});
+	});
+
+	it("reads Databricks customHeaders alongside the host", async () => {
+		mockGetSession.mockResolvedValue(makeSession("databricks-bearer-token"));
+		const backend = makeBackend({
+			getDatabricks: () => ({ host: "https://adb-123.4.azuredatabricks.net" }),
+			getCustomHeaders: (configKey) =>
+				configKey === "databricks" ? { "x-databricks-use-coding-agent-mode": "true" } : undefined,
+		});
+
+		expect(await backend.getCredentials("databricks")).toEqual({
+			type: "apikey",
+			apiKey: "databricks-bearer-token",
+			baseUrl: "https://adb-123.4.azuredatabricks.net",
+			customHeaders: { "x-databricks-use-coding-agent-mode": "true" },
+		});
 	});
 
 	// --- Copilot fallback scopes (ported from the removed bridge auth suite) ---

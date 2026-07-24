@@ -53,6 +53,10 @@ export const PROVIDER_MAP: Partial<Record<ProviderId, AuthProviderMapping>> = {
 		credentialType: "apikey",
 	},
 	deepseek: { authProviderId: "deepseek-api", scopes: [], credentialType: "apikey" },
+	// Bearer-token provider: session.accessToken is a PAT or OAuth access token
+	// (the auth extension decides which); the workspace host comes from the
+	// `authentication.databricks.credentials` setting.
+	databricks: { authProviderId: "databricks", scopes: [], credentialType: "apikey" },
 	"google-vertex": {
 		authProviderId: "google-cloud",
 		scopes: [],

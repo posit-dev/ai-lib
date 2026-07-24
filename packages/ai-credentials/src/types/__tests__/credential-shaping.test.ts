@@ -29,6 +29,7 @@ function fakeConfig(snowflake?: { host?: string; account?: string }): Credential
 		getCustomHeaders: () => undefined,
 		getAws: () => undefined,
 		getSnowflake: () => snowflake,
+		getDatabricks: () => undefined,
 	};
 }
 
@@ -39,6 +40,7 @@ function config(overrides: Partial<CredentialConfig> = {}): CredentialConfig {
 		getCustomHeaders: () => undefined,
 		getAws: () => undefined,
 		getSnowflake: () => undefined,
+		getDatabricks: () => undefined,
 		...overrides,
 	};
 }

@@ -55,6 +55,7 @@ const BUILTIN_CLIENT_KIND = {
 	"snowflake-cortex": "snowflake",
 	"ms-foundry": "ms-foundry",
 	deepseek: "deepseek",
+	databricks: "databricks",
 } as const satisfies Record<BuiltinProviderId, ClientKind>;
 
 /**
@@ -162,6 +163,7 @@ function resolveConnection(
 		aws: mergeOptionalSection(defaults.aws, fromBlock.aws),
 		googleCloud: mergeOptionalSection(defaults.googleCloud, fromBlock.googleCloud),
 		snowflake: mergeOptionalSection(defaults.snowflake, fromBlock.snowflake),
+		databricks: mergeOptionalSection(defaults.databricks, fromBlock.databricks),
 	};
 }
 
@@ -193,6 +195,7 @@ function resolveConnectionFromBlock(
 		aws: superset.aws,
 		googleCloud: superset.googleCloud,
 		snowflake: superset.snowflake,
+		databricks: superset.databricks,
 	};
 }
 

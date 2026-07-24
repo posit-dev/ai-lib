@@ -2,3 +2,4 @@ node_modules/
 dist/
 .bridge-watch/
 *.tsbuildinfo
+*.tgz

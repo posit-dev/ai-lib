@@ -62,6 +62,14 @@ function createVscodeAuthReader(): PositronAuthSettingReader {
 				home: snowflakeConfig?.SNOWFLAKE_HOME || process.env.SNOWFLAKE_HOME,
 			};
 		},
+		getDatabricks: () => {
+			const databricksConfig = vscode.workspace
+				.getConfiguration("authentication.databricks")
+				.get<Record<string, string>>("credentials");
+			return {
+				host: databricksConfig?.DATABRICKS_HOST || process.env.DATABRICKS_HOST,
+			};
+		},
 	};
 }
 

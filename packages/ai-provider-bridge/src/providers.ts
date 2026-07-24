@@ -11,6 +11,7 @@
 // Provider registration functions
 export { registerAnthropicProvider } from "./providers/anthropic-provider";
 export { registerCopilotProvider } from "./providers/copilot-provider";
+export { registerDatabricksProvider } from "./providers/databricks-provider";
 export { registerDeepSeekProvider } from "./providers/deepseek-provider";
 export { registerBedrockProvider } from "./providers/bedrock-provider";
 export type { BedrockProviderCallbacks } from "./providers/bedrock-provider";

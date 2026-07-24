@@ -33,6 +33,7 @@ export const BUILTIN_PROVIDER_IDS = [
 	"snowflake-cortex",
 	"ms-foundry",
 	"deepseek",
+	"databricks",
 ] as const;
 
 export type BuiltinProviderId = (typeof BUILTIN_PROVIDER_IDS)[number];
@@ -86,6 +87,7 @@ export const CLIENT_KIND_VALUES = [
 	"positai",
 	"copilot",
 	"ms-foundry",
+	"databricks",
 ] as const;
 
 export type ClientKind = (typeof CLIENT_KIND_VALUES)[number];

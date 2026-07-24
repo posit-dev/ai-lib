@@ -26,7 +26,11 @@ export type { AuthProviderMapping, CredentialConfig } from "./credential-shaping
 
 export type { Logger } from "./logger.js";
 
-export { buildSnowflakeCortexUrl, buildSnowflakeCortexUrlFromHost } from "./utils.js";
+export {
+	buildSnowflakeCortexUrl,
+	buildSnowflakeCortexUrlFromHost,
+	normalizeDatabricksHost,
+} from "./utils.js";
 
 // OAuth protocol/runtime types (moved from @assistant/core platform.ts)
 export type { DeviceAuthInfo, TokenData } from "./oauth-types.js";

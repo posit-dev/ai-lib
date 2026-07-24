@@ -54,6 +54,7 @@ export const PROVIDER_IDS = [
 	"snowflake-cortex",
 	"ms-foundry",
 	"deepseek",
+	"databricks",
 ] as const;
 
 /**

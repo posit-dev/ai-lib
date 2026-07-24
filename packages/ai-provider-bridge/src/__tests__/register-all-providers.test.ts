@@ -27,10 +27,12 @@ vi.mock("../providers/snowflake-cortex-provider", () => ({
 	registerSnowflakeCortexProvider: vi.fn(),
 }));
 vi.mock("../providers/deepseek-provider", () => ({ registerDeepSeekProvider: vi.fn() }));
+vi.mock("../providers/databricks-provider", () => ({ registerDatabricksProvider: vi.fn() }));
 
 import { registerAnthropicProvider } from "../providers/anthropic-provider";
 import { registerBedrockProvider } from "../providers/bedrock-provider";
 import { registerCopilotProvider } from "../providers/copilot-provider";
+import { registerDatabricksProvider } from "../providers/databricks-provider";
 import { registerDeepSeekProvider } from "../providers/deepseek-provider";
 import { registerFoundryProvider } from "../providers/foundry-provider";
 import { registerGeminiProvider } from "../providers/gemini-provider";
@@ -70,6 +72,7 @@ const allRegisterFns = [
 	registerFoundryProvider,
 	registerSnowflakeCortexProvider,
 	registerDeepSeekProvider,
+	registerDatabricksProvider,
 ];
 
 describe("registerAllProviders (internal)", () => {
@@ -89,7 +92,7 @@ describe("registerAllProviders (internal)", () => {
 		expect(new Set(ids)).toEqual(new Set(PROVIDER_IDS));
 	});
 
-	it("registers all 14 providers when allowedProviders is omitted", () => {
+	it("registers every provider when allowedProviders is omitted", () => {
 		registerAllProviders(registry, mockLogger, { positAiBaseUrl: BASE_URL, userAgent: USER_AGENT });
 
 		// Tie the count to PROVIDER_IDS (the source of truth) so a provider added there

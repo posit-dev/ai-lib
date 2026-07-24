@@ -42,6 +42,11 @@ export interface PositronAuthSettingReader {
 	 * SNOWFLAKE_ACCOUNT,SNOWFLAKE_HOME}`, `process.env` fallback).
 	 */
 	getSnowflake(): { host?: string; account?: string; home?: string } | undefined;
+	/**
+	 * Databricks workspace host (`authentication.databricks.credentials.DATABRICKS_HOST`,
+	 * `process.env` fallback).
+	 */
+	getDatabricks(): { host?: string } | undefined;
 }
 
 /**
@@ -61,8 +66,13 @@ export interface PositronAuthSettingDescriptor {
 	 * - `"aws-region"`: reads `authentication.aws.credentials.AWS_REGION`.
 	 * - `"snowflake"`: reads `snowflake.credentials.{SNOWFLAKE_HOST,SNOWFLAKE_ACCOUNT,
 	 *   SNOWFLAKE_HOME}` (+ `snowflake.customHeaders`), with `process.env` fallback.
+	 * - `"databricks"`: reads `databricks.credentials.DATABRICKS_HOST`
+	 *   (+ `databricks.customHeaders`), with `process.env` fallback for the host.
+	 *   The host is emitted as the `databricks` connection section — NOT as
+	 *   `baseUrl`, which would be picked up by per-model endpoint resolution and
+	 *   route chat to the bare workspace host.
 	 */
-	readonly read: "api-key-connection" | "aws-region" | "snowflake";
+	readonly read: "api-key-connection" | "aws-region" | "snowflake" | "databricks";
 	/**
 	 * Optional correction applied to the raw `baseUrl` setting value before it
 	 * enters the fragment (only meaningful for `"api-key-connection"` reads).
@@ -125,6 +135,8 @@ function buildBlock(
 			return buildAwsRegionBlock(reader);
 		case "snowflake":
 			return buildSnowflakeBlock(reader, descriptor.configKey);
+		case "databricks":
+			return buildDatabricksBlock(reader, descriptor.configKey);
 	}
 }
 
@@ -172,6 +184,27 @@ function buildSnowflakeBlock(
 	}
 	if (hasKeys(snowflake)) {
 		block.snowflake = snowflake;
+	}
+
+	const customHeaders = normalizeHeaders(reader.getCustomHeaders(configKey));
+	if (customHeaders) {
+		block.customHeaders = customHeaders;
+	}
+
+	return hasKeys(block) ? block : undefined;
+}
+
+function buildDatabricksBlock(
+	reader: PositronAuthSettingReader,
+	configKey: string,
+): BuiltinProviderBlock | undefined {
+	const block: BuiltinProviderBlock = {};
+
+	// The host is stored raw (like snowflake's) — the credential shaper and the
+	// bridge's Databricks provider normalize scheme/trailing-slash at use.
+	const host = reader.getDatabricks()?.host || undefined;
+	if (host) {
+		block.databricks = { host };
 	}
 
 	const customHeaders = normalizeHeaders(reader.getCustomHeaders(configKey));

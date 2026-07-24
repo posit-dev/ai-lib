@@ -15,15 +15,40 @@
  * (vscode) and are injected here.
  */
 
-export type { CredentialProvider, Disposable } from "./CredentialProvider.js";
 export type {
+	AuthenticationChallenge,
+	AuthenticationStartResult,
+	CredentialMutation,
+	CredentialProvider,
+	CredentialSourceInput,
+	CredentialStatus,
+	Disposable,
+	MutableCredentialProvider,
+} from "./CredentialProvider.js";
+export type {
+	AcquisitionBackendHooks,
+	AuthenticationCommitResult,
+	AuthorizationCodeCallback,
+	AuthorizationCodeReceiver,
 	Backend,
+	CredentialSourceContext,
+	MutableBackend,
 	OAuthBackendHooks,
+	OAuthGrantConfig,
 	OAuthProviderConfig,
+	PreparedAuthorizationCodeReceiver,
 	StoredOAuthTokens,
 } from "./Backend.js";
 export { createCredentialProvider } from "./createCredentialProvider.js";
 export type {
 	CreateCredentialProviderOptions,
 	CredentialProviderHandle,
+	MutableCredentialProviderHandle,
 } from "./createCredentialProvider.js";
+export {
+	createDatabricksAuthorizationCodeGrant,
+	createDatabricksClientCredentialsGrant,
+	discoverDatabricksOidcEndpoints,
+	normalizeDatabricksWorkspaceHost,
+} from "./databricks-oauth.js";
+export type { DatabricksOidcEndpoints } from "./databricks-oauth.js";

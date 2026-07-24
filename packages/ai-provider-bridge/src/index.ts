@@ -102,6 +102,7 @@ export { normalizeBaseUrlForProvider } from "./base-url";
 // Small utilities
 export { isThinkingEnabled } from "./utils";
 export { buildSnowflakeCortexUrl } from "./utils";
+export { normalizeDatabricksHost } from "./utils";
 export { isAgreementRequiredBody } from "./utils";
 export { joinPath } from "./utils";
 
