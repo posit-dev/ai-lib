@@ -330,9 +330,7 @@ describe("createPositronBackend", () => {
 		const backend = makeBackend();
 
 		expect(await backend.getCredentials("databricks")).toBeNull();
-		expect(logger.debug).toHaveBeenCalledWith(
-			expect.stringContaining("Auth session unavailable"),
-		);
+		expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("Auth session unavailable"));
 		expect(logger.trace).not.toHaveBeenCalled();
 
 		// Not negative-cached — the transient error must not suppress future lookups.
