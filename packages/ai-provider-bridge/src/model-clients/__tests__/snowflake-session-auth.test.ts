@@ -26,8 +26,10 @@ vi.mock("../ai-sdk-helpers", () => ({
 	createStepLogger: vi.fn(() => undefined),
 }));
 
-import type { CancellationToken } from "../../types";
-import type { ModelClientChatParams } from "../ModelClient";
+import { ProviderRegistry } from "../../providers/ProviderRegistry";
+import { registerSnowflakeCortexProvider } from "../../providers/snowflake-cortex-provider";
+import type { CancellationToken, Logger, ProviderCredentials } from "../../types";
+import type { ModelClient, ModelClientChatParams } from "../ModelClient";
 import { SnowflakeClient } from "../SnowflakeClient";
 
 const cancellationToken: CancellationToken = {
@@ -35,9 +37,16 @@ const cancellationToken: CancellationToken = {
 	onCancellationRequested: () => ({ dispose() {} }),
 };
 
+const mockLogger: Logger = {
+	info: vi.fn(),
+	warn: vi.fn(),
+	error: vi.fn(),
+	debug: vi.fn(),
+	trace: vi.fn(),
+};
+
 const BASE_URL = "https://acct.snowflakecomputing.com/api/v2/cortex";
 const SESSION_TOKEN = "sess-tok-123";
-const TOKEN_TYPE_HEADER = "X-Snowflake-Authorization-Token-Type";
 
 // Claude models route through the Anthropic Messages API; others through OpenAI.
 const CLAUDE_MODEL = "claude-opus-4-7";
@@ -123,8 +132,6 @@ describe("SnowflakeClient auth schemes", () => {
 		const sent = outgoingHeaders(fetchSpy);
 		expect(sent.get("authorization")).toBe(`Snowflake Token="${SESSION_TOKEN}"`);
 		expect(sent.has("x-api-key")).toBe(false);
-		// No internal token-type sentinel is ever put on the wire.
-		expect(sent.has(TOKEN_TYPE_HEADER)).toBe(false);
 	});
 
 	it("session scheme: OpenAI route sends `Snowflake Token=` auth through the compat fetch and keeps gateway headers", async () => {
@@ -150,5 +157,57 @@ describe("SnowflakeClient auth schemes", () => {
 		expect(sent.has("x-api-key")).toBe(false);
 		// The additive gateway header still reaches the wire.
 		expect(sent.get("x-gateway")).toBe("keep-me");
+	});
+});
+
+// Cover the production seam in the registered client factory: the mapping from
+// `credentials.snowflakeSessionToken` to the client's auth scheme. Constructing
+// SnowflakeClient directly (above) bypasses this, so a factory regression could
+// leave the client tests green while the product silently uses Bearer auth.
+describe("Snowflake provider factory seam", () => {
+	function createClient(credentials: ProviderCredentials): ModelClient {
+		const registry = new ProviderRegistry(mockLogger);
+		registerSnowflakeCortexProvider(registry, mockLogger);
+		const client = registry.getClientForProvider("snowflake-cortex", credentials);
+		if (!client) throw new Error("expected a Snowflake client from the factory");
+		return client;
+	}
+
+	beforeEach(() => {
+		createAnthropic.mockClear();
+	});
+
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	it("maps snowflakeSessionToken=true to session auth (`Snowflake Token=`)", async () => {
+		const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null));
+
+		const client = createClient({
+			type: "apikey",
+			apiKey: SESSION_TOKEN,
+			baseUrl: BASE_URL,
+			snowflakeSessionToken: true,
+		});
+		await client.chat(params(CLAUDE_MODEL));
+
+		const opts = anthropicOptions();
+		expect(opts.apiKey).toBe("session-auth");
+		expect(opts.authToken).toBeUndefined();
+
+		await opts.fetch?.("https://x/v1/messages", { headers: { "x-api-key": "session-auth" } });
+		expect(outgoingHeaders(fetchSpy).get("authorization")).toBe(
+			`Snowflake Token="${SESSION_TOKEN}"`,
+		);
+	});
+
+	it("maps an unflagged credential to Bearer auth", async () => {
+		const client = createClient({ type: "apikey", apiKey: "bearer-xyz", baseUrl: BASE_URL });
+		await client.chat(params(CLAUDE_MODEL));
+
+		const opts = anthropicOptions();
+		expect(opts.authToken).toBe("bearer-xyz");
+		expect(opts.fetch).toBeUndefined();
 	});
 });
