@@ -121,7 +121,7 @@ describe("getAnthropicModelCapabilities", () => {
 	describe("unrecognized Claude IDs fall back to a safe 64k default", () => {
 		it("returns 64k output for a Claude ID matching no rule", () => {
 			// A future/unknown claude-* ID that no rule matches yet.
-			expect(getAnthropicModelCapabilities("claude-opus-5")?.maxOutputTokens).toBe(64_000);
+			expect(getAnthropicModelCapabilities("claude-opus-6")?.maxOutputTokens).toBe(64_000);
 		});
 	});
 
