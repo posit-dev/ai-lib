@@ -78,7 +78,7 @@ export { OllamaClient, ollamaThinkParam } from "./model-clients/OllamaClient";
 export { OpenAIClient } from "./model-clients/OpenAIClient";
 export { OpenRouterClient } from "./model-clients/OpenRouterClient";
 export { PositAiClient } from "./model-clients/PositAiClient";
-export { SnowflakeClient } from "./model-clients/SnowflakeClient";
+export { SnowflakeClient, type SnowflakeAuthScheme } from "./model-clients/SnowflakeClient";
 
 // AI SDK helpers
 export * from "./model-clients/ai-sdk-helpers";

@@ -39,6 +39,14 @@ export interface ApiKeyCredentials {
 	apiKey: string;
 	baseUrl?: string;
 	customHeaders?: Record<string, string>;
+	/**
+	 * Snowflake Cortex only: when true, `apiKey` holds a Snowflake **session
+	 * token** (from external-browser SSO) that must be sent as
+	 * `Authorization: Snowflake Token="..."` rather than a Bearer token. Ignored
+	 * by every other provider. Synthesized at credential-resolution time and
+	 * never persisted, so it does not affect the on-disk credential format.
+	 */
+	snowflakeSessionToken?: boolean;
 }
 
 /**

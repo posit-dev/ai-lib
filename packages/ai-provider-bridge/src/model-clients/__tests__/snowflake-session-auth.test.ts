@@ -79,7 +79,7 @@ function outgoingHeaders(spy: ReturnType<typeof vi.spyOn>): Headers {
 	return new Headers((spy.mock.calls[0]?.[1] as RequestInit | undefined)?.headers);
 }
 
-describe("SnowflakeClient session-token auth", () => {
+describe("SnowflakeClient auth schemes", () => {
 	beforeEach(() => {
 		createAnthropic.mockClear();
 		createOpenAI.mockClear();
@@ -89,50 +89,52 @@ describe("SnowflakeClient session-token auth", () => {
 		vi.restoreAllMocks();
 	});
 
-	it("Anthropic route uses Bearer authToken (no fetch override) without the sentinel", async () => {
-		await new SnowflakeClient("bearer-xyz", BASE_URL).chat(params(CLAUDE_MODEL));
+	it("bearer scheme: Anthropic route uses authToken, no fetch override, forwards custom headers verbatim", async () => {
+		await new SnowflakeClient("bearer-xyz", BASE_URL, "bearer", { "x-gateway": "keep-me" }).chat(
+			params(CLAUDE_MODEL),
+		);
 
 		const opts = anthropicOptions();
 		expect(opts.authToken).toBe("bearer-xyz");
 		expect(opts.apiKey).toBeUndefined();
 		expect(opts.fetch).toBeUndefined();
+		// customHeaders are additive gateway headers only — passed through untouched.
+		expect(opts.headers).toEqual({ "x-gateway": "keep-me" });
 	});
 
-	it("Anthropic route sends `Snowflake Token=` auth and strips the sentinel + x-api-key", async () => {
+	it("session scheme: Anthropic route sends `Snowflake Token=` auth and strips x-api-key", async () => {
 		const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null));
 
-		await new SnowflakeClient(SESSION_TOKEN, BASE_URL, {
-			[TOKEN_TYPE_HEADER]: "SESSION",
-			"x-gateway": "keep-me",
-		}).chat(params(CLAUDE_MODEL));
+		await new SnowflakeClient(SESSION_TOKEN, BASE_URL, "session", { "x-gateway": "keep-me" }).chat(
+			params(CLAUDE_MODEL),
+		);
 
 		const opts = anthropicOptions();
 		// The placeholder key satisfies the SDK; real auth is applied by the wrapper.
 		expect(opts.apiKey).toBe("session-auth");
 		expect(opts.authToken).toBeUndefined();
-		// Additive custom header is forwarded; the internal sentinel is not.
 		expect(opts.headers).toEqual({ "x-gateway": "keep-me" });
 
 		// Drive the installed fetch wrapper as the SDK would (SDK sets x-api-key).
 		await opts.fetch?.("https://x/v1/messages", {
-			headers: { "x-api-key": "session-auth", [TOKEN_TYPE_HEADER]: "SESSION" },
+			headers: { "x-api-key": "session-auth" },
 		});
 
 		const sent = outgoingHeaders(fetchSpy);
 		expect(sent.get("authorization")).toBe(`Snowflake Token="${SESSION_TOKEN}"`);
 		expect(sent.has("x-api-key")).toBe(false);
+		// No internal token-type sentinel is ever put on the wire.
 		expect(sent.has(TOKEN_TYPE_HEADER)).toBe(false);
 	});
 
-	it("OpenAI route sends `Snowflake Token=` auth through the compat fetch and keeps gateway headers", async () => {
+	it("session scheme: OpenAI route sends `Snowflake Token=` auth through the compat fetch and keeps gateway headers", async () => {
 		const fetchSpy = vi
 			.spyOn(globalThis, "fetch")
 			.mockResolvedValue(new Response(null, { headers: { "content-type": "application/json" } }));
 
-		await new SnowflakeClient(SESSION_TOKEN, BASE_URL, {
-			[TOKEN_TYPE_HEADER]: "SESSION",
-			"x-gateway": "keep-me",
-		}).chat(params(OPENAI_MODEL));
+		await new SnowflakeClient(SESSION_TOKEN, BASE_URL, "session", { "x-gateway": "keep-me" }).chat(
+			params(OPENAI_MODEL),
+		);
 
 		const opts = openaiOptions();
 		expect(opts.fetch).toBeDefined();
@@ -146,24 +148,7 @@ describe("SnowflakeClient session-token auth", () => {
 		// Session wrapper installs `Snowflake Token=` last, over the SDK's Bearer.
 		expect(sent.get("authorization")).toBe(`Snowflake Token="${SESSION_TOKEN}"`);
 		expect(sent.has("x-api-key")).toBe(false);
-		expect(sent.has(TOKEN_TYPE_HEADER)).toBe(false);
 		// The additive gateway header still reaches the wire.
 		expect(sent.get("x-gateway")).toBe("keep-me");
-	});
-
-	it("recognizes the session sentinel regardless of header-name casing", async () => {
-		vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null));
-
-		// Lowercase spelling — HTTP header names are case-insensitive.
-		await new SnowflakeClient(SESSION_TOKEN, BASE_URL, {
-			"x-snowflake-authorization-token-type": "SESSION",
-		}).chat(params(CLAUDE_MODEL));
-
-		const opts = anthropicOptions();
-		expect(opts.apiKey).toBe("session-auth");
-		expect(opts.authToken).toBeUndefined();
-		expect(opts.fetch).toBeDefined();
-		// The sentinel was the only custom header; nothing remains to forward.
-		expect(opts.headers).toBeUndefined();
 	});
 });
