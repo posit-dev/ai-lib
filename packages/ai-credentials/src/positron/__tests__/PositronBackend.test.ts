@@ -274,6 +274,70 @@ describe("createPositronBackend", () => {
 		expect(await backend.getCredentials("anthropic")).toBeNull();
 	});
 
+	// --- Unregistered-provider handling (fast, correct silent lookups) ---
+	// `getSession(id, …, { silent: true })` does not fail fast for an unregistered
+	// provider; it blocks for seconds waiting for the provider to register. The
+	// backend negative-caches that verdict so the wait is not re-paid on every
+	// resolution (conversation switch, model refresh, auth-status poll).
+
+	const NOT_REGISTERED = new Error(
+		"Timed out waiting for authentication provider 'databricks' to register.",
+	);
+
+	it("negative-caches an unregistered provider and skips future silent lookups", async () => {
+		mockGetSession.mockRejectedValue(NOT_REGISTERED);
+		const backend = makeBackend();
+
+		expect(await backend.getCredentials("databricks")).toBeNull();
+		expect(mockGetSession).toHaveBeenCalledTimes(1);
+
+		// Second resolution takes the fast path — getSession is not called again.
+		expect(await backend.getCredentials("databricks")).toBeNull();
+		expect(mockGetSession).toHaveBeenCalledTimes(1);
+	});
+
+	it("re-checks a provider after a session change clears the unregistered verdict", async () => {
+		mockGetSession.mockRejectedValue(NOT_REGISTERED);
+		const backend = makeBackend();
+
+		expect(await backend.getCredentials("databricks")).toBeNull();
+		expect(mockGetSession).toHaveBeenCalledTimes(1);
+
+		// The auth extension registers and produces a session → change event fires.
+		sessionChangeHook.callback?.({ provider: { id: "databricks" } });
+		mockGetSession.mockResolvedValue(makeSession("databricks-bearer-token"));
+
+		expect(await backend.getCredentials("databricks")).toMatchObject({
+			apiKey: "databricks-bearer-token",
+		});
+		expect(mockGetSession).toHaveBeenCalledTimes(2);
+	});
+
+	it("logs the registration timeout at trace, not debug", async () => {
+		mockGetSession.mockRejectedValue(NOT_REGISTERED);
+		const backend = makeBackend();
+
+		expect(await backend.getCredentials("databricks")).toBeNull();
+		expect(logger.trace).toHaveBeenCalledWith(expect.stringContaining("is not registered"));
+		expect(logger.debug).not.toHaveBeenCalled();
+	});
+
+	it("does not misclassify an unrelated error that merely contains 'to register'", async () => {
+		// A transient error from a *registered* provider's session lookup. It must
+		// NOT be treated as an unregistered-provider verdict: it logs at debug, is
+		// not cached, and the next lookup queries the provider again.
+		mockGetSession.mockRejectedValue(new Error("failed to register refresh callback"));
+		const backend = makeBackend();
+
+		expect(await backend.getCredentials("databricks")).toBeNull();
+		expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("Auth session unavailable"));
+		expect(logger.trace).not.toHaveBeenCalled();
+
+		// Not negative-cached — the transient error must not suppress future lookups.
+		await backend.getCredentials("databricks");
+		expect(mockGetSession).toHaveBeenCalledTimes(2);
+	});
+
 	it("shapes baseUrl and customHeaders from the injected credential config", async () => {
 		mockGetSession.mockResolvedValue(makeSession("sk-ant"));
 		const backend = makeBackend({
