@@ -409,8 +409,14 @@ describe("bridge generation observation", () => {
 		await new Promise((resolve) => setTimeout(resolve, 0));
 		expect(records).toHaveLength(0);
 
-		await writeFile(paths.readyFile, JSON.stringify({ token: "writer-token", generation: 7 }));
+		// Flip the owner to a mismatching token *before* advancing readiness to
+		// generation 7, so the (owner=writer-token, ready=generation 7) state that
+		// would satisfy the observer never exists even momentarily. Writing readiness
+		// first opens a transient all-matching window between the two writes; a scan
+		// whose async filesystem reads straddle that window (observed on slower
+		// Windows CI) then pushes generation 7 and fails the negative assertion below.
 		await writeObserverOwner(paths, owner("replacement-token"));
+		await writeFile(paths.readyFile, JSON.stringify({ token: "writer-token", generation: 7 }));
 		harness.change();
 		await new Promise((resolve) => setTimeout(resolve, 0));
 		expect(records).toHaveLength(0);
