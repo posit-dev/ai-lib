@@ -22,6 +22,7 @@ import type { ProviderRegistry } from "./ProviderRegistry";
  * starts returning a model its real `display_name` takes over automatically.
  */
 const SUPPLEMENTAL_MODELS: ReadonlyArray<{ id: string; name: string }> = [
+	{ id: "claude-opus-5", name: "Claude Opus 5" },
 	{ id: "claude-fable-5", name: "Claude Fable 5" },
 ];
 
