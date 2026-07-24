@@ -67,14 +67,29 @@ export class SnowflakeClient implements ModelClient {
 
 	/** True when the token is a session token needing the `Snowflake Token=` scheme. */
 	private get isSessionAuth(): boolean {
-		return this.customHeaders?.[TOKEN_TYPE_HEADER] === SESSION_TOKEN_TYPE;
+		return this.sessionTokenTypeKey !== undefined;
+	}
+
+	/**
+	 * The `customHeaders` key carrying the session-auth sentinel, if present.
+	 * HTTP header names are case-insensitive, so the token-type header is matched
+	 * regardless of the caller's spelling (e.g. `x-snowflake-...` vs `X-Snowflake-...`).
+	 */
+	private get sessionTokenTypeKey(): string | undefined {
+		if (!this.customHeaders) return undefined;
+		return Object.keys(this.customHeaders).find(
+			(key) =>
+				key.toLowerCase() === TOKEN_TYPE_HEADER.toLowerCase() &&
+				this.customHeaders?.[key] === SESSION_TOKEN_TYPE,
+		);
 	}
 
 	/** customHeaders to forward, with the internal session sentinel removed. */
 	private forwardedHeaders(): Record<string, string> | undefined {
-		if (!this.customHeaders || !this.isSessionAuth) return this.customHeaders;
+		const sentinelKey = this.sessionTokenTypeKey;
+		if (!this.customHeaders || sentinelKey === undefined) return this.customHeaders;
 		const rest = { ...this.customHeaders };
-		delete rest[TOKEN_TYPE_HEADER];
+		delete rest[sentinelKey];
 		return Object.keys(rest).length > 0 ? rest : undefined;
 	}
 
