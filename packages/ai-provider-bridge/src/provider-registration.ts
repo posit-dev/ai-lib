@@ -10,6 +10,7 @@
 import type { BedrockProviderCallbacks } from "./providers/bedrock-provider";
 import type { GoogleVertexProviderCallbacks } from "./providers/google-vertex-provider";
 import type { ProviderRegistry } from "./providers/ProviderRegistry";
+import type { SnowflakeProviderCallbacks } from "./providers/snowflake-cortex-provider";
 import type { Logger, ProviderId } from "./types";
 
 export interface ProviderRegistrationConfig {
@@ -26,6 +27,7 @@ export interface ProviderRegistrationConfig {
 	/** Pre-built by the caller. The bridge must NOT construct these. */
 	bedrockCallbacks?: BedrockProviderCallbacks;
 	googleVertexCallbacks?: GoogleVertexProviderCallbacks;
+	snowflakeCallbacks?: SnowflakeProviderCallbacks;
 }
 
 /**

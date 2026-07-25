@@ -53,8 +53,8 @@ type ProviderRegistrar = (
  * id set equals PROVIDER_IDS (the single source of truth): a mislabeled, duplicated, or missing
  * id here would silently corrupt `allowedProviders` filtering, which keys on these labels.
  *
- * Only positai/bedrock/google-vertex need a wrapper to thread config into a non-uniform
- * signature; the rest reference their `(registry, logger)` register fn directly.
+ * Only positai/bedrock/google-vertex/snowflake-cortex need a wrapper to thread config into a
+ * non-uniform signature; the rest reference their `(registry, logger)` register fn directly.
  */
 export const PROVIDER_REGISTRARS: readonly [ProviderId, ProviderRegistrar][] = [
 	[
@@ -81,7 +81,11 @@ export const PROVIDER_REGISTRARS: readonly [ProviderId, ProviderRegistrar][] = [
 	["gemini", registerGeminiProvider],
 	["openai-compatible", registerOpenAICompatibleProvider],
 	["ms-foundry", registerFoundryProvider],
-	["snowflake-cortex", registerSnowflakeCortexProvider],
+	[
+		"snowflake-cortex",
+		(registry, logger, config) =>
+			registerSnowflakeCortexProvider(registry, logger, config.snowflakeCallbacks),
+	],
 	["deepseek", registerDeepSeekProvider],
 	["databricks", registerDatabricksProvider],
 ];

@@ -26,6 +26,7 @@ export { registerOpenAIProvider } from "./providers/openai-provider";
 export { registerOpenRouterProvider } from "./providers/openrouter-provider";
 export { registerPositAiProvider } from "./providers/positai-provider";
 export { registerSnowflakeCortexProvider } from "./providers/snowflake-cortex-provider";
+export type { SnowflakeProviderCallbacks } from "./providers/snowflake-cortex-provider";
 
 // Provider registration orchestrator
 export { registerAllProviders } from "./register-all-providers";

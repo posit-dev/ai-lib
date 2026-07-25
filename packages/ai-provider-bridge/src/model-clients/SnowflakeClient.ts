@@ -38,16 +38,160 @@ export type SnowflakeAuthScheme = "bearer" | "session";
 type FetchFn = (url: string | URL | globalThis.Request, init?: RequestInit) => Promise<Response>;
 
 /**
+ * Reauthenticate an expired Snowflake **session** for a specific client-bound
+ * connection identity, returning a fresh session token. Pre-built by the Node
+ * caller and threaded in via the provider factory; the bridge never constructs
+ * it. Only session auth uses it.
+ */
+export type SnowflakeSessionReauth = (sessionConnectionIdentity: string) => Promise<string>;
+
+/**
+ * Client-bound session refresh: which connections.toml connection this client's
+ * token was acquired from, and how to reauthenticate *it* (not whatever
+ * connection is currently selected) when its session token expires mid-request.
+ */
+export interface SnowflakeSessionRefresh {
+	connectionIdentity: string;
+	reauthenticate: SnowflakeSessionReauth;
+}
+
+/**
+ * Snowflake error code for an expired — but renewable — session token. Cortex
+ * returns it with HTTP 200 and does not perform the operation, so it must be
+ * detected on the response body, not the status.
+ */
+const SESSION_EXPIRED_CODE = "390112";
+
+/** True if a Cortex response body signals an expired session token (390112). */
+function isSessionExpiredBody(bodyText: string): boolean {
+	// `"code"` may be a JSON string ("390112") or number (390112) — match both.
+	return new RegExp(`"code"\\s*:\\s*"?${SESSION_EXPIRED_CODE}"?`).test(bodyText);
+}
+
+/** Copy headers, dropping framing headers invalidated by rebuilding the body. */
+function headersWithoutFraming(headers: Headers): Headers {
+	const copy = new Headers(headers);
+	copy.delete("content-length");
+	copy.delete("content-encoding");
+	return copy;
+}
+
+/**
+ * Inspect a Cortex response for a **pre-stream** `390112` (expired session)
+ * without disturbing the success path. Reads only the first chunk; if it does
+ * not signal expiry, returns a response whose body replays that chunk followed
+ * by the rest of the stream, so streaming is untouched. If it does, the small
+ * error body is fully buffered so it can be re-surfaced when reauth fails.
+ *
+ * The pre-stream assumption (docs: "the operation is not performed") means the
+ * whole 390112 body arrives before any model output, so the first chunk carries
+ * it. A `390112` that instead appeared mid-SSE after emitted output would not be
+ * caught here — by policy that case surfaces as a retryable failure rather than
+ * replaying partial output (see the plan's Phase 5 decision gate).
+ */
+async function peekSessionExpiry(
+	response: Response,
+): Promise<{ expired: boolean; response: Response }> {
+	if (!response.body) {
+		return { expired: false, response };
+	}
+	const reader = response.body.getReader();
+	const first = await reader.read();
+	const decoder = new TextDecoder();
+	const firstText = first.value ? decoder.decode(first.value, { stream: true }) : "";
+
+	if (isSessionExpiredBody(firstText)) {
+		// Pre-stream error: buffer the (small) remainder so the original error can
+		// be rebuilt and surfaced if reauthentication fails.
+		let rest = "";
+		for (;;) {
+			const chunk = await reader.read();
+			if (chunk.done) break;
+			rest += decoder.decode(chunk.value, { stream: true });
+		}
+		const errorBody = firstText + rest + decoder.decode();
+		return {
+			expired: true,
+			response: new Response(errorBody, {
+				status: response.status,
+				statusText: response.statusText,
+				headers: headersWithoutFraming(response.headers),
+			}),
+		};
+	}
+
+	// Not an expiry error — replay the peeked chunk, then the rest of the stream.
+	const passthrough = new ReadableStream<Uint8Array>({
+		start(controller) {
+			if (first.value) controller.enqueue(first.value);
+			if (first.done) controller.close();
+		},
+		async pull(controller) {
+			const chunk = await reader.read();
+			if (chunk.done) {
+				controller.close();
+				return;
+			}
+			controller.enqueue(chunk.value);
+		},
+		cancel(reason) {
+			void reader.cancel(reason);
+		},
+	});
+	return {
+		expired: false,
+		response: new Response(passthrough, {
+			status: response.status,
+			statusText: response.statusText,
+			headers: headersWithoutFraming(response.headers),
+		}),
+	};
+}
+
+/**
  * Wrap a fetch so every request authenticates with a Snowflake **session token**
  * (`Authorization: Snowflake Token="..."`), replacing any Bearer/x-api-key
  * header the SDK set.
+ *
+ * When `refresh` is supplied, the wrapper also handles session-token expiry: a
+ * pre-stream `390112` triggers a single transparent reauthenticate-and-retry of
+ * *this client's* connection. Without `refresh` it behaves as a plain auth
+ * rewrite (there is nothing to retry with).
  */
-function createSnowflakeSessionFetch(sessionToken: string, delegate: FetchFn): FetchFn {
-	return async (url, init) => {
+function createSnowflakeSessionFetch(
+	sessionToken: string,
+	delegate: FetchFn,
+	refresh?: SnowflakeSessionRefresh,
+): FetchFn {
+	let currentToken = sessionToken;
+	const withSessionAuth = (init?: RequestInit): RequestInit => {
 		const headers = new Headers(init?.headers);
 		headers.delete("x-api-key");
-		headers.set("Authorization", `Snowflake Token="${sessionToken}"`);
-		return delegate(url, { ...init, headers });
+		headers.set("Authorization", `Snowflake Token="${currentToken}"`);
+		return { ...init, headers };
+	};
+
+	return async (url, init) => {
+		const response = await delegate(url, withSessionAuth(init));
+		if (!refresh) {
+			return response;
+		}
+
+		const peeked = await peekSessionExpiry(response);
+		if (!peeked.expired) {
+			return peeked.response;
+		}
+
+		// Pre-stream 390112: reauthenticate this connection and retry exactly once.
+		// If reauth fails, surface the original error body to the caller.
+		let freshToken: string;
+		try {
+			freshToken = await refresh.reauthenticate(refresh.connectionIdentity);
+		} catch {
+			return peeked.response;
+		}
+		currentToken = freshToken;
+		return delegate(url, withSessionAuth(init));
 	};
 }
 
@@ -56,17 +200,20 @@ export class SnowflakeClient implements ModelClient {
 	private readonly baseUrl: string;
 	private readonly authScheme: SnowflakeAuthScheme;
 	private readonly customHeaders?: Record<string, string>;
+	private readonly sessionRefresh?: SnowflakeSessionRefresh;
 
 	constructor(
 		token: string,
 		baseUrl: string,
 		authScheme: SnowflakeAuthScheme,
 		customHeaders?: Record<string, string>,
+		sessionRefresh?: SnowflakeSessionRefresh,
 	) {
 		this.token = token;
 		this.baseUrl = baseUrl;
 		this.authScheme = authScheme;
 		this.customHeaders = customHeaders;
+		this.sessionRefresh = sessionRefresh;
 	}
 
 	/** True when the token is a session token needing the `Snowflake Token=` scheme. */
@@ -113,7 +260,7 @@ export class SnowflakeClient implements ModelClient {
 					// just satisfies the SDK (its x-api-key header is stripped there).
 					apiKey: "session-auth",
 					baseURL: baseUrl,
-					fetch: createSnowflakeSessionFetch(this.token, globalThis.fetch),
+					fetch: createSnowflakeSessionFetch(this.token, globalThis.fetch, this.sessionRefresh),
 					...(headers && { headers }),
 				})
 			: createAnthropic({
@@ -182,7 +329,7 @@ export class SnowflakeClient implements ModelClient {
 			apiKey: this.token || "sk-placeholder",
 			baseURL: baseUrl,
 			fetch: this.isSessionAuth
-				? createSnowflakeSessionFetch(this.token, compatFetch)
+				? createSnowflakeSessionFetch(this.token, compatFetch, this.sessionRefresh)
 				: compatFetch,
 		});
 		const model = provider.chat(params.model);

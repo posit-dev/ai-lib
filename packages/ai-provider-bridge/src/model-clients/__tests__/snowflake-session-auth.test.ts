@@ -27,10 +27,13 @@ vi.mock("../ai-sdk-helpers", () => ({
 }));
 
 import { ProviderRegistry } from "../../providers/ProviderRegistry";
-import { registerSnowflakeCortexProvider } from "../../providers/snowflake-cortex-provider";
+import {
+	registerSnowflakeCortexProvider,
+	type SnowflakeProviderCallbacks,
+} from "../../providers/snowflake-cortex-provider";
 import type { CancellationToken, Logger, ProviderCredentials } from "../../types";
 import type { ModelClient, ModelClientChatParams } from "../ModelClient";
-import { SnowflakeClient } from "../SnowflakeClient";
+import { SnowflakeClient, type SnowflakeSessionRefresh } from "../SnowflakeClient";
 
 const cancellationToken: CancellationToken = {
 	isCancellationRequested: false,
@@ -209,5 +212,135 @@ describe("Snowflake provider factory seam", () => {
 		const opts = anthropicOptions();
 		expect(opts.authToken).toBe("bearer-xyz");
 		expect(opts.fetch).toBeUndefined();
+	});
+});
+
+// Session-token expiry (390112) detect + retry in the fetch wrapper. Cortex
+// returns HTTP 200 with a `390112` body when a session token has expired; the
+// wrapper must reauthenticate the *client-bound* connection and retry once,
+// transparently, on the pre-stream case (see the plan's Phase 5 decision gate).
+describe("SnowflakeClient session-token expiry (390112)", () => {
+	const REFRESH_IDENTITY = "dev";
+	const FRESH_TOKEN = "fresh-session-tok";
+	const EXPIRED_BODY = JSON.stringify({ code: "390112", message: "session token has expired" });
+
+	beforeEach(() => {
+		createAnthropic.mockClear();
+	});
+
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	function refresh(
+		reauthenticate: SnowflakeSessionRefresh["reauthenticate"],
+	): SnowflakeSessionRefresh {
+		return { connectionIdentity: REFRESH_IDENTITY, reauthenticate };
+	}
+
+	/** Build the client's installed fetch wrapper for the Anthropic route. */
+	async function sessionFetch(sessionRefresh: SnowflakeSessionRefresh): Promise<SdkFetch> {
+		await new SnowflakeClient(SESSION_TOKEN, BASE_URL, "session", undefined, sessionRefresh).chat(
+			params(CLAUDE_MODEL),
+		);
+		const wrapper = anthropicOptions().fetch;
+		if (!wrapper) throw new Error("expected a session fetch wrapper");
+		return wrapper;
+	}
+
+	function authHeader(spy: ReturnType<typeof vi.spyOn>, callIndex: number): string | null {
+		return new Headers((spy.mock.calls[callIndex]?.[1] as RequestInit | undefined)?.headers).get(
+			"authorization",
+		);
+	}
+
+	it("pre-stream 390112: reauthenticates the client-bound connection and retries once with the fresh token", async () => {
+		const reauthenticate = vi.fn(async () => FRESH_TOKEN);
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValueOnce(new Response(EXPIRED_BODY, { status: 200 }))
+			.mockResolvedValueOnce(new Response("data: ok\n\n", { status: 200 }));
+
+		const wrapper = await sessionFetch(refresh(reauthenticate));
+		const result = await wrapper("https://x/v1/messages", {
+			headers: { "x-api-key": "session-auth" },
+		});
+
+		// Refreshed *this* connection, not whatever might be selected.
+		expect(reauthenticate).toHaveBeenCalledWith(REFRESH_IDENTITY);
+		expect(fetchSpy).toHaveBeenCalledTimes(2);
+		// First attempt used the original token; the retry used the refreshed one.
+		expect(authHeader(fetchSpy, 0)).toBe(`Snowflake Token="${SESSION_TOKEN}"`);
+		expect(authHeader(fetchSpy, 1)).toBe(`Snowflake Token="${FRESH_TOKEN}"`);
+		// The caller receives the successful retry stream, not the 390112 body.
+		expect(await result.text()).toContain("ok");
+	});
+
+	it("success stream: passes the body through untouched and never reauthenticates", async () => {
+		const reauthenticate = vi.fn(async () => FRESH_TOKEN);
+		const body = "data: hello\n\ndata: world\n\n";
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(new Response(body, { status: 200 }));
+
+		const wrapper = await sessionFetch(refresh(reauthenticate));
+		const result = await wrapper("https://x/v1/messages", {
+			headers: { "x-api-key": "session-auth" },
+		});
+
+		expect(reauthenticate).not.toHaveBeenCalled();
+		expect(fetchSpy).toHaveBeenCalledTimes(1);
+		// The peeked first chunk is replayed in full — no dropped or duplicated bytes.
+		expect(await result.text()).toBe(body);
+	});
+
+	it("reauth failure: surfaces the original 390112 error and does not retry", async () => {
+		const reauthenticate = vi.fn(async () => {
+			throw new Error("SSO window closed");
+		});
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(new Response(EXPIRED_BODY, { status: 200 }));
+
+		const wrapper = await sessionFetch(refresh(reauthenticate));
+		const result = await wrapper("https://x/v1/messages", {
+			headers: { "x-api-key": "session-auth" },
+		});
+
+		expect(reauthenticate).toHaveBeenCalledTimes(1);
+		expect(fetchSpy).toHaveBeenCalledTimes(1);
+		// Original error body is preserved for the caller to surface.
+		expect(await result.text()).toContain("390112");
+	});
+
+	it("factory seam: the client-bound identity comes from the credentials, not the current selection", async () => {
+		// A client built from connection "A" must refresh "A" even though the hook
+		// is a generic "refresh whatever identity you're given" — the identity is
+		// captured from the credential at construction, so a later selection of "B"
+		// cannot redirect this in-flight request's retry.
+		const reauthenticate = vi.fn(async () => FRESH_TOKEN);
+		const callbacks: SnowflakeProviderCallbacks = { reauthenticateSession: reauthenticate };
+		const registry = new ProviderRegistry(mockLogger);
+		registerSnowflakeCortexProvider(registry, mockLogger, callbacks);
+		const client = registry.getClientForProvider("snowflake-cortex", {
+			type: "apikey",
+			apiKey: SESSION_TOKEN,
+			baseUrl: BASE_URL,
+			snowflake: { sessionConnectionIdentity: "A" },
+		});
+		if (!client) throw new Error("expected a Snowflake client from the factory");
+
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValueOnce(new Response(EXPIRED_BODY, { status: 200 }))
+			.mockResolvedValueOnce(new Response("data: ok\n\n", { status: 200 }));
+
+		await client.chat(params(CLAUDE_MODEL));
+		await anthropicOptions().fetch?.("https://x/v1/messages", {
+			headers: { "x-api-key": "session-auth" },
+		});
+
+		expect(reauthenticate).toHaveBeenCalledWith("A");
+		expect(fetchSpy).toHaveBeenCalledTimes(2);
 	});
 });
