@@ -27,11 +27,11 @@ enablement in Posit Assistant lives in the main monorepo's
 The package has three entrypoints, splitting pure (browser/test-safe) logic from
 filesystem I/O and vscode-bound wiring:
 
-| Entrypoint           | What it exports                                                                                                                                                                                            | External deps? |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
-| `ai-config`          | Vocabulary, Zod schemas, inferred types, defaults, the pure resolution helpers (`resolveModels`, `mergeEnforced`), the config-source contracts, and the model capability tables + `inferModelCapabilities` | No             |
-| `ai-config/node`     | Re-exports the pure entry plus the three filesystem seams (`loadResolvedProviderCatalog`, `mutateProvidersConfig`, `watchResolvedProviderCatalog`) and path constants                                      | Node FS        |
-| `ai-config/positron` | Builds a `host`-kind config source from Positron's `authentication.*` VS Code settings (injected via `additionalSources`); the pure `buildAuthenticationFragment` builder is testable without vscode       | `vscode`       |
+| Entrypoint           | What it exports                                                                                                                                                                                                                                                                                  | External deps? |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------- |
+| `ai-config`          | Vocabulary, Zod schemas, inferred types, defaults, the pure resolution helpers (`resolveModels`, `mergeEnforced`), the config-source contracts, the model capability tables + `inferModelCapabilities`, and the transitional `host-enforced` fence source (`createPositronEnforcedConfigSource`) | No             |
+| `ai-config/node`     | Re-exports the pure entry plus the three filesystem seams (`loadResolvedProviderCatalog`, `mutateProvidersConfig`, `watchResolvedProviderCatalog`) and path constants                                                                                                                            | Node FS        |
+| `ai-config/positron` | Builds a `host`-kind config source from Positron's `authentication.*` VS Code settings (injected via `additionalSources`); the pure `buildAuthenticationFragment` builder is testable without vscode                                                                                             | `vscode`       |
 
 Each provider's `PositronAuthSettingDescriptor` (consumed by `buildAuthenticationFragment`) may carry an optional `normalizeBaseUrl?: (url: string) => string` hook, applied to the raw `baseUrl` setting before it enters the fragment. It's the seam for correcting known-bad values (e.g. a bare API host missing its version segment) without `ai-config` importing `ai-provider-bridge` — the consumer (`packages/positron`) injects the bridge's `normalizeBaseUrlForProvider` when building descriptors; `ai-config` only ever sees an opaque string-to-string function.
 | `ai-config/providers.schema.json` | The generated JSON Schema, exported so editors can validate/autocomplete `providers.json` | No |
@@ -119,10 +119,12 @@ Config flows through three stages: **assemble sources → resolve → watch**. P
    `POSIT_AI_PROVIDERS_ENFORCED`, and the defaults fragment from
    `POSIT_AI_PROVIDERS_DEFAULT` (both validated against the relaxed
    `enforcedProvidersConfigSchema`), plus any `additionalSources` (e.g. a Positron
-   `authentication.*` host source). Each becomes a `ProviderConfigSource` tagged
-   with its `kind` (`enforced` / `user` / `host` / `default`).
+   `authentication.*` host source, or the `host-enforced` fence source below). Each
+   becomes a `ProviderConfigSource` tagged with its `kind`
+   (`enforced` / `host-enforced` / `user` / `host` / `default`).
 2. **Resolve** (`src/resolve-catalog.ts`, `resolveProviderCatalog()`): rank the
-   sources by kind (`enforced` > `user` > `host` > `default`), fold them low → high
+   sources by kind (`enforced` > `host-enforced` > `user` > `host` > `default`),
+   fold them low → high
    so the sealed `enforced` overlay can never be overwritten, apply the
    `PlatformBaseline` beneath, and build `ResolvedProvider[]` via `build-catalog.ts`.
    Objects deep-merge per leaf-key (`mergeConfigFragments`), `allow`/`deny` arrays
@@ -147,14 +149,38 @@ reusable independent of the catalog builder.
 
 ### Precedence ladders
 
-- **Enablement** (`resolveEnabled`): enforced per-provider > enforced default >
-  user per-provider > user default > platform-baseline per-provider > baseline
-  default.
-- **Connection**: enforced > connection env vars > user file >
+- **Enablement** (`resolveEnabled`): per kept layer ordered
+  enforced > host-enforced > user > host > default, with per-provider beating
+  the layer's `default` block within each; then platform-baseline per-provider >
+  baseline default.
+- **Connection**: enforced > host-enforced > connection env vars > user file >
   injected `host` sources (e.g. Positron `authentication.*` via
   `additionalSources`) > built-in defaults. Object keys deep-merge across layers.
 - **Model routing**: user config (override/custom) > provider config > discovered
   model inference.
+
+### PROVIDER-SETTINGS-MIGRATION: `host-enforced` (legacy Positron enforcement)
+
+`src/positron/enforced-settings-source.ts` translates the legacy Workbench
+`POSITRON_ENFORCED_SETTINGS` env var (flat dotted setting keys, arbitrary JSON
+values) into a `host-enforced` source so admin enforcement survives the move of
+provider reads off Positron's config service onto the catalog. Ranked above
+`user`, below the canonical `enforced`. vscode-free and exported from the pure
+root entry (`createPositronEnforcedConfigSource(descriptors, env)`), so both
+extension-host and main-process consumers can pass it via `additionalSources`.
+Payload-only reads (no ambient env fallbacks), per-key tolerant validation.
+Deliberately quiet on the happy path: the legacy channel is still the
+documented admin channel this release, so deprecation messaging belongs in
+admin-facing Workbench docs, not user-visible extension logs.
+
+All code that exists only for this migration window is tagged
+**`PROVIDER-SETTINGS-MIGRATION(<trigger>)`** — grep that token for every
+removal site. Triggers: `host` (retires when the settings.json →
+providers.json transition completes), `host-enforced` (retires when admins
+have migrated to `POSIT_AI_PROVIDERS_ENFORCED`); they retire independently.
+Whole-file sites carry the tag in the module JSDoc, multi-line regions use
+`BEGIN`/`END` rails, single-line gates a one-line tag. The resolver core must
+stay free of `kind === "host-enforced"` branches so removal stays a delete.
 
 ## File I/O Seams
 

@@ -36,6 +36,7 @@ describe("resolveProviderCatalog — precedence", () => {
 		expect(find(catalog, "anthropic")?.enabled).toBe(false);
 	});
 
+	// PROVIDER-SETTINGS-MIGRATION(host) gate: delete this test with the source.
 	it("host sits below user, above default (enablement)", () => {
 		// user disables → wins over host enabling.
 		const c1 = resolveProviderCatalog({
@@ -292,6 +293,7 @@ describe("resolveProviderCatalog — same-kind ordering", () => {
 	});
 });
 
+// PROVIDER-SETTINGS-MIGRATION(host) gate: delete this block with the source.
 describe("resolveProviderCatalog — host layer merge semantics (Phase 6)", () => {
 	// These pin the three declared merge-semantic changes from relocating the
 	// Positron `authentication.*` dual-read into a `host` source: the resolver
@@ -565,5 +567,90 @@ describe("recoverValidStack — choose dropped source", () => {
 		expect(config.providers?.anthropic?.enabled).toBe(true);
 		// A warning was emitted for each dropped source.
 		expect(logger.warn).toHaveBeenCalledTimes(2);
+	});
+});
+
+// PROVIDER-SETTINGS-MIGRATION(host-enforced) gate: delete this block with the source.
+describe("resolveProviderCatalog — host-enforced (legacy Positron enforcement)", () => {
+	it("host-enforced beats user, host, and default (connection)", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("host-enforced", {
+					providers: { anthropic: { baseUrl: "https://host-enforced.example.com" } },
+				}),
+				source("user", { providers: { anthropic: { baseUrl: "https://user.example.com" } } }),
+				source("host", { providers: { anthropic: { baseUrl: "https://host.example.com" } } }),
+				source("default", {
+					providers: { anthropic: { baseUrl: "https://default.example.com" } },
+				}),
+			],
+			baseline: STANDALONE,
+			envVars: {},
+		});
+		expect(find(catalog, "anthropic")?.connection.baseUrl).toBe(
+			"https://host-enforced.example.com",
+		);
+	});
+
+	it("host-enforced beats connection env vars", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("host-enforced", {
+					providers: { anthropic: { baseUrl: "https://host-enforced.example.com" } },
+				}),
+				source("user", { providers: {} }),
+			],
+			baseline: STANDALONE,
+			envVars: { ANTHROPIC_BASE_URL: "https://env.example.com" },
+		});
+		expect(find(catalog, "anthropic")?.connection.baseUrl).toBe(
+			"https://host-enforced.example.com",
+		);
+	});
+
+	it("host-enforced enablement beats user", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("host-enforced", { providers: { anthropic: { enabled: false } } }),
+				source("user", { providers: { anthropic: { enabled: true } } }),
+			],
+			baseline: STANDALONE,
+			envVars: {},
+		});
+		expect(find(catalog, "anthropic")?.enabled).toBe(false);
+	});
+
+	it("canonical enforced still beats host-enforced", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("host-enforced", {
+					providers: { anthropic: { baseUrl: "https://host-enforced.example.com" } },
+				}),
+				source("enforced", {
+					providers: { anthropic: { baseUrl: "https://enforced.example.com" } },
+				}),
+			],
+			baseline: STANDALONE,
+			envVars: {},
+		});
+		expect(find(catalog, "anthropic")?.connection.baseUrl).toBe("https://enforced.example.com");
+	});
+
+	it("an invalid host-enforced overlay is dropped alone, with a warning", () => {
+		const logger = { debug: vi.fn(), warn: vi.fn() };
+		const catalog = resolveProviderCatalog({
+			sources: [
+				// Custom entry with no `type` that no other source completes →
+				// this overlay's merge is invalid and it is dropped by recovery.
+				source("host-enforced", { providers: { custom: { ghost: { enabled: false } } } }),
+				source("user", { providers: { anthropic: { enabled: true } } }),
+			],
+			baseline: STANDALONE,
+			envVars: {},
+			logger,
+		});
+		expect(find(catalog, "ghost")).toBeUndefined();
+		expect(find(catalog, "anthropic")?.enabled).toBe(true);
+		expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("invalid merged result"));
 	});
 });

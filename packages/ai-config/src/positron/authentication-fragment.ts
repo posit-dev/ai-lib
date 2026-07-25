@@ -3,13 +3,18 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
+ * PROVIDER-SETTINGS-MIGRATION(host, host-enforced): delete this module when the LAST of
+ * the `host` / `host-enforced` sources retires — both build their fragments
+ * through it. Grep PROVIDER-SETTINGS-MIGRATION.
+ *
  * Pure builder for the Positron `authentication.*` host fragment.
  *
  * Positron's `authentication.<key>.*` VS Code settings are a transitional
  * **host** layer below `providers.json` (user) and above defaults. This module
  * turns those settings — read through an injected {@link PositronAuthSettingReader}
  * — into an {@link EnforcedProvidersConfig} fragment the resolver folds in at
- * `host` rank.
+ * `host` rank. The `host-enforced` fence (./enforced-settings-source.ts) reuses
+ * it with an env-map reader.
  *
  * It is **pure**: no `vscode`, no `process`. The vscode wiring (a reader over
  * `vscode.workspace.getConfiguration` + `process.env`) lives in the sibling

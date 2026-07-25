@@ -3,6 +3,11 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
+ * PROVIDER-SETTINGS-MIGRATION(host): delete this module when the transitional `host`
+ * source (settings.json → providers.json back-compat) retires; if it is the
+ * entry's last occupant, drop the `./positron` export and the optional
+ * `vscode` peer dep with it. Grep PROVIDER-SETTINGS-MIGRATION.
+ *
  * ai-config/positron — Positron `authentication.*` host source.
  *
  * Platform-bound entry (imports `vscode`). Never loaded outside Positron via

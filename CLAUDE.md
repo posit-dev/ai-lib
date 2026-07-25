@@ -66,11 +66,11 @@ packages/ai-provider-bridge/src/
 
 **`ai-config`**
 
-| Entrypoint                        | What it provides                                                                                                                             | Node FS dep? |
-| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
-| `ai-config`                       | Vocabulary, Zod schemas, inferred types, defaults, pure resolution helpers, model capability tables, and `inferModelCapabilities`            | No           |
-| `ai-config/node`                  | The pure entry plus filesystem seams: `loadResolvedProviderCatalog`, `mutateProvidersConfig`, `watchResolvedProviderCatalog`, path constants | Yes          |
-| `ai-config/providers.schema.json` | Generated JSON Schema for editor validation/autocomplete of `providers.json`                                                                 | No           |
+| Entrypoint                        | What it provides                                                                                                                                                                                                                                                                                                        | Node FS dep? |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| `ai-config`                       | Vocabulary, Zod schemas, inferred types, defaults, pure resolution helpers, model capability tables, `inferModelCapabilities`, and the transitional `host-enforced` source (legacy `POSITRON_ENFORCED_SETTINGS` translation; migration-window code is tagged `PROVIDER-SETTINGS-MIGRATION` — grep it for removal sites) | No           |
+| `ai-config/node`                  | The pure entry plus filesystem seams: `loadResolvedProviderCatalog`, `mutateProvidersConfig`, `watchResolvedProviderCatalog`, path constants                                                                                                                                                                            | Yes          |
+| `ai-config/providers.schema.json` | Generated JSON Schema for editor validation/autocomplete of `providers.json`                                                                                                                                                                                                                                            | No           |
 
 **`ai-credentials`**
 

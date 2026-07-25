@@ -108,3 +108,16 @@ export type { Disposable, ProviderConfigSourceProvider } from "./config-source.j
 
 // --- Enforcement merge -----------------------------------------------------
 export { mergeConfigFragments, mergeEnforced } from "./enforce.js";
+
+// --- PROVIDER-SETTINGS-MIGRATION(host-enforced) BEGIN ----------------------
+// Transitional `host-enforced` source translating POSITRON_ENFORCED_SETTINGS.
+// vscode-free, so both extension-host and main-process consumers can wire it.
+export {
+	createPositronEnforcedConfigSource,
+	POSITRON_ENFORCED_SETTINGS_ENV_VAR,
+} from "./positron/enforced-settings-source.js";
+export type {
+	PositronAuthSettingDescriptor,
+	PositronAuthSettingReader,
+} from "./positron/authentication-fragment.js";
+// --- PROVIDER-SETTINGS-MIGRATION(host-enforced) END ------------------------

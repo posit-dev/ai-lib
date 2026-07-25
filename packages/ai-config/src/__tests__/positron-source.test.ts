@@ -3,6 +3,9 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
+ * PROVIDER-SETTINGS-MIGRATION(host, host-enforced): delete this file with the
+ * fragment builder (when the last of the two sources retires).
+ *
  * Tests for the pure `buildAuthenticationFragment` — the vscode-free half of
  * the Positron `authentication.*` host source. The reader is a plain fake, so
  * these run in any environment (no `vscode`, no `process`).

@@ -41,13 +41,22 @@ import type {
  *
  * Ordering, highest precedence → lowest:
  * - `enforced` — sealed admin overlay (`POSIT_AI_PROVIDERS_ENFORCED`); always wins.
+ * - `host-enforced` — transitional admin overlay translated from legacy host
+ *   settings (Positron `POSITRON_ENFORCED_SETTINGS`); enforced, so it outranks
+ *   `user`, but the canonical `enforced` channel still beats it.
  * - `user` — the user's `providers.json`.
  * - `host` — transitional host settings (Positron `authentication.*`).
  * - `default` — Workbench admin defaults (`POSIT_AI_PROVIDERS_DEFAULT`).
  *
  * Below all sources sits the `PlatformBaseline` (passed separately).
+ *
+ * `host-enforced` and `host` intentionally sit on opposite sides of `user`:
+ * they are the enforced and non-enforced slices of the same transitional host
+ * settings, split by whether they must beat or yield to `providers.json`.
  */
-export type ProviderConfigSourceKind = "enforced" | "user" | "host" | "default";
+// PROVIDER-SETTINGS-MIGRATION gates: the "host-enforced" and "host" union
+// members retire with their sources (triggers: host-enforced, host).
+export type ProviderConfigSourceKind = "enforced" | "host-enforced" | "user" | "host" | "default";
 
 // ---------------------------------------------------------------------------
 // Private ranked-source union (env stays internal to the resolver)
@@ -71,13 +80,17 @@ type RankedConfigSource = ProviderConfigSource | ConnectionEnvSource;
  * `env` is internal: connection env vars rank below `enforced` (so admin
  * pins are never overridden) but above `user`/`host`/`default` (preserving
  * env's documented purpose of overriding file-based config).
+ *
+ * `host-enforced`/`host` straddle `user` deliberately — see the ordering doc
+ * on {@link ProviderConfigSourceKind}; do not "tidy" them adjacent.
  */
 const RANK: Readonly<Record<RankedConfigSource["kind"], number>> = {
 	enforced: 0,
-	env: 1,
-	user: 2,
-	host: 3,
-	default: 4,
+	"host-enforced": 1, // PROVIDER-SETTINGS-MIGRATION(host-enforced)
+	env: 2,
+	user: 3,
+	host: 4, // PROVIDER-SETTINGS-MIGRATION(host)
+	default: 5,
 };
 
 /**

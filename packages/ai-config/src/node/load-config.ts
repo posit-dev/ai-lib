@@ -144,10 +144,10 @@ export function readEnvFragment(
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(envValue);
-	} catch (error) {
-		logger?.warn(
-			`[ai-config] Failed to parse ${envVarName} as JSON: ${errorMessage(error)}. Ignoring.`,
-		);
+	} catch {
+		// No error detail: JSON.parse messages embed input snippets, and
+		// enforced/default payloads can carry credential-adjacent values.
+		logger?.warn(`[ai-config] Failed to parse ${envVarName} as JSON. Ignoring.`);
 		return undefined;
 	}
 
