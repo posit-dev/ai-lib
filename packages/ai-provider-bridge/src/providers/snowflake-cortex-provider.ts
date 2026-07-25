@@ -115,7 +115,7 @@ export function registerSnowflakeCortexProvider(registry: ProviderRegistry, logg
 		return new SnowflakeClient(
 			credentials.apiKey,
 			credentials.baseUrl!,
-			credentials.snowflakeSessionToken ? "session" : "bearer",
+			credentials.snowflake ? "session" : "bearer",
 			credentials.customHeaders,
 		);
 	});

@@ -161,7 +161,7 @@ describe("SnowflakeClient auth schemes", () => {
 });
 
 // Cover the production seam in the registered client factory: the mapping from
-// `credentials.snowflakeSessionToken` to the client's auth scheme. Constructing
+// the `credentials.snowflake` group to the client's auth scheme. Constructing
 // SnowflakeClient directly (above) bypasses this, so a factory regression could
 // leave the client tests green while the product silently uses Bearer auth.
 describe("Snowflake provider factory seam", () => {
@@ -181,14 +181,14 @@ describe("Snowflake provider factory seam", () => {
 		vi.restoreAllMocks();
 	});
 
-	it("maps snowflakeSessionToken=true to session auth (`Snowflake Token=`)", async () => {
+	it("maps a present `snowflake` group to session auth (`Snowflake Token=`)", async () => {
 		const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null));
 
 		const client = createClient({
 			type: "apikey",
 			apiKey: SESSION_TOKEN,
 			baseUrl: BASE_URL,
-			snowflakeSessionToken: true,
+			snowflake: { sessionConnectionIdentity: "dev" },
 		});
 		await client.chat(params(CLAUDE_MODEL));
 

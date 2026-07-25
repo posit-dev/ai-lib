@@ -40,13 +40,22 @@ export interface ApiKeyCredentials {
 	baseUrl?: string;
 	customHeaders?: Record<string, string>;
 	/**
-	 * Snowflake Cortex only: when true, `apiKey` holds a Snowflake **session
+	 * Snowflake Cortex only. Present iff `apiKey` holds a Snowflake **session
 	 * token** (from external-browser SSO) that must be sent as
-	 * `Authorization: Snowflake Token="..."` rather than a Bearer token. Ignored
-	 * by every other provider. Synthesized at credential-resolution time and
-	 * never persisted, so it does not affect the on-disk credential format.
+	 * `Authorization: Snowflake Token="..."` rather than a Bearer token — its
+	 * presence is the session-auth discriminant; absence means Bearer. Ignored
+	 * by every other provider.
+	 *
+	 * `sessionConnectionIdentity` is an opaque, client-bound key naming the
+	 * connections.toml connection this token was acquired from, so a
+	 * reauthentication hook can refresh *that* connection on expiry (not whatever
+	 * connection is currently selected). Grouped so the flag and its required
+	 * identity are co-present or absent together.
+	 *
+	 * Synthesized at credential-resolution time and never persisted, so it does
+	 * not affect the on-disk credential format.
 	 */
-	snowflakeSessionToken?: boolean;
+	snowflake?: { sessionConnectionIdentity: string };
 }
 
 /**
