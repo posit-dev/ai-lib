@@ -276,6 +276,36 @@ describe("SnowflakeClient session-token expiry (390112)", () => {
 		expect(await result.text()).toContain("ok");
 	});
 
+	it("split-across-chunks 390112: still detected when the error code straddles a chunk boundary", async () => {
+		// HTTP body chunking is arbitrary: a pre-stream error envelope can arrive
+		// split so the `390112` code straddles a boundary (`{"code":"390` / `112"}`).
+		// A first-chunk-only peek would miss it and hand the error to the SDK as a
+		// bogus success; the bounded scan must reassemble and detect it.
+		const encoder = new TextEncoder();
+		const splitBody = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(encoder.encode('{"code":"390'));
+				controller.enqueue(encoder.encode('112","message":"session token has expired"}'));
+				controller.close();
+			},
+		});
+		const reauthenticate = vi.fn(async () => FRESH_TOKEN);
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValueOnce(new Response(splitBody, { status: 200 }))
+			.mockResolvedValueOnce(new Response("data: ok\n\n", { status: 200 }));
+
+		const wrapper = await sessionFetch(refresh(reauthenticate));
+		const result = await wrapper("https://x/v1/messages", {
+			headers: { "x-api-key": "session-auth" },
+		});
+
+		expect(reauthenticate).toHaveBeenCalledWith(REFRESH_IDENTITY);
+		expect(fetchSpy).toHaveBeenCalledTimes(2);
+		expect(authHeader(fetchSpy, 1)).toBe(`Snowflake Token="${FRESH_TOKEN}"`);
+		expect(await result.text()).toContain("ok");
+	});
+
 	it("success stream: passes the body through untouched and never reauthenticates", async () => {
 		const reauthenticate = vi.fn(async () => FRESH_TOKEN);
 		const body = "data: hello\n\ndata: world\n\n";
@@ -292,6 +322,33 @@ describe("SnowflakeClient session-token expiry (390112)", () => {
 		expect(fetchSpy).toHaveBeenCalledTimes(1);
 		// The peeked first chunk is replayed in full — no dropped or duplicated bytes.
 		expect(await result.text()).toBe(body);
+	});
+
+	it("multi-chunk success stream: replays every buffered chunk in order, losslessly", async () => {
+		// A success stream whose leading bytes span several small chunks must be
+		// replayed byte-for-byte and in order — the bounded scan buffers them while
+		// ruling expiry out, then hands them back unchanged.
+		const encoder = new TextEncoder();
+		const parts = ["data: he", "llo\n\n", "data: wor", "ld\n\n"];
+		const chunked = new ReadableStream<Uint8Array>({
+			start(controller) {
+				for (const part of parts) controller.enqueue(encoder.encode(part));
+				controller.close();
+			},
+		});
+		const reauthenticate = vi.fn(async () => FRESH_TOKEN);
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(new Response(chunked, { status: 200 }));
+
+		const wrapper = await sessionFetch(refresh(reauthenticate));
+		const result = await wrapper("https://x/v1/messages", {
+			headers: { "x-api-key": "session-auth" },
+		});
+
+		expect(reauthenticate).not.toHaveBeenCalled();
+		expect(fetchSpy).toHaveBeenCalledTimes(1);
+		expect(await result.text()).toBe(parts.join(""));
 	});
 
 	it("reauth failure: surfaces the original 390112 error and does not retry", async () => {

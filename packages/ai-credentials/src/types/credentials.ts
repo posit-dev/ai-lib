@@ -46,11 +46,15 @@ export interface ApiKeyCredentials {
 	 * presence is the session-auth discriminant; absence means Bearer. Ignored
 	 * by every other provider.
 	 *
-	 * `sessionConnectionIdentity` is an opaque, client-bound key naming the
-	 * connections.toml connection this token was acquired from, so a
-	 * reauthentication hook can refresh *that* connection on expiry (not whatever
-	 * connection is currently selected). Grouped so the flag and its required
-	 * identity are co-present or absent together.
+	 * `sessionConnectionIdentity` is an **opaque, client-bound token** minted by
+	 * the credential resolver. It encodes not just the connections.toml connection
+	 * name but a snapshot of the connection this token was acquired from (its
+	 * endpoint), so the reauthentication hook can refresh *that exact* connection
+	 * on expiry (not whatever connection is currently selected) and reject a
+	 * refresh whose re-resolved connection no longer matches the bound snapshot —
+	 * e.g. the same-named connection was edited in place to a different account.
+	 * Consumers treat it as opaque; only the resolver encodes/decodes it. Grouped
+	 * so the flag and its required identity are co-present or absent together.
 	 *
 	 * Synthesized at credential-resolution time and never persisted, so it does
 	 * not affect the on-disk credential format.
