@@ -224,6 +224,27 @@ describe("SnowflakeClient session-token expiry (390112)", () => {
 	const FRESH_TOKEN = "fresh-session-tok";
 	const EXPIRED_BODY = JSON.stringify({ code: "390112", message: "session token has expired" });
 
+	/**
+	 * A Cortex error response: HTTP 200 with a JSON envelope. Per the REST
+	 * contract, errors (including 390112) are `application/json`, distinct from the
+	 * `text/event-stream` of a real model stream — which is how the wrapper tells a
+	 * pre-stream error from streamed output without reading the stream body.
+	 */
+	function jsonError(body: string): Response {
+		return new Response(body, {
+			status: 200,
+			headers: { "content-type": "application/json" },
+		});
+	}
+
+	/** A streaming (`text/event-stream`) success response. */
+	function eventStream(body: string): Response {
+		return new Response(body, {
+			status: 200,
+			headers: { "content-type": "text/event-stream" },
+		});
+	}
+
 	beforeEach(() => {
 		createAnthropic.mockClear();
 	});
@@ -258,8 +279,8 @@ describe("SnowflakeClient session-token expiry (390112)", () => {
 		const reauthenticate = vi.fn(async () => FRESH_TOKEN);
 		const fetchSpy = vi
 			.spyOn(globalThis, "fetch")
-			.mockResolvedValueOnce(new Response(EXPIRED_BODY, { status: 200 }))
-			.mockResolvedValueOnce(new Response("data: ok\n\n", { status: 200 }));
+			.mockResolvedValueOnce(jsonError(EXPIRED_BODY))
+			.mockResolvedValueOnce(eventStream("data: ok\n\n"));
 
 		const wrapper = await sessionFetch(refresh(reauthenticate));
 		const result = await wrapper("https://x/v1/messages", {
@@ -276,42 +297,41 @@ describe("SnowflakeClient session-token expiry (390112)", () => {
 		expect(await result.text()).toContain("ok");
 	});
 
-	it("split-across-chunks 390112: still detected when the error code straddles a chunk boundary", async () => {
-		// HTTP body chunking is arbitrary: a pre-stream error envelope can arrive
-		// split so the `390112` code straddles a boundary (`{"code":"390` / `112"}`).
-		// A first-chunk-only peek would miss it and hand the error to the SDK as a
-		// bogus success; the bounded scan must reassemble and detect it.
+	it("event-stream success: passes the response through without reading its body (no first-token latency)", async () => {
+		// The wrapper must not buffer a streaming success while deciding whether it
+		// is a 390112 error — content-type alone is enough. Prove it never touches
+		// the body: a low-volume stream that keeps its connection open would
+		// otherwise have its first tokens withheld.
+		const reauthenticate = vi.fn(async () => FRESH_TOKEN);
 		const encoder = new TextEncoder();
-		const splitBody = new ReadableStream<Uint8Array>({
+		const stream = new ReadableStream<Uint8Array>({
 			start(controller) {
-				controller.enqueue(encoder.encode('{"code":"390'));
-				controller.enqueue(encoder.encode('112","message":"session token has expired"}'));
-				controller.close();
+				controller.enqueue(encoder.encode("data: hello\n\n"));
+				// Deliberately left open — no close(), no further chunks.
 			},
 		});
-		const reauthenticate = vi.fn(async () => FRESH_TOKEN);
-		const fetchSpy = vi
-			.spyOn(globalThis, "fetch")
-			.mockResolvedValueOnce(new Response(splitBody, { status: 200 }))
-			.mockResolvedValueOnce(new Response("data: ok\n\n", { status: 200 }));
+		const response = new Response(stream, {
+			status: 200,
+			headers: { "content-type": "text/event-stream" },
+		});
+		const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(response);
 
 		const wrapper = await sessionFetch(refresh(reauthenticate));
 		const result = await wrapper("https://x/v1/messages", {
 			headers: { "x-api-key": "session-auth" },
 		});
 
-		expect(reauthenticate).toHaveBeenCalledWith(REFRESH_IDENTITY);
-		expect(fetchSpy).toHaveBeenCalledTimes(2);
-		expect(authHeader(fetchSpy, 1)).toBe(`Snowflake Token="${FRESH_TOKEN}"`);
-		expect(await result.text()).toContain("ok");
+		expect(reauthenticate).not.toHaveBeenCalled();
+		expect(fetchSpy).toHaveBeenCalledTimes(1);
+		// Same response instance, body untouched — the SDK (not the wrapper) reads it.
+		expect(result).toBe(response);
+		expect(response.bodyUsed).toBe(false);
 	});
 
-	it("success stream: passes the body through untouched and never reauthenticates", async () => {
+	it("event-stream success: streamed bytes reach the caller intact", async () => {
 		const reauthenticate = vi.fn(async () => FRESH_TOKEN);
 		const body = "data: hello\n\ndata: world\n\n";
-		const fetchSpy = vi
-			.spyOn(globalThis, "fetch")
-			.mockResolvedValue(new Response(body, { status: 200 }));
+		const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(eventStream(body));
 
 		const wrapper = await sessionFetch(refresh(reauthenticate));
 		const result = await wrapper("https://x/v1/messages", {
@@ -320,44 +340,14 @@ describe("SnowflakeClient session-token expiry (390112)", () => {
 
 		expect(reauthenticate).not.toHaveBeenCalled();
 		expect(fetchSpy).toHaveBeenCalledTimes(1);
-		// The peeked first chunk is replayed in full — no dropped or duplicated bytes.
 		expect(await result.text()).toBe(body);
-	});
-
-	it("multi-chunk success stream: replays every buffered chunk in order, losslessly", async () => {
-		// A success stream whose leading bytes span several small chunks must be
-		// replayed byte-for-byte and in order — the bounded scan buffers them while
-		// ruling expiry out, then hands them back unchanged.
-		const encoder = new TextEncoder();
-		const parts = ["data: he", "llo\n\n", "data: wor", "ld\n\n"];
-		const chunked = new ReadableStream<Uint8Array>({
-			start(controller) {
-				for (const part of parts) controller.enqueue(encoder.encode(part));
-				controller.close();
-			},
-		});
-		const reauthenticate = vi.fn(async () => FRESH_TOKEN);
-		const fetchSpy = vi
-			.spyOn(globalThis, "fetch")
-			.mockResolvedValue(new Response(chunked, { status: 200 }));
-
-		const wrapper = await sessionFetch(refresh(reauthenticate));
-		const result = await wrapper("https://x/v1/messages", {
-			headers: { "x-api-key": "session-auth" },
-		});
-
-		expect(reauthenticate).not.toHaveBeenCalled();
-		expect(fetchSpy).toHaveBeenCalledTimes(1);
-		expect(await result.text()).toBe(parts.join(""));
 	});
 
 	it("reauth failure: surfaces the original 390112 error and does not retry", async () => {
 		const reauthenticate = vi.fn(async () => {
 			throw new Error("SSO window closed");
 		});
-		const fetchSpy = vi
-			.spyOn(globalThis, "fetch")
-			.mockResolvedValue(new Response(EXPIRED_BODY, { status: 200 }));
+		const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonError(EXPIRED_BODY));
 
 		const wrapper = await sessionFetch(refresh(reauthenticate));
 		const result = await wrapper("https://x/v1/messages", {
@@ -389,8 +379,8 @@ describe("SnowflakeClient session-token expiry (390112)", () => {
 
 		const fetchSpy = vi
 			.spyOn(globalThis, "fetch")
-			.mockResolvedValueOnce(new Response(EXPIRED_BODY, { status: 200 }))
-			.mockResolvedValueOnce(new Response("data: ok\n\n", { status: 200 }));
+			.mockResolvedValueOnce(jsonError(EXPIRED_BODY))
+			.mockResolvedValueOnce(eventStream("data: ok\n\n"));
 
 		await client.chat(params(CLAUDE_MODEL));
 		await anthropicOptions().fetch?.("https://x/v1/messages", {

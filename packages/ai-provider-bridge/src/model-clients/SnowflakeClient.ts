@@ -68,16 +68,6 @@ function isSessionExpiredBody(bodyText: string): boolean {
 	return new RegExp(`"code"\\s*:\\s*"?${SESSION_EXPIRED_CODE}"?`).test(bodyText);
 }
 
-/**
- * How many bytes of the response body to buffer while deciding whether it is a
- * pre-stream `390112` error. The error envelope is a small complete JSON object,
- * so a modest window catches it even when the transport splits it across chunks
- * (e.g. `{"code":"390` / `112"}`) — while staying far below a real model stream,
- * which blows past this within its first content chunk. Kept small so ruling
- * expiry *out* on a success stream adds only trivial first-byte latency.
- */
-const PRESTREAM_SCAN_LIMIT = 1024;
-
 /** Copy headers, dropping framing headers invalidated by rebuilding the body. */
 function headersWithoutFraming(headers: Headers): Headers {
 	const copy = new Headers(headers);
@@ -87,97 +77,36 @@ function headersWithoutFraming(headers: Headers): Headers {
 }
 
 /**
- * Inspect a Cortex response for a **pre-stream** `390112` (expired session)
- * without disturbing the success path. Buffers the leading bytes of the body
- * (up to {@link PRESTREAM_SCAN_LIMIT}) until it can rule expiry in or out — so a
- * `390112` envelope split across transport chunks is still detected, not passed
- * to the SDK as a bogus success. If not an expiry, returns a response whose body
- * replays the buffered bytes followed by the rest of the stream, so streaming is
- * byte-for-byte untouched. If it is, the small error body is fully buffered so
- * it can be re-surfaced when reauth fails.
+ * Classify a Cortex response as a **pre-stream** `390112` (expired session) error
+ * without disturbing the streaming success path.
  *
- * The pre-stream assumption (docs: "the operation is not performed") means the
- * whole 390112 body arrives before any model output. A `390112` that instead
- * appeared mid-SSE after emitted output would not be caught here — by policy
- * that case surfaces as a retryable failure rather than replaying partial output
- * (see the plan's Phase 5 decision gate).
+ * Per the Cortex REST contract a response is either a `text/event-stream` (the
+ * model output) or a JSON error envelope — so branching on the content type is
+ * exact. A stream is returned **untouched**: the wrapper never reads it, so there
+ * is no first-token latency, and model output is never scanned for an error code
+ * that could legitimately appear inside it. Any non-stream response is a small
+ * envelope: it is buffered in full (so a body split across transport chunks is
+ * still whole), checked for `390112`, and rebuilt so the SDK — or the reauth
+ * failure path — can still read it.
+ *
+ * A `390112` that instead appeared mid-SSE after emitted output would not be
+ * caught here — by policy that case surfaces as a retryable failure rather than
+ * replaying partial output (see the plan's Phase 5 decision gate).
  */
 async function peekSessionExpiry(
 	response: Response,
 ): Promise<{ expired: boolean; response: Response }> {
-	if (!response.body) {
+	const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+	// A streaming success is the common case: hand it back without reading a byte.
+	if (contentType.includes("text/event-stream")) {
 		return { expired: false, response };
 	}
-	const reader = response.body.getReader();
-	const decoder = new TextDecoder();
-	// Keep raw chunks for a lossless replay; decode a parallel text view (with a
-	// streaming decoder, so a multi-byte char split across chunks is handled) only
-	// to scan for the error code.
-	const buffered: Uint8Array[] = [];
-	let scanned = "";
-	let bufferedBytes = 0;
-	let streamDone = false;
-
-	// Buffer until the error code is found, the scan window fills (ruling expiry
-	// out — this is a real stream), or the body ends.
-	for (;;) {
-		const chunk = await reader.read();
-		if (chunk.done) {
-			streamDone = true;
-			break;
-		}
-		buffered.push(chunk.value);
-		bufferedBytes += chunk.value.byteLength;
-		scanned += decoder.decode(chunk.value, { stream: true });
-
-		if (isSessionExpiredBody(scanned)) {
-			// Pre-stream error: drain the (small) remainder so the original error can
-			// be rebuilt and surfaced if reauthentication fails.
-			let rest = "";
-			for (;;) {
-				const tail = await reader.read();
-				if (tail.done) break;
-				rest += decoder.decode(tail.value, { stream: true });
-			}
-			const errorBody = scanned + rest + decoder.decode();
-			return {
-				expired: true,
-				response: new Response(errorBody, {
-					status: response.status,
-					statusText: response.statusText,
-					headers: headersWithoutFraming(response.headers),
-				}),
-			};
-		}
-
-		if (bufferedBytes >= PRESTREAM_SCAN_LIMIT) {
-			break;
-		}
-	}
-
-	// Not an expiry error — replay the buffered bytes, then the rest of the stream.
-	const passthrough = new ReadableStream<Uint8Array>({
-		start(controller) {
-			for (const chunk of buffered) {
-				controller.enqueue(chunk);
-			}
-			if (streamDone) controller.close();
-		},
-		async pull(controller) {
-			const chunk = await reader.read();
-			if (chunk.done) {
-				controller.close();
-				return;
-			}
-			controller.enqueue(chunk.value);
-		},
-		cancel(reason) {
-			void reader.cancel(reason);
-		},
-	});
+	// Non-stream response: a small error envelope. Buffer it whole and classify,
+	// rebuilding the body so it stays readable downstream.
+	const bodyText = await response.text();
 	return {
-		expired: false,
-		response: new Response(passthrough, {
+		expired: isSessionExpiredBody(bodyText),
+		response: new Response(bodyText, {
 			status: response.status,
 			statusText: response.statusText,
 			headers: headersWithoutFraming(response.headers),
