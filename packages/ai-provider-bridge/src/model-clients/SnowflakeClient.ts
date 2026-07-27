@@ -81,11 +81,15 @@ export class SnowflakeClient implements ModelClient {
 		const { abortController, cleanup } = createAbortControllerFromToken(params.cancellationToken);
 
 		const useThinking = isThinkingEnabled(params.thinkingEffort);
-		// Haiku 4.5 rejects the `eager_input_streaming` field that @ai-sdk/anthropic
-		// adds to tool specs by default while streaming, returning HTTP 400
-		// (tools.0.custom.eager_input_streaming: Extra inputs are not permitted).
-		// Scope the opt-out to Haiku 4.5, matching the Bedrock fix (posit-dev/ai-provider-bridge#14).
-		const disableEagerToolStreaming = params.model.includes("claude-haiku-4-5");
+		// @ai-sdk/anthropic adds the `eager_input_streaming` field to tool specs by
+		// default while streaming; Opus 4.1 and the 4.5-generation models reject it
+		// with HTTP 400 (tools.0.custom.eager_input_streaming: Extra inputs are not
+		// permitted), matching the Bedrock fix. Other Claude models accept it.
+		const disableEagerToolStreaming =
+			params.model.includes("claude-opus-4-1") ||
+			params.model.includes("claude-haiku-4-5") ||
+			params.model.includes("claude-sonnet-4-5") ||
+			params.model.includes("claude-opus-4-5");
 		const providerOptions =
 			useThinking || disableEagerToolStreaming
 				? {
