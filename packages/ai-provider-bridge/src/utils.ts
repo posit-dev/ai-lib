@@ -29,6 +29,25 @@ export function isClaudeModel(modelId: string): boolean {
 	return modelId.startsWith("claude");
 }
 
+/**
+ * Whether a hosted model rejects the `eager_input_streaming` field that
+ * @ai-sdk/anthropic adds to tool specs while streaming. Bedrock's Anthropic
+ * schema and Snowflake Cortex return HTTP 400 for it
+ * (tools.0.custom.eager_input_streaming: Extra inputs are not permitted) on
+ * Opus 4.1 and the 4.5-generation models (Haiku/Sonnet/Opus 4.5); other
+ * Anthropic models on those paths accept it, and the direct Anthropic and
+ * Vertex APIs accept it for every model. Keep the affected-model list here so
+ * the two clients can't drift.
+ */
+export function rejectsEagerInputStreaming(modelId: string): boolean {
+	return (
+		modelId.includes("claude-opus-4-1") ||
+		modelId.includes("claude-haiku-4-5") ||
+		modelId.includes("claude-sonnet-4-5") ||
+		modelId.includes("claude-opus-4-5")
+	);
+}
+
 // ---------------------------------------------------------------------------
 // Snowflake / Databricks
 // ---------------------------------------------------------------------------

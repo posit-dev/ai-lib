@@ -18,7 +18,7 @@ import { streamText } from "ai";
 import { safeSdkCustomHeaders } from "../custom-headers";
 import type { LMStreamPart } from "../types";
 import { normalizeProtocol } from "../types";
-import { isClaudeModel, isThinkingEnabled } from "../utils";
+import { isClaudeModel, isThinkingEnabled, rejectsEagerInputStreaming } from "../utils";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
@@ -81,11 +81,9 @@ export class SnowflakeClient implements ModelClient {
 		const { abortController, cleanup } = createAbortControllerFromToken(params.cancellationToken);
 
 		const useThinking = isThinkingEnabled(params.thinkingEffort);
-		// Haiku 4.5 rejects the `eager_input_streaming` field that @ai-sdk/anthropic
-		// adds to tool specs by default while streaming, returning HTTP 400
-		// (tools.0.custom.eager_input_streaming: Extra inputs are not permitted).
-		// Scope the opt-out to Haiku 4.5, matching the Bedrock fix (posit-dev/ai-provider-bridge#14).
-		const disableEagerToolStreaming = params.model.includes("claude-haiku-4-5");
+		// Some Claude models reject the `eager_input_streaming` field on Snowflake
+		// Cortex; opt those out (see rejectsEagerInputStreaming). Others accept it.
+		const disableEagerToolStreaming = rejectsEagerInputStreaming(params.model);
 		const providerOptions =
 			useThinking || disableEagerToolStreaming
 				? {

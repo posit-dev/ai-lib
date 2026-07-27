@@ -18,7 +18,7 @@ import { streamText } from "ai";
 
 import type { LMStreamPart, Protocol } from "../types";
 import { normalizeProtocol } from "../types";
-import { isThinkingEnabled } from "../utils";
+import { isThinkingEnabled, rejectsEagerInputStreaming } from "../utils";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
@@ -76,10 +76,9 @@ export class BedrockClient implements ModelClient {
 		// The createBedrockAnthropic provider uses AnthropicMessagesLanguageModel internally,
 		// so it accepts the same `anthropic` provider options as the direct Anthropic provider.
 		const useThinking = isThinkingEnabled(params.thinkingEffort) && isAnthropic;
-		// Haiku 4.5 on Bedrock rejects the `eager_input_streaming` field that
-		// @ai-sdk/anthropic adds to tools by default while streaming, returning HTTP 400.
-		// Other Anthropic models on Bedrock accept it, so scope the opt-out to Haiku 4.5;
-		const disableEagerToolStreaming = params.model.includes("claude-haiku-4-5");
+		// Some Claude models reject the `eager_input_streaming` field on Bedrock; opt
+		// those out (see rejectsEagerInputStreaming). Others accept it, so leave them on.
+		const disableEagerToolStreaming = rejectsEagerInputStreaming(params.model);
 		const providerOptions =
 			useThinking || disableEagerToolStreaming
 				? {
