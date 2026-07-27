@@ -18,7 +18,7 @@ import { streamText } from "ai";
 
 import type { LMStreamPart, Protocol } from "../types";
 import { normalizeProtocol } from "../types";
-import { isThinkingEnabled } from "../utils";
+import { isThinkingEnabled, rejectsEagerInputStreaming } from "../utils";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
@@ -76,15 +76,9 @@ export class BedrockClient implements ModelClient {
 		// The createBedrockAnthropic provider uses AnthropicMessagesLanguageModel internally,
 		// so it accepts the same `anthropic` provider options as the direct Anthropic provider.
 		const useThinking = isThinkingEnabled(params.thinkingEffort) && isAnthropic;
-		// @ai-sdk/anthropic adds the `eager_input_streaming` field to tools by default
-		// while streaming. Bedrock's Anthropic schema rejects it with HTTP 400
-		// (tools.0.custom.eager_input_streaming: Extra inputs are not permitted) on
-		// Opus 4.1 and the 4.5-generation models; other Anthropic models accept it.
-		const disableEagerToolStreaming =
-			params.model.includes("claude-opus-4-1") ||
-			params.model.includes("claude-haiku-4-5") ||
-			params.model.includes("claude-sonnet-4-5") ||
-			params.model.includes("claude-opus-4-5");
+		// Some Claude models reject the `eager_input_streaming` field on Bedrock; opt
+		// those out (see rejectsEagerInputStreaming). Others accept it, so leave them on.
+		const disableEagerToolStreaming = rejectsEagerInputStreaming(params.model);
 		const providerOptions =
 			useThinking || disableEagerToolStreaming
 				? {

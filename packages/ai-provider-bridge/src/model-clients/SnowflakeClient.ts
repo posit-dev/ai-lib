@@ -18,7 +18,7 @@ import { streamText } from "ai";
 import { safeSdkCustomHeaders } from "../custom-headers";
 import type { LMStreamPart } from "../types";
 import { normalizeProtocol } from "../types";
-import { isClaudeModel, isThinkingEnabled } from "../utils";
+import { isClaudeModel, isThinkingEnabled, rejectsEagerInputStreaming } from "../utils";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
@@ -81,15 +81,9 @@ export class SnowflakeClient implements ModelClient {
 		const { abortController, cleanup } = createAbortControllerFromToken(params.cancellationToken);
 
 		const useThinking = isThinkingEnabled(params.thinkingEffort);
-		// @ai-sdk/anthropic adds the `eager_input_streaming` field to tool specs by
-		// default while streaming; Opus 4.1 and the 4.5-generation models reject it
-		// with HTTP 400 (tools.0.custom.eager_input_streaming: Extra inputs are not
-		// permitted), matching the Bedrock fix. Other Claude models accept it.
-		const disableEagerToolStreaming =
-			params.model.includes("claude-opus-4-1") ||
-			params.model.includes("claude-haiku-4-5") ||
-			params.model.includes("claude-sonnet-4-5") ||
-			params.model.includes("claude-opus-4-5");
+		// Some Claude models reject the `eager_input_streaming` field on Snowflake
+		// Cortex; opt those out (see rejectsEagerInputStreaming). Others accept it.
+		const disableEagerToolStreaming = rejectsEagerInputStreaming(params.model);
 		const providerOptions =
 			useThinking || disableEagerToolStreaming
 				? {
