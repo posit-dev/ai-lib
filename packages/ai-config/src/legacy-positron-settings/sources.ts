@@ -23,7 +23,7 @@
 
 import type { ProviderConfigSourceProvider } from "../config-source.js";
 import type { ProviderConfigSource } from "../resolve-catalog.js";
-import type { EnforcedProvidersConfig, LoggerLike } from "../types.js";
+import type { ProvidersConfigFragment, LoggerLike } from "../types.js";
 import { translateLegacyPositronSettings } from "./translate.js";
 import type { LegacySettingsReader } from "./translate.js";
 
@@ -141,7 +141,7 @@ function createEnforcedSettingsProvider(
 // Helpers
 // ---------------------------------------------------------------------------
 
-function hasProviders(config: EnforcedProvidersConfig): boolean {
+function hasProviders(config: ProvidersConfigFragment): boolean {
 	return !!config.providers && Object.keys(config.providers).length > 0;
 }
 

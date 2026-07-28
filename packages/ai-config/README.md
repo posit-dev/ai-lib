@@ -47,36 +47,36 @@ import type { BuiltinProviderId, Protocol, ClientKind, ReservedProviderKey } fro
 #### Schemas & validation
 
 ```ts
-import { providersConfigSchema, enforcedProvidersConfigSchema } from "ai-config";
+import { providersConfigSchema, providersConfigFragmentSchema } from "ai-config";
 
 // Validate a parsed providers.json object:
 const config = providersConfigSchema.parse(rawJson);
 
-// The enforced variant relaxes custom-entry `type` to optional:
-const enforced = enforcedProvidersConfigSchema.parse(rawFragment);
+// The fragment variant relaxes custom-entry `type` to optional:
+const fragment = providersConfigFragmentSchema.parse(rawFragment);
 ```
 
-Both are Zod schemas. `providersConfigSchema` is the source of truth for the on-disk format and for the generated `providers.schema.json`. `enforcedProvidersConfigSchema` is the relaxed variant used to validate the `POSIT_AI_PROVIDERS_ENFORCED` / `POSIT_AI_PROVIDERS_DEFAULT` fragments before merging.
+Both are Zod schemas. `providersConfigSchema` is the source of truth for the on-disk format and for the generated `providers.schema.json`. `providersConfigFragmentSchema` is the relaxed shape every catalog config source carries — it validates partial fragments (e.g. the `POSIT_AI_PROVIDERS_ENFORCED` / `POSIT_AI_PROVIDERS_DEFAULT` env fragments) before merging.
 
 #### Types
 
-| Type                                               | Description                                                                           |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `ProvidersConfig`                                  | Root config — the complete `providers.json` file.                                     |
-| `ProvidersMap`                                     | The `providers` map inside the config.                                                |
-| `BuiltinProviderBlock`                             | A built-in provider block (no `type` field).                                          |
-| `CustomProviderEntry`                              | A user-defined provider entry (`type` required).                                      |
-| `DefaultBlock`                                     | The `providers.default` baseline block.                                               |
-| `ModelsBlock`                                      | Per-provider model-selection block (`discovery`/`allow`/`deny`/`overrides`/`custom`). |
-| `ModelOverride`                                    | Partial model-metadata patch (for `overrides`).                                       |
-| `CustomModel`                                      | Complete custom-model definition (for the `custom` array).                            |
-| `EnforcedProvidersConfig` / `EnforcedProvidersMap` | Relaxed variants where custom-entry `type` is optional.                               |
-| `ResolvedProvider`                                 | A uniform resolved catalog entry (see below).                                         |
-| `ResolvedConnection`                               | Non-secret connection config resolved from a provider block.                          |
-| `ResolvedProviderId`                               | `BuiltinProviderId \| CustomProviderId`.                                              |
-| `CustomProviderId`                                 | A branded custom id, produced only by `mintCustomProviderId()`.                       |
-| `ModelInfoLike` / `ResolvedModelInfo`              | Input/output shapes for `resolveModels()`.                                            |
-| `PlatformBaseline`                                 | How a platform expresses enablement defaults.                                         |
+| Type                                               | Description                                                                                              |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `ProvidersConfig`                                  | Root config — the complete `providers.json` file.                                                        |
+| `ProvidersMap`                                     | The `providers` map inside the config.                                                                   |
+| `BuiltinProviderBlock`                             | A built-in provider block (no `type` field).                                                             |
+| `CustomProviderEntry`                              | A user-defined provider entry (`type` required).                                                         |
+| `DefaultBlock`                                     | The `providers.default` baseline block.                                                                  |
+| `ModelsBlock`                                      | Per-provider model-selection block (`discovery`/`allow`/`deny`/`overrides`/`custom`).                    |
+| `ModelOverride`                                    | Partial model-metadata patch (for `overrides`).                                                          |
+| `CustomModel`                                      | Complete custom-model definition (for the `custom` array).                                               |
+| `ProvidersConfigFragment` / `ProvidersMapFragment` | Relaxed fragment variants (the shape every config source carries) where custom-entry `type` is optional. |
+| `ResolvedProvider`                                 | A uniform resolved catalog entry (see below).                                                            |
+| `ResolvedConnection`                               | Non-secret connection config resolved from a provider block.                                             |
+| `ResolvedProviderId`                               | `BuiltinProviderId \| CustomProviderId`.                                                                 |
+| `CustomProviderId`                                 | A branded custom id, produced only by `mintCustomProviderId()`.                                          |
+| `ModelInfoLike` / `ResolvedModelInfo`              | Input/output shapes for `resolveModels()`.                                                               |
+| `PlatformBaseline`                                 | How a platform expresses enablement defaults.                                                            |
 
 ```ts
 interface ResolvedProvider {
@@ -272,7 +272,7 @@ sub.dispose();
 
 Config flows through **assemble sources → resolve → watch**:
 
-1. **Assemble sources**: the node seam reads the user file (missing → `{}`, validated against `providersConfigSchema`), the enforced fragment from `POSIT_AI_PROVIDERS_ENFORCED`, and the defaults fragment from `POSIT_AI_PROVIDERS_DEFAULT` (both validated against the relaxed `enforcedProvidersConfigSchema`), plus — when a `legacyPositronSettings` reader is supplied — the `legacy-positron` and `legacy-positron-enforced` layers translated from the legacy Positron settings. Each becomes a `ProviderConfigSource` tagged with its `kind`.
+1. **Assemble sources**: the node seam reads the user file (missing → `{}`, validated against `providersConfigSchema`), the enforced fragment from `POSIT_AI_PROVIDERS_ENFORCED`, and the defaults fragment from `POSIT_AI_PROVIDERS_DEFAULT` (both validated against the relaxed `providersConfigFragmentSchema`), plus — when a `legacyPositronSettings` reader is supplied — the `legacy-positron` and `legacy-positron-enforced` layers translated from the legacy Positron settings. Each becomes a `ProviderConfigSource` tagged with its `kind`.
 2. **Resolve** (`resolveProviderCatalog`): rank the sources by kind (`enforced` > `legacy-positron-enforced` > connection env > `user` > `legacy-positron` > `default`), fold them low → high so the sealed `enforced` overlay can never be overwritten, apply the `PlatformBaseline` beneath, and build `ResolvedProvider[]` — objects deep-merge per leaf-key, `allow`/`deny` arrays wholesale-replace. Connection env vars are a resolver-owned source below `enforced`, not a post-resolution overlay.
 3. **Watch** (`watchResolvedProviderCatalog`): debounced (~300ms), ancestor-aware watch over **every** source (file via `fs.watch`; the legacy reader's `watch` signal; env sources are static) that re-resolves, diffs against the previous catalog, and emits a typed change only when something actually changed.
 

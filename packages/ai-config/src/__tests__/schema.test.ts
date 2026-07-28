@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from "vitest";
 
-import { enforcedProvidersConfigSchema, providersConfigSchema } from "../schema.js";
+import { providersConfigFragmentSchema, providersConfigSchema } from "../schema.js";
 
 describe("providersConfigSchema", () => {
 	it("accepts an empty config", () => {
@@ -326,9 +326,9 @@ describe("providersConfigSchema", () => {
 	});
 });
 
-describe("enforcedProvidersConfigSchema", () => {
+describe("providersConfigFragmentSchema", () => {
 	it("accepts a bare single custom key with type omitted", () => {
-		const result = enforcedProvidersConfigSchema.safeParse({
+		const result = providersConfigFragmentSchema.safeParse({
 			providers: {
 				custom: { "my-gateway": { enabled: false } },
 			},
@@ -337,7 +337,7 @@ describe("enforcedProvidersConfigSchema", () => {
 	});
 
 	it("accepts an enforced custom entry with a supported type", () => {
-		const result = enforcedProvidersConfigSchema.safeParse({
+		const result = providersConfigFragmentSchema.safeParse({
 			providers: {
 				custom: { "my-gateway": { type: "openai-compatible", enabled: true } },
 			},
@@ -346,7 +346,7 @@ describe("enforcedProvidersConfigSchema", () => {
 	});
 
 	it("rejects an enforced custom entry with an unsupported type", () => {
-		const result = enforcedProvidersConfigSchema.safeParse({
+		const result = providersConfigFragmentSchema.safeParse({
 			providers: {
 				custom: { "my-gateway": { type: "positai" } },
 			},

@@ -11,7 +11,7 @@
  * - Primitives: enforced wins.
  */
 
-import type { EnforcedProvidersConfig, ProvidersConfig } from "./types.js";
+import type { ProvidersConfigFragment, ProvidersConfig } from "./types.js";
 
 /**
  * Deep-merge `enforced` over `user`, returning a new config object.
@@ -21,13 +21,13 @@ import type { EnforcedProvidersConfig, ProvidersConfig } from "./types.js";
  *
  * @param user - The user's config from providers.json (validated).
  * @param enforced - The enforced fragment from POSIT_AI_PROVIDERS_ENFORCED.
- *   Uses `EnforcedProvidersConfig` where custom entry `type` is optional so
+ *   Uses `ProvidersConfigFragment` where custom entry `type` is optional so
  *   admins can enforce individual keys without repeating the full entry.
  * @returns Merged config where enforced keys take precedence.
  */
 export function mergeEnforced(
 	user: ProvidersConfig,
-	enforced: EnforcedProvidersConfig,
+	enforced: ProvidersConfigFragment,
 ): ProvidersConfig {
 	return deepMerge(user, enforced) as ProvidersConfig;
 }
@@ -42,15 +42,15 @@ export function mergeEnforced(
  * `customHeaders`) merge per leaf-key; arrays (e.g. `allow`/`deny`) replace
  * wholesale (v1 semantics).
  *
- * Both inputs use the relaxed `EnforcedProvidersConfig` shape so any source
+ * Both inputs use the relaxed `ProvidersConfigFragment` shape so any source
  * may contribute a partial fragment; the merged result is re-validated with
  * the full schema by the caller.
  */
 export function mergeConfigFragments(
-	base: EnforcedProvidersConfig,
-	override: EnforcedProvidersConfig,
-): EnforcedProvidersConfig {
-	return deepMerge(base, override) as EnforcedProvidersConfig;
+	base: ProvidersConfigFragment,
+	override: ProvidersConfigFragment,
+): ProvidersConfigFragment {
+	return deepMerge(base, override) as ProvidersConfigFragment;
 }
 
 /**

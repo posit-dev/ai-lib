@@ -11,7 +11,7 @@
  * values can never be overridden by a user's shell variables.
  */
 
-import type { BuiltinProviderBlock, EnforcedProvidersConfig } from "./types.js";
+import type { BuiltinProviderBlock, ProvidersConfigFragment } from "./types.js";
 import { BUILTIN_PROVIDER_IDS } from "./vocabulary.js";
 import type { BuiltinProviderId } from "./vocabulary.js";
 
@@ -89,7 +89,7 @@ const CONNECTION_ENV_MAPPINGS: Partial<Record<BuiltinProviderId, ConnectionEnvMa
 
 /**
  * Read non-secret connection env vars and return them as an
- * `EnforcedProvidersConfig` fragment suitable for insertion into the
+ * `ProvidersConfigFragment` fragment suitable for insertion into the
  * resolver's precedence stack.
  *
  * The returned fragment carries only connection fields — never enablement.
@@ -97,7 +97,7 @@ const CONNECTION_ENV_MAPPINGS: Partial<Record<BuiltinProviderId, ConnectionEnvMa
  */
 export function readEnvConnectionConfig(
 	envVars: Record<string, string | undefined>,
-): EnforcedProvidersConfig {
+): ProvidersConfigFragment {
 	const providers: Partial<Record<BuiltinProviderId, BuiltinProviderBlock>> = {};
 	for (const id of BUILTIN_PROVIDER_IDS) {
 		const mapping = CONNECTION_ENV_MAPPINGS[id];

@@ -12,13 +12,13 @@
 import type {
 	BuiltinProviderBlock,
 	DefaultBlock,
-	EnforcedProvidersMap,
+	ProvidersMapFragment,
 	PlatformBaseline,
 	ProvidersMap,
 } from "./types.js";
 
 /** A single enablement layer — a providers map from one config source. */
-export type EnablementLayer = ProvidersMap | EnforcedProvidersMap | undefined;
+export type EnablementLayer = ProvidersMap | ProvidersMapFragment | undefined;
 
 /**
  * Resolve the enabled state for a single provider id across an ordered stack
@@ -39,8 +39,8 @@ export type EnablementLayer = ProvidersMap | EnforcedProvidersMap | undefined;
  * 5. baseline per-provider override
  * 6. baseline `defaultEnabled`
  *
- * Enforced/default layers use a relaxed providers map where custom entry
- * `type` is optional. Only `enabled` is read here.
+ * Non-user layers use the relaxed fragment map where custom entry `type` is
+ * optional. Only `enabled` is read here.
  */
 export function resolveEnabled(
 	providerId: string,
@@ -77,7 +77,7 @@ export function resolveEnabled(
  * is read from the result.
  */
 function getProviderBlock(
-	providers: ProvidersMap | EnforcedProvidersMap | undefined,
+	providers: ProvidersMap | ProvidersMapFragment | undefined,
 	providerId: string,
 ): BuiltinProviderBlock | { enabled?: boolean } | undefined {
 	if (!providers) {
@@ -100,7 +100,7 @@ function getProviderBlock(
 }
 
 function getDefaultBlock(
-	providers: ProvidersMap | EnforcedProvidersMap | undefined,
+	providers: ProvidersMap | ProvidersMapFragment | undefined,
 ): DefaultBlock | undefined {
 	return providers?.default;
 }

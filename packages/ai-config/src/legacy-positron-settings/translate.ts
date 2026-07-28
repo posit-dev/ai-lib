@@ -25,7 +25,7 @@ import { inferModelCapabilities } from "../model-capabilities/infer.js";
 import type {
 	BuiltinProviderBlock,
 	CustomModel,
-	EnforcedProvidersConfig,
+	ProvidersConfigFragment,
 	LoggerLike,
 } from "../types.js";
 import type { BuiltinProviderId } from "../vocabulary.js";
@@ -75,7 +75,7 @@ export interface SettingMigration {
 /** Result of {@link translateLegacyPositronSettings}. */
 export interface TranslatedLegacySettings {
 	/** The providers.json-shaped fragment (empty when nothing is set). */
-	readonly config: EnforcedProvidersConfig;
+	readonly config: ProvidersConfigFragment;
 	/** One record per value written, for the migration's logging. */
 	readonly migrations: readonly SettingMigration[];
 }
@@ -357,13 +357,13 @@ export function translateLegacyPositronSettings(
 		return { config: {}, migrations };
 	}
 
-	// The strict EnforcedProvidersMap type has no index signature (its keys are
+	// The strict ProvidersMapFragment type has no index signature (its keys are
 	// the fixed built-in ids plus `default`/`custom`), so a dynamically-keyed
 	// accumulator can't be expressed as that type directly — hence the single
 	// cast. The map only ever emits built-in provider ids, so the record is a
 	// valid partial built-in map.
 	return {
-		config: { providers: providers as EnforcedProvidersConfig["providers"] },
+		config: { providers: providers as ProvidersConfigFragment["providers"] },
 		migrations,
 	};
 }

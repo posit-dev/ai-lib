@@ -36,7 +36,7 @@ export type {
 // --- Schema ----------------------------------------------------------------
 export {
 	customModelSchema,
-	enforcedProvidersConfigSchema,
+	providersConfigFragmentSchema,
 	providersConfigSchema,
 } from "./schema.js";
 
@@ -52,8 +52,8 @@ export type {
 	CustomProviderId,
 	CustomProviderEntry,
 	DefaultBlock,
-	EnforcedProvidersConfig,
-	EnforcedProvidersMap,
+	ProvidersConfigFragment,
+	ProvidersMapFragment,
 	LoggerLike,
 	ModelInfoLike,
 	ModelOverride,

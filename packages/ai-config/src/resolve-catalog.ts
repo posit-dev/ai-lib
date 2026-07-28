@@ -23,7 +23,7 @@ import { mergeConfigFragments } from "./enforce.js";
 import type { EnablementLayer } from "./resolve-enabled.js";
 import { providersConfigSchema } from "./schema.js";
 import type {
-	EnforcedProvidersConfig,
+	ProvidersConfigFragment,
 	LoggerLike,
 	PlatformBaseline,
 	ProvidersConfig,
@@ -76,7 +76,7 @@ export type ProviderConfigSourceKind =
  *
  * Private — never appears in `ProviderConfigSourceKind` or the public API.
  */
-type ConnectionEnvSource = { kind: "env"; label: string; config: EnforcedProvidersConfig };
+type ConnectionEnvSource = { kind: "env"; label: string; config: ProvidersConfigFragment };
 
 /** Union of all source types the resolver handles internally. */
 type RankedConfigSource = ProviderConfigSource | ConnectionEnvSource;
@@ -104,7 +104,7 @@ const RANK: Readonly<Record<RankedConfigSource["kind"], number>> = {
 /**
  * A single config layer contributed by a file, env var, or host.
  *
- * Every source carries a fragment in the relaxed `EnforcedProvidersConfig`
+ * Every source carries a fragment in the relaxed `ProvidersConfigFragment`
  * shape (custom entry `type` optional) so any layer may contribute partial
  * provider blocks; the merged result is validated with the full schema.
  */
@@ -114,7 +114,7 @@ export interface ProviderConfigSource {
 	/** Diagnostic label (e.g. "providers.json", "POSIT_AI_PROVIDERS_ENFORCED"). */
 	readonly label?: string;
 	/** The config fragment this source contributes. */
-	readonly config: EnforcedProvidersConfig;
+	readonly config: ProvidersConfigFragment;
 }
 
 // ---------------------------------------------------------------------------
@@ -287,7 +287,7 @@ function chooseDroppedSource(
 function mergeAndValidate(
 	highestFirst: readonly RankedConfigSource[],
 ): ReturnType<typeof providersConfigSchema.safeParse> {
-	let merged: EnforcedProvidersConfig = {};
+	let merged: ProvidersConfigFragment = {};
 	for (let i = highestFirst.length - 1; i >= 0; i--) {
 		merged = mergeConfigFragments(merged, highestFirst[i].config);
 	}

@@ -40,7 +40,7 @@ map/translator live inside ai-config (see [Legacy Positron settings](#legacy-pos
 ### Pure entry (`ai-config`)
 
 - **Vocabulary** (`src/vocabulary.ts`): `BUILTIN_PROVIDER_IDS`, `CLIENT_KIND_VALUES`, `PROTOCOL_VALUES`, `RESERVED_PROVIDER_KEYS`, `isBuiltinProviderId()`, and the `BuiltinProviderId` / `ClientKind` / `Protocol` / `ReservedProviderKey` types.
-- **Schemas** (`src/schema.ts`): `providersConfigSchema` (full, strict) and `enforcedProvidersConfigSchema` (relaxed — custom-entry `type` optional, for env-injected fragments).
+- **Schemas** (`src/schema.ts`): `providersConfigSchema` (full, strict) and `providersConfigFragmentSchema` (relaxed — custom-entry `type` optional; the fragment shape every catalog config source carries).
 - **Types** (`src/types.ts`): types inferred from the Zod schemas (`ProvidersConfig`, `ProvidersMap`, `BuiltinProviderBlock`, `CustomProviderEntry`, `ModelsBlock`, `ModelOverride`, `CustomModel`, …) plus resolution outputs (`ResolvedProvider`, `ResolvedConnection`, `ResolvedModelInfo`) and the branded `CustomProviderId`. `mintCustomProviderId()` is the **only** way to produce a `CustomProviderId`.
 - **Defaults** (`src/defaults.ts`): per-provider connection defaults and the `PROVIDER_CONNECTION_DEFAULTS` map.
 - **Resolution helpers**: `resolveModels()` and `mergeEnforced()` are pure and exported; `resolveEnabled()` / connection resolution are internal helpers used by the catalog builder.
@@ -119,7 +119,7 @@ Config flows through three stages: **assemble sources → resolve → watch**. P
    validated against `providersConfigSchema`), the enforced fragment from
    `POSIT_AI_PROVIDERS_ENFORCED`, and the defaults fragment from
    `POSIT_AI_PROVIDERS_DEFAULT` (both validated against the relaxed
-   `enforcedProvidersConfigSchema`), plus — when the loader was given
+   `providersConfigFragmentSchema`), plus — when the loader was given
    `legacyPositronSettings` — the two legacy Positron layers. Each becomes a
    `ProviderConfigSource` tagged with its `kind` (`enforced` /
    `legacy-positron-enforced` / `user` / `legacy-positron` / `default`).
