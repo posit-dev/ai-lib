@@ -9,9 +9,11 @@ import type { InferredModelCapabilities as ModelInfo } from "../types.js";
  * endpoint, keyed by exact model ID as returned by the Posit AI /models
  * endpoint. Adding a Model APIs model is one entry here.
  *
- * These models expose binary on/off thinking via the vLLM-style
- * `chat_template_kwargs: { enable_thinking: true }` request field (thinking is
- * off by default) and stream reasoning back as `reasoning_content`.
+ * Thinking is off by default for these models and streams back as
+ * `reasoning_content`. Models with `requiresChatTemplateKwargs` expose a binary
+ * toggle via the vLLM-style `chat_template_kwargs: { enable_thinking: true }`
+ * request field; models with named effort levels take a top-level OpenAI-style
+ * `reasoning_effort` instead.
  */
 const MODEL_APIS_CAPABILITIES: Record<string, Partial<ModelInfo>> = {
 	"zai-org/GLM-5.2": {
@@ -31,6 +33,13 @@ const MODEL_APIS_CAPABILITIES: Record<string, Partial<ModelInfo>> = {
 		supportedInputMediaTypes: ["image/png", "image/jpeg", "image/gif", "image/webp"],
 		maxContextLength: 262_000,
 		maxInputTokens: 262_000,
+	},
+	"moonshotai/Kimi-K3": {
+		family: "kimi",
+		thinkingEffortLevels: ["off", "low", "high", "max"],
+		supportedInputMediaTypes: ["image/png", "image/jpeg", "image/gif", "image/webp"],
+		maxContextLength: 1_048_576,
+		maxInputTokens: 1_048_576,
 	},
 };
 

@@ -16,6 +16,31 @@ export function isThinkingEnabled(effort: string | undefined): boolean {
 	return effort !== undefined && effort !== "off";
 }
 
+/**
+ * Request-body fields that enable thinking on an OpenAI-chat-protocol model.
+ *
+ * Named effort levels (anything but the binary `"on"`) go out as the OpenAI-style
+ * top-level `reasoning_effort`. Binary-toggle models (`requiresChatTemplateKwargs`)
+ * take the vLLM-style `chat_template_kwargs` instead.
+ *
+ * @returns Fields to merge into the request body, or `undefined` when thinking
+ *          is off or the model has no way to enable it.
+ */
+export function thinkingRequestFields(
+	effort: string | undefined,
+	requiresChatTemplateKwargs: boolean,
+): Record<string, unknown> | undefined {
+	if (!isThinkingEnabled(effort)) {
+		return undefined;
+	}
+	if (effort !== "on") {
+		return { reasoning_effort: effort };
+	}
+	return requiresChatTemplateKwargs
+		? { chat_template_kwargs: { enable_thinking: true } }
+		: undefined;
+}
+
 // ---------------------------------------------------------------------------
 // Model ID helpers
 // ---------------------------------------------------------------------------
