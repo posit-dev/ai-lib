@@ -18,10 +18,6 @@ import { normalizeProtocol } from "../types";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 import { OpenAIClient } from "./OpenAIClient";
 
-// Host/version constants live in base-url.ts (which must stay free of this
-// module's Node-only imports); re-exported here for the provider modules.
-export { LMSTUDIO_API_VERSION, LMSTUDIO_HOST } from "../base-url";
-
 export class LMStudioClient implements ModelClient {
 	private readonly openaiClient: OpenAIClient;
 

@@ -64,7 +64,7 @@ export async function loadConfigSources(
 		sources.push({ kind: "enforced", label: enforcedEnvVar, config: enforced });
 	}
 
-	// default — Workbench admin defaults (below user/host).
+	// default — Workbench admin defaults (below user/legacy-positron).
 	const defaults = readEnvFragment(defaultEnvVar, env, logger);
 	if (defaults) {
 		sources.push({ kind: "default", label: defaultEnvVar, config: defaults });

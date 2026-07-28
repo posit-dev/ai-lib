@@ -7,15 +7,13 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "require": "./dist/index.js"
     },
     "./node": {
       "types": "./dist/node/index.d.ts",
-      "import": "./dist/node/index.js"
-    },
-    "./positron": {
-      "types": "./dist/positron/index.d.ts",
-      "import": "./dist/positron/index.js"
+      "import": "./dist/node/index.js",
+      "require": "./dist/node/index.js"
     },
     "./providers.schema.json": "./providers.schema.json"
   },
@@ -33,17 +31,8 @@
     "proper-lockfile": "^4.1.2",
     "zod": "^4.4.3"
   },
-  "peerDependencies": {
-    "vscode": "^1.100.0"
-  },
-  "peerDependenciesMeta": {
-    "vscode": {
-      "optional": true
-    }
-  },
   "devDependencies": {
     "@types/node": "22.x",
-    "@types/positron-vscode": "npm:@types/vscode@^1.100.0",
     "@types/proper-lockfile": "^4.1.4",
     "tsx": "^4.20.6",
     "typescript": "^7.0.2",

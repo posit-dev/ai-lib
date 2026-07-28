@@ -5,9 +5,10 @@
 /**
  * Purity / isolation guards for the `ai-config` entrypoints (Phase 9).
  *
- * The pure `.` and node-bound `./node` entries must bundle WITHOUT `vscode`, so
- * non-Positron consumers (standalone, Notebooks) never gain a hard vscode dep.
- * Only the `./positron` entry is vscode-bound (vscode stays external there).
+ * Both entries (`.` and `./node`) must bundle WITHOUT `vscode`, so no
+ * consumer (standalone, Notebooks, Positron core) ever gains a hard vscode
+ * dep. Legacy Positron settings reach the loader through an injected reader,
+ * never a vscode import.
  */
 
 import { dirname, resolve } from "node:path";
@@ -48,11 +49,5 @@ describe("ai-config purity — pure entries are vscode-free", () => {
 
 	it("the `./node` entry bundles without vscode", async () => {
 		expect(await externals("node/index.ts")).not.toContain("vscode");
-	});
-});
-
-describe("ai-config purity — /positron is the sole vscode-bound entry", () => {
-	it("the `./positron` entry keeps vscode external", async () => {
-		expect(await externals("positron/index.ts")).toContain("vscode");
 	});
 });

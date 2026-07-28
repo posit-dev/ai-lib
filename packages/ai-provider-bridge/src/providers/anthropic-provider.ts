@@ -2,13 +2,9 @@
  *  Copyright (C) 2025-2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { getAnthropicModelCapabilities } from "ai-config";
+import { ANTHROPIC_API_VERSION, ANTHROPIC_HOST, getAnthropicModelCapabilities } from "ai-config";
 
-import {
-	ANTHROPIC_API_VERSION,
-	ANTHROPIC_HOST,
-	AnthropicClient,
-} from "../model-clients/AnthropicClient";
+import { AnthropicClient } from "../model-clients/AnthropicClient";
 import type { Logger, ModelInfo } from "../types";
 import type { ApiKeyCredentials } from "../types";
 import { normalizeProviderBaseUrl } from "../utils";

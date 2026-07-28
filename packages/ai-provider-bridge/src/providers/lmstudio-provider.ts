@@ -2,11 +2,9 @@
  *  Copyright (C) 2025 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import {
-	LMSTUDIO_API_VERSION,
-	LMSTUDIO_HOST,
-	LMStudioClient,
-} from "../model-clients/LMStudioClient";
+import { LMSTUDIO_API_VERSION, LMSTUDIO_HOST } from "ai-config";
+
+import { LMStudioClient } from "../model-clients/LMStudioClient";
 import type { Logger, ModelInfo } from "../types";
 import type { LocalCredentials } from "../types";
 import { joinPath, normalizeProviderBaseUrl } from "../utils";

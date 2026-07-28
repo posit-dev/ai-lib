@@ -8,9 +8,8 @@ import * as path from "path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ProviderCatalogChange, ProviderConfigSourceProvider } from "../node/types.js";
+import type { ProviderCatalogChange } from "../node/types.js";
 import { watchResolvedProviderCatalog } from "../node/watch-catalog.js";
-import type { ProviderConfigSource } from "../resolve-catalog.js";
 import type { PlatformBaseline, ProvidersConfig } from "../types.js";
 
 const mockLogger = {
@@ -167,22 +166,22 @@ describe("watchResolvedProviderCatalog", () => {
 		expect(lastChange.connectionChanged).toBe(true);
 	});
 
-	it("should rebuild and emit when an additional (host) source changes", async () => {
+	// PROVIDER-SETTINGS-MIGRATION(legacy-positron) gate: delete this test with
+	// the loader option.
+	it("should rebuild and emit when the legacy Positron reader signals a change", async () => {
 		const configPath = path.join(tempDir, "providers.json");
 		await writeConfig(configPath, {});
 
-		// A fake host source (e.g. Positron authentication.*). It starts by
-		// enabling anthropic, then flips to disabling it and fires onChange.
-		let hostConfig: ProviderConfigSource = {
-			kind: "host",
-			label: "test-host",
-			config: { providers: { anthropic: { enabled: true } } },
+		// A fake legacy reader. It starts by enabling anthropic through the
+		// legacy toggle, then flips to disabling it and fires onChange.
+		let legacyValues: Record<string, unknown> = {
+			"positron.assistant.provider.anthropic.enable": true,
 		};
 		let fireChange: (() => void) | undefined;
 
-		const hostSource: ProviderConfigSourceProvider = {
-			read: () => hostConfig,
-			watch: (onChange) => {
+		const reader = {
+			get: (key: string) => legacyValues[key],
+			watch: (onChange: () => void) => {
 				fireChange = onChange;
 				return { dispose: () => {} };
 			},
@@ -193,18 +192,16 @@ describe("watchResolvedProviderCatalog", () => {
 			baseline: STANDALONE_BASELINE,
 			configPath,
 			logger: mockLogger,
-			additionalSources: [hostSource],
+			legacyPositronSettings: reader,
 		});
 
 		// Wait for the initial load.
 		await new Promise((resolve) => setTimeout(resolve, 500));
 
-		// Change the host source and signal a change.
-		hostConfig = {
-			kind: "host",
-			label: "test-host",
-			config: { providers: { anthropic: { enabled: false } } },
-		};
+		// Change the legacy settings and signal a change. The first emitted
+		// catalog after this watch-triggered rebuild must carry the new value —
+		// this pins the watch-path fold of the legacy layer.
+		legacyValues = { "positron.assistant.provider.anthropic.enable": false };
 		fireChange?.();
 
 		await new Promise((resolve) => setTimeout(resolve, 600));

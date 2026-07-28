@@ -9,7 +9,8 @@
  * Both standalone and Positron consume these functions.
  */
 
-import { normalizeBaseUrlForProvider } from "../base-url";
+import { normalizeBaseUrlForProvider } from "ai-config";
+
 import { joinPath } from "../utils";
 
 export async function testOllamaProvider(

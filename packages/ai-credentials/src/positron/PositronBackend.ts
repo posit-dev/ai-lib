@@ -191,9 +191,10 @@ export function createPositronBackend(options: CreatePositronBackendOptions): Po
 	//
 	// Connection-config changes (base URL, customHeaders, AWS region, Snowflake
 	// host/account) are NOT signalled here. Those `authentication.*` settings are
-	// folded into the resolved catalog as a `host` source (ai-config/positron), so
-	// the catalog's debounced change event (catalogAdapter.onChange) is their
-	// single source of truth. Wiring them up here too would race that event — the
+	// folded into the resolved catalog as a `legacy-positron` source (the loader's
+	// `legacyPositronSettings` option), so the catalog's debounced change event
+	// (catalogAdapter.onChange) is their single source of truth. Wiring them up
+	// here too would race that event — the
 	// immediate emitter would fire a refresh against the still-stale catalog
 	// before the debounced rebuild lands.
 	const sessionSub = vscode.authentication.onDidChangeSessions((e) => {

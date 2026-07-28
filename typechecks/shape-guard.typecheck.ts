@@ -16,6 +16,12 @@
  *
  * STATUS: provider-id, model-override-field, protocol, and client-kind guards
  * are all active.
+ *
+ * PROVIDER-SETTINGS-MIGRATION(legacy-positron): ai-config's legacy connection
+ * rows are pinned against the bridge's PROVIDER_MAP + CONFIG_KEY_OVERRIDES by
+ * a RUNTIME guard (`ai-provider-bridge/src/__tests__/legacy-map-guard.test.ts`)
+ * — PROVIDER_MAP's declared type is deliberately non-literal, so the assertion
+ * cannot be expressed here.
  */
 
 import type {

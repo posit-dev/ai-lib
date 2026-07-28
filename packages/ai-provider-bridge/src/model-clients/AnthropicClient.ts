@@ -24,10 +24,6 @@ import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 /** Maximum number of web searches per request */
 const WEB_SEARCH_MAX_USES = 5;
 
-// Host/version constants live in base-url.ts (which must stay free of this
-// module's Node-only imports); re-exported here for the provider modules.
-export { ANTHROPIC_API_VERSION, ANTHROPIC_HOST } from "../base-url";
-
 export class AnthropicClient implements ModelClient {
 	private readonly apiKey: string;
 	private readonly baseURL?: string;
