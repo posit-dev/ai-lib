@@ -8,12 +8,13 @@ This package is part of the [`ai-lib`](../../README.md) monorepo. It is a depend
 
 The package splits pure (browser/test-safe) logic from filesystem I/O:
 
-| Entrypoint                        | What it provides                                                                                                                                                                                                                                 | Node FS dep? |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------ |
-| `ai-config`                       | Vocabulary (`BUILTIN_PROVIDER_IDS`, `PROTOCOL_VALUES`, `CLIENT_KIND_VALUES`, …), Zod schemas, inferred types, defaults, the `resolveProviderCatalog({ sources })` seam, pure helpers, and the model capability tables + `inferModelCapabilities` | No           |
-| `ai-config/node`                  | The pure entry plus the three filesystem seams and path constants                                                                                                                                                                                | Yes          |
-| `ai-config/positron`              | Builds a `host`-kind `ProviderConfigSource` from Positron `authentication.*` settings (+ change signal). The only entry that imports `vscode`.                                                                                                   | No (vscode)  |
-| `ai-config/providers.schema.json` | The generated JSON Schema, for editor validation/autocomplete of `providers.json`                                                                                                                                                                | No           |
+| Entrypoint                        | What it provides                                                                                                                                                                                                                                                                                                             | Node FS dep? |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| `ai-config`                       | Vocabulary (`BUILTIN_PROVIDER_IDS`, `PROTOCOL_VALUES`, `CLIENT_KIND_VALUES`, …), Zod schemas, inferred types, defaults, the `resolveProviderCatalog({ sources })` seam, pure helpers, bare-host base URL correction, the legacy Positron settings map/translator, and the model capability tables + `inferModelCapabilities` | No           |
+| `ai-config/node`                  | The pure entry plus the three filesystem seams and path constants                                                                                                                                                                                                                                                            | Yes          |
+| `ai-config/providers.schema.json` | The generated JSON Schema, for editor validation/autocomplete of `providers.json`                                                                                                                                                                                                                                            | No           |
+
+No entry imports `vscode`. Legacy Positron settings reach the loader through the `legacyPositronSettings` option's injected reader (see `LoadCatalogOptions` below).
 
 The three filesystem seams (`ai-config/node`):
 
@@ -105,7 +106,7 @@ function resolveProviderCatalog(opts: {
 }): readonly ResolvedProvider[];
 ```
 
-A `ProviderConfigSource` declares _what it is_ via `kind`, not _where it sits_. The resolver maps each kind to a fixed rank, highest → lowest: **`enforced` > connection env > `user` > `host` > `default`**, with the `PlatformBaseline` beneath all sources. The `enforced` layer is a **sealed overlay** — no lower source can overwrite an enforced key (a correctness invariant). Connection env vars (from `envVars`) are converted into a resolver-owned source ranked below `enforced` but above `user`, so admin pins always win while env vars still override file-based config. Object fields deep-merge per leaf-key; `allow`/`deny` arrays wholesale-replace.
+A `ProviderConfigSource` declares _what it is_ via `kind`, not _where it sits_. The resolver maps each kind to a fixed rank, highest → lowest: **`enforced` > `legacy-positron-enforced` > connection env > `user` > `legacy-positron` > `default`**, with the `PlatformBaseline` beneath all sources. The two `legacy-positron*` kinds are the transitional legacy Positron settings channels, split by whether they must beat or yield to `providers.json`. The `enforced` layer is a **sealed overlay** — no lower source can overwrite an enforced key (a correctness invariant). Connection env vars (from `envVars`) are converted into a resolver-owned source ranked below `enforced` but above `user`, so admin pins always win while env vars still override file-based config. Object fields deep-merge per leaf-key; `allow`/`deny` arrays wholesale-replace.
 
 `mergeEnforced` (two-layer) and `mergeConfigFragments` (layered) remain exported as the low-level merge primitives, but consumers should assemble sources and call `resolveProviderCatalog` rather than merging by hand.
 
@@ -176,7 +177,7 @@ import { AI_CONFIG_DIR, PROVIDERS_CONFIG_PATH } from "ai-config/node";
 
 #### `loadResolvedProviderCatalog(opts): Promise<readonly ResolvedProvider[]>`
 
-The single read seam. Assembles the config sources (the user file → `{}` if missing, the `POSIT_AI_PROVIDERS_ENFORCED` / `POSIT_AI_PROVIDERS_DEFAULT` env fragments, and any `additionalSources`), delegates precedence to `resolveProviderCatalog`, applies the platform baseline, and returns the resolved catalog. The read path degrades gracefully — malformed/missing files log a warning and fall back rather than throwing.
+The single read seam. Assembles the config sources (the user file → `{}` if missing, the `POSIT_AI_PROVIDERS_ENFORCED` / `POSIT_AI_PROVIDERS_DEFAULT` env fragments, and — when a `legacyPositronSettings` reader is supplied — the two legacy Positron layers), delegates precedence to `resolveProviderCatalog`, applies the platform baseline, and returns the resolved catalog. The read path degrades gracefully — malformed/missing files log a warning and fall back rather than throwing.
 
 ```ts
 const catalog = await loadResolvedProviderCatalog({
@@ -186,15 +187,15 @@ const catalog = await loadResolvedProviderCatalog({
 
 `LoadCatalogOptions`:
 
-| Field                 | Description                                                                                                                                                                                        |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `baseline` (required) | `PlatformBaseline` — enablement defaults for this platform.                                                                                                                                        |
-| `configPath?`         | Override the file path (testing).                                                                                                                                                                  |
-| `enforcedEnvVar?`     | Override the enforced env-var name (defaults to `POSIT_AI_PROVIDERS_ENFORCED`; testing).                                                                                                           |
-| `defaultEnvVar?`      | Override the defaults env-var name (defaults to `POSIT_AI_PROVIDERS_DEFAULT`; testing).                                                                                                            |
-| `envVars?`            | Source for non-secret connection env vars (converted into a resolver-owned source ranked below `enforced`) **and** for reading the enforced/default fragment env vars (defaults to `process.env`). |
-| `additionalSources?`  | Extra watchable `ProviderConfigSourceProvider`s (e.g. a Positron `authentication.*` `host` source). Folded into both the load and watch paths.                                                     |
-| `logger?`             | `LoggerLike` for diagnostics/validation warnings.                                                                                                                                                  |
+| Field                     | Description                                                                                                                                                                                        |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `baseline` (required)     | `PlatformBaseline` — enablement defaults for this platform.                                                                                                                                        |
+| `configPath?`             | Override the file path (testing).                                                                                                                                                                  |
+| `enforcedEnvVar?`         | Override the enforced env-var name (defaults to `POSIT_AI_PROVIDERS_ENFORCED`; testing).                                                                                                           |
+| `defaultEnvVar?`          | Override the defaults env-var name (defaults to `POSIT_AI_PROVIDERS_DEFAULT`; testing).                                                                                                            |
+| `envVars?`                | Source for non-secret connection env vars (converted into a resolver-owned source ranked below `enforced`) **and** for reading the enforced/default fragment env vars (defaults to `process.env`). |
+| `legacyPositronSettings?` | A `LegacySettingsReader` (`get`/`watch`) over the legacy Positron settings. Its presence enables the `legacy-positron` + `legacy-positron-enforced` layers in both the load and watch paths.       |
+| `logger?`                 | `LoggerLike` for diagnostics/validation warnings.                                                                                                                                                  |
 
 #### `mutateProvidersConfig(mutator, opts?): Promise<void>`
 
@@ -271,9 +272,9 @@ sub.dispose();
 
 Config flows through **assemble sources → resolve → watch**:
 
-1. **Assemble sources**: the node seam reads the user file (missing → `{}`, validated against `providersConfigSchema`), the enforced fragment from `POSIT_AI_PROVIDERS_ENFORCED`, and the defaults fragment from `POSIT_AI_PROVIDERS_DEFAULT` (both validated against the relaxed `enforcedProvidersConfigSchema`), plus any `additionalSources` (e.g. a Positron `authentication.*` `host` source). Each becomes a `ProviderConfigSource` tagged with its `kind`.
-2. **Resolve** (`resolveProviderCatalog`): rank the sources by kind (`enforced` > connection env > `user` > `host` > `default`), fold them low → high so the sealed `enforced` overlay can never be overwritten, apply the `PlatformBaseline` beneath, and build `ResolvedProvider[]` — objects deep-merge per leaf-key, `allow`/`deny` arrays wholesale-replace. Connection env vars are a resolver-owned source below `enforced`, not a post-resolution overlay.
-3. **Watch** (`watchResolvedProviderCatalog`): debounced (~300ms), ancestor-aware watch over **every** source (file via `fs.watch`; host sources emit their own change signals; env sources are static) that re-resolves, diffs against the previous catalog, and emits a typed change only when something actually changed.
+1. **Assemble sources**: the node seam reads the user file (missing → `{}`, validated against `providersConfigSchema`), the enforced fragment from `POSIT_AI_PROVIDERS_ENFORCED`, and the defaults fragment from `POSIT_AI_PROVIDERS_DEFAULT` (both validated against the relaxed `enforcedProvidersConfigSchema`), plus — when a `legacyPositronSettings` reader is supplied — the `legacy-positron` and `legacy-positron-enforced` layers translated from the legacy Positron settings. Each becomes a `ProviderConfigSource` tagged with its `kind`.
+2. **Resolve** (`resolveProviderCatalog`): rank the sources by kind (`enforced` > `legacy-positron-enforced` > connection env > `user` > `legacy-positron` > `default`), fold them low → high so the sealed `enforced` overlay can never be overwritten, apply the `PlatformBaseline` beneath, and build `ResolvedProvider[]` — objects deep-merge per leaf-key, `allow`/`deny` arrays wholesale-replace. Connection env vars are a resolver-owned source below `enforced`, not a post-resolution overlay.
+3. **Watch** (`watchResolvedProviderCatalog`): debounced (~300ms), ancestor-aware watch over **every** source (file via `fs.watch`; the legacy reader's `watch` signal; env sources are static) that re-resolves, diffs against the previous catalog, and emits a typed change only when something actually changed.
 
 The read path **degrades gracefully**: malformed or missing files log a warning and fall back rather than throwing.
 

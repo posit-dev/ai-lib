@@ -322,17 +322,10 @@ export function translateLegacyPositronSettings(
 
 	// --- enablement toggles → providers.<id>.enabled -------------------------
 	for (const row of LEGACY_ENABLEMENT_ROWS) {
-		const newValue = row.newKey !== undefined ? readBoolean(row.newKey) : undefined;
-		const oldValue = row.oldKey !== undefined ? readBoolean(row.oldKey) : undefined;
-		const winner =
-			row.newKey !== undefined && newValue !== undefined
-				? { key: row.newKey, enabled: newValue }
-				: row.oldKey !== undefined && oldValue !== undefined
-					? { key: row.oldKey, enabled: oldValue }
-					: undefined;
-		if (winner) {
-			merge(row.providerId, { enabled: winner.enabled });
-			record(winner.key, `providers.${row.providerId}.enabled`, String(winner.enabled));
+		const enabled = readBoolean(row.key);
+		if (enabled !== undefined) {
+			merge(row.providerId, { enabled });
+			record(row.key, `providers.${row.providerId}.enabled`, String(enabled));
 		}
 	}
 

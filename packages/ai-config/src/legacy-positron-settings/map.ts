@@ -67,27 +67,32 @@ export const DATABRICKS_CUSTOM_HEADERS_KEY = "authentication.databricks.customHe
 // Enablement rows
 // ---------------------------------------------------------------------------
 
-/** Legacy enablement toggle(s) → `providers.<providerId>.enabled`. */
+/**
+ * Legacy enablement toggle → `providers.<providerId>.enabled`.
+ *
+ * Two key generations exist — `positron.assistant.provider.<name>.enable`
+ * and the newer `assistant.provider.<name>.enabled` — but Positron's
+ * authentication extension contributes exactly one per provider (the new
+ * generation shipped only for providers that never had an old key), so a
+ * row carries a single key.
+ */
 export interface LegacyEnablementRow {
 	readonly providerId: BuiltinProviderId;
-	/** `positron.assistant.provider.<name>.enable` (older generation). */
-	readonly oldKey?: string;
-	/** `assistant.provider.<name>.enabled` (newer generation; wins when both set). */
-	readonly newKey?: string;
+	readonly key: string;
 }
 
 export const LEGACY_ENABLEMENT_ROWS: readonly LegacyEnablementRow[] = [
-	{ providerId: "anthropic", oldKey: "positron.assistant.provider.anthropic.enable" },
-	{ providerId: "openai", oldKey: "positron.assistant.provider.openAI.enable" },
-	{ providerId: "gemini", oldKey: "positron.assistant.provider.google.enable" },
-	{ providerId: "bedrock", oldKey: "positron.assistant.provider.amazonBedrock.enable" },
-	{ providerId: "snowflake-cortex", oldKey: "positron.assistant.provider.snowflakeCortex.enable" },
-	{ providerId: "ms-foundry", oldKey: "positron.assistant.provider.msFoundry.enable" },
-	{ providerId: "openai-compatible", oldKey: "positron.assistant.provider.customProvider.enable" },
-	{ providerId: "positai", oldKey: "positron.assistant.provider.positAI.enable" },
-	{ providerId: "copilot", oldKey: "positron.assistant.provider.githubCopilot.enable" },
-	{ providerId: "google-vertex", newKey: "assistant.provider.googleVertex.enabled" },
-	{ providerId: "deepseek", newKey: "assistant.provider.deepseek.enabled" },
+	{ providerId: "anthropic", key: "positron.assistant.provider.anthropic.enable" },
+	{ providerId: "openai", key: "positron.assistant.provider.openAI.enable" },
+	{ providerId: "gemini", key: "positron.assistant.provider.google.enable" },
+	{ providerId: "bedrock", key: "positron.assistant.provider.amazonBedrock.enable" },
+	{ providerId: "snowflake-cortex", key: "positron.assistant.provider.snowflakeCortex.enable" },
+	{ providerId: "ms-foundry", key: "positron.assistant.provider.msFoundry.enable" },
+	{ providerId: "openai-compatible", key: "positron.assistant.provider.customProvider.enable" },
+	{ providerId: "positai", key: "positron.assistant.provider.positAI.enable" },
+	{ providerId: "copilot", key: "positron.assistant.provider.githubCopilot.enable" },
+	{ providerId: "google-vertex", key: "assistant.provider.googleVertex.enabled" },
+	{ providerId: "deepseek", key: "assistant.provider.deepseek.enabled" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -136,9 +141,7 @@ export function legacySettingKeys(): readonly string[] {
 		SNOWFLAKE_CUSTOM_HEADERS_KEY,
 		DATABRICKS_CREDENTIALS_KEY,
 		DATABRICKS_CUSTOM_HEADERS_KEY,
-		...LEGACY_ENABLEMENT_ROWS.flatMap((row) => [row.oldKey, row.newKey]).filter(
-			(key): key is string => key !== undefined,
-		),
+		...LEGACY_ENABLEMENT_ROWS.map((row) => row.key),
 		...LEGACY_MODEL_OVERRIDE_ROWS.map((row) => `${MODEL_OVERRIDES_KEY_PREFIX}${row.settingName}`),
 	];
 }

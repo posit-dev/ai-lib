@@ -9,8 +9,9 @@
  * CommonJS and now imports the pure entry **statically** (the migration
  * wrapper calls `translateLegacyPositronSettings` synchronously), which
  * compiles to `require("ai-config")`. That only resolves if the exports map
- * carries a `require` condition; Node ≥ 22 then loads the ESM dist
- * synchronously via require(esm). Dropping the condition would not fail any
+ * carries a `require` condition; Node then loads the ESM dist synchronously
+ * via require(esm) — unflagged only on Node ≥ 22.12 / ≥ 20.19, the floor
+ * declared in package.json `engines`. Dropping the condition would not fail any
  * import-based consumer — only that CJS path — so pin it here. Requires the
  * built `dist/` (CI builds before testing).
  */

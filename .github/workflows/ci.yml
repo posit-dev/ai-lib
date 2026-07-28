@@ -32,7 +32,7 @@ jobs:
         run: npm run check-types -w ai-provider-bridge
 
       - name: Test
-        run: npm test -w ai-provider-bridge
+        run: npm test
 
   bridge-generation:
     strategy:

@@ -4,6 +4,9 @@
   "private": true,
   "description": "Cross-product AI configuration: schema, validation, merge/resolution, and file load/watch/write for ~/.posit/ai/",
   "type": "module",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
