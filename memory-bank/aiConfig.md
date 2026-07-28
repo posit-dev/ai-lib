@@ -33,11 +33,9 @@ from filesystem I/O:
 | `ai-config/node`                  | Re-exports the pure entry plus the three filesystem seams (`loadResolvedProviderCatalog`, `mutateProvidersConfig`, `watchResolvedProviderCatalog`) and path constants                                                                                                                                      | Node FS        |
 | `ai-config/providers.schema.json` | The generated JSON Schema, exported so editors can validate/autocomplete `providers.json`                                                                                                                                                                                                                  | No             |
 
-The former `ai-config/positron` entry (vscode-bound `authentication.*` host
-source, injected via `additionalSources`) is gone. Legacy Positron settings now
-reach the loader through the `legacyPositronSettings` option — a two-method
-injected reader — so no entry imports `vscode` and the map/translator live
-inside ai-config (see [Legacy Positron settings](#legacy-positron-settings-provider-settings-migration)).
+Legacy Positron settings reach the loader through the `legacyPositronSettings`
+option — a two-method injected reader — so no entry imports `vscode` and the
+map/translator live inside ai-config (see [Legacy Positron settings](#legacy-positron-settings-provider-settings-migration)).
 
 ### Pure entry (`ai-config`)
 
@@ -356,7 +354,7 @@ the bridge's `ModelInfo` — compatible by contract, not by import.
 | `src/node/paths.ts`                   | `AI_CONFIG_DIR`, `PROVIDERS_CONFIG_PATH`, enforced env-var name, lockfile path                                      |
 | `src/node/types.ts`                   | Node seam option/result types (`LoadCatalogOptions`, `ProviderCatalogChange`, `Disposable`, …)                      |
 | `src/resolve-catalog.ts`              | `resolveProviderCatalog()` — pure deep resolver seam; owns the precedence stack + sealed-enforced invariant         |
-| `src/base-url.ts`                     | `normalizeBaseUrlForProvider()` + known host/version constants (moved from the bridge)                              |
+| `src/base-url.ts`                     | `normalizeBaseUrlForProvider()` + known host/version constants (the bridge imports them from here)                  |
 | `src/config-source.ts`                | `ProviderConfigSource` + internal `ProviderConfigSourceProvider` loader machinery                                   |
 | `src/legacy-positron-settings/`       | PROVIDER-SETTINGS-MIGRATION: legacy settings map, translator, and internal source builders                          |
 | `src/build-catalog.ts`                | `buildCatalog()` — assemble `ResolvedProvider[]` from merged config + enablement layers + baseline (pure entry)     |

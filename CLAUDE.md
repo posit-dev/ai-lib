@@ -72,9 +72,9 @@ packages/ai-provider-bridge/src/
 | `ai-config/node`                  | The pure entry plus filesystem seams: `loadResolvedProviderCatalog`, `mutateProvidersConfig`, `watchResolvedProviderCatalog`, path constants                                                                  | Yes          |
 | `ai-config/providers.schema.json` | Generated JSON Schema for editor validation/autocomplete of `providers.json`                                                                                                                                  | No           |
 
-No `ai-config` entry imports `vscode` (the former `./positron` entry is gone);
-legacy Positron settings reach the loader through the `legacyPositronSettings`
-option's injected reader (PROVIDER-SETTINGS-MIGRATION).
+No `ai-config` entry imports `vscode`; legacy Positron settings reach the
+loader through the `legacyPositronSettings` option's injected reader
+(PROVIDER-SETTINGS-MIGRATION).
 
 **`ai-credentials`**
 
