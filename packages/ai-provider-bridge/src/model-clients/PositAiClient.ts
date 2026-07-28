@@ -30,6 +30,7 @@ import {
 	createStepLogger,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
+import { dereferenceToolParameters } from "./tool-schema-deref";
 
 /**
  * Custom fetch wrapper that replaces x-api-key header with Authorization: Bearer
@@ -235,12 +236,12 @@ export class PositAiClient implements ModelClient {
 				name: "positai",
 				baseURL: joinPath(effectiveBaseUrl, "/openai/v1"),
 				fetch: authenticatedFetch,
-				...(useChatTemplateKwargs && {
-					transformRequestBody: (body: Record<string, unknown>) => ({
-						...body,
-						chat_template_kwargs: { enable_thinking: true },
-					}),
-				}),
+				transformRequestBody: (body: Record<string, unknown>) => {
+					const transformed = dereferenceToolParameters(body);
+					return useChatTemplateKwargs
+						? { ...transformed, chat_template_kwargs: { enable_thinking: true } }
+						: transformed;
+				},
 			});
 			const model = provider.chatModel(params.model);
 
