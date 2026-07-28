@@ -8,7 +8,30 @@ import {
 	buildSnowflakeCortexUrl,
 	buildSnowflakeCortexUrlFromHost,
 	normalizeProviderBaseUrl,
+	thinkingRequestFields,
 } from "../utils";
+
+describe("thinkingRequestFields", () => {
+	it("returns undefined when thinking is off or unset", () => {
+		expect(thinkingRequestFields(undefined, true)).toBeUndefined();
+		expect(thinkingRequestFields("off", true)).toBeUndefined();
+	});
+
+	it("maps a named effort level to a top-level reasoning_effort", () => {
+		expect(thinkingRequestFields("low", false)).toEqual({ reasoning_effort: "low" });
+		expect(thinkingRequestFields("max", false)).toEqual({ reasoning_effort: "max" });
+	});
+
+	it("maps binary 'on' to chat_template_kwargs when the model requires it", () => {
+		expect(thinkingRequestFields("on", true)).toEqual({
+			chat_template_kwargs: { enable_thinking: true },
+		});
+	});
+
+	it("returns undefined for binary 'on' without the chat_template_kwargs flag", () => {
+		expect(thinkingRequestFields("on", false)).toBeUndefined();
+	});
+});
 
 describe("normalizeProviderBaseUrl", () => {
 	const HOST = "https://api.anthropic.com";

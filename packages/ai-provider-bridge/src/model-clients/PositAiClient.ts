@@ -23,7 +23,13 @@ import {
 } from "../tool-result-images";
 import type { LMStreamPart, Logger } from "../types";
 import { normalizeProtocol } from "../types";
-import { isAgreementRequiredBody, isClaudeModel, isThinkingEnabled, joinPath } from "../utils";
+import {
+	isAgreementRequiredBody,
+	isClaudeModel,
+	isThinkingEnabled,
+	joinPath,
+	thinkingRequestFields,
+} from "../utils";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
@@ -227,18 +233,20 @@ export class PositAiClient implements ModelClient {
 
 			return convertAiSdkStreamToPlatform(result.fullStream, cleanup);
 		} else if (normalizedProtocol === "openai-chat") {
-			const useChatTemplateKwargs =
-				params.requiresChatTemplateKwargs && isThinkingEnabled(params.thinkingEffort);
+			const thinkingFields = thinkingRequestFields(
+				params.thinkingEffort,
+				params.requiresChatTemplateKwargs ?? false,
+			);
 
 			// Use OpenAI-compatible provider with OAuth authentication
 			const provider = createOpenAICompatible({
 				name: "positai",
 				baseURL: joinPath(effectiveBaseUrl, "/openai/v1"),
 				fetch: authenticatedFetch,
-				...(useChatTemplateKwargs && {
+				...(thinkingFields && {
 					transformRequestBody: (body: Record<string, unknown>) => ({
 						...body,
-						chat_template_kwargs: { enable_thinking: true },
+						...thinkingFields,
 					}),
 				}),
 			});
