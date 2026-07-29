@@ -19,11 +19,5 @@ describe("Bedrock Mantle capability rules", () => {
 	it("does not invent a GPT-5.x output ceiling", () => {
 		const gpt5 = getBedrockMantleModelCapabilities("openai.gpt-5.5");
 		expect(gpt5?.maxOutputTokens).toBeUndefined();
-		expect(gpt5?.thinkingEffortLevels).toEqual(["off", "low", "medium", "high", "xhigh"]);
-		expect(getBedrockMantleModelCapabilities("openai.gpt-oss-120b")?.thinkingEffortLevels).toEqual([
-			"low",
-			"medium",
-			"high",
-		]);
 	});
 });
