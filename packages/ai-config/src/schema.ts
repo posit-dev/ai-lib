@@ -356,19 +356,19 @@ type AssertTrue<T extends true> = T;
 type _AssertCustomVariantsExhaustive = AssertTrue<CustomVariantsMatchSupportedKinds>;
 
 // ---------------------------------------------------------------------------
-// Enforced custom provider entry (relaxed `type`, superset sections)
+// Custom provider entry fragment (relaxed `type`, superset sections)
 // ---------------------------------------------------------------------------
 
 /**
- * Relaxed variant of `customProviderEntrySchema` for enforced fragments. A
- * discriminated union requires the discriminator, so the enforced entry cannot
+ * Relaxed variant of `customProviderEntrySchema` for config fragments. A
+ * discriminated union requires the discriminator, so the fragment entry cannot
  * be one — its connection sections stay a permissive superset. `type` is
- * optional so an admin can enforce a single key (e.g.
+ * optional so a fragment can set a single key (e.g. an admin enforcing
  * `providers.custom.my-gateway.enabled = false`) without repeating it; when
  * present it is still constrained to the supported 9 kinds. Full-schema
  * validation happens on the **merged** result, not on the fragment.
  */
-export const enforcedCustomProviderEntrySchema = z
+export const customProviderEntryFragmentSchema = z
 	.object({
 		type: z.enum(SUPPORTED_CUSTOM_CLIENT_KIND_VALUES).optional(),
 		...allConnectionFields,
@@ -391,7 +391,7 @@ export const enforcedCustomProviderEntrySchema = z
  * to the permissive superset block. This is the deliberate strict-runtime /
  * superset-static seam: strictness is enforced at **parse time**, while the
  * inferred `ProvidersMap` stays a workable superset — assignable to
- * `EnforcedProvidersMap` and read through the `BuiltinProviderBlock` working
+ * `ProvidersMapFragment` and read through the `BuiltinProviderBlock` working
  * type. The single cast bridges the two (there is no subtype relation between
  * two `ZodObject`s with different shapes).
  */
@@ -416,20 +416,20 @@ export const providersMapSchema = z
 	.strict();
 
 /**
- * Relaxed variant of `providersMapSchema` for enforced fragments. Built-in
- * keys use the permissive superset block (so an enforced fragment can carry a
+ * Relaxed variant of `providersMapSchema` for config fragments. Built-in
+ * keys use the permissive superset block (so a fragment can carry a
  * single key without matching a specific provider's tailored shape), and custom
- * entries use `enforcedCustomProviderEntrySchema` (`type` optional).
+ * entries use `customProviderEntryFragmentSchema` (`type` optional).
  */
-const enforcedBuiltinProviderKeys = Object.fromEntries(
+const fragmentBuiltinProviderKeys = Object.fromEntries(
 	BUILTIN_PROVIDER_IDS.map((id) => [id, builtinProviderBlockSchema.optional()]),
 ) as Record<BuiltinProviderId, z.ZodOptional<typeof builtinProviderBlockSchema>>;
 
-export const enforcedProvidersMapSchema = z
+export const providersMapFragmentSchema = z
 	.object({
-		...enforcedBuiltinProviderKeys,
+		...fragmentBuiltinProviderKeys,
 		default: defaultBlockSchema.optional(),
-		custom: z.record(z.string(), enforcedCustomProviderEntrySchema).optional(),
+		custom: z.record(z.string(), customProviderEntryFragmentSchema).optional(),
 	})
 	.strict();
 
@@ -468,14 +468,16 @@ export const providersConfigSchema = z
 	});
 
 /**
- * Relaxed schema for enforced config fragments. Used to validate the
- * `POSIT_AI_PROVIDERS_ENFORCED` env var. Custom provider entries do NOT
- * require the `type` field — full validation happens on the merged result.
+ * Relaxed schema for partial config fragments — the shape every catalog
+ * config source carries (the `POSIT_AI_PROVIDERS_ENFORCED` /
+ * `POSIT_AI_PROVIDERS_DEFAULT` env fragments, the legacy Positron layers,
+ * connection env vars). Custom provider entries do NOT require the `type`
+ * field — full validation happens on the merged result.
  */
-export const enforcedProvidersConfigSchema = z
+export const providersConfigFragmentSchema = z
 	.object({
 		$schema: z.string().optional(),
 		version: z.literal(1).optional(),
-		providers: enforcedProvidersMapSchema.optional(),
+		providers: providersMapFragmentSchema.optional(),
 	})
 	.strict();

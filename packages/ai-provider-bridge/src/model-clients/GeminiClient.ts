@@ -27,10 +27,6 @@ import {
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 
-// Host/version constants live in base-url.ts (which must stay free of this
-// module's Node-only imports); re-exported here for the provider modules.
-export { GEMINI_API_VERSION, GEMINI_HOST } from "../base-url";
-
 // ---------------------------------------------------------------------------
 // Interaction ID extraction (compaction-aware)
 // ---------------------------------------------------------------------------

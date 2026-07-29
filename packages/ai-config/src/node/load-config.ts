@@ -15,8 +15,8 @@
 import { promises as fs } from "fs";
 
 import type { ProviderConfigSource } from "../resolve-catalog.js";
-import { enforcedProvidersConfigSchema, providersConfigSchema } from "../schema.js";
-import type { EnforcedProvidersConfig, LoggerLike, ProvidersConfig } from "../types.js";
+import { providersConfigFragmentSchema, providersConfigSchema } from "../schema.js";
+import type { ProvidersConfigFragment, LoggerLike, ProvidersConfig } from "../types.js";
 import { DEFAULT_ENV_VAR, ENFORCED_ENV_VAR, PROVIDERS_CONFIG_PATH } from "./paths.js";
 
 /** Options for assembling the default config sources. */
@@ -64,7 +64,7 @@ export async function loadConfigSources(
 		sources.push({ kind: "enforced", label: enforcedEnvVar, config: enforced });
 	}
 
-	// default — Workbench admin defaults (below user/host).
+	// default — Workbench admin defaults (below user/legacy-positron).
 	const defaults = readEnvFragment(defaultEnvVar, env, logger);
 	if (defaults) {
 		sources.push({ kind: "default", label: defaultEnvVar, config: defaults });
@@ -126,7 +126,7 @@ export async function readFileConfig(
  * Returns `undefined` if the variable is not set or contains invalid
  * JSON/schema (with a warning).
  *
- * Uses `enforcedProvidersConfigSchema` which relaxes the custom entry `type`
+ * Uses `providersConfigFragmentSchema` which relaxes the custom entry `type`
  * field to optional, so an admin can enforce/default a single key on a custom
  * provider without repeating `type`. The merged result is re-validated with
  * the full schema by the resolver.
@@ -135,7 +135,7 @@ export function readEnvFragment(
 	envVarName: string,
 	env: Record<string, string | undefined>,
 	logger: LoggerLike | undefined,
-): EnforcedProvidersConfig | undefined {
+): ProvidersConfigFragment | undefined {
 	const envValue = env[envVarName];
 	if (!envValue) {
 		return undefined;
@@ -151,7 +151,7 @@ export function readEnvFragment(
 		return undefined;
 	}
 
-	const result = enforcedProvidersConfigSchema.safeParse(parsed);
+	const result = providersConfigFragmentSchema.safeParse(parsed);
 	if (!result.success) {
 		logger?.warn(
 			`[ai-config] Validation errors in ${envVarName}: ${formatZodErrors(result.error)}. Ignoring.`,

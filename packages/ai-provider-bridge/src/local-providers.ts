@@ -17,7 +17,8 @@
  * in sync with external edits.
  */
 
-import { normalizeBaseUrlForProvider } from "./base-url";
+import { normalizeBaseUrlForProvider } from "ai-config";
+
 import type { Disposable } from "./CredentialProvider";
 
 export type { Disposable };

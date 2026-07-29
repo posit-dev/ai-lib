@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { normalizeBaseUrlForProvider } from "../base-url";
+import { normalizeBaseUrlForProvider } from "../base-url.js";
 
 interface KnownProviderCase {
 	providerId: "anthropic" | "openai" | "gemini" | "lmstudio";

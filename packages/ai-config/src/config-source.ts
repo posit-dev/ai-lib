@@ -5,11 +5,11 @@
 /**
  * Watchable config-source contracts.
  *
- * These live in the PURE entry (no filesystem, no `process`, no `vscode`) so
- * host packages that build their own sources — e.g. `ai-config/positron`,
- * whose `createPositronConfigSource()` returns a `ProviderConfigSourceProvider`
- * — can reference the seam types via the root entry without pulling in the node
- * (`fs`) entry. The node entry re-exports both for back-compat.
+ * Loader-internal machinery: the load/watch seams assemble their sources as
+ * `ProviderConfigSourceProvider`s (file, env fragments, legacy Positron
+ * layers). Not exported from the package entries — consumers contribute
+ * config through loader options, never by injecting sources. `Disposable`
+ * stays public (it is the return type of `LegacySettingsReader.watch`).
  */
 
 import type { ProviderConfigSource } from "./resolve-catalog.js";

@@ -8,19 +8,17 @@
  * `@ai-sdk/*` providers expect `baseURL` to already include the version segment
  * (`/v1`, `/v1beta`) and append only the operation path, so a bare host like
  * `https://api.anthropic.com` 404s. Historically Positron's `authentication.*`
- * settings shipped such bare hosts as defaults; consumers (packages/positron)
- * use this helper to correct those values at the config read seam and to
- * rewrite the user's setting on disk. The bridge itself trusts the base URLs
- * it is given — there is no chat-time normalization.
+ * settings shipped such bare hosts as defaults; the config read seams correct
+ * those values here, and consumers (packages/positron) use the same helper to
+ * rewrite the user's setting on disk. Model clients trust the base URLs they
+ * are given — there is no chat-time normalization.
  *
- * This module owns the host/version constants (the client modules re-export
- * them) and must stay dependency-light: it is reachable from the bridge ROOT
- * entrypoint, which browser bundles import (via @assistant/core re-exports) —
- * importing the client modules here would drag their Node-only dependencies
- * (`crypto` via ai-sdk-helpers) into browser code.
+ * Lives in ai-config (the pure entry) so the config pipeline — including the
+ * legacy Positron settings translator — can apply the correction without an
+ * `ai-provider-bridge` import. The bridge imports these constants from here.
  */
 
-import type { ProviderId } from "./types";
+import type { BuiltinProviderId } from "./vocabulary.js";
 
 /** Anthropic public API host. `@ai-sdk/anthropic` expects baseURL to include `/v1`. */
 export const ANTHROPIC_HOST = "https://api.anthropic.com";
@@ -48,7 +46,7 @@ export const LMSTUDIO_HOST = "http://localhost:1234";
 export const LMSTUDIO_API_VERSION = "v1";
 
 /** Providers whose public API requires a version segment the SDK won't add. */
-const KNOWN_HOSTS: Partial<Record<ProviderId, { host: string; version: string }>> = {
+const KNOWN_HOSTS: Partial<Record<BuiltinProviderId, { host: string; version: string }>> = {
 	anthropic: { host: ANTHROPIC_HOST, version: ANTHROPIC_API_VERSION },
 	openai: { host: OPENAI_HOST, version: OPENAI_API_VERSION },
 	gemini: { host: GEMINI_HOST, version: GEMINI_API_VERSION },
@@ -66,7 +64,7 @@ const KNOWN_HOSTS: Partial<Record<ProviderId, { host: string; version: string }>
  * `result !== url` means precisely "bare-host fix applied". Callers use that
  * identity check directly as the write-back / notification criterion.
  */
-export function normalizeBaseUrlForProvider(providerId: ProviderId, url: string): string {
+export function normalizeBaseUrlForProvider(providerId: BuiltinProviderId, url: string): string {
 	const known = KNOWN_HOSTS[providerId];
 	if (!known) return url;
 

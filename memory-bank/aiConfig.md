@@ -13,10 +13,10 @@ schema, validation, defaults, the resolution pipeline that turns a raw file into
 an effective provider catalog, and the filesystem seams that load, watch, and
 mutate the file safely across processes.
 
-It is a dependency-light leaf: it does **not** import `ai-provider-bridge` or
-`ai-credentials`. Compatibility with the bridge's vocabulary is enforced at
-compile time by a shape guard (see [Shape Guard](#shape-guard)), not by an
-import edge.
+It is a dependency-light leaf: it does **not** import `ai-provider-bridge`,
+`ai-credentials`, or `vscode`. Compatibility with the bridge's vocabulary is
+enforced at compile time by a shape guard (see [Shape Guard](#shape-guard)),
+not by an import edge.
 
 The richer consumer-facing narrative of how this config drives provider
 enablement in Posit Assistant lives in the main monorepo's
@@ -24,26 +24,27 @@ enablement in Posit Assistant lives in the main monorepo's
 
 ## Entrypoints
 
-The package has three entrypoints, splitting pure (browser/test-safe) logic from
-filesystem I/O and vscode-bound wiring:
+The package has two code entrypoints, splitting pure (browser/test-safe) logic
+from filesystem I/O:
 
-| Entrypoint           | What it exports                                                                                                                                                                                            | External deps? |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
-| `ai-config`          | Vocabulary, Zod schemas, inferred types, defaults, the pure resolution helpers (`resolveModels`, `mergeEnforced`), the config-source contracts, and the model capability tables + `inferModelCapabilities` | No             |
-| `ai-config/node`     | Re-exports the pure entry plus the three filesystem seams (`loadResolvedProviderCatalog`, `mutateProvidersConfig`, `watchResolvedProviderCatalog`) and path constants                                      | Node FS        |
-| `ai-config/positron` | Builds a `host`-kind config source from Positron's `authentication.*` VS Code settings (injected via `additionalSources`); the pure `buildAuthenticationFragment` builder is testable without vscode       | `vscode`       |
+| Entrypoint                        | What it exports                                                                                                                                                                                                                                                                                            | External deps? |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| `ai-config`                       | Vocabulary, Zod schemas, inferred types, defaults, the pure resolution helpers (`resolveModels`, `mergeEnforced`), bare-host base URL correction (`normalizeBaseUrlForProvider` + host constants), the legacy Positron settings map/translator, and the model capability tables + `inferModelCapabilities` | No             |
+| `ai-config/node`                  | Re-exports the pure entry plus the three filesystem seams (`loadResolvedProviderCatalog`, `mutateProvidersConfig`, `watchResolvedProviderCatalog`) and path constants                                                                                                                                      | Node FS        |
+| `ai-config/providers.schema.json` | The generated JSON Schema, exported so editors can validate/autocomplete `providers.json`                                                                                                                                                                                                                  | No             |
 
-Each provider's `PositronAuthSettingDescriptor` (consumed by `buildAuthenticationFragment`) may carry an optional `normalizeBaseUrl?: (url: string) => string` hook, applied to the raw `baseUrl` setting before it enters the fragment. It's the seam for correcting known-bad values (e.g. a bare API host missing its version segment) without `ai-config` importing `ai-provider-bridge` — the consumer (`packages/positron`) injects the bridge's `normalizeBaseUrlForProvider` when building descriptors; `ai-config` only ever sees an opaque string-to-string function.
-| `ai-config/providers.schema.json` | The generated JSON Schema, exported so editors can validate/autocomplete `providers.json` | No |
+Legacy Positron settings reach the loader through the `legacyPositronSettings`
+option — a two-method injected reader — so no entry imports `vscode` and the
+map/translator live inside ai-config (see [Legacy Positron settings](#legacy-positron-settings-provider-settings-migration)).
 
 ### Pure entry (`ai-config`)
 
 - **Vocabulary** (`src/vocabulary.ts`): `BUILTIN_PROVIDER_IDS`, `CLIENT_KIND_VALUES`, `PROTOCOL_VALUES`, `RESERVED_PROVIDER_KEYS`, `isBuiltinProviderId()`, and the `BuiltinProviderId` / `ClientKind` / `Protocol` / `ReservedProviderKey` types.
-- **Schemas** (`src/schema.ts`): `providersConfigSchema` (full, strict) and `enforcedProvidersConfigSchema` (relaxed — custom-entry `type` optional, for env-injected fragments).
+- **Schemas** (`src/schema.ts`): `providersConfigSchema` (full, strict) and `providersConfigFragmentSchema` (relaxed — custom-entry `type` optional; the fragment shape every catalog config source carries).
 - **Types** (`src/types.ts`): types inferred from the Zod schemas (`ProvidersConfig`, `ProvidersMap`, `BuiltinProviderBlock`, `CustomProviderEntry`, `ModelsBlock`, `ModelOverride`, `CustomModel`, …) plus resolution outputs (`ResolvedProvider`, `ResolvedConnection`, `ResolvedModelInfo`) and the branded `CustomProviderId`. `mintCustomProviderId()` is the **only** way to produce a `CustomProviderId`.
 - **Defaults** (`src/defaults.ts`): per-provider connection defaults and the `PROVIDER_CONNECTION_DEFAULTS` map.
 - **Resolution helpers**: `resolveModels()` and `mergeEnforced()` are pure and exported; `resolveEnabled()` / connection resolution are internal helpers used by the catalog builder.
-- **Config-source contracts** (`src/config-source.ts`): `ProviderConfigSource`, `ProviderConfigSourceProvider`, and `Disposable` — the watchable source interfaces the resolver folds in via `additionalSources` (e.g. host layers). Re-exported from `ai-config/node` for back-compat, so consumers of the pure entry (like `ai-config/positron`) can name them without touching `/node`.
+- **Config-source contracts** (`src/config-source.ts`): `ProviderConfigSource` (public — the resolver's input) and the internal `ProviderConfigSourceProvider` (loader machinery, not exported). `Disposable` stays public as the return type of `LegacySettingsReader.watch`.
 - **Constant**: `PROVIDERS_CONFIG_VERSION = 1` — the on-disk format version.
 
 ### Node entry (`ai-config/node`)
@@ -54,7 +55,7 @@ Re-exports the pure entry, plus:
 - **Read seam**: `loadResolvedProviderCatalog(opts)` — the single read entry point.
 - **Write seam**: `mutateProvidersConfig(mutator, opts)` — cross-process-safe mutation.
 - **Watch seam**: `watchResolvedProviderCatalog(handler, opts)` — emits typed `ProviderCatalogChange` events.
-- **Types**: `LoadCatalogOptions`, `MutateConfigOptions`, `WatchCatalogOptions`, `ProviderCatalogChange`, `LoggerLike`, `Disposable`.
+- **Types**: `LoadCatalogOptions` (including the transitional `legacyPositronSettings` option), `MutateConfigOptions`, `WatchCatalogOptions`, `ProviderCatalogChange`, `LoggerLike`, `Disposable`.
 
 ## Schema Structure (`src/schema.ts`)
 
@@ -118,24 +119,27 @@ Config flows through three stages: **assemble sources → resolve → watch**. P
    validated against `providersConfigSchema`), the enforced fragment from
    `POSIT_AI_PROVIDERS_ENFORCED`, and the defaults fragment from
    `POSIT_AI_PROVIDERS_DEFAULT` (both validated against the relaxed
-   `enforcedProvidersConfigSchema`), plus any `additionalSources` (e.g. a Positron
-   `authentication.*` host source). Each becomes a `ProviderConfigSource` tagged
-   with its `kind` (`enforced` / `user` / `host` / `default`).
+   `providersConfigFragmentSchema`), plus — when the loader was given
+   `legacyPositronSettings` — the two legacy Positron layers. Each becomes a
+   `ProviderConfigSource` tagged with its `kind` (`enforced` /
+   `legacy-positron-enforced` / `user` / `legacy-positron` / `default`).
 2. **Resolve** (`src/resolve-catalog.ts`, `resolveProviderCatalog()`): rank the
-   sources by kind (`enforced` > `user` > `host` > `default`), fold them low → high
-   so the sealed `enforced` overlay can never be overwritten, apply the
-   `PlatformBaseline` beneath, and build `ResolvedProvider[]` via `build-catalog.ts`.
-   Objects deep-merge per leaf-key (`mergeConfigFragments`), `allow`/`deny` arrays
-   wholesale-replace. Connection env vars are a resolver-owned source ranked
-   below `enforced` but above `user`/`host`/`default` — not a post-resolution overlay.
-   `loadResolvedProviderCatalog()` (`src/node/load-catalog.ts`) is the public read
-   seam that composes assembly + resolve and returns `readonly ResolvedProvider[]`.
-   (`mergeEnforced` — the two-layer merge — remains exported as a low-level
-   primitive, but the layered resolver is the seam consumers should use.)
+   sources by kind (`enforced` > `legacy-positron-enforced` > `user` >
+   `legacy-positron` > `default`), fold them low → high so the sealed `enforced`
+   overlay can never be overwritten, apply the `PlatformBaseline` beneath, and
+   build `ResolvedProvider[]` via `build-catalog.ts`. Objects deep-merge per
+   leaf-key (`mergeConfigFragments`), `allow`/`deny` arrays wholesale-replace.
+   Connection env vars are a resolver-owned source ranked below `enforced` and
+   `legacy-positron-enforced` but above `user`/`legacy-positron`/`default` — not
+   a post-resolution overlay. `loadResolvedProviderCatalog()`
+   (`src/node/load-catalog.ts`) is the public read seam that composes assembly +
+   resolve and returns `readonly ResolvedProvider[]`. (`mergeEnforced` — the
+   two-layer merge — remains exported as a low-level primitive, but the layered
+   resolver is the seam consumers should use.)
 3. **Watch** (`src/node/watch-catalog.ts`, `watchResolvedProviderCatalog()`):
-   source-aware — watches the file via `fs.watch` and subscribes to any
-   `additionalSources`' change signals; **any** source change re-resolves the
-   catalog and emits a typed `ProviderCatalogChange` when something actually changed.
+   source-aware — watches the file via `fs.watch` and subscribes to the legacy
+   reader's change signal; **any** source change re-resolves the catalog and
+   emits a typed `ProviderCatalogChange` when something actually changed.
 
 ### Model selection (`resolveModels`)
 
@@ -150,11 +154,54 @@ reusable independent of the catalog builder.
 - **Enablement** (`resolveEnabled`): enforced per-provider > enforced default >
   user per-provider > user default > platform-baseline per-provider > baseline
   default.
-- **Connection**: enforced > connection env vars > user file >
-  injected `host` sources (e.g. Positron `authentication.*` via
-  `additionalSources`) > built-in defaults. Object keys deep-merge across layers.
+- **Connection**: enforced > legacy-positron-enforced > connection env vars >
+  user file > legacy-positron (legacy Positron settings via the
+  `legacyPositronSettings` reader) > built-in defaults. Object keys deep-merge
+  across layers.
 - **Model routing**: user config (override/custom) > provider config > discovered
   model inference.
+
+## Legacy Positron settings (PROVIDER-SETTINGS-MIGRATION)
+
+`src/legacy-positron-settings/` is the fenced migration-window module — every
+piece is tagged `PROVIDER-SETTINGS-MIGRATION(legacy-positron)` and deletes
+together when the legacy channels retire.
+
+- **`map.ts`** — the single source of truth for the legacy Positron settings →
+  providers.json map: connection rows (`authentication.<configKey>.*` →
+  provider blocks, including the runtime-only `github` → `copilot` row and the
+  migration-only `googleVertex` row), credential-section keys (aws / snowflake
+  / googleVertex / databricks), enablement rows (old
+  `positron.assistant.provider.*.enable` and new `assistant.provider.*.enabled`
+  generations; new wins), and model-override rows
+  (`positron.assistant.models.overrides.*`). `legacySettingKeys()` lists every
+  key the map consumes (Positron's migration uses it as its
+  something-to-migrate check).
+- **`translate.ts`** — `translateLegacyPositronSettings(reader, logger?,
+warnedKeys?)`: the pure translator from a `LegacySettingsReader` (`get` +
+  required `watch`) to `{ config, migrations }`. Omit-empty everywhere; per-key
+  shape validation with warn-once drop; bare-host base URL correction applied
+  internally via `normalizeBaseUrlForProvider`; model overrides synthesized
+  into full custom models with `inferModelCapabilities` (user token limits
+  win; `maxContextLength` floors at the user's `maxInputTokens`); `migrations`
+  records `{ source, destination, value }` per written value with header
+  values redacted to names. Shared verbatim by the runtime layers and
+  Positron's one-shot migration.
+- **`sources.ts`** — internal (never exported from the entries) builders for
+  the two runtime layers, assembled by both the load and watch seams whenever
+  `LoadCatalogOptions.legacyPositronSettings` is present: `legacy-positron`
+  (reader-backed, watchable, below `user`) and `legacy-positron-enforced`
+  (the `POSITRON_ENFORCED_SETTINGS` env payload, payload-only reads, above
+  `user`, below `enforced`). Opt-in is presence of the reader; no option means
+  neither layer, even if the env var is set.
+
+The `legacy-positron` layer is deliberately kept despite Positron's
+auto-migration: the migration self-extinguishes once providers.json is
+populated by any means, so users with a populated file plus legacy settings
+(enterprise baseUrl/proxy configs) are never migrated and rely on this layer;
+old Positron builds sharing the settings file (and settings sync) also keep
+writing the legacy channel. Retiring the layer later is loader-internal (zero
+consumer edits; expected trigger posit-dev/positron#14709).
 
 ## File I/O Seams
 
@@ -277,6 +324,14 @@ on every build, never emitted) that keep `ai-config`'s vocabulary compatible wit
   credential resolver must offer the same set of custom `type` values). The guard
   also asserts that list ⊆ `CLIENT_KIND_VALUES`.
 
+One legacy assertion lives as a **runtime** test instead:
+`ai-provider-bridge/src/__tests__/legacy-map-guard.test.ts` pins ai-config's
+`LEGACY_CONNECTION_ROWS` against the derivation from `PROVIDER_MAP` +
+`CONFIG_KEY_OVERRIDES` (every `apikey` provider except the snowflake/databricks
+special cases, with `googleVertex` → `google-vertex` as the one declared
+extra). `PROVIDER_MAP`'s declared type is deliberately non-literal, so this
+cannot be a compile-time guard.
+
 If the bridge adds a provider, the guard fails until `ai-config` is updated, and
 vice versa. `ai-config` types like `ModelInfoLike` are satisfied structurally by
 the bridge's `ModelInfo` — compatible by contract, not by import.
@@ -299,6 +354,9 @@ the bridge's `ModelInfo` — compatible by contract, not by import.
 | `src/node/paths.ts`                   | `AI_CONFIG_DIR`, `PROVIDERS_CONFIG_PATH`, enforced env-var name, lockfile path                                      |
 | `src/node/types.ts`                   | Node seam option/result types (`LoadCatalogOptions`, `ProviderCatalogChange`, `Disposable`, …)                      |
 | `src/resolve-catalog.ts`              | `resolveProviderCatalog()` — pure deep resolver seam; owns the precedence stack + sealed-enforced invariant         |
+| `src/base-url.ts`                     | `normalizeBaseUrlForProvider()` + known host/version constants (the bridge imports them from here)                  |
+| `src/config-source.ts`                | `ProviderConfigSource` + internal `ProviderConfigSourceProvider` loader machinery                                   |
+| `src/legacy-positron-settings/`       | PROVIDER-SETTINGS-MIGRATION: legacy settings map, translator, and internal source builders                          |
 | `src/build-catalog.ts`                | `buildCatalog()` — assemble `ResolvedProvider[]` from merged config + enablement layers + baseline (pure entry)     |
 | `src/node/load-config.ts`             | `loadConfigSources()` / `readFileConfig()` / `readEnvFragment()` — assemble the ordered `ProviderConfigSource` list |
 | `src/node/load-catalog.ts`            | `loadResolvedProviderCatalog()` — public read seam (assemble sources → `resolveProviderCatalog`)                    |
@@ -310,10 +368,10 @@ the bridge's `ModelInfo` — compatible by contract, not by import.
 
 ## Invariants & Design Decisions
 
-- **Three entrypoints, clean boundaries**: pure logic (schema, vocabulary,
-  resolution) stays free of Node FS APIs so it runs in the browser and tests;
-  only `ai-config/node` touches the filesystem, and only `ai-config/positron`
-  imports `vscode`.
+- **Two entrypoints, clean boundaries**: pure logic (schema, vocabulary,
+  resolution, the legacy settings translator) stays free of Node FS APIs so it
+  runs in the browser and tests; only `ai-config/node` touches the filesystem.
+  Nothing imports `vscode` — hosts inject a `LegacySettingsReader` instead.
 - **No import edge to the bridge or credential store** — vocabulary
   compatibility is guaranteed by the shape guard instead.
 - **Graceful degradation everywhere on the read path** — a malformed or missing

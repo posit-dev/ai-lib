@@ -2,9 +2,14 @@
  *  Copyright (C) 2025-2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { getOpenAIModelCapabilities, openaiMaxInputTokens } from "ai-config";
+import {
+	getOpenAIModelCapabilities,
+	OPENAI_API_VERSION,
+	OPENAI_HOST,
+	openaiMaxInputTokens,
+} from "ai-config";
 
-import { OPENAI_API_VERSION, OPENAI_HOST, OpenAIClient } from "../model-clients/OpenAIClient";
+import { OpenAIClient } from "../model-clients/OpenAIClient";
 import type { Logger, ModelInfo } from "../types";
 import type { ApiKeyCredentials } from "../types";
 import { normalizeProviderBaseUrl } from "../utils";

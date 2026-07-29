@@ -7,8 +7,8 @@
  *
  * This is the **single, source-aware watch seam**. It watches the built-in
  * sources (the `providers.json` file + the enforced/default env fragments)
- * and any `additionalSources` (e.g. a Positron `authentication.*` host source
- * from `ai-config/positron`). Any source change — file edit, host settings
+ * and, when the loader opted in via `legacyPositronSettings`, the legacy
+ * Positron settings layers. Any source change — file edit, legacy settings
  * change, etc. — triggers a debounced rebuild of the whole catalog and a
  * typed change event. Consumers read change categories
  * (`enabled`/`connection`/`models`) off each event.
@@ -17,17 +17,14 @@
 import * as fs from "fs";
 import * as path from "path";
 
+import type { ProviderConfigSourceProvider } from "../config-source.js";
+import { createLegacyPositronSourceProviders } from "../legacy-positron-settings/sources.js";
 import type { ProviderConfigSource } from "../resolve-catalog.js";
 import { resolveProviderCatalog } from "../resolve-catalog.js";
 import type { LoggerLike, ResolvedProvider } from "../types.js";
 import { readEnvFragment, readFileConfig } from "./load-config.js";
 import { DEFAULT_ENV_VAR, ENFORCED_ENV_VAR, PROVIDERS_CONFIG_PATH } from "./paths.js";
-import type {
-	Disposable,
-	ProviderCatalogChange,
-	ProviderConfigSourceProvider,
-	WatchCatalogOptions,
-} from "./types.js";
+import type { Disposable, ProviderCatalogChange, WatchCatalogOptions } from "./types.js";
 
 /**
  * Watch the provider config sources for changes and emit typed
@@ -39,8 +36,8 @@ import type {
  * `settingsFileWatcher.ts`). Env sources are static (read once per rebuild).
  *
  * @param handler - Called with the change event whenever any source changes.
- * @param opts - Platform baseline, optional path/env overrides, and any
- *   `additionalSources` to fold in.
+ * @param opts - Platform baseline, optional path/env overrides, and the
+ *   optional `legacyPositronSettings` reader.
  * @returns Disposable that stops watching.
  */
 export function watchResolvedProviderCatalog(
@@ -52,12 +49,15 @@ export function watchResolvedProviderCatalog(
 	const logger = opts.logger;
 
 	// Assemble the watchable sources: file (watchable) + env fragments
-	// (static) + any host/additional sources.
+	// (static) + the legacy Positron layers when the loader opted in.
 	const sourceProviders: ProviderConfigSourceProvider[] = [
 		createFileSourceProvider(configPath, logger),
 		createEnvSourceProvider("enforced", opts.enforcedEnvVar ?? ENFORCED_ENV_VAR, env, logger),
 		createEnvSourceProvider("default", opts.defaultEnvVar ?? DEFAULT_ENV_VAR, env, logger),
-		...(opts.additionalSources ?? []),
+		// PROVIDER-SETTINGS-MIGRATION(legacy-positron)
+		...(opts.legacyPositronSettings
+			? createLegacyPositronSourceProviders(opts.legacyPositronSettings, env, logger)
+			: []),
 	];
 
 	let debounceTimer: ReturnType<typeof setTimeout> | undefined;

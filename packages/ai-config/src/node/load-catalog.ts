@@ -14,6 +14,7 @@
  * seam; this function only reads the default node sources and delegates.
  */
 
+import { createLegacyPositronSourceProviders } from "../legacy-positron-settings/sources.js";
 import { resolveProviderCatalog } from "../resolve-catalog.js";
 import type { ResolvedProvider } from "../types.js";
 import { loadConfigSources } from "./load-config.js";
@@ -49,15 +50,22 @@ export async function loadResolvedProviderCatalog(
 		logger: opts.logger,
 	});
 
-	// Fold in any host/additional sources (e.g. Positron's `authentication.*`
-	// host source) by reading each once. The watch path subscribes to their
-	// change signals separately; this load-path fold is load-bearing because
-	// the watch's initial rebuild does not emit, so without it the first
-	// catalog would miss host settings until the first change fires.
-	const additional = await Promise.all((opts.additionalSources ?? []).map((p) => p.read()));
-	for (const source of additional) {
-		if (source) {
-			sources.push(source);
+	// PROVIDER-SETTINGS-MIGRATION(legacy-positron): fold the legacy layers into
+	// the load path too. The watch path subscribes to the reader's change
+	// signal separately; this load-path fold is load-bearing because the
+	// watch's initial rebuild does not emit, so without it the first catalog
+	// would miss legacy settings until the first change fires.
+	if (opts.legacyPositronSettings) {
+		const providers = createLegacyPositronSourceProviders(
+			opts.legacyPositronSettings,
+			env,
+			opts.logger,
+		);
+		const legacy = await Promise.all(providers.map((p) => p.read()));
+		for (const source of legacy) {
+			if (source) {
+				sources.push(source);
+			}
 		}
 	}
 

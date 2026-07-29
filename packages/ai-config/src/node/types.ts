@@ -6,17 +6,14 @@
  * Types specific to the node (filesystem) entry of ai-config.
  */
 
-import type { ProviderConfigSourceProvider } from "../config-source.js";
+import type { LegacySettingsReader } from "../legacy-positron-settings/translate.js";
 import type { LoggerLike, PlatformBaseline, ResolvedProvider } from "../types.js";
 
 // Re-export the pure logger type so node consumers can import it from here.
 export type { LoggerLike } from "../types.js";
 
-// Re-export the pure config-source contracts so existing `ai-config/node`
-// consumers keep importing them from here (the seam moved to the pure entry so
-// `ai-config/positron` can reference it without the node entry — see
-// `../config-source`).
-export type { Disposable, ProviderConfigSourceProvider } from "../config-source.js";
+// Re-export so existing `ai-config/node` consumers keep importing it from here.
+export type { Disposable } from "../config-source.js";
 
 // ---------------------------------------------------------------------------
 // Load options
@@ -53,25 +50,28 @@ export interface LoadCatalogOptions {
 	/**
 	 * Environment variables for non-secret connection fields (converted into a
 	 * resolver-owned source ranked below `enforced` but above
-	 * `user`/`host`/`default`) AND for reading the enforced/default fragment
-	 * env vars. Defaults to `process.env` when omitted. Useful for testing.
+	 * `user`/`legacy-positron`/`default`) AND for reading the enforced/default
+	 * fragment env vars. Defaults to `process.env` when omitted. Useful for
+	 * testing.
 	 */
 	readonly envVars?: Record<string, string | undefined>;
 
 	/**
-	 * Additional watchable config sources beyond the built-in file + env
-	 * sources (e.g. a Positron `authentication.*` host source from
-	 * `ai-config/positron`). Any source change — file, host, or otherwise —
-	 * rebuilds the catalog and emits a change. Static env sources are read
-	 * once per rebuild and need no change signal.
+	 * PROVIDER-SETTINGS-MIGRATION(legacy-positron): opt in to the legacy
+	 * Positron settings channels. Delete when the migration window closes.
 	 *
-	 * These are folded into BOTH the load path (`loadResolvedProviderCatalog`
-	 * reads each once) and the watch path (`watchResolvedProviderCatalog`
-	 * subscribes to each). Threading them through load is load-bearing: the
-	 * watch's initial rebuild does not emit, so without a load-path fold the
-	 * first catalog would miss host settings until the first change.
+	 * Presence enables BOTH legacy layers:
+	 * - `legacy-positron-enforced`: POSITRON_ENFORCED_SETTINGS, read from the
+	 *   loader's `envVars` (default `process.env`), above `user`, below
+	 *   `enforced`.
+	 * - `legacy-positron`: user-set legacy settings via this reader, below
+	 *   `user`, above `default`.
+	 *
+	 * Both layers fold into BOTH the load and watch paths internally — the
+	 * watch's initial rebuild does not emit, so a load-path miss would drop
+	 * legacy settings until the first change.
 	 */
-	readonly additionalSources?: readonly ProviderConfigSourceProvider[];
+	readonly legacyPositronSettings?: LegacySettingsReader;
 }
 
 /**
@@ -90,8 +90,8 @@ export interface MutateConfigOptions {
 /**
  * Options for `watchResolvedProviderCatalog()`.
  *
- * Inherits `additionalSources` from {@link LoadCatalogOptions} so the same host
- * sources are folded into both the load and watch paths.
+ * Inherits `legacyPositronSettings` from {@link LoadCatalogOptions} so the
+ * same legacy layers are folded into both the load and watch paths.
  */
 export type WatchCatalogOptions = LoadCatalogOptions;
 

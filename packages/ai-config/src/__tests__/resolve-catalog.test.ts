@@ -36,22 +36,22 @@ describe("resolveProviderCatalog — precedence", () => {
 		expect(find(catalog, "anthropic")?.enabled).toBe(false);
 	});
 
-	it("host sits below user, above default (enablement)", () => {
-		// user disables → wins over host enabling.
+	it("legacy-positron sits below user, above default (enablement)", () => {
+		// user disables → wins over legacy-positron enabling.
 		const c1 = resolveProviderCatalog({
 			sources: [
 				source("user", { providers: { anthropic: { enabled: false } } }),
-				source("host", { providers: { anthropic: { enabled: true } } }),
+				source("legacy-positron", { providers: { anthropic: { enabled: true } } }),
 			],
 			baseline: STANDALONE,
 			envVars: {},
 		});
 		expect(find(c1, "anthropic")?.enabled).toBe(false);
 
-		// host disables → wins over default enabling.
+		// legacy-positron disables → wins over default enabling.
 		const c2 = resolveProviderCatalog({
 			sources: [
-				source("host", { providers: { openai: { enabled: false } } }),
+				source("legacy-positron", { providers: { openai: { enabled: false } } }),
 				source("default", { providers: { openai: { enabled: true } } }),
 			],
 			baseline: STANDALONE,
@@ -60,7 +60,7 @@ describe("resolveProviderCatalog — precedence", () => {
 		expect(find(c2, "openai")?.enabled).toBe(false);
 	});
 
-	it("default layer applies when user/host are silent", () => {
+	it("default layer applies when user/legacy-positron are silent", () => {
 		const catalog = resolveProviderCatalog({
 			sources: [source("default", { providers: { default: { enabled: false } } })],
 			baseline: STANDALONE,
@@ -145,16 +145,16 @@ describe("resolveProviderCatalog — invalid merge tolerance", () => {
 		expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("invalid merged result"));
 	});
 
-	it("an invalid enforced/default source does not erase a valid host source", () => {
+	it("an invalid enforced/default source does not erase a valid legacy-positron source", () => {
 		const logger = { debug: vi.fn(), warn: vi.fn() };
 		const catalog = resolveProviderCatalog({
 			sources: [
 				// Invalid overlay (custom without type) — must be dropped alone.
 				source("enforced", { providers: { custom: { ghost: { enabled: false } } } }),
 				source("user", { providers: {} }),
-				// A valid host source (e.g. Positron authentication.*) sits below
+				// A valid legacy-positron source (legacy Positron settings) sits below
 				// enforced; it must survive the enforced source being dropped.
-				source("host", { providers: { anthropic: { enabled: false } } }),
+				source("legacy-positron", { providers: { anthropic: { enabled: false } } }),
 			],
 			baseline: STANDALONE,
 			envVars: {},
@@ -162,7 +162,7 @@ describe("resolveProviderCatalog — invalid merge tolerance", () => {
 		});
 
 		expect(find(catalog, "ghost")).toBeUndefined();
-		// The host source's decision is preserved (user is silent on anthropic).
+		// The legacy-positron source's decision is preserved (user is silent on anthropic).
 		expect(find(catalog, "anthropic")?.enabled).toBe(false);
 		expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("invalid merged result"));
 	});
@@ -192,13 +192,13 @@ describe("resolveProviderCatalog — tightened-schema recovery", () => {
 		expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("invalid merged result"));
 	});
 
-	it("keeps a valid host overlay when a forbidden default overlay is dropped", () => {
+	it("keeps a valid legacy-positron overlay when a forbidden default overlay is dropped", () => {
 		const logger = { debug: vi.fn(), warn: vi.fn() };
 		const catalog = resolveProviderCatalog({
 			sources: [
 				source("user", { providers: {} }),
-				// A valid host overlay must survive the forbidden default being dropped.
-				source("host", { providers: { anthropic: { enabled: false } } }),
+				// A valid legacy-positron overlay must survive the forbidden default being dropped.
+				source("legacy-positron", { providers: { anthropic: { enabled: false } } }),
 				// `bedrock.snowflake` is a wrong-capability section → invalid, dropped.
 				source("default", {
 					providers: { bedrock: { snowflake: { account: "MYORG" } } },
@@ -274,12 +274,12 @@ describe("resolveProviderCatalog — same-kind ordering", () => {
 	it("earlier array entry wins among sources of the same kind (connection + enablement)", () => {
 		const catalog = resolveProviderCatalog({
 			sources: [
-				// Two host sources; the earlier one should win for both connection
+				// Two legacy-positron sources; the earlier one should win for both connection
 				// and enablement.
-				source("host", {
+				source("legacy-positron", {
 					providers: { anthropic: { enabled: true, baseUrl: "https://first.example.com" } },
 				}),
-				source("host", {
+				source("legacy-positron", {
 					providers: { anthropic: { enabled: false, baseUrl: "https://second.example.com" } },
 				}),
 			],
@@ -292,18 +292,19 @@ describe("resolveProviderCatalog — same-kind ordering", () => {
 	});
 });
 
-describe("resolveProviderCatalog — host layer merge semantics (Phase 6)", () => {
+// PROVIDER-SETTINGS-MIGRATION(legacy-positron) gate: delete this block with the source kind.
+describe("resolveProviderCatalog — legacy-positron layer merge semantics", () => {
 	// These pin the three declared merge-semantic changes from relocating the
-	// Positron `authentication.*` dual-read into a `host` source: the resolver
+	// Positron `authentication.*` dual-read into a `legacy-positron` source: the resolver
 	// deep-merges object keys where the old adapter did whole-field fallback.
 
-	it("customHeaders deep-merge across user + host (user wins per key)", () => {
+	it("customHeaders deep-merge across user + legacy-positron (user wins per key)", () => {
 		const catalog = resolveProviderCatalog({
 			sources: [
 				source("user", {
 					providers: { anthropic: { customHeaders: { "x-team": "user", "x-user-only": "u" } } },
 				}),
-				source("host", {
+				source("legacy-positron", {
 					providers: { anthropic: { customHeaders: { "x-team": "host", "x-host-only": "h" } } },
 				}),
 			],
@@ -311,14 +312,14 @@ describe("resolveProviderCatalog — host layer merge semantics (Phase 6)", () =
 			envVars: {},
 		});
 		expect(find(catalog, "anthropic")?.connection.customHeaders).toEqual({
-			"x-team": "user", // user wins on collision (host is the fallback below it)
+			"x-team": "user", // user wins on collision (legacy-positron is the fallback below it)
 			"x-user-only": "u", // user's own key preserved
 			"x-host-only": "h", // host's non-colliding key merged in
 		});
 	});
 
 	it("snowflake host/account merge across user + host (both keys resolve)", () => {
-		// user sets only account; host sets only host → the merged connection
+		// user sets only account; legacy-positron sets only host → the merged connection
 		// carries both. `host` wins over `account` when the URL is built downstream
 		// (that preference is in ai-credentials' shapeCredentials — see its tests).
 		const catalog = resolveProviderCatalog({
@@ -326,7 +327,7 @@ describe("resolveProviderCatalog — host layer merge semantics (Phase 6)", () =
 				source("user", {
 					providers: { "snowflake-cortex": { snowflake: { account: "user-acct" } } },
 				}),
-				source("host", {
+				source("legacy-positron", {
 					providers: { "snowflake-cortex": { snowflake: { host: "host.snowflakecomputing.com" } } },
 				}),
 			],
@@ -340,14 +341,14 @@ describe("resolveProviderCatalog — host layer merge semantics (Phase 6)", () =
 	});
 
 	it("snowflake home merges across user + host like the other snowflake keys", () => {
-		// host (e.g. the transitional authentication.* layer) supplies home; user
+		// legacy-positron (the transitional authentication.* layer) supplies home; user
 		// supplies account → the merged connection carries both.
 		const catalog = resolveProviderCatalog({
 			sources: [
 				source("user", {
 					providers: { "snowflake-cortex": { snowflake: { account: "user-acct" } } },
 				}),
-				source("host", {
+				source("legacy-positron", {
 					providers: { "snowflake-cortex": { snowflake: { home: "/managed/snowflake" } } },
 				}),
 			],
@@ -361,25 +362,29 @@ describe("resolveProviderCatalog — host layer merge semantics (Phase 6)", () =
 		expect(resolved?.account).toBe("user-acct");
 	});
 
-	it("AWS region ordering: env > host authentication setting > us-east-1 default", () => {
-		// host setting beats the us-east-1 default (revival of the previously-dead
+	it("AWS region ordering: env > legacy authentication setting > us-east-1 default", () => {
+		// legacy setting beats the us-east-1 default (revival of the previously-dead
 		// authentication.aws.credentials.AWS_REGION).
 		const hostOnly = resolveProviderCatalog({
-			sources: [source("host", { providers: { bedrock: { aws: { region: "eu-west-1" } } } })],
+			sources: [
+				source("legacy-positron", { providers: { bedrock: { aws: { region: "eu-west-1" } } } }),
+			],
 			baseline: STANDALONE,
 			envVars: {},
 		});
 		expect(find(hostOnly, "bedrock")?.connection.aws?.region).toBe("eu-west-1");
 
-		// env AWS_REGION still beats the host setting (env overlay > host).
+		// env AWS_REGION still beats the legacy setting (env overlay > legacy-positron).
 		const withEnv = resolveProviderCatalog({
-			sources: [source("host", { providers: { bedrock: { aws: { region: "eu-west-1" } } } })],
+			sources: [
+				source("legacy-positron", { providers: { bedrock: { aws: { region: "eu-west-1" } } } }),
+			],
 			baseline: STANDALONE,
 			envVars: { AWS_REGION: "ap-south-1" },
 		});
 		expect(find(withEnv, "bedrock")?.connection.aws?.region).toBe("ap-south-1");
 
-		// no host, no env → the us-east-1 default.
+		// no legacy setting, no env → the us-east-1 default.
 		const defaultOnly = resolveProviderCatalog({
 			sources: [source("user", { providers: {} })],
 			baseline: STANDALONE,
@@ -523,22 +528,22 @@ describe("recoverValidStack — choose dropped source", () => {
 		const sources = [
 			source("enforced", { providers: { anthropic: { enabled: false } } }),
 			source("user", { providers: {} }),
-			source("host", { providers: { openai: { enabled: true } } }),
+			source("legacy-positron", { providers: { openai: { enabled: true } } }),
 		];
 		const { kept, config } = recoverValidStack(sources);
-		expect(keptKinds(kept)).toEqual(["enforced", "user", "host"]);
+		expect(keptKinds(kept)).toEqual(["enforced", "user", "legacy-positron"]);
 		expect(config.providers?.anthropic?.enabled).toBe(false);
 	});
 
 	it("drops the single offending overlay, preserving unrelated valid overlays", () => {
-		// enforced is the culprit; user + host must survive.
+		// enforced is the culprit; user + legacy-positron must survive.
 		const sources = [
 			source("enforced", badCustom("ghost")),
 			source("user", { providers: {} }),
-			source("host", { providers: { anthropic: { enabled: false } } }),
+			source("legacy-positron", { providers: { anthropic: { enabled: false } } }),
 		];
 		const { kept } = recoverValidStack(sources);
-		expect(keptKinds(kept)).toEqual(["user", "host"]);
+		expect(keptKinds(kept)).toEqual(["user", "legacy-positron"]);
 	});
 
 	it("does not over-remove: keeps a good enforced above a bad default", () => {
@@ -565,5 +570,148 @@ describe("recoverValidStack — choose dropped source", () => {
 		expect(config.providers?.anthropic?.enabled).toBe(true);
 		// A warning was emitted for each dropped source.
 		expect(logger.warn).toHaveBeenCalledTimes(2);
+	});
+});
+
+// PROVIDER-SETTINGS-MIGRATION(legacy-positron) gate: delete this block with the source kind.
+describe("resolveProviderCatalog — legacy-positron-enforced (legacy Positron enforcement)", () => {
+	it("legacy-positron-enforced beats user, legacy-positron, and default (connection)", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("legacy-positron-enforced", {
+					providers: { anthropic: { baseUrl: "https://legacy-enforced.example.com" } },
+				}),
+				source("user", { providers: { anthropic: { baseUrl: "https://user.example.com" } } }),
+				source("legacy-positron", {
+					providers: { anthropic: { baseUrl: "https://legacy.example.com" } },
+				}),
+				source("default", {
+					providers: { anthropic: { baseUrl: "https://default.example.com" } },
+				}),
+			],
+			baseline: STANDALONE,
+			envVars: {},
+		});
+		expect(find(catalog, "anthropic")?.connection.baseUrl).toBe(
+			"https://legacy-enforced.example.com",
+		);
+	});
+
+	it("legacy-positron-enforced beats connection env vars", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("legacy-positron-enforced", {
+					providers: { anthropic: { baseUrl: "https://legacy-enforced.example.com" } },
+				}),
+				source("user", { providers: {} }),
+			],
+			baseline: STANDALONE,
+			envVars: { ANTHROPIC_BASE_URL: "https://env.example.com" },
+		});
+		expect(find(catalog, "anthropic")?.connection.baseUrl).toBe(
+			"https://legacy-enforced.example.com",
+		);
+	});
+
+	it("legacy-positron-enforced enablement beats user", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("legacy-positron-enforced", { providers: { anthropic: { enabled: false } } }),
+				source("user", { providers: { anthropic: { enabled: true } } }),
+			],
+			baseline: STANDALONE,
+			envVars: {},
+		});
+		expect(find(catalog, "anthropic")?.enabled).toBe(false);
+	});
+
+	it("legacy-positron-enforced models beat user (custom replaces wholesale)", () => {
+		const enforcedModel = {
+			id: "team-model",
+			name: "Team Model",
+			maxContextLength: 100_000,
+			supportsTools: true,
+			supportsImages: false,
+			supportsToolResultImages: false,
+			supportsWebSearch: false,
+		};
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("legacy-positron-enforced", {
+					providers: {
+						anthropic: { models: { discovery: "off", custom: [enforcedModel] } },
+					},
+				}),
+				source("user", {
+					providers: {
+						anthropic: {
+							models: {
+								discovery: "auto",
+								custom: [{ ...enforcedModel, id: "user-model", name: "User Model" }],
+							},
+						},
+					},
+				}),
+			],
+			baseline: STANDALONE,
+			envVars: {},
+		});
+		const models = find(catalog, "anthropic")?.models;
+		expect(models?.discovery).toBe("off");
+		expect(models?.custom?.map((m) => m.id)).toEqual(["team-model"]);
+	});
+
+	it("canonical enforced still beats legacy-positron-enforced", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("legacy-positron-enforced", {
+					providers: { anthropic: { baseUrl: "https://legacy-enforced.example.com" } },
+				}),
+				source("enforced", {
+					providers: { anthropic: { baseUrl: "https://enforced.example.com" } },
+				}),
+			],
+			baseline: STANDALONE,
+			envVars: {},
+		});
+		expect(find(catalog, "anthropic")?.connection.baseUrl).toBe("https://enforced.example.com");
+	});
+
+	it("an enforced key pins that key only — user-set sibling keys remain", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("legacy-positron-enforced", {
+					providers: { anthropic: { baseUrl: "https://legacy-enforced.example.com" } },
+				}),
+				source("user", {
+					providers: { anthropic: { customHeaders: { "x-team": "user" } } },
+				}),
+			],
+			baseline: STANDALONE,
+			envVars: {},
+		});
+		const connection = find(catalog, "anthropic")?.connection;
+		expect(connection?.baseUrl).toBe("https://legacy-enforced.example.com");
+		expect(connection?.customHeaders).toEqual({ "x-team": "user" });
+	});
+
+	it("an invalid legacy-positron-enforced overlay is dropped alone, with a warning", () => {
+		const logger = { debug: vi.fn(), warn: vi.fn() };
+		const catalog = resolveProviderCatalog({
+			sources: [
+				// Custom entry with no `type` that no other source completes →
+				// this overlay's merge is invalid and it is dropped by recovery.
+				source("legacy-positron-enforced", {
+					providers: { custom: { ghost: { enabled: false } } },
+				}),
+				source("user", { providers: { anthropic: { enabled: true } } }),
+			],
+			baseline: STANDALONE,
+			envVars: {},
+			logger,
+		});
+		expect(find(catalog, "ghost")).toBeUndefined();
+		expect(find(catalog, "anthropic")?.enabled).toBe(true);
+		expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("invalid merged result"));
 	});
 });

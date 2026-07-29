@@ -36,7 +36,7 @@ export type {
 // --- Schema ----------------------------------------------------------------
 export {
 	customModelSchema,
-	enforcedProvidersConfigSchema,
+	providersConfigFragmentSchema,
 	providersConfigSchema,
 } from "./schema.js";
 
@@ -52,8 +52,8 @@ export type {
 	CustomProviderId,
 	CustomProviderEntry,
 	DefaultBlock,
-	EnforcedProvidersConfig,
-	EnforcedProvidersMap,
+	ProvidersConfigFragment,
+	ProvidersMapFragment,
 	LoggerLike,
 	ModelInfoLike,
 	ModelOverride,
@@ -93,6 +93,19 @@ export {
 // --- Resolution helpers (public) -------------------------------------------
 export { resolveModels } from "./resolve-models.js";
 
+// --- Bare-host base URL correction ------------------------------------------
+export {
+	ANTHROPIC_API_VERSION,
+	ANTHROPIC_HOST,
+	GEMINI_API_VERSION,
+	GEMINI_HOST,
+	LMSTUDIO_API_VERSION,
+	LMSTUDIO_HOST,
+	normalizeBaseUrlForProvider,
+	OPENAI_API_VERSION,
+	OPENAI_HOST,
+} from "./base-url.js";
+
 // --- Deep resolver seam (owns the precedence stack) ------------------------
 export { resolveProviderCatalog } from "./resolve-catalog.js";
 export type {
@@ -101,10 +114,26 @@ export type {
 	ResolveProviderCatalogOptions,
 } from "./resolve-catalog.js";
 
-// --- Watchable config-source contracts (pure) ------------------------------
-// The seam types a host source implements. Kept in the pure entry so
-// `ai-config/positron` can build a source without depending on `ai-config/node`.
-export type { Disposable, ProviderConfigSourceProvider } from "./config-source.js";
+// --- Disposable (returned by LegacySettingsReader.watch) --------------------
+export type { Disposable } from "./config-source.js";
 
 // --- Enforcement merge -----------------------------------------------------
 export { mergeConfigFragments, mergeEnforced } from "./enforce.js";
+
+// --- PROVIDER-SETTINGS-MIGRATION(legacy-positron) BEGIN ----------------------
+// The legacy Positron settings map + translator, shared by the loader's
+// legacy layers and Positron's one-shot settings migration. The internal
+// source builders are NOT exported — the `legacyPositronSettings` loader
+// option is the only public runtime surface.
+export {
+	LEGACY_CONNECTION_ROWS,
+	legacySettingKeys,
+	translateLegacyPositronSettings,
+} from "./legacy-positron-settings/index.js";
+export type {
+	LegacyConnectionRow,
+	LegacySettingsReader,
+	SettingMigration,
+	TranslatedLegacySettings,
+} from "./legacy-positron-settings/index.js";
+// --- PROVIDER-SETTINGS-MIGRATION(legacy-positron) END ------------------------

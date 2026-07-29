@@ -28,10 +28,6 @@ import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 
 type ApiMode = "completions" | "responses";
 
-// Host/version constants live in base-url.ts (which must stay free of this
-// module's Node-only imports); re-exported here for the provider modules.
-export { OPENAI_API_VERSION, OPENAI_HOST } from "../base-url";
-
 export class OpenAIClient implements ModelClient {
 	private readonly apiKey?: string;
 	private readonly baseURL?: string;

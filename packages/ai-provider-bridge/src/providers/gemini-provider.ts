@@ -2,10 +2,10 @@
  *  Copyright (C) 2025-2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { getGeminiModelCapabilities } from "ai-config";
+import { GEMINI_API_VERSION, GEMINI_HOST, getGeminiModelCapabilities } from "ai-config";
 
 import { isInteractionsEligible } from "../model-capabilities/gemini-interactions";
-import { GEMINI_API_VERSION, GEMINI_HOST, GeminiClient } from "../model-clients/GeminiClient";
+import { GeminiClient } from "../model-clients/GeminiClient";
 import type { Logger, ModelInfo } from "../types";
 import type { ApiKeyCredentials } from "../types";
 import { normalizeProviderBaseUrl } from "../utils";

@@ -21,8 +21,8 @@ import type {
 	customModelSchema,
 	customProviderEntrySchema,
 	defaultBlockSchema,
-	enforcedProvidersConfigSchema,
-	enforcedProvidersMapSchema,
+	providersConfigFragmentSchema,
+	providersMapFragmentSchema,
 	modelOverrideSchema,
 	modelsBlockSchema,
 	providersConfigSchema,
@@ -60,18 +60,19 @@ export type CustomModel = z.infer<typeof customModelSchema>;
 export type ModelsBlock = z.infer<typeof modelsBlockSchema>;
 
 /**
- * Enforced config type. Identical to `ProvidersConfig` except custom provider
- * entries have `type` optional, so an admin can enforce a single key without
- * repeating the full entry. The merged result is re-validated with the full
- * schema before use.
+ * A partial config fragment — the shape every catalog config source carries.
+ * Identical to `ProvidersConfig` except custom provider entries have `type`
+ * optional, so a fragment (e.g. an admin-enforced overlay) can set a single
+ * key without repeating the full entry. The merged result is re-validated
+ * with the full schema before use.
  */
-export type EnforcedProvidersConfig = z.infer<typeof enforcedProvidersConfigSchema>;
+export type ProvidersConfigFragment = z.infer<typeof providersConfigFragmentSchema>;
 
 /**
- * Enforced providers map. Identical to `ProvidersMap` except custom entries
- * have `type` optional.
+ * The `providers` map of a config fragment. Identical to `ProvidersMap`
+ * except custom entries have `type` optional.
  */
-export type EnforcedProvidersMap = z.infer<typeof enforcedProvidersMapSchema>;
+export type ProvidersMapFragment = z.infer<typeof providersMapFragmentSchema>;
 
 // ---------------------------------------------------------------------------
 // Branded custom provider id

@@ -66,6 +66,5 @@ export type {
 	LoggerLike,
 	MutateConfigOptions,
 	ProviderCatalogChange,
-	ProviderConfigSourceProvider,
 	WatchCatalogOptions,
 } from "./types.js";

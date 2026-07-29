@@ -28,9 +28,10 @@ export const ENFORCED_ENV_VAR = "POSIT_AI_PROVIDERS_ENFORCED";
 
 /**
  * Environment variable whose value is a JSON fragment of **default** config
- * — Workbench admin defaults. Sits below the user file and host settings, so
- * a user's `providers.json` (or host `authentication.*`) overrides it. Uses
- * the same relaxed fragment shape as the enforced overlay.
+ * — Workbench admin defaults. Sits below the user file and the legacy
+ * Positron settings layer, so a user's `providers.json` (or legacy
+ * `authentication.*`) overrides it. Uses the same relaxed fragment shape as
+ * the enforced overlay.
  */
 export const DEFAULT_ENV_VAR = "POSIT_AI_PROVIDERS_DEFAULT";
 

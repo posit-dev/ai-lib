@@ -598,86 +598,97 @@ describe("loadResolvedProviderCatalog", () => {
 	});
 
 	// ========================================================================
-	// additionalSources (host layer) folded into the LOAD path
+	// PROVIDER-SETTINGS-MIGRATION(legacy-positron) gate: delete this block
+	// with the loader option. Legacy layers folded into the LOAD path.
 	// ========================================================================
 
-	describe("additionalSources", () => {
-		it("folds a host source into the initial load (below user, above default)", async () => {
-			// providers.json (user) sets openai's base URL; a host source sets
-			// anthropic's. Both must appear in the initial catalog — the load path
-			// reads additionalSources, not just the watch path.
+	describe("legacyPositronSettings", () => {
+		const fakeReader = (values: Record<string, unknown>) => ({
+			get: (key: string) => values[key],
+			watch: () => ({ dispose: () => {} }),
+		});
+
+		it("folds the reader layer into the initial load (below user, above default)", async () => {
+			// providers.json (user) sets openai's base URL; the legacy reader sets
+			// anthropic's and openai's. Both providers must resolve in the initial
+			// catalog — the load path reads the legacy layers, not just the watch
+			// path.
 			const configPath = await writeConfig(tempDir, {
 				providers: { openai: { baseUrl: "https://user-openai.example.com" } },
 			});
-
-			const hostSource = {
-				read: () => ({
-					kind: "host" as const,
-					label: "authentication.*",
-					config: {
-						providers: {
-							anthropic: { baseUrl: "https://host-anthropic.example.com" },
-							openai: { baseUrl: "https://host-openai.example.com" },
-						},
-					},
-				}),
-			};
 
 			const catalog = await loadResolvedProviderCatalog({
 				baseline: STANDALONE_BASELINE,
 				configPath,
 				logger: mockLogger,
-				additionalSources: [hostSource],
+				legacyPositronSettings: fakeReader({
+					"authentication.anthropic.baseUrl": "https://legacy-anthropic.example.com",
+					"authentication.openai-api.baseUrl": "https://legacy-openai.example.com",
+				}),
 			});
 
-			// Host contributes anthropic (user silent → host wins over default).
+			// Legacy contributes anthropic (user silent → legacy wins over default).
 			expect(findProvider(catalog, "anthropic")?.connection.baseUrl).toBe(
-				"https://host-anthropic.example.com",
+				"https://legacy-anthropic.example.com",
 			);
-			// user wins over host for openai.
+			// user wins over legacy for openai.
 			expect(findProvider(catalog, "openai")?.connection.baseUrl).toBe(
 				"https://user-openai.example.com",
 			);
 		});
 
-		it("skips a host source that reads undefined", async () => {
-			const configPath = await writeConfig(tempDir, { providers: {} });
-
-			const emptyHostSource = { read: () => undefined };
+		it("folds the enforced env layer into the initial load (above user)", async () => {
+			const configPath = await writeConfig(tempDir, {
+				providers: { anthropic: { baseUrl: "https://user.example.com" } },
+			});
 
 			const catalog = await loadResolvedProviderCatalog({
 				baseline: STANDALONE_BASELINE,
 				configPath,
 				logger: mockLogger,
-				additionalSources: [emptyHostSource],
+				envVars: {
+					POSITRON_ENFORCED_SETTINGS: JSON.stringify({
+						"authentication.anthropic.baseUrl": "https://enforced.example.com",
+					}),
+				},
+				legacyPositronSettings: fakeReader({}),
+			});
+
+			expect(findProvider(catalog, "anthropic")?.connection.baseUrl).toBe(
+				"https://enforced.example.com",
+			);
+		});
+
+		it("option absent → neither legacy layer (even with the env var set)", async () => {
+			const configPath = await writeConfig(tempDir, { providers: {} });
+
+			const catalog = await loadResolvedProviderCatalog({
+				baseline: STANDALONE_BASELINE,
+				configPath,
+				logger: mockLogger,
+				envVars: {
+					POSITRON_ENFORCED_SETTINGS: JSON.stringify({
+						"authentication.anthropic.baseUrl": "https://enforced.example.com",
+					}),
+				},
 			});
 
 			expect(catalog.length).toBe(BUILTIN_PROVIDER_IDS.length);
 			expect(findProvider(catalog, "anthropic")?.connection.baseUrl).toBeUndefined();
 		});
 
-		it("awaits an async host source read", async () => {
+		it("a reader with nothing set contributes no layer", async () => {
 			const configPath = await writeConfig(tempDir, { providers: {} });
-
-			const asyncHostSource = {
-				read: () =>
-					Promise.resolve({
-						kind: "host" as const,
-						label: "authentication.*",
-						config: { providers: { gemini: { baseUrl: "https://host-gemini.example.com" } } },
-					}),
-			};
 
 			const catalog = await loadResolvedProviderCatalog({
 				baseline: STANDALONE_BASELINE,
 				configPath,
 				logger: mockLogger,
-				additionalSources: [asyncHostSource],
+				legacyPositronSettings: fakeReader({}),
 			});
 
-			expect(findProvider(catalog, "gemini")?.connection.baseUrl).toBe(
-				"https://host-gemini.example.com",
-			);
+			expect(catalog.length).toBe(BUILTIN_PROVIDER_IDS.length);
+			expect(findProvider(catalog, "anthropic")?.connection.baseUrl).toBeUndefined();
 		});
 	});
 });
