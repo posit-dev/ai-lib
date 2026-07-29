@@ -178,6 +178,15 @@ export interface ModelInfo {
 	 */
 	protocol?: Protocol | LegacyProtocol;
 
+	/**
+	 * Provider-discovered default endpoint for this model.
+	 *
+	 * Providers whose models live on different endpoints can supply this value
+	 * during discovery. It is not a user override: `providers.json` model
+	 * overrides and protocol endpoints take precedence during routing.
+	 */
+	baseUrl?: string;
+
 	// Capability fields (all optional for backward compatibility)
 	supportsTools: boolean;
 	supportsImages: boolean; // Images in user messages

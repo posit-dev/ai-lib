@@ -66,11 +66,37 @@ Model clients (`AnthropicClient`, `OpenAIClient`, `GeminiClient`) **trust the ba
 
 The correction policy itself lives in one public helper, `normalizeBaseUrlForProvider(providerId, url)` (`src/base-url.ts`, exported from the root entrypoint): it corrects a bare known host (anthropic/openai/gemini, tolerant of whitespace and trailing slashes) to `host/version`, and returns **any other input byte-for-byte unchanged** — so `result !== url` means precisely "bare-host fix applied." Consumers (Positron's `authentication-source.ts` and `fix-base-url-settings.ts`) use that identity check as their write-back/notification criterion. `normalizeProviderBaseUrl` (used by the model-discovery fetchers) is unrelated: it only fills in a host/version when the URL is unset and trims whitespace/trailing slashes for composition — it does not correct a configured bare host.
 
+`ModelInfo.baseUrl` is also a provider-discovered routing default. It supports
+providers whose models live on different endpoints and is resolved below
+model overrides and protocol endpoints, but above provider-wide `baseUrl`.
+The full ladder is: model override/custom model → protocol endpoint →
+discovered model → provider-wide URL → client default.
+
 ## Credentials
 
 `ProviderCredentials` is a discriminated union (`apikey`, `oauth`, `local`, `aws-credentials`, `google-cloud`) produced by `CredentialProvider` implementations. Client factories receive the resolved credential object and use it to authenticate every model-discovery and chat request.
 
 Credential resolution is split in two halves: session lookup (vscode-bound, `src/positron/auth.ts`) obtains the raw auth token, and shaping (pure, `src/credential-shaping.ts`) turns that token plus `authentication.*` settings (read through an injected `CredentialConfig`) into `ProviderCredentials`. Positron's headless language-model facade reuses the shaping half with its own config adapter.
+
+Bedrock's manual-key and `fromNodeProviderChain` branches converge in
+`createAwsCredentialProvider()`. Converse, Anthropic Messages, Mantle
+inference, and both discovery clients consume the same provider-function
+shape, keeping credential precedence identical across protocols.
+
+### Bedrock's three protocols
+
+The Bedrock client routes Anthropic model IDs through Anthropic Messages,
+ordinary Bedrock models through Converse, and OpenAI families through Mantle.
+Mantle has one independently cached discovery source,
+`GET https://bedrock-mantle.{region}.api.aws/v1/models`, signed for the
+`bedrock-mantle` service. A Mantle discovery failure never clears or replaces
+the Converse cache.
+
+gpt-oss uses Mantle Chat Completions at `/v1`; GPT-5.x uses Responses at
+`/openai/v1`. Responses requests set `store: false`, force the AI SDK's
+reasoning-model behavior, map UI `"off"` to wire `"none"`, and retain native
+tool-result images. The Mantle provider receives `apiKey: ""` so a stale
+`AWS_BEARER_TOKEN_BEDROCK` cannot override configured SigV4 credentials.
 
 **`ApiKeyCredentials.customHeaders`** -- Optional `Record<string, string>` of extra HTTP headers attached to every request for the provider. Intended for additive enterprise-gateway markers (e.g. Databricks `x-databricks-use-coding-agent-mode`, tenancy/routing headers). Precedence varies:
 

@@ -158,8 +158,11 @@ reusable independent of the catalog builder.
   user file > legacy-positron (legacy Positron settings via the
   `legacyPositronSettings` reader) > built-in defaults. Object keys deep-merge
   across layers.
-- **Model routing**: user config (override/custom) > provider config > discovered
-  model inference.
+- **Model protocol**: user config (override/custom) > provider protocol >
+  discovered model inference.
+- **Model endpoint**: model override/custom model > provider
+  `endpoints[resolvedProtocol]` > discovered model `baseUrl` > provider-wide
+  `baseUrl` > client default.
 
 ## Legacy Positron settings (PROVIDER-SETTINGS-MIGRATION)
 
@@ -262,8 +265,10 @@ capability degrades gracefully, overstating it breaks requests.
 
 Per-provider cases:
 
-- `anthropic` / `bedrock` → the Anthropic table (Bedrock ids carry the same
-  `claude-*` family, just prefixed).
+- `anthropic` → the Anthropic table.
+- `bedrock` → the Mantle OpenAI-family table first, then the Anthropic table.
+  The Mantle rules deliberately exclude safeguard and unknown IDs; gpt-oss
+  uses Chat Completions while GPT-5.x uses Responses.
 - `openai` → the OpenAI table, with `maxInputTokens` re-derived via
   `openaiMaxInputTokens()` (context window minus reserved output budget) —
   the table itself doesn't set it.
@@ -286,9 +291,9 @@ Per-provider cases:
   tool-result images off, image support only when the upstream table lists
   image media types). Only `family` and `thinkingEffortLevels` are borrowed
   from the upstream tables (mirroring `snowflake-cortex-provider.ts`). Both
-  branches set `protocol` (`"anthropic-messages"` or `"openai-chat"`) — the
-  only case where inference determines the wire protocol. Every other
-  provider leaves `protocol` `undefined`.
+  branches set `protocol` (`"anthropic-messages"` or `"openai-chat"`).
+- Protocol inference is intentionally limited to Snowflake and Bedrock Mantle;
+  other provider families leave it `undefined`.
 - Anything else (`ms-foundry`, `openai-compatible`, custom provider ids) stays
   at the generic baseline — those are unknown endpoints.
 

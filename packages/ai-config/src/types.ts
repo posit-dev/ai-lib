@@ -210,7 +210,7 @@ export type InferredModelCapabilities = Omit<
 export interface ResolvedModelInfo extends ModelInfoLike {
 	/** Wire protocol resolved from model → provider → undefined. */
 	readonly resolvedProtocol: Protocol | undefined;
-	/** Base URL resolved from model → provider endpoints → provider baseUrl → undefined. */
+	/** Base URL resolved from user model → provider endpoints → discovered model → provider → undefined. */
 	readonly resolvedBaseUrl: string | undefined;
 }
 
@@ -226,6 +226,7 @@ export const MODEL_METADATA_FIELD_NAMES = [
 	"maxInputTokens",
 	"maxOutputTokens",
 	"protocol",
+	"baseUrl",
 	"supportsTools",
 	"supportsImages",
 	"supportsToolResultImages",
@@ -235,12 +236,10 @@ export const MODEL_METADATA_FIELD_NAMES = [
 ] as const;
 
 /**
- * Routing-only field names that appear in model overrides/custom definitions
- * but do NOT correspond to bridge ModelInfo fields. These are config-layer
- * routing concerns (endpoint selection) resolved by the pipeline, not model
- * metadata. Not checked by the shape guard.
+ * Config-only routing field names that do not correspond to bridge ModelInfo
+ * fields. Currently empty: discovered models can now carry `baseUrl`.
  */
-export const MODEL_ROUTING_FIELD_NAMES = ["baseUrl"] as const;
+export const MODEL_ROUTING_FIELD_NAMES = [] as const;
 
 // ---------------------------------------------------------------------------
 // Platform baseline

@@ -43,6 +43,11 @@ export interface ModelClientChatParams {
 	 * when `false`, images are stripped with an explanatory note.
 	 */
 	supportsImages?: boolean;
+	/**
+	 * Whether the target model can consume images natively inside tool results.
+	 * Routes that cannot do so must transform or strip them before sending.
+	 */
+	supportsToolResultImages?: boolean;
 
 	// Posit Assistant-specific parameters — not part of the generic
 	// provider contract; may be removed when this package is extracted.

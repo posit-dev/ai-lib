@@ -4,6 +4,7 @@
 
 import type { InferredModelCapabilities } from "../types.js";
 import { getAnthropicModelCapabilities } from "./anthropic-helpers.js";
+import { getBedrockMantleModelCapabilities } from "./bedrock-mantle-helpers.js";
 import { getDeepSeekModelCapabilities } from "./deepseek-helpers.js";
 import { getGeminiModelCapabilities } from "./gemini-helpers.js";
 import { getOpenAIModelCapabilities, openaiMaxInputTokens } from "./openai-helpers.js";
@@ -72,8 +73,11 @@ function snowflakeDefaults(modelId: string): Partial<InferredModelCapabilities> 
 function familyDefaults(providerId: string, modelId: string): Partial<InferredModelCapabilities> {
 	switch (providerId) {
 		case "anthropic":
-		case "bedrock":
 			return getAnthropicModelCapabilities(modelId) ?? {};
+		case "bedrock":
+			return (
+				getBedrockMantleModelCapabilities(modelId) ?? getAnthropicModelCapabilities(modelId) ?? {}
+			);
 		case "openai": {
 			const caps = getOpenAIModelCapabilities(modelId);
 			if (!caps) return {};

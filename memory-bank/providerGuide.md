@@ -80,6 +80,23 @@ export function registerNewProviderProvider(registry: ProviderRegistry, logger: 
 }
 ```
 
+### Providers with per-model endpoints
+
+Discovery may set `ModelInfo.baseUrl` when one provider serves model families
+from different endpoints. Treat it as a discovered default, not a user
+override. `resolveModels()` applies this precedence:
+
+1. model override/custom-model `baseUrl`
+2. provider `endpoints[resolvedProtocol]`
+3. discovered model `baseUrl`
+4. provider-wide `baseUrl`
+5. client default
+
+Bedrock is the reference: Mantle discovery lists all models at `/v1/models`,
+while gpt-oss inference uses `/v1` and GPT-5.x Responses inference uses
+`/openai/v1`. The provider assigns the inference endpoint from its family
+capability rule rather than assuming the listing path is callable.
+
 ## Step 6: Export from Package
 
 **File**: `src/providers.ts`
@@ -113,7 +130,10 @@ If it is a local endpoint provider, add it to `LOCAL_PROVIDER_IDS` in `src/local
 
 If the provider's models support thinking/reasoning:
 
-1. **Declare capability** in model capabilities: Add `thinkingEffortLevels: ["off", "low", "medium", "high"]` (or a subset) to `ModelCapabilities`. This is typically done in the capability inference function.
+1. **Declare capability** in model capabilities: Add the levels the endpoint
+   actually accepts. Only expose `"off"` when the client maps it to a verified
+   wire-level disable; omitting a reasoning field usually means provider
+   default, not disabled.
 
 2. **Map effort in client**: In the client's `chat()` method, check `isThinkingEnabled(params.thinkingEffort)` from `src/utils.ts`. If enabled, map the effort string to the provider's API parameter format.
 
