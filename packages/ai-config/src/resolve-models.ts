@@ -160,8 +160,9 @@ export function resolveModels(
  * Endpoint/baseUrl:
  *   1. User-configured baseUrl (from override or custom model) — highest
  *   2. Provider endpoints[resolvedProtocol] — middle
- *   3. Provider baseUrl — lower
- *   4. undefined (caller falls back to built-in defaults) — lowest
+ *   3. Discovered model baseUrl
+ *   4. Provider baseUrl — lower
+ *   5. undefined (caller falls back to built-in defaults) — lowest
  */
 function attachRouting(
 	model: ModelInfoLike,
@@ -174,11 +175,12 @@ function attachRouting(
 	const rawProtocol = userRouting.protocol ?? providerConnection?.protocol ?? model.protocol;
 	const resolvedProtocol = normalizeProtocol(rawProtocol);
 
-	// BaseUrl: user routing → provider endpoints[protocol] → provider baseUrl
+	// BaseUrl: user routing → provider endpoints[protocol] → discovered model → provider baseUrl
 	const resolvedBaseUrl = resolveEndpoint(
 		userRouting.baseUrl,
 		providerConnection,
 		resolvedProtocol,
+		model.baseUrl,
 	);
 
 	return {

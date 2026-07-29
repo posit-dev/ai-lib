@@ -17,13 +17,15 @@ import type { Protocol } from "./vocabulary.js";
  * Precedence:
  * 1. Model-level `baseUrl` (from override or custom model)
  * 2. Provider `endpoints[resolvedProtocol]`
- * 3. Provider `baseUrl`
- * 4. undefined (caller falls back to built-in defaults)
+ * 3. Discovered model `baseUrl`
+ * 4. Provider `baseUrl`
+ * 5. undefined (caller falls back to built-in defaults)
  */
 export function resolveEndpoint(
 	modelBaseUrl: string | undefined,
 	providerConnection: ResolvedConnection | undefined,
 	resolvedProtocol: Protocol | undefined,
+	discoveredBaseUrl: string | undefined,
 ): string | undefined {
 	// 1. Model-level override
 	if (modelBaseUrl) {
@@ -38,6 +40,11 @@ export function resolveEndpoint(
 		}
 	}
 
-	// 3. Provider baseUrl
+	// 3. Provider-discovered per-model endpoint
+	if (discoveredBaseUrl) {
+		return discoveredBaseUrl;
+	}
+
+	// 4. Provider baseUrl
 	return providerConnection?.baseUrl ?? undefined;
 }

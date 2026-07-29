@@ -70,6 +70,7 @@ export type {
 
 // --- Model capability inference ---------------------------------------------
 export { getAnthropicModelCapabilities } from "./model-capabilities/anthropic-helpers.js";
+export { getBedrockMantleModelCapabilities } from "./model-capabilities/bedrock-mantle-helpers.js";
 export { getDeepSeekModelCapabilities } from "./model-capabilities/deepseek-helpers.js";
 export { getGeminiModelCapabilities } from "./model-capabilities/gemini-helpers.js";
 export { getGemmaModelCapabilities } from "./model-capabilities/gemma-helpers.js";

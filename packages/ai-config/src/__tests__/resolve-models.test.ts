@@ -261,6 +261,49 @@ describe("resolveModels", () => {
 		expect(result[0].resolvedBaseUrl).toBe("https://provider.example.com");
 	});
 
+	it("uses the complete endpoint precedence ladder", () => {
+		const discoveredModel = makeModel("model-a", {
+			protocol: "openai-responses",
+			baseUrl: "https://discovered.example.com",
+		});
+
+		expect(resolveModels(undefined, [discoveredModel])[0].resolvedBaseUrl).toBe(
+			"https://discovered.example.com",
+		);
+		expect(
+			resolveModels(undefined, [discoveredModel], {
+				baseUrl: "https://provider.example.com",
+			})[0].resolvedBaseUrl,
+		).toBe("https://discovered.example.com");
+		expect(
+			resolveModels(undefined, [discoveredModel], {
+				endpoints: { "openai-responses": "https://protocol.example.com" },
+				baseUrl: "https://provider.example.com",
+			})[0].resolvedBaseUrl,
+		).toBe("https://protocol.example.com");
+		expect(
+			resolveModels(
+				{ overrides: { "model-a": { baseUrl: "https://override.example.com" } } },
+				[discoveredModel],
+				{
+					endpoints: { "openai-responses": "https://protocol.example.com" },
+					baseUrl: "https://provider.example.com",
+				},
+			)[0].resolvedBaseUrl,
+		).toBe("https://override.example.com");
+	});
+
+	it("keeps a discovered endpoint stable across repeated routing resolution", () => {
+		const once = resolveModels(undefined, [
+			makeModel("model-a", {
+				protocol: "openai-responses",
+				baseUrl: "https://discovered.example.com",
+			}),
+		]);
+		const twice = resolveModels(undefined, once);
+		expect(twice[0].resolvedBaseUrl).toBe(once[0].resolvedBaseUrl);
+	});
+
 	it("resolves per-protocol endpoint from provider", () => {
 		const connection: ResolvedConnection = {
 			protocol: "anthropic-messages",

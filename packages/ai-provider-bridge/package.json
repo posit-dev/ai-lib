@@ -74,6 +74,7 @@
     "@ai-sdk/openai-compatible": "^2.0.42",
     "@aws-sdk/client-bedrock": "^3.981.0",
     "@aws-sdk/credential-providers": "^3.981.0",
+    "aws4fetch": "^1.0.20",
     "@github/copilot-sdk": "^0.2.2",
     "@openrouter/ai-sdk-provider": "^2.8.0",
     "ai": "^6.0.68",

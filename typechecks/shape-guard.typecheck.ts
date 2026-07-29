@@ -77,11 +77,11 @@ type TupleValuesAssignableTo<A extends readonly string[], T extends string> = A[
 const _providerIdsMatch: TupleEqual<typeof BUILTIN_PROVIDER_IDS, typeof PROVIDER_IDS> = true;
 
 // ---------------------------------------------------------------------------
-// Assertion 2: MODEL_METADATA_FIELD_NAMES ⊆ keyof ModelInfo
+// Assertion 2: model metadata (including discovered baseUrl) ⊆ keyof ModelInfo
 //
 // Every metadata field ai-config allows in model overrides must exist on the
-// bridge's ModelInfo. Routing-only fields (baseUrl) are intentionally excluded
-// — they are config-layer routing concerns, not ModelInfo properties.
+// bridge's ModelInfo. This now includes baseUrl because providers may supply a
+// discovered per-model endpoint default.
 // ---------------------------------------------------------------------------
 
 const _overrideFieldsSubset: AllKeysOf<typeof MODEL_METADATA_FIELD_NAMES, ModelInfo> = true;

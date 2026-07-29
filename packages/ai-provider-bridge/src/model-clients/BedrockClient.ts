@@ -12,10 +12,15 @@
 
 import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { createBedrockAnthropic } from "@ai-sdk/amazon-bedrock/anthropic";
+import { createBedrockMantle } from "@ai-sdk/amazon-bedrock/mantle";
 import type { LanguageModelV3 } from "@ai-sdk/provider";
-import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 import { streamText } from "ai";
 
+import { createAwsCredentialProvider } from "../aws-credentials";
+import {
+	hasImagesInToolResults,
+	transformToolResultImagesForCompletions,
+} from "../tool-result-images";
 import type { LMStreamPart, Protocol } from "../types";
 import { normalizeProtocol } from "../types";
 import { isThinkingEnabled, rejectsEagerInputStreaming } from "../utils";
@@ -56,12 +61,14 @@ export class BedrockClient implements ModelClient {
 		if (
 			normalizedProtocol &&
 			normalizedProtocol !== "anthropic-messages" &&
-			normalizedProtocol !== "bedrock-converse"
+			normalizedProtocol !== "bedrock-converse" &&
+			normalizedProtocol !== "openai-chat" &&
+			normalizedProtocol !== "openai-responses"
 		) {
 			throw new Error(`Unsupported protocol for Bedrock: ${normalizedProtocol}`);
 		}
 
-		const model = this.createModel(params.model, normalizedProtocol);
+		const model = this.createModel(params.model, normalizedProtocol, params.baseUrl);
 
 		// Create abort controller with cleanup to prevent EventEmitter memory leaks
 		const { abortController, cleanup } = createAbortControllerFromToken(params.cancellationToken);
@@ -79,7 +86,7 @@ export class BedrockClient implements ModelClient {
 		// Some Claude models reject the `eager_input_streaming` field on Bedrock; opt
 		// those out (see rejectsEagerInputStreaming). Others accept it, so leave them on.
 		const disableEagerToolStreaming = rejectsEagerInputStreaming(params.model);
-		const providerOptions =
+		const anthropicProviderOptions =
 			useThinking || disableEagerToolStreaming
 				? {
 						anthropic: {
@@ -97,18 +104,64 @@ export class BedrockClient implements ModelClient {
 					}
 				: undefined;
 
+		const isMantleChat = normalizedProtocol === "openai-chat";
+		const isMantleResponses = normalizedProtocol === "openai-responses";
+		const mantleReasoningEffort =
+			isMantleResponses && params.thinkingEffort === "off"
+				? "none"
+				: isThinkingEnabled(params.thinkingEffort)
+					? params.thinkingEffort
+					: undefined;
+		const providerOptions = isMantleResponses
+			? {
+					openai: {
+						// Mantle Responses retains content by default. Keep requests
+						// stateless; forceReasoning also makes the SDK round-trip
+						// encrypted reasoning content when store is false.
+						store: false,
+						forceReasoning: true,
+						reasoningEffort: mantleReasoningEffort,
+						reasoningSummary: "detailed",
+					},
+				}
+			: isMantleChat && isThinkingEnabled(params.thinkingEffort)
+				? {
+						openai: {
+							reasoningEffort: params.thinkingEffort,
+						},
+					}
+				: anthropicProviderOptions;
+
+		let messagesToSend = params.messages;
+		if (
+			hasImagesInToolResults(params.messages) &&
+			(isMantleChat || (isMantleResponses && !params.supportsToolResultImages))
+		) {
+			messagesToSend = transformToolResultImagesForCompletions(
+				params.messages,
+				params.supportsImages ?? false,
+			);
+		}
+
 		// Stream the response
 		const result = streamText({
 			model,
-			messages: params.messages,
+			messages: messagesToSend,
 			system: params.systemPrompt,
-			maxOutputTokens: params.maxOutputTokens || 4096,
+			// GPT-5.x has no published family-wide ceiling. Do not impose the
+			// historic Bedrock fallback on Mantle Responses; all existing routes
+			// retain it, and gpt-oss discovery supplies 16,384 explicitly.
+			maxOutputTokens: isMantleResponses ? params.maxOutputTokens : params.maxOutputTokens || 4096,
 			tools: params.tools,
 			toolChoice: params.tools ? "auto" : undefined,
 			abortSignal: abortController.signal,
 			providerOptions,
 			// Capture raw JSON on each step finish
-			onStepFinish: createStepLogger(params.stepLoggers || [], "bedrock", params.model),
+			onStepFinish: createStepLogger(
+				params.stepLoggers || [],
+				isMantleChat || isMantleResponses ? "bedrock-mantle" : "bedrock",
+				params.model,
+			),
 		});
 
 		// Convert to platform-agnostic format with cleanup on completion
@@ -121,27 +174,26 @@ export class BedrockClient implements ModelClient {
 	 * - Anthropic models use `createBedrockAnthropic` (native Anthropic InvokeModel API
 	 *   through Bedrock) for full feature parity including prompt caching via
 	 *   `providerOptions.anthropic.cacheControl`.
+	 * - OpenAI protocols use Bedrock Mantle. Only these routes honor `baseUrl`.
 	 * - All other models use `createAmazonBedrock` (Converse API).
 	 *
 	 * When an explicit `protocol` is provided, it takes precedence over the
 	 * model-ID heuristic.
 	 */
-	private createModel(modelId: string, protocol?: Protocol): LanguageModelV3 {
-		const useManualKeys = this.config.accessKeyId && this.config.secretAccessKey;
+	private createModel(modelId: string, protocol?: Protocol, baseUrl?: string): LanguageModelV3 {
+		const credentialProvider = createAwsCredentialProvider(this.config);
 
-		const credentialConfig = useManualKeys
-			? {
-					accessKeyId: this.config.accessKeyId!,
-					secretAccessKey: this.config.secretAccessKey!,
-					...(this.config.sessionToken && {
-						sessionToken: this.config.sessionToken,
-					}),
-				}
-			: {
-					credentialProvider: fromNodeProviderChain({
-						profile: this.config.profile,
-					}),
-				};
+		if (protocol === "openai-chat" || protocol === "openai-responses") {
+			const mantle = createBedrockMantle({
+				region: this.config.region,
+				baseURL: baseUrl,
+				credentialProvider,
+				// Enforce the AWS-credentials-only contract. Without this explicit
+				// opt-out, a stale AWS_BEARER_TOKEN_BEDROCK overrides SigV4.
+				apiKey: "",
+			});
+			return protocol === "openai-chat" ? mantle.chat(modelId) : mantle.responses(modelId);
+		}
 
 		const useAnthropicApi = protocol
 			? protocol === "anthropic-messages"
@@ -150,13 +202,13 @@ export class BedrockClient implements ModelClient {
 		if (useAnthropicApi) {
 			return createBedrockAnthropic({
 				region: this.config.region,
-				...credentialConfig,
+				credentialProvider,
 			})(modelId);
 		}
 
 		return createAmazonBedrock({
 			region: this.config.region,
-			...credentialConfig,
+			credentialProvider,
 		})(modelId);
 	}
 }

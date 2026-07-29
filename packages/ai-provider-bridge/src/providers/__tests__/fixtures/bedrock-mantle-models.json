@@ -1,0 +1,59 @@
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "openai.gpt-oss-20b",
+      "object": "model",
+      "status": "available",
+      "data_retention": "none"
+    },
+    {
+      "id": "openai.gpt-oss-120b",
+      "object": "model",
+      "status": "available",
+      "data_retention": "none"
+    },
+    {
+      "id": "openai.gpt-oss-safeguard-20b",
+      "object": "model",
+      "status": "available",
+      "data_retention": "none"
+    },
+    {
+      "id": "openai.gpt-oss-safeguard-120b",
+      "object": "model",
+      "status": "available",
+      "data_retention": "none"
+    },
+    {
+      "id": "openai.gpt-5.4-2026-03-05",
+      "object": "model",
+      "status": "available",
+      "data_retention": "configurable"
+    },
+    {
+      "id": "openai.gpt-5.5-2026-04-23",
+      "object": "model",
+      "status": "available",
+      "data_retention": "configurable"
+    },
+    {
+      "id": "openai.gpt-5.6-sol",
+      "object": "model",
+      "status": "available",
+      "data_retention": "configurable"
+    },
+    {
+      "id": "openai.gpt-5.6-terra",
+      "object": "model",
+      "status": "available",
+      "data_retention": "configurable"
+    },
+    {
+      "id": "openai.gpt-5.6-luna",
+      "object": "model",
+      "status": "available",
+      "data_retention": "configurable"
+    }
+  ]
+}

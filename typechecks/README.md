@@ -5,7 +5,7 @@ Compile-time assertions that keep `ai-config`'s vocabulary compatible with `ai-p
 `shape-guard.typecheck.ts` is type-checked but never emitted. A build error there means the two packages' vocabularies have diverged. The active guards are:
 
 - **Provider IDs** — `BUILTIN_PROVIDER_IDS` (ai-config) exactly matches `PROVIDER_IDS` (bridge).
-- **Model-override fields** — `MODEL_METADATA_FIELD_NAMES` (ai-config) ⊆ `keyof ModelInfo` (bridge). Routing-only fields like `baseUrl` are intentionally excluded.
+- **Model-override fields** — `MODEL_METADATA_FIELD_NAMES` (ai-config) ⊆ `keyof ModelInfo` (bridge), including the provider-discovered `baseUrl` routing default.
 - **Protocols** — `PROTOCOL_VALUES` (ai-config) ⊆ `Protocol` (bridge).
 - **Client kinds** — every `CLIENT_KIND_VALUES` entry (ai-config) resolves to a built-in provider id, either directly (identity) or via a non-identity mapping (`aws` → `bedrock`, `snowflake` → `snowflake-cortex`) maintained in the bridge's `ProviderRegistry`.
 

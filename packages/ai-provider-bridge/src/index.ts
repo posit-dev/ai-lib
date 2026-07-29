@@ -74,6 +74,7 @@ export { CONFIG_KEY_OVERRIDES } from "./credential-shaping";
 // Gemini Interactions API allowlist is bridge routing logic and stays here)
 export {
 	getAnthropicModelCapabilities,
+	getBedrockMantleModelCapabilities,
 	getGeminiModelCapabilities,
 	getOpenAIModelCapabilities,
 	getPositAiModelCapabilities,
