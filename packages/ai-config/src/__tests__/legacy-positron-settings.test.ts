@@ -246,12 +246,16 @@ describe("translateLegacyPositronSettings — enablement", () => {
 
 describe("translateLegacyPositronSettings — model overrides", () => {
 	it("converts model overrides to custom models with discovery off", () => {
-		const { config } = translate({
+		const { config, logger } = translate({
 			"positron.assistant.models.overrides.anthropic": [
 				{ name: "Sonnet (team)", identifier: "claude-sonnet-4-5", maxInputTokens: 300_000 },
-				{ identifier: "missing-name" }, // malformed: skipped
+				{ identifier: "missing-name" }, // malformed: skipped, warns once for the key
 			],
 		});
+		expect(logger.warn).toHaveBeenCalledTimes(1);
+		expect(logger.warn).toHaveBeenCalledWith(
+			expect.stringContaining('"positron.assistant.models.overrides.anthropic"'),
+		);
 		const models = config.providers?.anthropic?.models;
 		expect(models?.discovery).toBe("off");
 		expect(models?.custom).toHaveLength(1);
@@ -268,11 +272,27 @@ describe("translateLegacyPositronSettings — model overrides", () => {
 		expect(model?.thinkingEffortLevels).toEqual(caps.thinkingEffortLevels);
 	});
 
-	it("an overrides array with only malformed entries maps nothing", () => {
-		const { config } = translate({
+	it("an overrides array with only malformed entries maps nothing and warns", () => {
+		const { config, logger } = translate({
 			"positron.assistant.models.overrides.openAI": [{ nope: true }],
 		});
 		expect(config).toEqual({});
+		expect(logger.warn).toHaveBeenCalledWith(
+			expect.stringContaining('"positron.assistant.models.overrides.openAI"'),
+		);
+	});
+
+	it("carries inferred capabilities into the custom model", () => {
+		const { config } = translate({
+			"positron.assistant.models.overrides.anthropic": [
+				{ name: "Sonnet", identifier: "claude-sonnet-4-5" },
+			],
+		});
+		const model = config.providers?.anthropic?.models?.custom?.[0];
+		const caps = inferModelCapabilities("anthropic", "claude-sonnet-4-5");
+		expect(caps.family).toBeDefined();
+		expect(caps.supportedInputMediaTypes).toBeDefined();
+		expect(model).toEqual(expect.objectContaining(caps));
 	});
 
 	it("a non-array overrides value is dropped with a warning", () => {

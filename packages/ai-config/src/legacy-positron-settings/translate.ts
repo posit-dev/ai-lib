@@ -340,10 +340,16 @@ export function translateLegacyPositronSettings(
 			warnDropped(key, "an array of model overrides");
 			continue;
 		}
-		const entries = raw
-			.map((entry) => legacyModelOverrideSchema.safeParse(entry))
-			.filter((result) => result.success)
-			.map((result) => result.data);
+		const parsed = raw.map((entry) => legacyModelOverrideSchema.safeParse(entry));
+		const entries = parsed.filter((result) => result.success).map((result) => result.data);
+		if (entries.length < parsed.length && !warnedKeys.has(key)) {
+			// Not warnDropped: valid sibling entries are kept, so "Ignoring the
+			// setting" would overstate. Model names and payloads stay out of the log.
+			warnedKeys.add(key);
+			logger?.warn(
+				`[ai-config] Dropped ${parsed.length - entries.length} of ${parsed.length} entries in legacy Positron setting "${key}": each entry needs a non-empty name and identifier and positive token limits.`,
+			);
+		}
 		if (entries.length === 0) {
 			continue;
 		}
@@ -372,6 +378,17 @@ export function translateLegacyPositronSettings(
 // Helpers
 // ---------------------------------------------------------------------------
 
+type AssertNever<T extends never> = T;
+/**
+ * Guard for the spread in buildCustomModel: a spread bypasses excess-property
+ * checking while the custom-model schema is strict at load time, so an
+ * inferred field missing from CustomModel would compile and then reject the
+ * entire legacy layer at runtime. Trip the build instead.
+ */
+type _InferredFieldsStayCustomModelFields = AssertNever<
+	Exclude<keyof ReturnType<typeof inferModelCapabilities>, keyof CustomModel>
+>;
+
 /**
  * Legacy entries carry only name/identifier/token limits; capabilities are
  * synthesized with ai-config's own inference, user token limits win, and
@@ -382,25 +399,14 @@ function buildCustomModel(providerId: BuiltinProviderId, entry: LegacyModelOverr
 	const model: CustomModel = {
 		id: entry.identifier,
 		name: entry.name,
+		...caps,
 		maxContextLength: Math.max(caps.maxContextLength, entry.maxInputTokens ?? 0),
-		supportsTools: caps.supportsTools,
-		supportsImages: caps.supportsImages,
-		supportsToolResultImages: caps.supportsToolResultImages,
-		supportsWebSearch: caps.supportsWebSearch,
 	};
-	const maxInputTokens = entry.maxInputTokens ?? caps.maxInputTokens;
-	if (maxInputTokens !== undefined) {
-		model.maxInputTokens = maxInputTokens;
+	if (entry.maxInputTokens !== undefined) {
+		model.maxInputTokens = entry.maxInputTokens;
 	}
-	const maxOutputTokens = entry.maxOutputTokens ?? caps.maxOutputTokens;
-	if (maxOutputTokens !== undefined) {
-		model.maxOutputTokens = maxOutputTokens;
-	}
-	if (caps.thinkingEffortLevels !== undefined) {
-		model.thinkingEffortLevels = caps.thinkingEffortLevels;
-	}
-	if (caps.protocol !== undefined) {
-		model.protocol = caps.protocol;
+	if (entry.maxOutputTokens !== undefined) {
+		model.maxOutputTokens = entry.maxOutputTokens;
 	}
 	return model;
 }
