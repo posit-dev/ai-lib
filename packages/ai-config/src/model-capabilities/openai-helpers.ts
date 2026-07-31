@@ -111,6 +111,30 @@ export function getOpenAIModelCapabilities(modelId: string): Partial<ModelInfo> 
 		};
 	}
 
+	// GPT-5.6 Sol is capped at OpenAI's 272k long-context pricing threshold rather
+	// than its full window: above 272k input tokens OpenAI bills a higher
+	// long-context rate ($10/$45 per 1M vs $5/$30), and ModelPricing in
+	// @assistant/core carries a single standard rate per model, so a longer window
+	// would silently under-report cost. Raise this only alongside tiered pricing.
+	if (modelId.startsWith("gpt-5.6-sol")) {
+		return {
+			family: "gpt-5",
+			supportsTools: true,
+			supportsImages: true,
+			supportedInputMediaTypes: [
+				"image/png",
+				"image/jpeg",
+				"image/gif",
+				"image/webp",
+				"application/pdf",
+			],
+			supportsToolResultImages: true,
+			maxContextLength: 272000,
+			maxOutputTokens: 128000,
+			thinkingEffortLevels: OPENAI_THINKING_EFFORT_LEVELS,
+		};
+	}
+
 	// GPT-5 series (400k context window)
 	if (modelId.startsWith("gpt-5")) {
 		return {
