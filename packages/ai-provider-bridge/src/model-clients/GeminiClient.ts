@@ -344,6 +344,7 @@ export class GeminiClient implements ModelClient {
 		const { abortController, cleanup } = createAbortControllerFromToken(params.cancellationToken);
 
 		const streamArgs = {
+			allowSystemInMessages: params.allowSystemInMessages,
 			model,
 			messages: requestMessages,
 			system: params.systemPrompt,

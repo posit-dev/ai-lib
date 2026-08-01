@@ -219,6 +219,7 @@ export class PositAiClient implements ModelClient {
 			}
 
 			const result = streamText({
+				allowSystemInMessages: params.allowSystemInMessages,
 				model,
 				messages: params.messages,
 				system: params.systemPrompt,
@@ -263,6 +264,7 @@ export class PositAiClient implements ModelClient {
 			}
 
 			const result = streamText({
+				allowSystemInMessages: params.allowSystemInMessages,
 				model,
 				messages: messagesToSend,
 				system: params.systemPrompt,

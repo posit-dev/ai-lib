@@ -80,6 +80,7 @@ export class DeepSeekClient implements ModelClient {
 		const { abortController, cleanup } = createAbortControllerFromToken(params.cancellationToken);
 
 		const result = streamText({
+			allowSystemInMessages: params.allowSystemInMessages,
 			model,
 			messages: params.messages,
 			system: params.systemPrompt,
