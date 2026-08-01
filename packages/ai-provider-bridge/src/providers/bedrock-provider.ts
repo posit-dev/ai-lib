@@ -439,6 +439,7 @@ export function registerBedrockProvider(
 
 		return new BedrockClient({
 			region: credentials.region,
+			promptCaching: "gpt-5.6-explicit",
 			profile: credentials.profile,
 			accessKeyId: credentials.accessKeyId,
 			secretAccessKey: credentials.secretAccessKey,

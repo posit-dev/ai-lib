@@ -116,7 +116,7 @@ export function getOpenAIModelCapabilities(modelId: string): Partial<ModelInfo> 
 	// long-context rate ($10/$45 per 1M vs $5/$30), and ModelPricing in
 	// @assistant/core carries a single standard rate per model, so a longer window
 	// would silently under-report cost. Raise this only alongside tiered pricing.
-	if (modelId.startsWith("gpt-5.6-sol")) {
+	if (modelId === "gpt-5.6" || modelId.startsWith("gpt-5.6-sol")) {
 		return {
 			family: "gpt-5",
 			supportsTools: true,

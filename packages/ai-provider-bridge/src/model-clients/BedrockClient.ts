@@ -17,6 +17,7 @@ import type { LanguageModelV3 } from "@ai-sdk/provider";
 import { streamText } from "ai";
 
 import { createAwsCredentialProvider } from "../aws-credentials";
+import { isGpt56ModelId } from "../model-capabilities/gpt-5-6";
 import {
 	hasImagesInToolResults,
 	transformToolResultImagesForCompletions,
@@ -30,6 +31,13 @@ import {
 	createStepLogger,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
+import { prepareExplicitOpenAIMessages } from "./openai-prompt-caching";
+import type { PromptCachingCapability } from "./OpenAIClient";
+
+const EXPLICIT_PROMPT_CACHE_OPTIONS: { mode: "explicit"; ttl: "30m" } = {
+	mode: "explicit",
+	ttl: "30m",
+};
 
 /**
  * Check if a Bedrock model ID refers to an Anthropic model.
@@ -42,6 +50,7 @@ export function isAnthropicModel(modelId: string): boolean {
 
 export interface BedrockClientConfig {
 	region: string;
+	promptCaching: PromptCachingCapability;
 	profile?: string;
 	accessKeyId?: string;
 	secretAccessKey?: string;
@@ -106,6 +115,11 @@ export class BedrockClient implements ModelClient {
 
 		const isMantleChat = normalizedProtocol === "openai-chat";
 		const isMantleResponses = normalizedProtocol === "openai-responses";
+		const usesExplicitPromptCaching =
+			this.config.promptCaching === "gpt-5.6-explicit" &&
+			isMantleResponses &&
+			isGpt56ModelId(params.model);
+		const promptCacheKey = usesExplicitPromptCaching ? params.metadata?.sessionId : undefined;
 		const mantleReasoningEffort =
 			isMantleResponses && params.thinkingEffort === "off"
 				? "none"
@@ -122,6 +136,12 @@ export class BedrockClient implements ModelClient {
 						forceReasoning: true,
 						reasoningEffort: mantleReasoningEffort,
 						reasoningSummary: "detailed",
+						...(usesExplicitPromptCaching
+							? {
+									promptCacheOptions: EXPLICIT_PROMPT_CACHE_OPTIONS,
+									...(promptCacheKey !== undefined ? { promptCacheKey } : {}),
+								}
+							: {}),
 					},
 				}
 			: isMantleChat && isThinkingEnabled(params.thinkingEffort)
@@ -141,6 +161,12 @@ export class BedrockClient implements ModelClient {
 				params.messages,
 				params.supportsImages ?? false,
 			);
+		}
+		if (usesExplicitPromptCaching) {
+			messagesToSend = prepareExplicitOpenAIMessages(messagesToSend, {
+				apiMode: "responses",
+				hasSessionId: promptCacheKey !== undefined,
+			});
 		}
 
 		// Stream the response

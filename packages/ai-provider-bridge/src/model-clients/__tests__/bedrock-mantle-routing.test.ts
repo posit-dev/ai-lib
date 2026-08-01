@@ -57,6 +57,7 @@ beforeEach(() => {
 describe("Bedrock Mantle protocol routing", () => {
 	const client = new BedrockClient({
 		region: "us-east-2",
+		promptCaching: "gpt-5.6-explicit",
 		accessKeyId: "key",
 		secretAccessKey: "secret",
 	});

@@ -72,7 +72,7 @@ beforeEach(() => {
 });
 
 describe("Bedrock eager tool streaming opt-out", () => {
-	const client = new BedrockClient({ region: "us-east-1" });
+	const client = new BedrockClient({ region: "us-east-1", promptCaching: "none" });
 
 	// The bug: this failed with HTTP 400 because the opt-out was scoped to Haiku 4.5.
 	it("disables eager tool streaming for Sonnet 4.5", async () => {

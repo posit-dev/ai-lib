@@ -58,15 +58,16 @@ export function registerOpenAICompatibleProvider(registry: ProviderRegistry, log
 		}
 		// customHeaders are injected by the custom fetch wrapper; passing them
 		// to OpenAIClient's SDK `headers` option as well would be redundant.
-		return new OpenAIClient(
-			credentials.apiKey,
-			credentials.baseUrl?.trim(),
-			"completions",
-			createOpenAICompatibleFetch(
+		return new OpenAIClient({
+			apiKey: credentials.apiKey,
+			baseUrl: credentials.baseUrl?.trim(),
+			apiMode: "completions",
+			promptCaching: "none",
+			customFetch: createOpenAICompatibleFetch(
 				"OpenAI Compatible",
 				credentials.apiKey,
 				credentials.customHeaders,
 			),
-		);
+		});
 	});
 }

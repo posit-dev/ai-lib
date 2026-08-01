@@ -85,6 +85,7 @@ export {
 	isInteractionsEligible,
 } from "./model-capabilities/gemini-interactions";
 export type { GeminiInteractionsProfile } from "./model-capabilities/gemini-interactions";
+export { isGpt56ModelId } from "./model-capabilities/gpt-5-6";
 
 // Tool result image transformation for Chat Completions API compatibility
 export {

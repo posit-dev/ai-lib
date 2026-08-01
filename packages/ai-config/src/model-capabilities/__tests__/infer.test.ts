@@ -52,6 +52,13 @@ describe("inferModelCapabilities", () => {
 		expect(caps.maxInputTokens).toBe(128_000 - 16_384);
 	});
 
+	it("gives the bare GPT-5.6 alias the Sol long-context pricing limit", () => {
+		const alias = inferModelCapabilities("openai", "gpt-5.6");
+		const sol = inferModelCapabilities("openai", "gpt-5.6-sol");
+		expect(alias.maxContextLength).toBe(272_000);
+		expect(alias.maxInputTokens).toBe(sol.maxInputTokens);
+	});
+
 	it("maps the deepseek table, treating the input limit as the window", () => {
 		const caps = inferModelCapabilities("deepseek", "deepseek-chat");
 		expect(caps.maxInputTokens).toBe(1_000_000);

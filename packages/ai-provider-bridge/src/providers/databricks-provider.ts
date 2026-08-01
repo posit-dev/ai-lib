@@ -352,11 +352,17 @@ export function registerDatabricksProvider(registry: ProviderRegistry, logger: L
 		}
 		const host = normalizeDatabricksHost(credentials.baseUrl);
 		// customHeaders are injected by the custom fetch wrapper.
-		return new OpenAIClient(
-			credentials.apiKey,
-			`${host}${SERVING_CHAT_BASE_PATH}`,
-			"completions",
-			createDatabricksChatFetch(host, credentials.apiKey, credentials.customHeaders, logger),
-		);
+		return new OpenAIClient({
+			apiKey: credentials.apiKey,
+			baseUrl: `${host}${SERVING_CHAT_BASE_PATH}`,
+			apiMode: "completions",
+			promptCaching: "none",
+			customFetch: createDatabricksChatFetch(
+				host,
+				credentials.apiKey,
+				credentials.customHeaders,
+				logger,
+			),
+		});
 	});
 }

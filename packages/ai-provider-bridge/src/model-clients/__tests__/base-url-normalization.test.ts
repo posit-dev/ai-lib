@@ -67,7 +67,13 @@ const CASES: Record<string, ClientCase> = {
 	OpenAI: {
 		host: "https://api.openai.com",
 		versioned: "https://api.openai.com/v1",
-		construct: (baseUrl) => new OpenAIClient("sk-test", baseUrl, "responses"),
+		construct: (baseUrl) =>
+			new OpenAIClient({
+				apiKey: "sk-test",
+				baseUrl,
+				apiMode: "responses",
+				promptCaching: "none",
+			}),
 		model: "gpt-5.4",
 		factory: createOpenAI,
 	},

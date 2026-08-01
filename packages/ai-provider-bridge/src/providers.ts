@@ -76,6 +76,11 @@ export type { GoogleVertexClientConfig } from "./model-clients/GoogleVertexClien
 export { LMStudioClient } from "./model-clients/LMStudioClient";
 export { OllamaClient, ollamaThinkParam } from "./model-clients/OllamaClient";
 export { OpenAIClient } from "./model-clients/OpenAIClient";
+export type {
+	OpenAIApiMode,
+	OpenAIClientConfig,
+	PromptCachingCapability,
+} from "./model-clients/OpenAIClient";
 export { OpenRouterClient } from "./model-clients/OpenRouterClient";
 export { PositAiClient } from "./model-clients/PositAiClient";
 export { SnowflakeClient } from "./model-clients/SnowflakeClient";

@@ -2,6 +2,7 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
+import type { ModelMessage } from "ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { CancellationToken } from "../../types";
@@ -11,6 +12,74 @@ const cancellationToken: CancellationToken = {
 	isCancellationRequested: false,
 	onCancellationRequested: () => ({ dispose() {} }),
 };
+
+const breakpointProviderOptions = {
+	openai: { promptCacheBreakpoint: { mode: "explicit" } },
+};
+
+function breakpointPaths(value: unknown, path = ""): string[] {
+	if (Array.isArray(value)) {
+		return value.flatMap((item, index) => breakpointPaths(item, `${path}[${index}]`));
+	}
+	if (value === null || typeof value !== "object") {
+		return [];
+	}
+
+	const paths: string[] = [];
+	for (const [key, child] of Object.entries(value)) {
+		const childPath = path ? `${path}.${key}` : key;
+		if (key === "prompt_cache_breakpoint") {
+			paths.push(childPath);
+		} else {
+			paths.push(...breakpointPaths(child, childPath));
+		}
+	}
+	return paths;
+}
+
+function markedContinuationMessages(): ModelMessage[] {
+	return [
+		{
+			role: "system",
+			content: "System instruction",
+			providerOptions: breakpointProviderOptions,
+		},
+		{
+			role: "user",
+			content: [
+				{
+					type: "text",
+					text: "Stable user input",
+					providerOptions: breakpointProviderOptions,
+				},
+			],
+		},
+		{ role: "user", content: "Dynamic environment reminder" },
+		{
+			role: "assistant",
+			content: [
+				{
+					type: "tool-call",
+					toolCallId: "call-1",
+					toolName: "lookup",
+					input: { query: "cache" },
+				},
+			],
+		},
+		{
+			role: "tool",
+			content: [
+				{
+					type: "tool-result",
+					toolCallId: "call-1",
+					toolName: "lookup",
+					output: { type: "json", value: { result: "cached" } },
+					providerOptions: breakpointProviderOptions,
+				},
+			],
+		},
+	];
+}
 
 async function consumeIgnoringNetworkFailure(
 	streamPromise: ReturnType<BedrockClient["chat"]>,
@@ -33,6 +102,7 @@ afterEach(() => {
 describe("Bedrock Mantle wire requests", () => {
 	const client = new BedrockClient({
 		region: "us-east-2",
+		promptCaching: "gpt-5.6-explicit",
 		accessKeyId: "AKIDEXAMPLE",
 		secretAccessKey: "secret",
 	});
@@ -71,8 +141,100 @@ describe("Bedrock Mantle wire requests", () => {
 			include: ["reasoning.encrypted_content"],
 		});
 		expect(requestBody).not.toHaveProperty("max_output_tokens");
+		expect(requestBody).not.toHaveProperty("prompt_cache_key");
+		expect(requestBody).not.toHaveProperty("prompt_cache_options");
 		expect(authorization).toContain("/us-east-2/bedrock-mantle/aws4_request");
 		expect(authorization).not.toContain("Bearer");
+	});
+
+	it("serializes GPT-5.6 cache options and a structured tool-result breakpoint", async () => {
+		let requestBody: Record<string, unknown> | undefined;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+				requestBody = JSON.parse(String(init?.body));
+				return new Response("data: [DONE]\n\n", {
+					status: 200,
+					headers: { "content-type": "text/event-stream" },
+				});
+			}),
+		);
+
+		const messages = markedContinuationMessages();
+		await consumeIgnoringNetworkFailure(
+			client.chat({
+				model: "openai.gpt-5.6-sol",
+				protocol: "openai-responses",
+				baseUrl: "https://bedrock-mantle.us-east-2.api.aws/openai/v1",
+				messages,
+				metadata: { sessionId: "bedrock-conversation-1" },
+				thinkingEffort: "high",
+				allowSystemInMessages: true,
+				cancellationToken,
+			}),
+		);
+
+		expect(requestBody).toMatchObject({
+			model: "openai.gpt-5.6-sol",
+			prompt_cache_key: "bedrock-conversation-1",
+			prompt_cache_options: { mode: "explicit", ttl: "30m" },
+			store: false,
+			reasoning: { effort: "high", summary: "detailed" },
+		});
+		expect(breakpointPaths(requestBody)).toEqual([
+			"input[0].content[0].prompt_cache_breakpoint",
+			"input[1].content[0].prompt_cache_breakpoint",
+			"input[4].output[0].prompt_cache_breakpoint",
+		]);
+		expect(requestBody?.input).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					type: "function_call_output",
+					output: [
+						{
+							type: "input_text",
+							text: '{"result":"cached"}',
+							prompt_cache_breakpoint: { mode: "explicit" },
+						},
+					],
+				}),
+			]),
+		);
+		expect(messages[4]).toMatchObject({
+			content: [{ output: { type: "json", value: { result: "cached" } } }],
+		});
+	});
+
+	it("keeps explicit mode but strips key and markers without session metadata", async () => {
+		let requestBody: Record<string, unknown> | undefined;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+				requestBody = JSON.parse(String(init?.body));
+				return new Response("data: [DONE]\n\n", {
+					status: 200,
+					headers: { "content-type": "text/event-stream" },
+				});
+			}),
+		);
+
+		const messages = markedContinuationMessages();
+		await consumeIgnoringNetworkFailure(
+			client.chat({
+				model: "openai.gpt-5.6-terra",
+				protocol: "openai-responses",
+				baseUrl: "https://bedrock-mantle.us-east-2.api.aws/openai/v1",
+				messages,
+				thinkingEffort: "off",
+				allowSystemInMessages: true,
+				cancellationToken,
+			}),
+		);
+
+		expect(requestBody?.prompt_cache_options).toEqual({ mode: "explicit", ttl: "30m" });
+		expect(requestBody).not.toHaveProperty("prompt_cache_key");
+		expect(breakpointPaths(requestBody)).toEqual([]);
+		expect(messages[0].providerOptions).toEqual(breakpointProviderOptions);
 	});
 
 	it("keeps gpt-oss on Chat Completions with system roles and reasoning_effort", async () => {
