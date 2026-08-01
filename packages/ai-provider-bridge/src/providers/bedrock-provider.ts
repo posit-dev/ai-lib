@@ -14,6 +14,7 @@ import type { AwsCredentials, Logger, ModelInfo, ProviderCredentials } from "../
 import { NOTIFICATION_ACTIONS } from "../types";
 import { listMantleModels } from "./bedrock-mantle-models";
 import { isAwsSsoProfileConfigured } from "./bedrock-sso";
+import { getOpenAIModelName } from "./openai-model-names";
 import type { ProviderRegistry } from "./ProviderRegistry";
 
 const BEDROCK_PROVIDER_ID = "bedrock";
@@ -236,7 +237,10 @@ export function registerBedrockProvider(
 					return [
 						{
 							id,
-							name: id.replace(/^openai\./, ""),
+							// Mantle IDs are vendor-prefixed OpenAI IDs ("openai.gpt-5.6-sol"), so
+							// the curated OpenAI display names apply once the prefix is stripped.
+							// Unknown IDs fall back to the bare ID, as before.
+							name: getOpenAIModelName(id.replace(/^openai\./, "")),
 							providerId: BEDROCK_PROVIDER_ID,
 							vendor: "openai",
 							baseUrl: `https://bedrock-mantle.${credentials.region}.api.aws${path}`,
