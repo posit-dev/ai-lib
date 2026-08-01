@@ -75,6 +75,7 @@ export class AnthropicClient implements ModelClient {
 
 		// Stream the response
 		const result = streamText({
+			allowSystemInMessages: params.allowSystemInMessages,
 			model,
 			messages: params.messages,
 			system: params.systemPrompt,

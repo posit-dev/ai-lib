@@ -113,6 +113,7 @@ export class OpenAIClient implements ModelClient {
 
 		// Stream the response
 		const result = streamText({
+			allowSystemInMessages: params.allowSystemInMessages,
 			model,
 			messages: messagesToSend,
 			system: params.systemPrompt,

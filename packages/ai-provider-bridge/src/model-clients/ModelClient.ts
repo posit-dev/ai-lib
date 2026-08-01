@@ -74,6 +74,13 @@ export interface ModelClientChatParams {
 	 * the provider config.
 	 */
 	baseUrl?: string;
+
+	/**
+	 * Whether to allow system messages in the `messages` array without warning.
+	 * Passed through to AI SDK's `streamText`. When `true`, suppresses the
+	 * AI SDK warning about system messages in the messages field.
+	 */
+	allowSystemInMessages?: boolean;
 }
 
 /**
