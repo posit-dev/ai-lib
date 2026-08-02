@@ -21,7 +21,14 @@ describe("isGpt56ModelId", () => {
 		expect(isGpt56ModelId(modelId)).toBe(true);
 	});
 
-	it.each(["gpt-5.5", "gpt-5.60", "gpt-5.6-pro", "vendor.gpt-5.6-sol"])("rejects %s", (modelId) => {
+	it.each([
+		"gpt-5.5",
+		"gpt-5.60",
+		"gpt-5.6-pro",
+		"gpt-5.6-2026-07-31",
+		"openai.gpt-5.6-2026-07-31",
+		"vendor.gpt-5.6-sol",
+	])("rejects %s", (modelId) => {
 		expect(isGpt56ModelId(modelId)).toBe(false);
 	});
 });
