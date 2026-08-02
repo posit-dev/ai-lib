@@ -72,7 +72,6 @@ const CASES: Record<string, ClientCase> = {
 				apiKey: "sk-test",
 				baseUrl,
 				apiMode: "responses",
-				promptCaching: "none",
 			}),
 		model: "gpt-5.4",
 		factory: createOpenAI,

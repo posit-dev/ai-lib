@@ -83,7 +83,7 @@ function markedContinuationMessages(): ModelMessage[] {
 
 async function captureRequest(options: {
 	apiMode: "completions" | "responses";
-	promptCaching: "gpt-5.6-explicit" | "none";
+	usesExplicitPromptCaching?: boolean;
 	model: string;
 	protocol?: "openai-chat" | "openai-responses";
 	metadata?: { sessionId?: string };
@@ -93,7 +93,6 @@ async function captureRequest(options: {
 	const client = new OpenAIClient({
 		apiKey: "sk-test",
 		apiMode: options.apiMode,
-		promptCaching: options.promptCaching,
 		customFetch: async (_input, init) => {
 			requestBody = JSON.parse(String(init?.body));
 			return new Response("data: [DONE]\n\n", {
@@ -109,6 +108,7 @@ async function captureRequest(options: {
 			protocol: options.protocol,
 			messages: options.messages,
 			metadata: options.metadata,
+			usesExplicitPromptCaching: options.usesExplicitPromptCaching,
 			thinkingEffort: "high",
 			allowSystemInMessages: true,
 			cancellationToken,
@@ -131,7 +131,7 @@ describe("OpenAI explicit prompt caching wire requests", () => {
 		const messages = markedContinuationMessages();
 		const requestBody = await captureRequest({
 			apiMode: "responses",
-			promptCaching: "gpt-5.6-explicit",
+			usesExplicitPromptCaching: true,
 			model: "gpt-5.6-sol",
 			metadata: { sessionId: "conversation-1" },
 			messages,
@@ -172,7 +172,7 @@ describe("OpenAI explicit prompt caching wire requests", () => {
 	it("serializes Chat breakpoints, including the tool-role text block", async () => {
 		const requestBody = await captureRequest({
 			apiMode: "responses",
-			promptCaching: "gpt-5.6-explicit",
+			usesExplicitPromptCaching: true,
 			model: "gpt-5.6-terra",
 			protocol: "openai-chat",
 			metadata: { sessionId: "conversation-chat" },
@@ -209,7 +209,7 @@ describe("OpenAI explicit prompt caching wire requests", () => {
 		const messages = markedContinuationMessages();
 		const requestBody = await captureRequest({
 			apiMode: "responses",
-			promptCaching: "gpt-5.6-explicit",
+			usesExplicitPromptCaching: true,
 			model: "gpt-5.6-luna",
 			messages,
 		});
@@ -221,21 +221,25 @@ describe("OpenAI explicit prompt caching wire requests", () => {
 	});
 
 	it.each([
-		["gpt-5.5", "gpt-5.6-explicit"],
-		["gpt-5.6-sol", "none"],
+		["false", false],
+		["absent", undefined],
 	] as const)(
-		"does not send cache fields for model %s with capability %s",
-		async (model, capability) => {
+		"sends no cache fields and strips markers when the param is %s",
+		async (_label, usesExplicitPromptCaching) => {
+			const messages = markedContinuationMessages();
 			const requestBody = await captureRequest({
 				apiMode: "responses",
-				promptCaching: capability,
-				model,
+				usesExplicitPromptCaching,
+				model: "gpt-5.6-sol",
 				metadata: { sessionId: "conversation-1" },
-				messages: [{ role: "user", content: "Hello" }],
+				messages,
 			});
 
 			expect(requestBody).not.toHaveProperty("prompt_cache_key");
 			expect(requestBody).not.toHaveProperty("prompt_cache_options");
+			expect(breakpointPaths(requestBody)).toEqual([]);
+			// The strip is request-local; caller messages keep their markers.
+			expect(messages[0].providerOptions).toEqual(breakpointProviderOptions);
 		},
 	);
 });

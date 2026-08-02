@@ -219,8 +219,17 @@ export function prepareExplicitOpenAIMessages(
 	options: { apiMode: "completions" | "responses"; hasSessionId: boolean },
 ): ModelMessage[] {
 	if (!options.hasSessionId) {
-		return messages.map(stripMessageBreakpoint);
+		return stripExplicitOpenAIBreakpoints(messages);
 	}
 
 	return options.apiMode === "responses" ? messages.map(normalizeResponsesMessage) : messages;
+}
+
+/**
+ * Strip every explicit OpenAI cache-breakpoint marker from a request-local
+ * message copy. Clients call this whenever they will not emit explicit cache
+ * options, so a marker can never reach an endpoint that was not opted in.
+ */
+export function stripExplicitOpenAIBreakpoints(messages: ModelMessage[]): ModelMessage[] {
+	return messages.map(stripMessageBreakpoint);
 }

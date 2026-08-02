@@ -47,7 +47,6 @@ export function registerFoundryProvider(registry: ProviderRegistry, logger: Logg
 			apiKey: credentials.apiKey,
 			baseUrl: credentials.baseUrl,
 			apiMode: "completions",
-			promptCaching: "none",
 			customFetch: createOpenAICompatibleFetch(
 				"Foundry",
 				credentials.apiKey,

@@ -127,7 +127,6 @@ export function registerOpenAIProvider(registry: ProviderRegistry, logger: Logge
 			apiKey: credentials.apiKey,
 			baseUrl: credentials.baseUrl,
 			apiMode: "responses",
-			promptCaching: "gpt-5.6-explicit",
 			customHeaders: credentials.customHeaders,
 		});
 	});

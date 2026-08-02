@@ -356,7 +356,6 @@ export function registerDatabricksProvider(registry: ProviderRegistry, logger: L
 			apiKey: credentials.apiKey,
 			baseUrl: `${host}${SERVING_CHAT_BASE_PATH}`,
 			apiMode: "completions",
-			promptCaching: "none",
 			customFetch: createDatabricksChatFetch(
 				host,
 				credentials.apiKey,

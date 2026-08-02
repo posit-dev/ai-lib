@@ -28,7 +28,6 @@ export class LMStudioClient implements ModelClient {
 			apiKey: "lmstudio",
 			baseUrl: endpoint,
 			apiMode: "completions",
-			promptCaching: "none",
 		});
 	}
 

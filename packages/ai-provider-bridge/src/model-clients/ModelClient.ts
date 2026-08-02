@@ -48,6 +48,15 @@ export interface ModelClientChatParams {
 	 * Routes that cannot do so must transform or strip them before sending.
 	 */
 	supportsToolResultImages?: boolean;
+	/**
+	 * Explicit host instruction to use OpenAI explicit prompt caching for this
+	 * request (request-wide explicit mode, `prompt_cache_key` from session
+	 * metadata, and forwarding of `openai.promptCacheBreakpoint` markers).
+	 * Absent or `false` means the client must emit no explicit cache fields, so
+	 * the provider's default (implicit) caching behavior applies. Clients never
+	 * infer this from model IDs; hosts own the eligibility decision.
+	 */
+	usesExplicitPromptCaching?: boolean;
 
 	// Posit Assistant-specific parameters — not part of the generic
 	// provider contract; may be removed when this package is extracted.

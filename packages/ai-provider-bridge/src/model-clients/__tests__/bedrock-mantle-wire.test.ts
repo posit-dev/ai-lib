@@ -102,7 +102,6 @@ afterEach(() => {
 describe("Bedrock Mantle wire requests", () => {
 	const client = new BedrockClient({
 		region: "us-east-2",
-		promptCaching: "gpt-5.6-explicit",
 		accessKeyId: "AKIDEXAMPLE",
 		secretAccessKey: "secret",
 	});
@@ -168,6 +167,7 @@ describe("Bedrock Mantle wire requests", () => {
 				baseUrl: "https://bedrock-mantle.us-east-2.api.aws/openai/v1",
 				messages,
 				metadata: { sessionId: "bedrock-conversation-1" },
+				usesExplicitPromptCaching: true,
 				thinkingEffort: "high",
 				allowSystemInMessages: true,
 				cancellationToken,
@@ -225,6 +225,7 @@ describe("Bedrock Mantle wire requests", () => {
 				protocol: "openai-responses",
 				baseUrl: "https://bedrock-mantle.us-east-2.api.aws/openai/v1",
 				messages,
+				usesExplicitPromptCaching: true,
 				thinkingEffort: "off",
 				allowSystemInMessages: true,
 				cancellationToken,
@@ -233,6 +234,41 @@ describe("Bedrock Mantle wire requests", () => {
 
 		expect(requestBody?.prompt_cache_options).toEqual({ mode: "explicit", ttl: "30m" });
 		expect(requestBody).not.toHaveProperty("prompt_cache_key");
+		expect(breakpointPaths(requestBody)).toEqual([]);
+		expect(messages[0].providerOptions).toEqual(breakpointProviderOptions);
+	});
+
+	it("vetoes the opt-in on the Chat route: no cache fields, no markers on the wire", async () => {
+		let requestBody: Record<string, unknown> | undefined;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+				requestBody = JSON.parse(String(init?.body));
+				return new Response("data: [DONE]\n\n", {
+					status: 200,
+					headers: { "content-type": "text/event-stream" },
+				});
+			}),
+		);
+
+		const messages = markedContinuationMessages();
+		await consumeIgnoringNetworkFailure(
+			client.chat({
+				model: "openai.gpt-5.6-sol",
+				protocol: "openai-chat",
+				baseUrl: "https://bedrock-mantle.us-east-2.api.aws/v1",
+				messages,
+				metadata: { sessionId: "bedrock-conversation-1" },
+				usesExplicitPromptCaching: true,
+				maxOutputTokens: 16_384,
+				thinkingEffort: "high",
+				allowSystemInMessages: true,
+				cancellationToken,
+			}),
+		);
+
+		expect(requestBody).not.toHaveProperty("prompt_cache_key");
+		expect(requestBody).not.toHaveProperty("prompt_cache_options");
 		expect(breakpointPaths(requestBody)).toEqual([]);
 		expect(messages[0].providerOptions).toEqual(breakpointProviderOptions);
 	});

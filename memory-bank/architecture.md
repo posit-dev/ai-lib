@@ -26,6 +26,20 @@ package: ai-provider-bridge
 - `/positron` entrypoint may import `vscode`
 - Consumer packages (host applications) depend on `ai-provider-bridge`, **never** the reverse
 
+## Package Charter
+
+The bridge owns **wire protocols, transport quirks, credentials, and model discovery**. It does
+not own host policy: cache placement, model-capability eligibility rules, and pricing decisions
+belong to consumers. Capabilities arrive as **explicit per-request chat params**
+(`supportsImages`, `usesExplicitPromptCaching`, …), never inferred from model IDs inside a
+client. A client acts only on the params it is handed; when a param is absent the provider's
+default behavior applies, so a client that ignores a capability param is correct by default.
+Clients may still veto a host instruction on transport grounds (e.g. `BedrockClient` honors the
+explicit prompt-caching opt-in only on its Mantle Responses route) — that is wire knowledge, not
+policy. Whenever the effective decision is "no explicit caching", the OpenAI and Bedrock clients
+defensively strip `openai.promptCacheBreakpoint` markers from the request-local message copy so
+a marker can never reach an endpoint that was not opted in.
+
 ## Code Layout
 
 | Location                                         | What it does                                                                                                                                                                                                                                                                    | VS Code deps? |

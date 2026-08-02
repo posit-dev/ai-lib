@@ -12,7 +12,6 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { streamText } from "ai";
 
 import { safeSdkCustomHeaders } from "../custom-headers";
-import { isGpt56ModelId } from "../model-capabilities/gpt-5-6";
 import {
 	hasImagesInToolResults,
 	transformToolResultImagesForCompletions,
@@ -26,10 +25,12 @@ import {
 	createStepLogger,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
-import { prepareExplicitOpenAIMessages } from "./openai-prompt-caching";
+import {
+	prepareExplicitOpenAIMessages,
+	stripExplicitOpenAIBreakpoints,
+} from "./openai-prompt-caching";
 
 export type OpenAIApiMode = "completions" | "responses";
-export type PromptCachingCapability = "gpt-5.6-explicit" | "none";
 
 const EXPLICIT_PROMPT_CACHE_OPTIONS: { mode: "explicit"; ttl: "30m" } = {
 	mode: "explicit",
@@ -38,7 +39,6 @@ const EXPLICIT_PROMPT_CACHE_OPTIONS: { mode: "explicit"; ttl: "30m" } = {
 
 export interface OpenAIClientConfig {
 	apiMode: OpenAIApiMode;
-	promptCaching: PromptCachingCapability;
 	apiKey?: string;
 	baseUrl?: string;
 	customFetch?: typeof globalThis.fetch;
@@ -49,7 +49,6 @@ export class OpenAIClient implements ModelClient {
 	private readonly apiKey?: string;
 	private readonly baseURL?: string;
 	private readonly apiMode: OpenAIApiMode;
-	private readonly promptCaching: PromptCachingCapability;
 	private readonly customFetch?: typeof globalThis.fetch;
 	private readonly customHeaders?: Record<string, string>;
 
@@ -57,7 +56,6 @@ export class OpenAIClient implements ModelClient {
 		this.apiKey = config.apiKey;
 		this.baseURL = config.baseUrl;
 		this.apiMode = config.apiMode;
-		this.promptCaching = config.promptCaching;
 		this.customFetch = config.customFetch;
 		this.customHeaders = config.customHeaders;
 	}
@@ -124,14 +122,17 @@ export class OpenAIClient implements ModelClient {
 			);
 		}
 
-		const usesExplicitPromptCaching =
-			this.promptCaching === "gpt-5.6-explicit" && isGpt56ModelId(params.model);
+		const usesExplicitPromptCaching = params.usesExplicitPromptCaching === true;
 		const promptCacheKey = usesExplicitPromptCaching ? params.metadata?.sessionId : undefined;
 		if (usesExplicitPromptCaching) {
 			messagesToSend = prepareExplicitOpenAIMessages(messagesToSend, {
 				apiMode: effectiveApiMode,
 				hasSessionId: promptCacheKey !== undefined,
 			});
+		} else {
+			// Not opted in: no explicit cache fields may reach the wire, including
+			// any breakpoint markers still present on resent history.
+			messagesToSend = stripExplicitOpenAIBreakpoints(messagesToSend);
 		}
 
 		const useThinking = isThinkingEnabled(params.thinkingEffort);

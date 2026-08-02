@@ -62,7 +62,6 @@ export function registerOpenAICompatibleProvider(registry: ProviderRegistry, log
 			apiKey: credentials.apiKey,
 			baseUrl: credentials.baseUrl?.trim(),
 			apiMode: "completions",
-			promptCaching: "none",
 			customFetch: createOpenAICompatibleFetch(
 				"OpenAI Compatible",
 				credentials.apiKey,

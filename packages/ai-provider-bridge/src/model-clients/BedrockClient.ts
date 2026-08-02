@@ -17,7 +17,6 @@ import type { LanguageModelV3 } from "@ai-sdk/provider";
 import { streamText } from "ai";
 
 import { createAwsCredentialProvider } from "../aws-credentials";
-import { isGpt56ModelId } from "../model-capabilities/gpt-5-6";
 import {
 	hasImagesInToolResults,
 	transformToolResultImagesForCompletions,
@@ -31,8 +30,10 @@ import {
 	createStepLogger,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
-import { prepareExplicitOpenAIMessages } from "./openai-prompt-caching";
-import type { PromptCachingCapability } from "./OpenAIClient";
+import {
+	prepareExplicitOpenAIMessages,
+	stripExplicitOpenAIBreakpoints,
+} from "./openai-prompt-caching";
 
 const EXPLICIT_PROMPT_CACHE_OPTIONS: { mode: "explicit"; ttl: "30m" } = {
 	mode: "explicit",
@@ -50,7 +51,6 @@ export function isAnthropicModel(modelId: string): boolean {
 
 export interface BedrockClientConfig {
 	region: string;
-	promptCaching: PromptCachingCapability;
 	profile?: string;
 	accessKeyId?: string;
 	secretAccessKey?: string;
@@ -115,10 +115,10 @@ export class BedrockClient implements ModelClient {
 
 		const isMantleChat = normalizedProtocol === "openai-chat";
 		const isMantleResponses = normalizedProtocol === "openai-responses";
+		// Transport veto: Mantle serializes OpenAI explicit-cache fields only on
+		// its Responses route, so the host's opt-in is honored there alone.
 		const usesExplicitPromptCaching =
-			this.config.promptCaching === "gpt-5.6-explicit" &&
-			isMantleResponses &&
-			isGpt56ModelId(params.model);
+			params.usesExplicitPromptCaching === true && isMantleResponses;
 		const promptCacheKey = usesExplicitPromptCaching ? params.metadata?.sessionId : undefined;
 		const mantleReasoningEffort =
 			isMantleResponses && params.thinkingEffort === "off"
@@ -167,6 +167,11 @@ export class BedrockClient implements ModelClient {
 				apiMode: "responses",
 				hasSessionId: promptCacheKey !== undefined,
 			});
+		} else {
+			// Effective decision was "no explicit caching" — whether the host never
+			// opted in or the transport vetoed it — so no marker may reach the wire.
+			// Mantle's Chat Completions route would otherwise serialize them.
+			messagesToSend = stripExplicitOpenAIBreakpoints(messagesToSend);
 		}
 
 		// Stream the response
