@@ -24,7 +24,11 @@ export class LMStudioClient implements ModelClient {
 	constructor(endpoint: string) {
 		// LM Studio doesn't require API key - pass dummy string (LM Studio ignores auth headers)
 		// Use 'completions' API mode since LM Studio doesn't support the Responses API
-		this.openaiClient = new OpenAIClient("lmstudio", endpoint, "completions");
+		this.openaiClient = new OpenAIClient({
+			apiKey: "lmstudio",
+			baseUrl: endpoint,
+			apiMode: "completions",
+		});
 	}
 
 	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {

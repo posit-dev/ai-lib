@@ -178,6 +178,15 @@ Notes:
 - Prefer dependency injection over direct imports of platform services
 - Each package is a leaf relative to host applications -- none may import a consumer package
 
+### Package Charter (`ai-provider-bridge`)
+
+The bridge owns wire protocols, transport quirks, credentials, and model discovery. It does
+**not** own host policy: cache placement, model-capability eligibility rules, and pricing live
+in consumers. Capabilities arrive as explicit per-request chat params (`supportsImages`,
+`usesExplicitPromptCaching`, …), never inferred from model IDs inside a client; absent params
+mean the provider's default behavior, so a client that ignores a capability param is correct by
+default. Clients may veto a host instruction on transport grounds (wire knowledge, not policy).
+
 ### Platform Boundary (`ai-provider-bridge`)
 
 The `/positron` entrypoint is the only place where `vscode` may be imported. All other bridge code must be platform-neutral. If a feature needs platform-specific behavior, use dependency injection (see `LocalProviderManager` for the pattern). `vscode` is the package's only (optional) peer dependency.

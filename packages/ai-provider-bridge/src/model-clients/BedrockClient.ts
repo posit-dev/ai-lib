@@ -30,6 +30,15 @@ import {
 	createStepLogger,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
+import {
+	prepareExplicitOpenAIMessages,
+	stripExplicitOpenAIBreakpoints,
+} from "./openai-prompt-caching";
+
+const EXPLICIT_PROMPT_CACHE_OPTIONS: { mode: "explicit"; ttl: "30m" } = {
+	mode: "explicit",
+	ttl: "30m",
+};
 
 /**
  * Check if a Bedrock model ID refers to an Anthropic model.
@@ -106,6 +115,11 @@ export class BedrockClient implements ModelClient {
 
 		const isMantleChat = normalizedProtocol === "openai-chat";
 		const isMantleResponses = normalizedProtocol === "openai-responses";
+		// Transport veto: Mantle serializes OpenAI explicit-cache fields only on
+		// its Responses route, so the host's opt-in is honored there alone.
+		const usesExplicitPromptCaching =
+			params.usesExplicitPromptCaching === true && isMantleResponses;
+		const promptCacheKey = usesExplicitPromptCaching ? params.metadata?.sessionId : undefined;
 		const mantleReasoningEffort =
 			isMantleResponses && params.thinkingEffort === "off"
 				? "none"
@@ -122,6 +136,12 @@ export class BedrockClient implements ModelClient {
 						forceReasoning: true,
 						reasoningEffort: mantleReasoningEffort,
 						reasoningSummary: "detailed",
+						...(usesExplicitPromptCaching
+							? {
+									promptCacheOptions: EXPLICIT_PROMPT_CACHE_OPTIONS,
+									...(promptCacheKey !== undefined ? { promptCacheKey } : {}),
+								}
+							: {}),
 					},
 				}
 			: isMantleChat && isThinkingEnabled(params.thinkingEffort)
@@ -141,6 +161,17 @@ export class BedrockClient implements ModelClient {
 				params.messages,
 				params.supportsImages ?? false,
 			);
+		}
+		if (usesExplicitPromptCaching) {
+			messagesToSend = prepareExplicitOpenAIMessages(messagesToSend, {
+				apiMode: "responses",
+				hasSessionId: promptCacheKey !== undefined,
+			});
+		} else {
+			// Effective decision was "no explicit caching" — whether the host never
+			// opted in or the transport vetoed it — so no marker may reach the wire.
+			// Mantle's Chat Completions route would otherwise serialize them.
+			messagesToSend = stripExplicitOpenAIBreakpoints(messagesToSend);
 		}
 
 		// Stream the response

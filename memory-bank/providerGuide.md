@@ -47,6 +47,10 @@ Implement `ModelClient` interface with `chat()` method that returns `AsyncIterab
 - Wire up `cancellationToken` to `AbortController`
 - Convert provider stream format to `LMStreamPart`
 - Handle errors gracefully
+- Act only on the capability params the host hands you (`supportsImages`,
+  `usesExplicitPromptCaching`, …) — never infer capabilities from model IDs. A client that
+  never reads `usesExplicitPromptCaching` is correct by default: absent means "emit no explicit
+  cache fields", which is every provider's default behavior.
 
 **Reference**: See `AnthropicClient.ts` (AI SDK pattern) or `OpenAIClient.ts` / `OllamaClient.ts` for wrapper-based implementations.
 

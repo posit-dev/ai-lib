@@ -25,35 +25,46 @@ import {
 	createStepLogger,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
+import {
+	prepareExplicitOpenAIMessages,
+	stripExplicitOpenAIBreakpoints,
+} from "./openai-prompt-caching";
 
-type ApiMode = "completions" | "responses";
+export type OpenAIApiMode = "completions" | "responses";
+
+const EXPLICIT_PROMPT_CACHE_OPTIONS: { mode: "explicit"; ttl: "30m" } = {
+	mode: "explicit",
+	ttl: "30m",
+};
+
+export interface OpenAIClientConfig {
+	apiMode: OpenAIApiMode;
+	apiKey?: string;
+	baseUrl?: string;
+	customFetch?: typeof globalThis.fetch;
+	customHeaders?: Record<string, string>;
+}
 
 export class OpenAIClient implements ModelClient {
 	private readonly apiKey?: string;
 	private readonly baseURL?: string;
-	private readonly apiMode: ApiMode;
+	private readonly apiMode: OpenAIApiMode;
 	private readonly customFetch?: typeof globalThis.fetch;
 	private readonly customHeaders?: Record<string, string>;
 
-	constructor(
-		apiKey?: string,
-		baseURL?: string,
-		apiMode: ApiMode = "completions",
-		customFetch?: typeof globalThis.fetch,
-		customHeaders?: Record<string, string>,
-	) {
-		this.apiKey = apiKey;
-		this.baseURL = baseURL;
-		this.apiMode = apiMode;
-		this.customFetch = customFetch;
-		this.customHeaders = customHeaders;
+	constructor(config: OpenAIClientConfig) {
+		this.apiKey = config.apiKey;
+		this.baseURL = config.baseUrl;
+		this.apiMode = config.apiMode;
+		this.customFetch = config.customFetch;
+		this.customHeaders = config.customHeaders;
 	}
 
 	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {
 		const normalizedProtocol = normalizeProtocol(params.protocol);
 
 		// Determine API mode: explicit protocol → override; absent → constructor default
-		let effectiveApiMode: ApiMode;
+		let effectiveApiMode: OpenAIApiMode;
 		if (normalizedProtocol) {
 			if (normalizedProtocol === "openai-chat") {
 				effectiveApiMode = "completions";
@@ -111,6 +122,43 @@ export class OpenAIClient implements ModelClient {
 			);
 		}
 
+		const usesExplicitPromptCaching = params.usesExplicitPromptCaching === true;
+		const promptCacheKey = usesExplicitPromptCaching ? params.metadata?.sessionId : undefined;
+		if (usesExplicitPromptCaching) {
+			messagesToSend = prepareExplicitOpenAIMessages(messagesToSend, {
+				apiMode: effectiveApiMode,
+				hasSessionId: promptCacheKey !== undefined,
+			});
+		} else {
+			// Not opted in: no explicit cache fields may reach the wire, including
+			// any breakpoint markers still present on resent history.
+			messagesToSend = stripExplicitOpenAIBreakpoints(messagesToSend);
+		}
+
+		const useThinking = isThinkingEnabled(params.thinkingEffort);
+		const providerOptions =
+			usesExplicitPromptCaching || useThinking
+				? {
+						openai: {
+							...(usesExplicitPromptCaching
+								? {
+										promptCacheOptions: EXPLICIT_PROMPT_CACHE_OPTIONS,
+										...(promptCacheKey !== undefined ? { promptCacheKey } : {}),
+									}
+								: {}),
+							...(useThinking
+								? {
+										// store: false requests encrypted reasoning content so it can be
+										// sent back on subsequent stateless turns.
+										store: false,
+										reasoningEffort: params.thinkingEffort,
+										reasoningSummary: "detailed",
+									}
+								: {}),
+						},
+					}
+				: undefined;
+
 		// Stream the response
 		const result = streamText({
 			allowSystemInMessages: params.allowSystemInMessages,
@@ -121,19 +169,7 @@ export class OpenAIClient implements ModelClient {
 			tools: params.tools,
 			toolChoice: params.tools ? "auto" : undefined,
 			abortSignal: abortController.signal,
-			...(isThinkingEnabled(params.thinkingEffort) && {
-				providerOptions: {
-					openai: {
-						// store: false so the AI SDK requests reasoning.encrypted_content,
-						// which is required to send reasoning items back on subsequent turns.
-						store: false,
-						reasoningEffort: params.thinkingEffort,
-						// OpenAI reasoning tokens are hidden; without requesting a
-						// summary, no thinking content is visible to the user.
-						reasoningSummary: "detailed",
-					},
-				},
-			}),
+			providerOptions,
 			// Capture raw JSON on each step finish
 			onStepFinish: createStepLogger(params.stepLoggers || [], "openai", params.model),
 		});

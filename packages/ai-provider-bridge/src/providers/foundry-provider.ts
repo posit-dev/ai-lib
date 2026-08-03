@@ -43,11 +43,15 @@ export function registerFoundryProvider(registry: ProviderRegistry, logger: Logg
 			throw new Error(`Foundry provider requires API key credentials, got: ${credentials.type}`);
 		}
 		// customHeaders are injected by the custom fetch wrapper.
-		return new OpenAIClient(
-			credentials.apiKey,
-			credentials.baseUrl,
-			"completions",
-			createOpenAICompatibleFetch("Foundry", credentials.apiKey, credentials.customHeaders),
-		);
+		return new OpenAIClient({
+			apiKey: credentials.apiKey,
+			baseUrl: credentials.baseUrl,
+			apiMode: "completions",
+			customFetch: createOpenAICompatibleFetch(
+				"Foundry",
+				credentials.apiKey,
+				credentials.customHeaders,
+			),
+		});
 	});
 }
