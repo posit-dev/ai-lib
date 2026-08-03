@@ -146,6 +146,13 @@ export const snowflakeConfigSchema = z
 		 * managed directory. Non-secret.
 		 */
 		home: z.string().optional(),
+		/**
+		 * Name of the `connections.toml` connection to use (non-secret). Selects
+		 * one entry from the file `home` points at. Consumed by
+		 * `@assistant/node`'s Snowflake resolver on Node platforms; ignored in
+		 * Positron, which defers Snowflake credentials to `vscode.authentication`.
+		 */
+		connectionName: z.string().optional(),
 	})
 	.strict();
 

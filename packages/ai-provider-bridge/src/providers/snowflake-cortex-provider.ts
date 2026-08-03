@@ -5,10 +5,24 @@
 import { getAnthropicModelCapabilities, getOpenAIModelCapabilities } from "ai-config";
 
 import { SnowflakeClient } from "../model-clients/SnowflakeClient";
+import type { SnowflakeSessionReauth } from "../model-clients/SnowflakeClient";
 import type { Logger, ModelInfo, ProviderCredentials } from "../types";
 import type { ProviderRegistry } from "./ProviderRegistry";
 
 const IMAGE_MEDIA_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"] as const;
+
+/**
+ * Platform-provided Snowflake hooks. Pre-built by the Node caller and threaded in
+ * through registration; the bridge must NOT construct these.
+ */
+export interface SnowflakeProviderCallbacks {
+	/**
+	 * Reauthenticate an expired Snowflake **session** for a specific client-bound
+	 * connection identity, returning a fresh session token. Only session auth
+	 * (external-browser SSO) uses it; Bearer credentials never expire mid-request.
+	 */
+	reauthenticateSession: SnowflakeSessionReauth;
+}
 
 /**
  * Helper to build a Claude model entry (Anthropic Messages API protocol).
@@ -90,7 +104,11 @@ const SNOWFLAKE_MODELS: ModelInfo[] = [
 	openaiModel("openai-gpt-5.1", "GPT-5.1", { supportsImages: true }),
 ];
 
-export function registerSnowflakeCortexProvider(registry: ProviderRegistry, logger: Logger): void {
+export function registerSnowflakeCortexProvider(
+	registry: ProviderRegistry,
+	logger: Logger,
+	callbacks?: SnowflakeProviderCallbacks,
+): void {
 	// Static model fetcher — Snowflake Cortex serves a known set of models.
 	const fetcher = async (credentials: ProviderCredentials): Promise<ModelInfo[]> => {
 		if (credentials.type !== "apikey") {
@@ -112,6 +130,22 @@ export function registerSnowflakeCortexProvider(registry: ProviderRegistry, logg
 		if (credentials.type !== "apikey") {
 			throw new Error(`Snowflake provider requires API key credentials, got: ${credentials.type}`);
 		}
-		return new SnowflakeClient(credentials.apiKey, credentials.baseUrl!, credentials.customHeaders);
+		// Session auth wires a client-bound refresh so an expired token retries the
+		// connection *this* token came from, not whatever is currently selected.
+		const session = credentials.snowflake;
+		const sessionRefresh =
+			session && callbacks
+				? {
+						connectionIdentity: session.sessionConnectionIdentity,
+						reauthenticate: callbacks.reauthenticateSession,
+					}
+				: undefined;
+		return new SnowflakeClient(
+			credentials.apiKey,
+			credentials.baseUrl!,
+			session ? "session" : "bearer",
+			credentials.customHeaders,
+			sessionRefresh,
+		);
 	});
 }

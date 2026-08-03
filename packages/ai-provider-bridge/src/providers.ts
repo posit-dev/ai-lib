@@ -26,6 +26,7 @@ export { registerOpenAIProvider } from "./providers/openai-provider";
 export { registerOpenRouterProvider } from "./providers/openrouter-provider";
 export { registerPositAiProvider } from "./providers/positai-provider";
 export { registerSnowflakeCortexProvider } from "./providers/snowflake-cortex-provider";
+export type { SnowflakeProviderCallbacks } from "./providers/snowflake-cortex-provider";
 
 // Provider registration orchestrator
 export { registerAllProviders } from "./register-all-providers";
@@ -79,7 +80,7 @@ export { OpenAIClient } from "./model-clients/OpenAIClient";
 export type { OpenAIApiMode, OpenAIClientConfig } from "./model-clients/OpenAIClient";
 export { OpenRouterClient } from "./model-clients/OpenRouterClient";
 export { PositAiClient } from "./model-clients/PositAiClient";
-export { SnowflakeClient } from "./model-clients/SnowflakeClient";
+export { SnowflakeClient, type SnowflakeAuthScheme } from "./model-clients/SnowflakeClient";
 
 // AI SDK helpers
 export * from "./model-clients/ai-sdk-helpers";
