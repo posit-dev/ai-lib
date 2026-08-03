@@ -30,10 +30,7 @@ import {
 	createStepLogger,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
-import {
-	prepareExplicitOpenAIMessages,
-	stripExplicitOpenAIBreakpoints,
-} from "./openai-prompt-caching";
+import { prepareExplicitOpenAIRequest } from "./openai-prompt-caching";
 
 const EXPLICIT_PROMPT_CACHE_OPTIONS: { mode: "explicit"; ttl: "30m" } = {
 	mode: "explicit",
@@ -119,13 +116,33 @@ export class BedrockClient implements ModelClient {
 		// its Responses route, so the host's opt-in is honored there alone.
 		const usesExplicitPromptCaching =
 			params.usesExplicitPromptCaching === true && isMantleResponses;
-		const promptCacheKey = usesExplicitPromptCaching ? params.metadata?.sessionId : undefined;
 		const mantleReasoningEffort =
 			isMantleResponses && params.thinkingEffort === "off"
 				? "none"
 				: isThinkingEnabled(params.thinkingEffort)
 					? params.thinkingEffort
 					: undefined;
+		let messagesToSend = params.messages;
+		if (
+			hasImagesInToolResults(params.messages) &&
+			(isMantleChat || (isMantleResponses && !params.supportsToolResultImages))
+		) {
+			messagesToSend = transformToolResultImagesForCompletions(
+				params.messages,
+				params.supportsImages ?? false,
+			);
+		}
+		// `usesExplicitPromptCaching` already folds in the Chat-route veto, so the
+		// seam strips markers on that route too — Mantle would otherwise serialize
+		// them.
+		const prepared = prepareExplicitOpenAIRequest(messagesToSend, {
+			enabled: usesExplicitPromptCaching,
+			apiMode: "responses",
+			sessionId: params.metadata?.sessionId,
+		});
+		messagesToSend = prepared.messages;
+		const promptCacheKey = prepared.promptCacheKey;
+
 		const providerOptions = isMantleResponses
 			? {
 					openai: {
@@ -151,28 +168,6 @@ export class BedrockClient implements ModelClient {
 						},
 					}
 				: anthropicProviderOptions;
-
-		let messagesToSend = params.messages;
-		if (
-			hasImagesInToolResults(params.messages) &&
-			(isMantleChat || (isMantleResponses && !params.supportsToolResultImages))
-		) {
-			messagesToSend = transformToolResultImagesForCompletions(
-				params.messages,
-				params.supportsImages ?? false,
-			);
-		}
-		if (usesExplicitPromptCaching) {
-			messagesToSend = prepareExplicitOpenAIMessages(messagesToSend, {
-				apiMode: "responses",
-				hasSessionId: promptCacheKey !== undefined,
-			});
-		} else {
-			// Effective decision was "no explicit caching" — whether the host never
-			// opted in or the transport vetoed it — so no marker may reach the wire.
-			// Mantle's Chat Completions route would otherwise serialize them.
-			messagesToSend = stripExplicitOpenAIBreakpoints(messagesToSend);
-		}
 
 		// Stream the response
 		const result = streamText({

@@ -2,6 +2,8 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
+import { createHash } from "node:crypto";
+
 import type { ModelMessage } from "ai";
 
 type ProviderOptions = NonNullable<ModelMessage["providerOptions"]>;
@@ -209,27 +211,46 @@ function normalizeResponsesMessage(message: ModelMessage): ModelMessage {
 	};
 }
 
-/**
- * Prepare a request-local message copy for explicit OpenAI prompt caching.
- * Missing session metadata disables all explicit breakpoints defensively while
- * keeping request-wide explicit mode enabled in the client.
- */
-export function prepareExplicitOpenAIMessages(
-	messages: ModelMessage[],
-	options: { apiMode: "completions" | "responses"; hasSessionId: boolean },
-): ModelMessage[] {
-	if (!options.hasSessionId) {
-		return stripExplicitOpenAIBreakpoints(messages);
-	}
+/** OpenAI rejects a `prompt_cache_key` longer than this with HTTP 400. */
+const MAX_PROMPT_CACHE_KEY_LENGTH = 64;
 
-	return options.apiMode === "responses" ? messages.map(normalizeResponsesMessage) : messages;
+/**
+ * Project a session ID onto OpenAI's bounded `prompt_cache_key` space. Short IDs
+ * pass through so keys stay readable and provider-side cache affinity survives;
+ * longer ones (subagent lineages such as `rootId:subId`) become their SHA-256 hex
+ * digest, which is exactly at the limit and stable across a conversation's turns.
+ */
+function toPromptCacheKey(sessionId: string): string {
+	return sessionId.length <= MAX_PROMPT_CACHE_KEY_LENGTH
+		? sessionId
+		: createHash("sha256").update(sessionId).digest("hex");
 }
 
 /**
- * Strip every explicit OpenAI cache-breakpoint marker from a request-local
- * message copy. Clients call this whenever they will not emit explicit cache
- * options, so a marker can never reach an endpoint that was not opted in.
+ * Prepare a request-local message copy and the matching cache key for explicit
+ * OpenAI prompt caching. Clients call this unconditionally, passing their
+ * already-resolved `enabled` decision (host opt-in plus any transport veto).
+ *
+ * Whenever the effective answer is "no explicit caching" — disabled, or enabled
+ * without session metadata — every `openai.promptCacheBreakpoint` marker is
+ * stripped from the copy and no key is returned, so a marker can never reach an
+ * endpoint that was not opted in. Clients must send the returned key rather than
+ * a raw session ID: the projection to OpenAI's 64-char limit lives here.
  */
-export function stripExplicitOpenAIBreakpoints(messages: ModelMessage[]): ModelMessage[] {
-	return messages.map(stripMessageBreakpoint);
+export function prepareExplicitOpenAIRequest(
+	messages: ModelMessage[],
+	options: {
+		enabled: boolean;
+		apiMode: "completions" | "responses";
+		sessionId: string | undefined;
+	},
+): { messages: ModelMessage[]; promptCacheKey: string | undefined } {
+	if (!options.enabled || options.sessionId === undefined) {
+		return { messages: messages.map(stripMessageBreakpoint), promptCacheKey: undefined };
+	}
+
+	return {
+		messages: options.apiMode === "responses" ? messages.map(normalizeResponsesMessage) : messages,
+		promptCacheKey: toPromptCacheKey(options.sessionId),
+	};
 }

@@ -36,9 +36,25 @@ client. A client acts only on the params it is handed; when a param is absent th
 default behavior applies, so a client that ignores a capability param is correct by default.
 Clients may still veto a host instruction on transport grounds (e.g. `BedrockClient` honors the
 explicit prompt-caching opt-in only on its Mantle Responses route) — that is wire knowledge, not
-policy. Whenever the effective decision is "no explicit caching", the OpenAI and Bedrock clients
-defensively strip `openai.promptCacheBreakpoint` markers from the request-local message copy so
-a marker can never reach an endpoint that was not opted in.
+policy. Whenever the effective decision is "no explicit caching", `openai.promptCacheBreakpoint`
+markers are defensively stripped from the request-local message copy so a marker can never reach
+an endpoint that was not opted in.
+
+That behavior lives in one seam, `prepareExplicitOpenAIRequest`
+(`src/model-clients/openai-prompt-caching.ts`), which returns the request-local messages **and**
+the `promptCacheKey` to send. The OpenAI and Bedrock clients call it **unconditionally**, handing
+it their already-resolved `enabled` decision (host opt-in plus any transport veto) rather than
+branching on it; the strip helper is private to the module, so there is no way to take the
+"no caching" path without going through the seam. Two wire invariants it owns:
+
+- **`prompt_cache_key` is bounded to 64 characters** — OpenAI rejects anything longer with an
+  HTTP 400. The seam projects `metadata.sessionId` into that space: verbatim at ≤ 64 chars,
+  SHA-256 hex digest (exactly 64) otherwise, so a conversation keeps a stable key across turns.
+  Hosts may send arbitrarily long session IDs (Posit Assistant's subagent lineage IDs are
+  colon-joined UUIDs, well past 64); **clients must never pass a raw session ID as a cache key**,
+  and the projection is deliberately private to the seam.
+- **Key presence and breakpoint eligibility cannot drift** — no session ID means no key _and_ a
+  full marker strip, decided in one place rather than re-derived per client.
 
 ## Code Layout
 

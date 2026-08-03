@@ -205,6 +205,45 @@ describe("Bedrock Mantle wire requests", () => {
 		});
 	});
 
+	it("bounds an over-long subagent session ID to a stable 64-char cache key", async () => {
+		// A subagent's session ID is `rootUUID:subUUID` — 73 chars, over OpenAI's
+		// 64-char `prompt_cache_key` limit, which used to 400 the request.
+		const sessionId = "3f8b1c2d-4e5a-6b7c-8d9e-0f1a2b3c4d5e:9a8b7c6d-5e4f-3a2b-1c0d-9e8f7a6b5c4d";
+		expect(sessionId).toHaveLength(73);
+
+		const capturedKeys: unknown[] = [];
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+				capturedKeys.push(JSON.parse(String(init?.body)).prompt_cache_key);
+				return new Response("data: [DONE]\n\n", {
+					status: 200,
+					headers: { "content-type": "text/event-stream" },
+				});
+			}),
+		);
+
+		for (let turn = 0; turn < 2; turn++) {
+			await consumeIgnoringNetworkFailure(
+				client.chat({
+					model: "openai.gpt-5.6-sol",
+					protocol: "openai-responses",
+					baseUrl: "https://bedrock-mantle.us-east-2.api.aws/openai/v1",
+					messages: markedContinuationMessages(),
+					metadata: { sessionId },
+					usesExplicitPromptCaching: true,
+					thinkingEffort: "high",
+					allowSystemInMessages: true,
+					cancellationToken,
+				}),
+			);
+		}
+
+		expect(typeof capturedKeys[0]).toBe("string");
+		expect(String(capturedKeys[0]).length).toBeLessThanOrEqual(64);
+		expect(capturedKeys[1]).toBe(capturedKeys[0]);
+	});
+
 	it("keeps explicit mode but strips key and markers without session metadata", async () => {
 		let requestBody: Record<string, unknown> | undefined;
 		vi.stubGlobal(
