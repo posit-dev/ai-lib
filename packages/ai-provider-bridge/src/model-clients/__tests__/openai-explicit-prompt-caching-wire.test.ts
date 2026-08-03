@@ -205,6 +205,40 @@ describe("OpenAI explicit prompt caching wire requests", () => {
 		);
 	});
 
+	it("bounds an over-long subagent session ID to a stable 64-char cache key", async () => {
+		// A subagent's session ID is `rootUUID:subUUID` — 73 chars, over OpenAI's
+		// 64-char `prompt_cache_key` limit, which used to 400 the request.
+		const sessionId = "3f8b1c2d-4e5a-6b7c-8d9e-0f1a2b3c4d5e:9a8b7c6d-5e4f-3a2b-1c0d-9e8f7a6b5c4d";
+		expect(sessionId).toHaveLength(73);
+
+		const first = await captureRequest({
+			apiMode: "responses",
+			usesExplicitPromptCaching: true,
+			model: "gpt-5.6-sol",
+			metadata: { sessionId },
+			messages: markedContinuationMessages(),
+		});
+		const second = await captureRequest({
+			apiMode: "responses",
+			usesExplicitPromptCaching: true,
+			model: "gpt-5.6-sol",
+			metadata: { sessionId },
+			messages: markedContinuationMessages(),
+		});
+
+		const cacheKey = first.prompt_cache_key;
+		expect(typeof cacheKey).toBe("string");
+		expect(String(cacheKey).length).toBeLessThanOrEqual(64);
+		// Same conversation must reuse the same key across turns.
+		expect(second.prompt_cache_key).toBe(cacheKey);
+		// Breakpoints stay eligible: the key is present, just projected.
+		expect(breakpointPaths(first)).toEqual([
+			"input[0].content[0].prompt_cache_breakpoint",
+			"input[1].content[0].prompt_cache_breakpoint",
+			"input[4].output[0].prompt_cache_breakpoint",
+		]);
+	});
+
 	it("keeps explicit mode but strips key and markers when session metadata is absent", async () => {
 		const messages = markedContinuationMessages();
 		const requestBody = await captureRequest({

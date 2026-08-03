@@ -25,10 +25,7 @@ import {
 	createStepLogger,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
-import {
-	prepareExplicitOpenAIMessages,
-	stripExplicitOpenAIBreakpoints,
-} from "./openai-prompt-caching";
+import { prepareExplicitOpenAIRequest } from "./openai-prompt-caching";
 
 export type OpenAIApiMode = "completions" | "responses";
 
@@ -123,17 +120,13 @@ export class OpenAIClient implements ModelClient {
 		}
 
 		const usesExplicitPromptCaching = params.usesExplicitPromptCaching === true;
-		const promptCacheKey = usesExplicitPromptCaching ? params.metadata?.sessionId : undefined;
-		if (usesExplicitPromptCaching) {
-			messagesToSend = prepareExplicitOpenAIMessages(messagesToSend, {
-				apiMode: effectiveApiMode,
-				hasSessionId: promptCacheKey !== undefined,
-			});
-		} else {
-			// Not opted in: no explicit cache fields may reach the wire, including
-			// any breakpoint markers still present on resent history.
-			messagesToSend = stripExplicitOpenAIBreakpoints(messagesToSend);
-		}
+		const prepared = prepareExplicitOpenAIRequest(messagesToSend, {
+			enabled: usesExplicitPromptCaching,
+			apiMode: effectiveApiMode,
+			sessionId: params.metadata?.sessionId,
+		});
+		messagesToSend = prepared.messages;
+		const promptCacheKey = prepared.promptCacheKey;
 
 		const useThinking = isThinkingEnabled(params.thinkingEffort);
 		const providerOptions =
