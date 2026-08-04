@@ -9,6 +9,7 @@ import { getDeepSeekModelCapabilities } from "./deepseek-helpers.js";
 import { getGeminiModelCapabilities } from "./gemini-helpers.js";
 import { getOpenAIModelCapabilities, openaiMaxInputTokens } from "./openai-helpers.js";
 import { getPositAiModelCapabilities } from "./positai-helpers.js";
+import { getSnowflakeCortexModelCapabilities } from "./snowflake-cortex-helpers.js";
 
 /**
  * Safe conservative baseline: enough that a text-only chat works with any
@@ -25,49 +26,6 @@ const GENERIC_BASELINE = {
 	maxOutputTokens: 16_384,
 	maxContextLength: 128_000,
 } as const;
-
-const SNOWFLAKE_IMAGE_MEDIA_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
-
-/**
- * Snowflake Cortex serves a fixed catalog with its own caps, not the upstream
- * model limits: Claude routes through the Anthropic Messages API (200k context
- * / 16k output), everything else through Chat Completions (128k / 16k). Only
- * `family` and thinking levels are borrowed from the upstream tables; token
- * windows and feature flags follow snowflake-cortex-provider.ts. Snowflake
- * OpenAI ids may carry an `openai-` prefix the OpenAI lookup must not see.
- */
-function snowflakeDefaults(modelId: string): Partial<InferredModelCapabilities> {
-	const claude = getAnthropicModelCapabilities(modelId);
-	if (claude) {
-		return {
-			family: claude.family,
-			thinkingEffortLevels: claude.thinkingEffortLevels,
-			protocol: "anthropic-messages",
-			maxContextLength: 200_000,
-			maxInputTokens: 200_000,
-			maxOutputTokens: 16_384,
-			supportsTools: true,
-			supportsImages: true,
-			supportsToolResultImages: true,
-			supportedInputMediaTypes: SNOWFLAKE_IMAGE_MEDIA_TYPES,
-		};
-	}
-	const openai = getOpenAIModelCapabilities(modelId.replace(/^openai-/, ""));
-	const supportsImages =
-		openai?.supportedInputMediaTypes?.some((mediaType) => mediaType.startsWith("image/")) ?? false;
-	return {
-		family: openai?.family,
-		thinkingEffortLevels: openai?.thinkingEffortLevels,
-		protocol: "openai-chat",
-		maxContextLength: 128_000,
-		maxInputTokens: 128_000,
-		maxOutputTokens: 16_384,
-		supportsTools: true,
-		supportsImages,
-		supportsToolResultImages: false,
-		supportedInputMediaTypes: supportsImages ? SNOWFLAKE_IMAGE_MEDIA_TYPES : undefined,
-	};
-}
 
 /** Provider-family inference: which capability table applies for this provider's ids. */
 function familyDefaults(providerId: string, modelId: string): Partial<InferredModelCapabilities> {
@@ -109,7 +67,9 @@ function familyDefaults(providerId: string, modelId: string): Partial<InferredMo
 			};
 		}
 		case "snowflake-cortex":
-			return snowflakeDefaults(modelId);
+			// Cortex serves a fixed catalog at its own token windows, which differ
+			// from the upstream vendor limits; the shared table owns them.
+			return getSnowflakeCortexModelCapabilities(modelId);
 		default:
 			// ms-foundry, openai-compatible, custom provider ids: unknown
 			// endpoints, stay conservative.

@@ -76,8 +76,7 @@ describe("inferModelCapabilities", () => {
 	it("resolves snowflake non-claude ids to openai-chat and strips the openai- prefix", () => {
 		const caps = inferModelCapabilities("snowflake-cortex", "openai-gpt-4o");
 		expect(caps.protocol).toBe("openai-chat");
-		expect(caps.maxContextLength).toBe(128_000); // gpt-4o table matched after strip
-		expect(caps.family).toBe("gpt-4o");
+		expect(caps.family).toBe("gpt-4o"); // OpenAI table matched after the strip
 	});
 
 	it("sets no protocol for non-snowflake providers", () => {
@@ -138,26 +137,39 @@ describe("inferModelCapabilities", () => {
 		}
 	});
 
-	it("caps snowflake claude ids to Snowflake's limits, not the upstream table", () => {
-		// The Anthropic table gives Opus 4.7 a 1M window / 128k output; Snowflake
-		// Cortex serves it at 200k / 16k (snowflake-cortex-provider.ts).
+	it("caps snowflake output at the REST endpoint's limit, not the model's", () => {
+		// The Anthropic table gives Opus 4.7 a 1M window and 128k output; the Cortex
+		// REST API caps output at 16,384 for every model it serves, and input shares
+		// the window with output.
 		const caps = inferModelCapabilities("snowflake-cortex", "claude-opus-4-7");
 		expect(caps.protocol).toBe("anthropic-messages");
-		expect(caps.maxContextLength).toBe(200_000);
-		expect(caps.maxInputTokens).toBe(200_000);
+		expect(caps.maxContextLength).toBe(1_000_000);
 		expect(caps.maxOutputTokens).toBe(16_384);
+		expect(caps.maxInputTokens).toBe(1_000_000 - 16_384);
 		expect(caps.supportsToolResultImages).toBe(true);
 		expect(caps.family).toBe("claude-4.7"); // still borrowed from the table
+
+		// Same cap on the Chat Completions side, where the OpenAI table says 128k.
+		const openai = inferModelCapabilities("snowflake-cortex", "openai-gpt-5.2");
+		expect(openai.protocol).toBe("openai-chat");
+		expect(openai.maxContextLength).toBe(272_000);
+		expect(openai.maxOutputTokens).toBe(16_384);
+		expect(openai.supportsImages).toBe(true); // gpt-5.x accepts images
+		expect(openai.supportsToolResultImages).toBe(false);
 	});
 
-	it("caps snowflake openai ids and disables tool-result images", () => {
-		const caps = inferModelCapabilities("snowflake-cortex", "openai-gpt-5.2");
-		expect(caps.protocol).toBe("openai-chat");
-		expect(caps.maxContextLength).toBe(128_000);
-		expect(caps.maxInputTokens).toBe(128_000);
-		expect(caps.maxOutputTokens).toBe(16_384);
-		expect(caps.supportsImages).toBe(true); // gpt-5.x accepts images
-		expect(caps.supportsToolResultImages).toBe(false);
+	it("falls back to conservative windows for snowflake ids outside the catalog", () => {
+		const claude = inferModelCapabilities("snowflake-cortex", "claude-opus-9");
+		expect(claude.protocol).toBe("anthropic-messages");
+		expect(claude.maxContextLength).toBe(200_000);
+		expect(claude.maxOutputTokens).toBe(16_384);
+		expect(claude.supportsToolResultImages).toBe(true);
+
+		const other = inferModelCapabilities("snowflake-cortex", "openai-gpt-9");
+		expect(other.protocol).toBe("openai-chat");
+		expect(other.maxContextLength).toBe(128_000);
+		expect(other.maxOutputTokens).toBe(16_384);
+		expect(other.supportsToolResultImages).toBe(false);
 	});
 
 	it("infers google-vertex gemini models from the gemini table", () => {

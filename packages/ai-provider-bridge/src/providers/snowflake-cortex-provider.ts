@@ -2,14 +2,12 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { getAnthropicModelCapabilities, getOpenAIModelCapabilities } from "ai-config";
+import { getSnowflakeCortexModelCapabilities, SNOWFLAKE_CORTEX_CATALOG } from "ai-config";
 
 import { SnowflakeClient } from "../model-clients/SnowflakeClient";
 import type { SnowflakeSessionReauth } from "../model-clients/SnowflakeClient";
 import type { Logger, ModelInfo, ProviderCredentials } from "../types";
 import type { ProviderRegistry } from "./ProviderRegistry";
-
-const IMAGE_MEDIA_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"] as const;
 
 /**
  * Platform-provided Snowflake hooks. Pre-built by the Node caller and threaded in
@@ -25,84 +23,20 @@ export interface SnowflakeProviderCallbacks {
 }
 
 /**
- * Helper to build a Claude model entry (Anthropic Messages API protocol).
- * All Claude models share the same capabilities on Snowflake Cortex.
- */
-function claudeModel(id: string, name: string): ModelInfo {
-	const capabilities = getAnthropicModelCapabilities(id);
-	return {
-		id,
-		name,
-		providerId: "snowflake-cortex",
-		vendor: "snowflake-cortex",
-		protocol: "anthropic-messages",
-		supportsTools: true,
-		supportsImages: true,
-		supportsToolResultImages: true,
-		supportedInputMediaTypes: [...IMAGE_MEDIA_TYPES],
-		supportsWebSearch: false,
-		maxInputTokens: 200_000,
-		maxOutputTokens: 16_384,
-		maxContextLength: 200_000,
-		thinkingEffortLevels: capabilities?.thinkingEffortLevels,
-	};
-}
-
-/**
- * Helper to build an OpenAI Chat Completions model entry.
- */
-function openaiModel(
-	id: string,
-	name: string,
-	opts?: { supportsImages?: boolean; maxInputTokens?: number },
-): ModelInfo {
-	const supportsImages = opts?.supportsImages ?? false;
-	// Strip "openai-" prefix to match against standard OpenAI model IDs
-	const standardId = id.replace(/^openai-/, "");
-	const capabilities = getOpenAIModelCapabilities(standardId);
-	return {
-		id,
-		name,
-		providerId: "snowflake-cortex",
-		vendor: "snowflake-cortex",
-		protocol: "openai-chat",
-		supportsTools: true,
-		supportsImages,
-		supportsToolResultImages: false,
-		supportedInputMediaTypes: supportsImages ? [...IMAGE_MEDIA_TYPES] : undefined,
-		supportsWebSearch: false,
-		maxInputTokens: opts?.maxInputTokens ?? 128_000,
-		maxOutputTokens: 16_384,
-		maxContextLength: opts?.maxInputTokens ?? 128_000,
-		thinkingEffortLevels: capabilities?.thinkingEffortLevels,
-	};
-}
-
-/**
- * Full Snowflake Cortex REST API model catalog.
- * Source: https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-rest-api
+ * The Snowflake Cortex model catalog, derived from `ai-config`'s Cortex table.
  *
- * Claude models support both the Messages API (anthropic protocol) and
- * Chat Completions API. We route them through the Messages API for
- * better feature support (thinking, tool use, images in tool results).
- * All other models use Chat Completions only.
- *
- * As of 2026-05-15, this is in the docs page referenced above:
- * "Tool calling is supported for OpenAI and Claude models only."
- * This means that all other models are unusable with Posit Assistant.
- *
+ * Which models are offered, their display names, their token windows, and every
+ * capability flag live in that one table — the same one capability inference
+ * reads — so adding a model is a single edit there and a catalog entry can never
+ * disagree with a user's `models.custom` override of the same id.
  */
-const SNOWFLAKE_MODELS: ModelInfo[] = [
-	// Claude models — Anthropic Messages API protocol
-	claudeModel("claude-opus-4-7", "Claude Opus 4.7"),
-	claudeModel("claude-sonnet-4-6", "Claude Sonnet 4.6"),
-	claudeModel("claude-opus-4-6", "Claude Opus 4.6"),
-	claudeModel("claude-haiku-4-5", "Claude Haiku 4.5"),
-
-	// OpenAI models — Chat Completions API protocol
-	openaiModel("openai-gpt-5.2", "GPT-5.2", { supportsImages: true }),
-	openaiModel("openai-gpt-5.1", "GPT-5.1", { supportsImages: true }),
-];
+const SNOWFLAKE_MODELS: ModelInfo[] = SNOWFLAKE_CORTEX_CATALOG.map((entry) => ({
+	id: entry.id,
+	name: entry.name,
+	providerId: "snowflake-cortex",
+	vendor: "snowflake-cortex",
+	...getSnowflakeCortexModelCapabilities(entry.id),
+}));
 
 export function registerSnowflakeCortexProvider(
 	registry: ProviderRegistry,
