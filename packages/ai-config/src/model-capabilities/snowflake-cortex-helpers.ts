@@ -6,10 +6,13 @@ import { getAnthropicModelCapabilities } from "./anthropic-helpers.js";
 import { getOpenAIModelCapabilities } from "./openai-helpers.js";
 
 /**
- * Every model the Cortex REST API serves is capped at this many output tokens,
- * regardless of the model's upstream limit — the REST rate-limit table lists
- * 16,384 for all of them, and the docs' own examples send `max_tokens: 16384`.
- * Exceeding it is a documented `400 max tokens of <count> exceeded`.
+ * The Cortex REST API rate-limit table caps every catalog model with a
+ * published row at this many output tokens, regardless of the model's upstream
+ * limit, and the docs' own examples send `max_tokens: 16384`. The table omits
+ * the preview `claude-opus-5` and `openai-gpt-5.4` rows, so we conservatively
+ * apply the same endpoint cap to them until Snowflake publishes a distinct
+ * limit. Exceeding a model's cap is a documented
+ * `400 max tokens of <count> exceeded`.
  *
  * Note this is a property of the REST endpoint, not of the models: the same
  * models reached through Cortex's AI_COMPLETE SQL function have much higher
