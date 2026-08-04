@@ -79,6 +79,14 @@ export {
 	openaiMaxInputTokens,
 } from "./model-capabilities/openai-helpers.js";
 export { getPositAiModelCapabilities } from "./model-capabilities/positai-helpers.js";
+export {
+	getSnowflakeCortexModelCapabilities,
+	SNOWFLAKE_CORTEX_CATALOG,
+} from "./model-capabilities/snowflake-cortex-helpers.js";
+export type {
+	SnowflakeCortexCatalogEntry,
+	SnowflakeCortexModelCapabilities,
+} from "./model-capabilities/snowflake-cortex-helpers.js";
 export { inferModelCapabilities } from "./model-capabilities/infer.js";
 
 // --- Defaults --------------------------------------------------------------
