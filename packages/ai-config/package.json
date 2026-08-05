@@ -3,6 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "description": "Cross-product AI configuration: schema, validation, merge/resolution, and file load/watch/write for ~/.posit/ai/",
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": "^20.19.0 || >=22.12.0"
