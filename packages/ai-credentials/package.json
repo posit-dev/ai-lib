@@ -3,6 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "description": "Credential types, shaping, and generic secret store for Posit AI products",
+  "license": "MIT",
   "type": "module",
   "exports": {
     ".": {
