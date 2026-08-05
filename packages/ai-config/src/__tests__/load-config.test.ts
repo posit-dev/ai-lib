@@ -637,7 +637,32 @@ describe("loadResolvedProviderCatalog", () => {
 			);
 		});
 
-		it("folds the enforced env layer into the initial load (above user)", async () => {
+		it("legacyPositronEnforcedSettings folds the enforced env layer into the initial load (above user), without a reader", async () => {
+			const configPath = await writeConfig(tempDir, {
+				providers: { anthropic: { baseUrl: "https://user.example.com" } },
+			});
+
+			const catalog = await loadResolvedProviderCatalog({
+				baseline: STANDALONE_BASELINE,
+				configPath,
+				logger: mockLogger,
+				envVars: {
+					POSITRON_ENFORCED_SETTINGS: JSON.stringify({
+						"authentication.anthropic.baseUrl": "https://enforced.example.com",
+					}),
+				},
+				legacyPositronEnforcedSettings: true,
+			});
+
+			expect(findProvider(catalog, "anthropic")?.connection.baseUrl).toBe(
+				"https://enforced.example.com",
+			);
+		});
+
+		it("the reader alone does not enable the enforced layer", async () => {
+			// Migrated Positron hosts drop the reader but keep the enforced flag;
+			// pre-migration hosts pass both. A reader must therefore never smuggle
+			// the enforced layer in (the pre-split behavior).
 			const configPath = await writeConfig(tempDir, {
 				providers: { anthropic: { baseUrl: "https://user.example.com" } },
 			});
@@ -655,11 +680,11 @@ describe("loadResolvedProviderCatalog", () => {
 			});
 
 			expect(findProvider(catalog, "anthropic")?.connection.baseUrl).toBe(
-				"https://enforced.example.com",
+				"https://user.example.com",
 			);
 		});
 
-		it("option absent → neither legacy layer (even with the env var set)", async () => {
+		it("options absent → neither legacy layer (even with the env var set)", async () => {
 			const configPath = await writeConfig(tempDir, { providers: {} });
 
 			const catalog = await loadResolvedProviderCatalog({

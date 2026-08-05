@@ -49,15 +49,20 @@ export function watchResolvedProviderCatalog(
 	const logger = opts.logger;
 
 	// Assemble the watchable sources: file (watchable) + env fragments
-	// (static) + the legacy Positron layers when the loader opted in.
+	// (static) + the legacy Positron layers the loader opted into.
 	const sourceProviders: ProviderConfigSourceProvider[] = [
 		createFileSourceProvider(configPath, logger),
 		createEnvSourceProvider("enforced", opts.enforcedEnvVar ?? ENFORCED_ENV_VAR, env, logger),
 		createEnvSourceProvider("default", opts.defaultEnvVar ?? DEFAULT_ENV_VAR, env, logger),
 		// PROVIDER-SETTINGS-MIGRATION(legacy-positron)
-		...(opts.legacyPositronSettings
-			? createLegacyPositronSourceProviders(opts.legacyPositronSettings, env, logger)
-			: []),
+		...createLegacyPositronSourceProviders(
+			{
+				reader: opts.legacyPositronSettings,
+				enforcedSettings: opts.legacyPositronEnforcedSettings ?? false,
+			},
+			env,
+			logger,
+		),
 	];
 
 	let debounceTimer: ReturnType<typeof setTimeout> | undefined;

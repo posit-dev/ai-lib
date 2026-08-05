@@ -7,18 +7,20 @@
  * legacy settings channels.
  *
  * Internal builders for the two legacy config-source layers. NOT exported
- * from the package entries — the `legacyPositronSettings` loader option is
- * the only public runtime surface; the load and watch seams call this to
- * assemble both layers so neither path can miss one.
+ * from the package entries — the `legacyPositronSettings` and
+ * `legacyPositronEnforcedSettings` loader options are the only public runtime
+ * surface; the load and watch seams call this single assembly point so
+ * neither path can diverge on which layers an option enables.
  *
- * - `legacy-positron`: user-set legacy settings via the injected reader,
- *   below `user`, above `default`. Watchable through the reader's coarse
- *   watch (the catalog watch debounces and diffs, so an over-fire only costs
- *   a no-op rebuild).
- * - `legacy-positron-enforced`: the `POSITRON_ENFORCED_SETTINGS` env payload,
- *   above `user`, below `enforced`. Payload-only reads — no reader, no
- *   ambient env fallbacks, so an ambient variable can never be promoted to
- *   enforced rank. Static (env vars don't change within a process).
+ * - `legacy-positron` (the `reader` option): user-set legacy settings via the
+ *   injected reader, below `user`, above `default`. Watchable through the
+ *   reader's coarse watch (the catalog watch debounces and diffs, so an
+ *   over-fire only costs a no-op rebuild).
+ * - `legacy-positron-enforced` (the `enforcedSettings` flag): the
+ *   `POSITRON_ENFORCED_SETTINGS` env payload, above `user`, below `enforced`.
+ *   Payload-only reads — no reader, no ambient env fallbacks, so an ambient
+ *   variable can never be promoted to enforced rank. Static (env vars don't
+ *   change within a process).
  */
 
 import type { ProviderConfigSourceProvider } from "../config-source.js";
@@ -31,19 +33,28 @@ import type { LegacySettingsReader } from "./translate.js";
 export const POSITRON_ENFORCED_SETTINGS_ENV_VAR = "POSITRON_ENFORCED_SETTINGS";
 
 /**
- * Build both legacy source providers for a loader that was given a
- * `legacyPositronSettings` reader. The caller folds them into the load path
- * (read once) and the watch path (read per rebuild + subscribe).
+ * Build the legacy source providers a loader opted into: the enforced layer
+ * when `enforcedSettings` is true, the reader layer when a `reader` is given
+ * (independently — enabling one never enables the other). The caller folds
+ * them into the load path (read once) and the watch path (read per rebuild +
+ * subscribe).
  */
 export function createLegacyPositronSourceProviders(
-	reader: LegacySettingsReader,
+	opts: {
+		readonly reader?: LegacySettingsReader;
+		readonly enforcedSettings: boolean;
+	},
 	env: Readonly<Record<string, string | undefined>>,
 	logger?: LoggerLike,
 ): ProviderConfigSourceProvider[] {
-	return [
-		createEnforcedSettingsProvider(env, logger),
-		createReaderSettingsProvider(reader, logger),
-	];
+	const providers: ProviderConfigSourceProvider[] = [];
+	if (opts.enforcedSettings) {
+		providers.push(createEnforcedSettingsProvider(env, logger));
+	}
+	if (opts.reader) {
+		providers.push(createReaderSettingsProvider(opts.reader, logger));
+	}
+	return providers;
 }
 
 // ---------------------------------------------------------------------------

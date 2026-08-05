@@ -14,7 +14,7 @@ The package splits pure (browser/test-safe) logic from filesystem I/O:
 | `ai-config/node`                  | The pure entry plus the three filesystem seams and path constants                                                                                                                                                                                                                                                            | Yes          |
 | `ai-config/providers.schema.json` | The generated JSON Schema, for editor validation/autocomplete of `providers.json`                                                                                                                                                                                                                                            | No           |
 
-No entry imports `vscode`. Legacy Positron settings reach the loader through the `legacyPositronSettings` option's injected reader (see `LoadCatalogOptions` below).
+No entry imports `vscode`. Legacy Positron settings reach the loader through the `legacyPositronSettings` option's injected reader and the `legacyPositronEnforcedSettings` boolean (see `LoadCatalogOptions` below).
 
 The three filesystem seams (`ai-config/node`):
 
@@ -177,7 +177,7 @@ import { AI_CONFIG_DIR, PROVIDERS_CONFIG_PATH } from "ai-config/node";
 
 #### `loadResolvedProviderCatalog(opts): Promise<readonly ResolvedProvider[]>`
 
-The single read seam. Assembles the config sources (the user file → `{}` if missing, the `POSIT_AI_PROVIDERS_ENFORCED` / `POSIT_AI_PROVIDERS_DEFAULT` env fragments, and — when a `legacyPositronSettings` reader is supplied — the two legacy Positron layers), delegates precedence to `resolveProviderCatalog`, applies the platform baseline, and returns the resolved catalog. The read path degrades gracefully — malformed/missing files log a warning and fall back rather than throwing.
+The single read seam. Assembles the config sources (the user file → `{}` if missing, the `POSIT_AI_PROVIDERS_ENFORCED` / `POSIT_AI_PROVIDERS_DEFAULT` env fragments, and the legacy Positron layers opted into via `legacyPositronSettings` / `legacyPositronEnforcedSettings`), delegates precedence to `resolveProviderCatalog`, applies the platform baseline, and returns the resolved catalog. The read path degrades gracefully — malformed/missing files log a warning and fall back rather than throwing.
 
 ```ts
 const catalog = await loadResolvedProviderCatalog({
@@ -187,15 +187,16 @@ const catalog = await loadResolvedProviderCatalog({
 
 `LoadCatalogOptions`:
 
-| Field                     | Description                                                                                                                                                                                        |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `baseline` (required)     | `PlatformBaseline` — enablement defaults for this platform.                                                                                                                                        |
-| `configPath?`             | Override the file path (testing).                                                                                                                                                                  |
-| `enforcedEnvVar?`         | Override the enforced env-var name (defaults to `POSIT_AI_PROVIDERS_ENFORCED`; testing).                                                                                                           |
-| `defaultEnvVar?`          | Override the defaults env-var name (defaults to `POSIT_AI_PROVIDERS_DEFAULT`; testing).                                                                                                            |
-| `envVars?`                | Source for non-secret connection env vars (converted into a resolver-owned source ranked below `enforced`) **and** for reading the enforced/default fragment env vars (defaults to `process.env`). |
-| `legacyPositronSettings?` | A `LegacySettingsReader` (`get`/`watch`) over the legacy Positron settings. Its presence enables the `legacy-positron` + `legacy-positron-enforced` layers in both the load and watch paths.       |
-| `logger?`                 | `LoggerLike` for diagnostics/validation warnings.                                                                                                                                                  |
+| Field                             | Description                                                                                                                                                                                        |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `baseline` (required)             | `PlatformBaseline` — enablement defaults for this platform.                                                                                                                                        |
+| `configPath?`                     | Override the file path (testing).                                                                                                                                                                  |
+| `enforcedEnvVar?`                 | Override the enforced env-var name (defaults to `POSIT_AI_PROVIDERS_ENFORCED`; testing).                                                                                                           |
+| `defaultEnvVar?`                  | Override the defaults env-var name (defaults to `POSIT_AI_PROVIDERS_DEFAULT`; testing).                                                                                                            |
+| `envVars?`                        | Source for non-secret connection env vars (converted into a resolver-owned source ranked below `enforced`) **and** for reading the enforced/default fragment env vars (defaults to `process.env`). |
+| `legacyPositronSettings?`         | A `LegacySettingsReader` (`get`/`watch`) over the legacy Positron settings. Its presence enables the `legacy-positron` layer (user-set channel) in both the load and watch paths.                  |
+| `legacyPositronEnforcedSettings?` | `true` enables the `legacy-positron-enforced` layer (the `POSITRON_ENFORCED_SETTINGS` admin channel) in both the load and watch paths. Independent of `legacyPositronSettings`.                    |
+| `logger?`                         | `LoggerLike` for diagnostics/validation warnings.                                                                                                                                                  |
 
 #### `mutateProvidersConfig(mutator, opts?): Promise<void>`
 
@@ -272,7 +273,7 @@ sub.dispose();
 
 Config flows through **assemble sources → resolve → watch**:
 
-1. **Assemble sources**: the node seam reads the user file (missing → `{}`, validated against `providersConfigSchema`), the enforced fragment from `POSIT_AI_PROVIDERS_ENFORCED`, and the defaults fragment from `POSIT_AI_PROVIDERS_DEFAULT` (both validated against the relaxed `providersConfigFragmentSchema`), plus — when a `legacyPositronSettings` reader is supplied — the `legacy-positron` and `legacy-positron-enforced` layers translated from the legacy Positron settings. Each becomes a `ProviderConfigSource` tagged with its `kind`.
+1. **Assemble sources**: the node seam reads the user file (missing → `{}`, validated against `providersConfigSchema`), the enforced fragment from `POSIT_AI_PROVIDERS_ENFORCED`, and the defaults fragment from `POSIT_AI_PROVIDERS_DEFAULT` (both validated against the relaxed `providersConfigFragmentSchema`), plus the legacy Positron layers opted into per option (`legacyPositronSettings` reader → `legacy-positron`, `legacyPositronEnforcedSettings: true` → `legacy-positron-enforced`), translated from the legacy Positron settings. Each becomes a `ProviderConfigSource` tagged with its `kind`.
 2. **Resolve** (`resolveProviderCatalog`): rank the sources by kind (`enforced` > `legacy-positron-enforced` > connection env > `user` > `legacy-positron` > `default`), fold them low → high so the sealed `enforced` overlay can never be overwritten, apply the `PlatformBaseline` beneath, and build `ResolvedProvider[]` — objects deep-merge per leaf-key, `allow`/`deny` arrays wholesale-replace. Connection env vars are a resolver-owned source below `enforced`, not a post-resolution overlay.
 3. **Watch** (`watchResolvedProviderCatalog`): debounced (~300ms), ancestor-aware watch over **every** source (file via `fs.watch`; the legacy reader's `watch` signal; env sources are static) that re-resolves, diffs against the previous catalog, and emits a typed change only when something actually changed.
 
