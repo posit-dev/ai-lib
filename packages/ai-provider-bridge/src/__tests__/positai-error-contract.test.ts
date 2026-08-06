@@ -105,6 +105,45 @@ describe("Posit AI structured error contract", () => {
 		});
 	});
 
+	it("preserves unknown-403 metadata when returning a stale cached catalog", async () => {
+		const logger = createLogger();
+		const registry = new ProviderRegistry(logger);
+		registerPositAiProvider(registry, "https://gateway.example.test", "test/1.0", logger);
+		vi.spyOn(Date, "now").mockReturnValueOnce(1).mockReturnValueOnce(3_600_002);
+		vi.spyOn(globalThis, "fetch")
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({
+						chat: [
+							{
+								id: "claude-test",
+								display_name: "Claude Test",
+								endpoints: [{ path: "/v1/messages", protocol: "anthropic-messages" }],
+							},
+						],
+					}),
+					{ status: 200 },
+				),
+			)
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ error_type: "access_forbidden", error_id: "support-new" }), {
+					status: 403,
+				}),
+			);
+
+		const fresh = await registry.getModelsForProvider("positai", credentials);
+		const stale = await registry.getModelsForProvider("positai", credentials);
+
+		expect(fresh).toHaveLength(1);
+		expect(stale).toEqual(fresh);
+		expect(registry.getModelFetchState<PositAiAuthMetadata>("positai")).toEqual({
+			modelFetchState: "error",
+			modelFetchStatusCode: 403,
+			modelFetchErrorType: "access_forbidden",
+			modelFetchErrorId: "support-new",
+		});
+	});
+
 	it("drops unsafe error ids and never infers a signal from raw text", () => {
 		expect(
 			parsePositAiErrorBody(

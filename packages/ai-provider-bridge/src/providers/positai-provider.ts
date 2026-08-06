@@ -114,6 +114,7 @@ export function registerPositAiProvider(
 			return cachedModels;
 		}
 
+		let failureMetadata: PositAiAuthMetadata | undefined;
 		try {
 			logger.debug(`${logPrefix} Fetching models from API`);
 			const response = await fetch(joinPath(resolveBaseUrl(), "/models"), {
@@ -164,11 +165,12 @@ export function registerPositAiProvider(
 					return [];
 				}
 
-				lastFetchState = {
+				failureMetadata = {
 					modelFetchState: "error",
 					modelFetchStatusCode: response.status,
 					...diagnosticMetadata,
 				};
+				lastFetchState = failureMetadata;
 				throw new Error(`API returned ${response.status}`);
 			}
 
@@ -227,11 +229,9 @@ export function registerPositAiProvider(
 		} catch (error) {
 			const errorMsg = error instanceof Error ? error.message : String(error);
 			logger.warn(`${logPrefix} API fetch failed: ${errorMsg}, using fallback`);
+			lastFetchState = failureMetadata ?? { modelFetchState: "error" };
 			if (cachedModels) {
 				logger.debug(`${logPrefix} Returning stale cached models`);
-				lastFetchState = {
-					modelFetchState: "ok",
-				};
 				return cachedModels;
 			}
 			return [];

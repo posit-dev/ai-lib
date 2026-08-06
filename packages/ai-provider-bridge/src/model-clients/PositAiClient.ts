@@ -181,12 +181,7 @@ export class PositAiClient implements ModelClient {
 		const onAccountUnavailable = () => {
 			for (const logger of params.stepLoggers || []) {
 				try {
-					if (logger.reportAccountUnavailable) {
-						logger.reportAccountUnavailable();
-					} else {
-						// Compatibility for consumers predating the neutral callback.
-						logger.reportAgreementRequired?.();
-					}
+					logger.reportAccountUnavailable?.();
 				} catch {
 					// Account reporting must not interfere with request error handling
 				}
