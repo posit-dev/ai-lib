@@ -132,8 +132,9 @@ export { mergeConfigFragments, mergeEnforced } from "./enforce.js";
 // --- PROVIDER-SETTINGS-MIGRATION(legacy-positron) BEGIN ----------------------
 // The legacy Positron settings map + translator, shared by the loader's
 // legacy layers and Positron's one-shot settings migration. The internal
-// source builders are NOT exported — the `legacyPositronSettings` loader
-// option is the only public runtime surface.
+// source builders are NOT exported — the `legacyPositronSettings` and
+// `legacyPositronEnforcedSettings` loader options are the only public
+// runtime surface.
 export {
 	LEGACY_CONNECTION_ROWS,
 	legacySettingKeys,

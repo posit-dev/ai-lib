@@ -7,10 +7,10 @@
  *
  * This is the **single, source-aware watch seam**. It watches the built-in
  * sources (the `providers.json` file + the enforced/default env fragments)
- * and, when the loader opted in via `legacyPositronSettings`, the legacy
- * Positron settings layers. Any source change — file edit, legacy settings
- * change, etc. — triggers a debounced rebuild of the whole catalog and a
- * typed change event. Consumers read change categories
+ * and the legacy Positron settings layers the loader opted into (the
+ * `legacyPositronSettings` reader and/or the `legacyPositronEnforcedSettings`
+ * flag). Any source change — file edit, legacy settings change, etc. —
+ * triggers a debounced rebuild of the whole catalog and a typed change event. Consumers read change categories
  * (`enabled`/`connection`/`models`) off each event.
  */
 
@@ -37,7 +37,8 @@ import type { Disposable, ProviderCatalogChange, WatchCatalogOptions } from "./t
  *
  * @param handler - Called with the change event whenever any source changes.
  * @param opts - Platform baseline, optional path/env overrides, and the
- *   optional `legacyPositronSettings` reader.
+ *   optional legacy opt-ins (`legacyPositronSettings` reader,
+ *   `legacyPositronEnforcedSettings` flag).
  * @returns Disposable that stops watching.
  */
 export function watchResolvedProviderCatalog(
@@ -55,14 +56,7 @@ export function watchResolvedProviderCatalog(
 		createEnvSourceProvider("enforced", opts.enforcedEnvVar ?? ENFORCED_ENV_VAR, env, logger),
 		createEnvSourceProvider("default", opts.defaultEnvVar ?? DEFAULT_ENV_VAR, env, logger),
 		// PROVIDER-SETTINGS-MIGRATION(legacy-positron)
-		...createLegacyPositronSourceProviders(
-			{
-				reader: opts.legacyPositronSettings,
-				enforcedSettings: opts.legacyPositronEnforcedSettings ?? false,
-			},
-			env,
-			logger,
-		),
+		...createLegacyPositronSourceProviders(opts, env, logger),
 	];
 
 	let debounceTimer: ReturnType<typeof setTimeout> | undefined;

@@ -107,7 +107,8 @@ export interface MutateConfigOptions {
 /**
  * Options for `watchResolvedProviderCatalog()`.
  *
- * Inherits `legacyPositronSettings` from {@link LoadCatalogOptions} so the
+ * Inherits the legacy opt-ins (`legacyPositronSettings`,
+ * `legacyPositronEnforcedSettings`) from {@link LoadCatalogOptions} so the
  * same legacy layers are folded into both the load and watch paths.
  */
 export type WatchCatalogOptions = LoadCatalogOptions;

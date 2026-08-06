@@ -34,25 +34,27 @@ export const POSITRON_ENFORCED_SETTINGS_ENV_VAR = "POSITRON_ENFORCED_SETTINGS";
 
 /**
  * Build the legacy source providers a loader opted into: the enforced layer
- * when `enforcedSettings` is true, the reader layer when a `reader` is given
- * (independently — enabling one never enables the other). The caller folds
- * them into the load path (read once) and the watch path (read per rebuild +
- * subscribe).
+ * when `legacyPositronEnforcedSettings` is true, the reader layer when a
+ * `legacyPositronSettings` reader is given (independently — enabling one
+ * never enables the other). Accepts the loader's own option fields so the
+ * option → layer mapping lives only here; callers pass their `opts` straight
+ * through and fold the result into the load path (read once) and the watch
+ * path (read per rebuild + subscribe).
  */
 export function createLegacyPositronSourceProviders(
 	opts: {
-		readonly reader?: LegacySettingsReader;
-		readonly enforcedSettings: boolean;
+		readonly legacyPositronSettings?: LegacySettingsReader;
+		readonly legacyPositronEnforcedSettings?: boolean;
 	},
 	env: Readonly<Record<string, string | undefined>>,
 	logger?: LoggerLike,
 ): ProviderConfigSourceProvider[] {
 	const providers: ProviderConfigSourceProvider[] = [];
-	if (opts.enforcedSettings) {
+	if (opts.legacyPositronEnforcedSettings) {
 		providers.push(createEnforcedSettingsProvider(env, logger));
 	}
-	if (opts.reader) {
-		providers.push(createReaderSettingsProvider(opts.reader, logger));
+	if (opts.legacyPositronSettings) {
+		providers.push(createReaderSettingsProvider(opts.legacyPositronSettings, logger));
 	}
 	return providers;
 }

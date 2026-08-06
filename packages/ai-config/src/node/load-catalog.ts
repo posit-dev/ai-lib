@@ -55,14 +55,7 @@ export async function loadResolvedProviderCatalog(
 	// change signal separately; this load-path fold is load-bearing because
 	// the watch's initial rebuild does not emit, so without it the first
 	// catalog would miss legacy settings until the first change fires.
-	const legacyProviders = createLegacyPositronSourceProviders(
-		{
-			reader: opts.legacyPositronSettings,
-			enforcedSettings: opts.legacyPositronEnforcedSettings ?? false,
-		},
-		env,
-		opts.logger,
-	);
+	const legacyProviders = createLegacyPositronSourceProviders(opts, env, opts.logger);
 	const legacy = await Promise.all(legacyProviders.map((p) => p.read()));
 	for (const source of legacy) {
 		if (source) {

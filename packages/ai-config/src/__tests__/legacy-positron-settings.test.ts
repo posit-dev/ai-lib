@@ -459,7 +459,7 @@ function makeSources(
 		},
 	};
 	const [enforced, legacy] = createLegacyPositronSourceProviders(
-		{ reader, enforcedSettings: true },
+		{ legacyPositronSettings: reader, legacyPositronEnforcedSettings: true },
 		env,
 		logger,
 	);
