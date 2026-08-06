@@ -102,6 +102,10 @@ describe("inferModelCapabilities", () => {
 		// must lift supportsImages for this vision-capable model.
 		expect(kimi.supportsImages).toBe(true);
 		expect(kimi.maxContextLength).toBe(262_000);
+
+		const kimiK3 = inferModelCapabilities("positai", "moonshotai/Kimi-K3");
+		expect(kimiK3.maxContextLength).toBe(250_000);
+		expect(kimiK3.maxInputTokens).toBe(250_000);
 	});
 
 	it("omits requiresChatTemplateKwargs so the result fits a models.custom entry", () => {
