@@ -60,4 +60,11 @@ export interface StepLogger {
 	 * Optional — only implemented by loggers that track license state.
 	 */
 	reportAgreementRequired?(): void;
+
+	/**
+	 * Report that the current sign-in did not resolve to a Posit AI account.
+	 * Older consumers may implement only `reportAgreementRequired`; the client
+	 * retains that callback as a compatibility fallback for legacy responses.
+	 */
+	reportAccountUnavailable?(): void;
 }

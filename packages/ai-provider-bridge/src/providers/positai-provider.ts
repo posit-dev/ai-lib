@@ -12,7 +12,7 @@ import type {
 	PositAiAuthMetadata,
 	ProviderCredentials,
 } from "../types";
-import { isAgreementRequiredBody, joinPath } from "../utils";
+import { joinPath, parsePositAiErrorBody } from "../utils";
 import type { ProviderRegistry } from "./ProviderRegistry";
 
 /**
@@ -124,13 +124,42 @@ export function registerPositAiProvider(
 
 			if (!response.ok) {
 				const body = await response.text().catch(() => undefined);
-				if (response.status === 403 && isAgreementRequiredBody(body)) {
+				const { errorType, errorId } = parsePositAiErrorBody(body);
+				const diagnosticMetadata = {
+					...(errorType ? { modelFetchErrorType: errorType } : {}),
+					...(errorId ? { modelFetchErrorId: errorId } : {}),
+				};
+				if (response.status === 403 && errorType === "agreement_required") {
 					lastFetchState = {
-						modelFetchState: "agreement_pending",
+						modelFetchState: "agreement_required",
 						modelFetchStatusCode: response.status,
+						...diagnosticMetadata,
 					};
 					logger.warn(
-						`${logPrefix} API fetch failed: API returned 403 agreement pending, using fallback`,
+						`${logPrefix} Models endpoint returned 403 (${errorType}); returning no Posit AI models`,
+					);
+					return [];
+				}
+				if (response.status === 403 && errorType === "account_not_found") {
+					lastFetchState = {
+						modelFetchState: "account_not_found",
+						modelFetchStatusCode: response.status,
+						...diagnosticMetadata,
+					};
+					logger.warn(
+						`${logPrefix} Models endpoint returned 403 (${errorType}); returning no Posit AI models`,
+					);
+					return [];
+				}
+				if (response.status === 403 && errorType === "prism_account_not_found") {
+					lastFetchState = {
+						// Retain the producer value expected by older bridge consumers.
+						modelFetchState: "agreement_pending",
+						modelFetchStatusCode: response.status,
+						...diagnosticMetadata,
+					};
+					logger.warn(
+						`${logPrefix} Models endpoint returned 403 (${errorType}); returning no Posit AI models`,
 					);
 					return [];
 				}
@@ -138,6 +167,7 @@ export function registerPositAiProvider(
 				lastFetchState = {
 					modelFetchState: "error",
 					modelFetchStatusCode: response.status,
+					...diagnosticMetadata,
 				};
 				throw new Error(`API returned ${response.status}`);
 			}

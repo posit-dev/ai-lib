@@ -253,12 +253,21 @@ export interface CancellationToken {
 // Posit AI Auth Metadata
 // ============================================================================
 
-export type PositAiModelFetchState = "ok" | "agreement_pending" | "error";
+export type PositAiModelFetchState =
+	| "ok"
+	| "agreement_pending"
+	| "account_not_found"
+	| "agreement_required"
+	| "error";
 
 export interface PositAiAuthMetadata extends Record<string, unknown> {
 	accountUrl?: string;
 	modelFetchState?: PositAiModelFetchState;
 	modelFetchStatusCode?: number;
+	/** Raw structured gateway `error_type`, when supplied. */
+	modelFetchErrorType?: string;
+	/** Opaque, display-safe gateway correlation identifier, when supplied. */
+	modelFetchErrorId?: string;
 }
 
 // ============================================================================

@@ -88,28 +88,71 @@ export {
 // Posit AI
 // ---------------------------------------------------------------------------
 
-/**
- * Check whether a response body indicates an agreement-required 403
- * (`prism_account_not_found`). Parses defensively: checks top-level
- * `error_type`, nested `error.error_type`, and falls back to a raw-text
- * `includes` check as a safety net against schema drift.
- */
-export function isAgreementRequiredBody(responseBody: string | undefined): boolean {
-	if (!responseBody) return false;
-	const TARGET = "prism_account_not_found";
+export interface PositAiErrorDetails {
+	errorType?: string;
+	errorId?: string;
+}
+
+const POSIT_AI_ERROR_FIELD_MAX_LENGTH = 128;
+const STRUCTURED_ERROR_TOKEN = /^[A-Za-z0-9._:-]+$/;
+
+/** Validate an opaque support identifier without interpreting its contents. */
+export function sanitizePositAiErrorId(value: unknown): string | undefined {
+	if (typeof value !== "string") return undefined;
+	const trimmed = value.trim();
+	return trimmed.length > 0 &&
+		trimmed.length <= POSIT_AI_ERROR_FIELD_MAX_LENGTH &&
+		STRUCTURED_ERROR_TOKEN.test(trimmed)
+		? trimmed
+		: undefined;
+}
+
+function structuredErrorField(
+	outer: Record<string, unknown>,
+	nested: Record<string, unknown> | undefined,
+	field: "error_type" | "error_id",
+): string | undefined {
+	const value = outer[field] ?? nested?.[field];
+	if (typeof value !== "string") return undefined;
+	const trimmed = value.trim();
+	return trimmed.length > 0 && trimmed.length <= POSIT_AI_ERROR_FIELD_MAX_LENGTH
+		? trimmed
+		: undefined;
+}
+
+/** Parse the documented structured fields without retaining the response body. */
+export function parsePositAiErrorBody(responseBody: string | undefined): PositAiErrorDetails {
+	if (!responseBody) return {};
 	try {
 		const parsed: unknown = JSON.parse(responseBody);
-		if (parsed && typeof parsed === "object") {
-			const obj = parsed as Record<string, unknown>;
-			if (obj.error_type === TARGET) return true;
-			if (obj.error && typeof obj.error === "object") {
-				if ((obj.error as Record<string, unknown>).error_type === TARGET) return true;
-			}
-		}
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+
+		const outer = parsed as Record<string, unknown>;
+		const nested =
+			outer.error && typeof outer.error === "object" && !Array.isArray(outer.error)
+				? (outer.error as Record<string, unknown>)
+				: undefined;
+		const candidateErrorType = structuredErrorField(outer, nested, "error_type");
+		const errorType =
+			candidateErrorType && STRUCTURED_ERROR_TOKEN.test(candidateErrorType)
+				? candidateErrorType
+				: undefined;
+		const errorId = sanitizePositAiErrorId(structuredErrorField(outer, nested, "error_id"));
+		return { errorType, errorId };
 	} catch {
-		// Not JSON — fall through to raw check
+		return {};
 	}
-	return responseBody.includes(TARGET);
+}
+
+/** Check only the gateway's precise agreement-required signal. */
+export function isAgreementRequiredBody(responseBody: string | undefined): boolean {
+	return parsePositAiErrorBody(responseBody).errorType === "agreement_required";
+}
+
+/** Check the current and legacy neutral no-account gateway signals. */
+export function isAccountUnavailableBody(responseBody: string | undefined): boolean {
+	const errorType = parsePositAiErrorBody(responseBody).errorType;
+	return errorType === "account_not_found" || errorType === "prism_account_not_found";
 }
 
 // ---------------------------------------------------------------------------

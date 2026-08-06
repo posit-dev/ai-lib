@@ -100,7 +100,13 @@ export type { LocalProviderId, LocalProviderManagerOptions } from "./local-provi
 export { isThinkingEnabled } from "./utils";
 export { buildSnowflakeCortexUrl } from "./utils";
 export { normalizeDatabricksHost } from "./utils";
-export { isAgreementRequiredBody } from "./utils";
+export {
+	isAccountUnavailableBody,
+	isAgreementRequiredBody,
+	parsePositAiErrorBody,
+	sanitizePositAiErrorId,
+	type PositAiErrorDetails,
+} from "./utils";
 export { joinPath } from "./utils";
 
 // Provider defaults (single source of truth for gateway URLs)

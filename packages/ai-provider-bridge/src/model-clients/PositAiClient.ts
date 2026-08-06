@@ -24,6 +24,7 @@ import {
 import type { LMStreamPart, Logger } from "../types";
 import { normalizeProtocol } from "../types";
 import {
+	isAccountUnavailableBody,
 	isAgreementRequiredBody,
 	isClaudeModel,
 	isThinkingEnabled,
@@ -47,6 +48,7 @@ function createAuthenticatedFetch(
 	customHeaders?: Record<string, string>,
 	onCreditsDepleted?: () => void,
 	onAgreementRequired?: () => void,
+	onAccountUnavailable?: () => void,
 ): typeof globalThis.fetch {
 	return async (url: string | URL | Request, options?: RequestInit) => {
 		const headers = new Headers(options?.headers);
@@ -100,15 +102,17 @@ function createAuthenticatedFetch(
 			onCreditsDepleted();
 		}
 
-		// Detect agreement not signed (403) response from gateway
-		if (response.status === 403 && onAgreementRequired) {
+		// Preserve precise account-resolution signals without classifying every 403.
+		if (response.status === 403 && (onAgreementRequired || onAccountUnavailable)) {
 			try {
 				const body = await response.clone().text();
 				if (isAgreementRequiredBody(body)) {
-					onAgreementRequired();
+					onAgreementRequired?.();
+				} else if (isAccountUnavailableBody(body)) {
+					onAccountUnavailable?.();
 				}
 			} catch {
-				// Can't read body — don't trigger agreement notification
+				// Can't read body — don't infer an account condition
 			}
 		}
 
@@ -174,6 +178,20 @@ export class PositAiClient implements ModelClient {
 				}
 			}
 		};
+		const onAccountUnavailable = () => {
+			for (const logger of params.stepLoggers || []) {
+				try {
+					if (logger.reportAccountUnavailable) {
+						logger.reportAccountUnavailable();
+					} else {
+						// Compatibility for consumers predating the neutral callback.
+						logger.reportAgreementRequired?.();
+					}
+				} catch {
+					// Account reporting must not interfere with request error handling
+				}
+			}
+		};
 
 		// Create custom fetch with OAuth Bearer authentication and headers
 		const authenticatedFetch = createAuthenticatedFetch(
@@ -182,6 +200,7 @@ export class PositAiClient implements ModelClient {
 			headers,
 			onCreditsDepleted,
 			onAgreementRequired,
+			onAccountUnavailable,
 		);
 
 		// Create abort controller with cleanup to prevent EventEmitter memory leaks
