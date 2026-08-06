@@ -12,6 +12,8 @@
 export { createPositronBackend } from "./PositronBackend.js";
 export type {
 	CreatePositronBackendOptions,
+	PositronAuthenticationAccount,
 	PositronBackend,
+	PositronCredentialSnapshot,
 	ProviderMap,
 } from "./PositronBackend.js";

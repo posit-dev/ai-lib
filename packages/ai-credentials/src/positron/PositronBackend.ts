@@ -35,12 +35,29 @@ import { shapeCredentials } from "../types/index.js";
 export type ProviderMap = Readonly<Record<string, AuthProviderMapping | undefined>>;
 
 /**
+ * Account identity projected from the same native authentication session that
+ * supplies credentials. This is runtime-only host data and is never persisted.
+ */
+export interface PositronAuthenticationAccount {
+	id: string;
+	label: string;
+}
+
+/** One native-session observation, including both of its runtime projections. */
+export interface PositronCredentialSnapshot {
+	credentials: ProviderCredentials | null;
+	account: PositronAuthenticationAccount | null;
+}
+
+/**
  * A {@link Backend} that additionally exposes a prompting credential lookup
  * (Positron's deliberate sign-in UX) and lifecycle disposal for its vscode
  * listeners. It never carries {@link OAuthBackendHooks}.
  */
 export interface PositronBackend extends Backend {
 	oauth?: never;
+	/** Resolve credentials and native account identity from one silent session lookup. */
+	getCredentialSnapshot(providerId: string): Promise<PositronCredentialSnapshot>;
 	/** Like getCredentials, but prompts the user to sign in when no session exists. */
 	getCredentialsWithPrompt(providerId: string): Promise<ProviderCredentials | null>;
 	/** Dispose the vscode session-change listener. */
@@ -148,12 +165,12 @@ export function createPositronBackend(options: CreatePositronBackendOptions): Po
 		}
 	}
 
-	async function getMappedCredentials(
+	async function getMappedSnapshot(
 		providerId: string,
 		prompt: boolean,
-	): Promise<ProviderCredentials | null> {
+	): Promise<PositronCredentialSnapshot> {
 		const mapping = providerMap[providerId];
-		if (!mapping) return null;
+		if (!mapping) return { credentials: null, account: null };
 
 		const { authProviderId, scopes, fallbackScopes } = mapping;
 
@@ -170,8 +187,15 @@ export function createPositronBackend(options: CreatePositronBackendOptions): Po
 			}
 		}
 
-		if (!session) return null;
-		return shapeCredentials(mapping, session.accessToken, credentialConfigFactory(), logger);
+		if (!session) return { credentials: null, account: null };
+		const credentials = shapeCredentials(
+			mapping,
+			session.accessToken,
+			credentialConfigFactory(),
+			logger,
+		);
+		const account = projectAccount(session.account);
+		return { credentials, account };
 	}
 
 	// --- Credential change events -------------------------------------------
@@ -215,9 +239,36 @@ export function createPositronBackend(options: CreatePositronBackendOptions): Po
 	}
 
 	return {
-		getCredentials: (providerId: string) => getMappedCredentials(providerId, false),
-		getCredentialsWithPrompt: (providerId: string) => getMappedCredentials(providerId, true),
+		getCredentials: async (providerId: string) =>
+			(await getMappedSnapshot(providerId, false)).credentials,
+		getCredentialSnapshot: (providerId: string) => getMappedSnapshot(providerId, false),
+		getCredentialsWithPrompt: async (providerId: string) =>
+			(await getMappedSnapshot(providerId, true)).credentials,
 		onDidChangeCredentials,
 		dispose,
 	};
+}
+
+/**
+ * Keep malformed/missing host identity from invalidating otherwise usable
+ * credentials. VS Code's declared account shape is required, but older or
+ * third-party authentication providers can still return unexpected runtime data.
+ */
+function projectAccount(
+	account: vscode.AuthenticationSession["account"] | null | undefined,
+): PositronAuthenticationAccount | null {
+	try {
+		if (
+			!account ||
+			typeof account.id !== "string" ||
+			account.id.length === 0 ||
+			typeof account.label !== "string" ||
+			account.label.length === 0
+		) {
+			return null;
+		}
+		return { id: account.id, label: account.label };
+	} catch {
+		return null;
+	}
 }

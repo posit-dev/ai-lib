@@ -117,10 +117,40 @@ describe("createPositronBackend", () => {
 		});
 	});
 
+	it("projects credentials and account identity from one native session lookup", async () => {
+		mockGetSession.mockResolvedValue(makeSession("oauth-token"));
+		const backend = makeBackend();
+
+		expect(await backend.getCredentialSnapshot("positai")).toEqual({
+			credentials: { type: "oauth", accessToken: "oauth-token" },
+			account: { id: "a", label: "A" },
+		});
+		expect(mockGetSession).toHaveBeenCalledTimes(1);
+	});
+
+	it("keeps usable credentials when the native session has no account identity", async () => {
+		mockGetSession.mockResolvedValue({ ...makeSession("oauth-token"), account: undefined });
+		const backend = makeBackend();
+
+		expect(await backend.getCredentialSnapshot("positai")).toEqual({
+			credentials: { type: "oauth", accessToken: "oauth-token" },
+			account: null,
+		});
+	});
+
 	it("returns null when there is no session", async () => {
 		mockGetSession.mockResolvedValue(undefined);
 		const backend = makeBackend();
 		expect(await backend.getCredentials("anthropic")).toBeNull();
+	});
+
+	it("returns an empty snapshot when there is no session", async () => {
+		mockGetSession.mockResolvedValue(undefined);
+		const backend = makeBackend();
+		expect(await backend.getCredentialSnapshot("anthropic")).toEqual({
+			credentials: null,
+			account: null,
+		});
 	});
 
 	it("returns null for unmapped providers", async () => {
