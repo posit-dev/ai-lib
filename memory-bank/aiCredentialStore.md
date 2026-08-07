@@ -21,13 +21,25 @@ platform dependencies are isolated to `/store`, `/store-backend`, and
 
 ## Entrypoints
 
-| Entrypoint                     | Purpose                                                                           | Browser-safe? |
-| ------------------------------ | --------------------------------------------------------------------------------- | ------------- |
-| `ai-credentials`               | CredentialProvider factory, unified acquisition controller, OAuth helpers         | Yes           |
-| `ai-credentials/types`         | Credential interfaces, `shapeCredentials()`, `AuthProviderMapping`, `Logger`      | **Yes**       |
-| `ai-credentials/store`         | `SingleFileStore` class, `createDefaultStore`, `getDefaultStorePath`, store types | No (Node FS)  |
-| `ai-credentials/store-backend` | Credential-aware store/env resolver, disk schema, transactions                    | No (Node FS)  |
-| `ai-credentials/positron`      | `vscode.authentication` backend                                                   | No (VS Code)  |
+| Entrypoint                     | Purpose                                                                                                | Browser-safe? |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------ | ------------- |
+| `ai-credentials`               | CredentialProvider factory, mutable credential contract, unified acquisition controller, OAuth helpers | Yes           |
+| `ai-credentials/types`         | Credential interfaces, `shapeCredentials()`, `AuthProviderMapping`, `Logger`                           | **Yes**       |
+| `ai-credentials/store`         | `SingleFileStore` class, `createDefaultStore`, `getDefaultStorePath`, store types                      | No (Node FS)  |
+| `ai-credentials/store-backend` | Credential-aware store/env resolver, disk schema, transactions                                         | No (Node FS)  |
+| `ai-credentials/positron`      | `vscode.authentication` backend                                                                        | No (VS Code)  |
+
+### Store-backed credential mutation
+
+Store-backed consumers receive `MutableCredentialProvider`, whose
+`mutateCredentials()` operation owns credential replacement and clearing behind
+the backend seam. Its AWS-specific `update-aws` mutation updates region/profile
+while handling manual keys with an explicit `preserve`, `replace`, or `clear`
+mode. The backend re-reads and writes the record under the store's cross-process
+lock, so a non-secret settings edit cannot race with another credential writer
+and silently erase stored keys. `preserve` fails closed when the current record
+does not contain a complete access-key/secret-key pair; callers must explicitly
+choose `clear` to switch to the AWS credential chain.
 
 ### `/types` — Browser-safe credential types and shaping
 
@@ -177,6 +189,7 @@ directories (`0o700`) and an empty `{}` file (`0o600`).
 | `src/store/SingleFileStore.ts`    | The store: read/write/lock/watch + private helpers (`writeStore`, `readStore`, `withWriteLock`, `ensureFileExists`, `ensurePermissions`) |
 | `src/store/defaults.ts`           | `getDefaultStorePath()` and `createDefaultStore()` — canonical default path convention                                                   |
 | `src/store/index.ts`              | `/store` entrypoint exports                                                                                                              |
+| `src/CredentialProvider.ts`       | Root credential interfaces, mutation inputs, status types, and mutable-provider contract                                                 |
 | `src/index.ts`                    | Root CredentialProvider/acquisition entrypoint                                                                                           |
 | `src/acquisition.ts`              | Unified device-code, PKCE, M2M, refresh, cancellation, and awaited disposal controller                                                   |
 | `src/store-backend/`              | Credential disk schema, store/env resolution, normalization, generation transactions, and status                                         |
@@ -204,3 +217,6 @@ directories (`0o700`) and an empty `{}` file (`0o600`).
 - **One acquisition controller per provider handle** — generalized store-backed
   backends instantiate only `AcquisitionEngine`; `OAuthEngine` exists solely as
   a fallback for older backends without generalized acquisition hooks.
+- **AWS settings updates preserve secret intent atomically** — region/profile
+  edits and manual-key preserve/replace/clear semantics are one locked backend
+  mutation; incomplete preservation never degrades silently to chain auth.

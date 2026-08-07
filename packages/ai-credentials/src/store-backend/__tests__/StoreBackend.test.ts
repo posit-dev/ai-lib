@@ -385,7 +385,7 @@ describe("createStoreBackend", () => {
 	});
 
 	describe("update-aws mutation", () => {
-		it("atomically preserves or clears stored manual keys while updating non-secret settings", async () => {
+		it("preserves or clears stored manual keys while updating non-secret settings", async () => {
 			const backend = createStoreBackend({ store, resolveAuthMethod, env: {} });
 			await backend.mutateCredentials("bedrock", {
 				kind: "replace",
@@ -422,6 +422,78 @@ describe("createStoreBackend", () => {
 			expect(await backend.getCredentials("bedrock")).toEqual({
 				type: "aws-credentials",
 				region: "ca-central-1",
+			});
+		});
+
+		it("replaces manual keys and removes an omitted session token", async () => {
+			const backend = createStoreBackend({ store, resolveAuthMethod, env: {} });
+			await backend.mutateCredentials("bedrock", {
+				kind: "replace",
+				source: {
+					type: "aws-credentials",
+					region: "eu-west-1",
+					accessKeyId: "AKIA_OLD",
+					secretAccessKey: "secret_old",
+					sessionToken: "token_old",
+				},
+			});
+
+			await backend.mutateCredentials("bedrock", {
+				kind: "update-aws",
+				region: "eu-west-2",
+				profile: "staging",
+				keys: {
+					kind: "replace",
+					accessKeyId: "AKIA_NEW",
+					secretAccessKey: "secret_new",
+					sessionToken: "token_new",
+				},
+			});
+			expect(await backend.getCredentials("bedrock")).toEqual({
+				type: "aws-credentials",
+				region: "eu-west-2",
+				profile: "staging",
+				accessKeyId: "AKIA_NEW",
+				secretAccessKey: "secret_new",
+				sessionToken: "token_new",
+			});
+
+			await backend.mutateCredentials("bedrock", {
+				kind: "update-aws",
+				region: "ca-central-1",
+				keys: {
+					kind: "replace",
+					accessKeyId: "AKIA_NEWER",
+					secretAccessKey: "secret_newer",
+				},
+			});
+			expect(await backend.getCredentials("bedrock")).toEqual({
+				type: "aws-credentials",
+				region: "ca-central-1",
+				accessKeyId: "AKIA_NEWER",
+				secretAccessKey: "secret_newer",
+			});
+		});
+
+		it("fails closed when no complete stored keypair is available to preserve", async () => {
+			const backend = createStoreBackend({ store, resolveAuthMethod, env: {} });
+			await backend.mutateCredentials("bedrock", {
+				kind: "replace",
+				source: { type: "aws-credentials", region: "eu-west-1", profile: "prod" },
+			});
+
+			await expect(
+				backend.mutateCredentials("bedrock", {
+					kind: "update-aws",
+					region: "eu-west-2",
+					profile: "staging",
+					keys: { kind: "preserve" },
+				}),
+			).rejects.toThrow("No stored manual AWS keys are available to preserve");
+			expect(await backend.getCredentials("bedrock")).toEqual({
+				type: "aws-credentials",
+				region: "eu-west-1",
+				profile: "prod",
 			});
 		});
 	});
