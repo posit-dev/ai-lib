@@ -2,12 +2,14 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
+import { mintCustomProviderId } from "ai-config";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { CancellationToken, Logger } from "../../types";
 import {
 	litellmV1BaseUrl,
 	parseLitellmModelInfoResponse,
+	registerCustomLitellmProvider,
 	registerLitellmProvider,
 } from "../litellm-provider";
 import { ProviderRegistry } from "../ProviderRegistry";
@@ -114,6 +116,84 @@ describe("litellm model fetcher", () => {
 				Authorization: "Bearer sk-test",
 			},
 		});
+	});
+});
+
+describe("registerCustomLitellmProvider", () => {
+	it("stamps the custom provider id into discovered models", async () => {
+		const fetchMock = vi.fn(async () =>
+			Response.json({ data: [{ model_name: "claude-haiku-4-5", model_info: { mode: "chat" } }] }),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		const registry = new ProviderRegistry(logger);
+		registerCustomLitellmProvider(registry, mintCustomProviderId("acme-ai"), logger);
+
+		const models = await registry.getModelsForProvider("acme-ai", {
+			type: "apikey",
+			baseUrl: "http://localhost:4000",
+		});
+
+		expect(models).toHaveLength(1);
+		expect(models[0].providerId).toBe("acme-ai");
+	});
+
+	it("keeps independent model caches per gateway", async () => {
+		const fetchMock = vi.fn(async (input: string | URL | Request) => {
+			const url =
+				typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+			const alias = url.includes("gateway-a") ? "model-a" : "model-b";
+			return Response.json({ data: [{ model_name: alias, model_info: { mode: "chat" } }] });
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		const registry = new ProviderRegistry(logger);
+		registerCustomLitellmProvider(registry, mintCustomProviderId("acme-a"), logger);
+		registerCustomLitellmProvider(registry, mintCustomProviderId("acme-b"), logger);
+
+		const credsA = { type: "apikey", baseUrl: "http://gateway-a:4000" } as const;
+		const credsB = { type: "apikey", baseUrl: "http://gateway-b:4000" } as const;
+
+		// Two reads per provider: the second must serve from that provider's own
+		// cache (one fetch per gateway), and each keeps its own model list.
+		for (let i = 0; i < 2; i++) {
+			const modelsA = await registry.getModelsForProvider("acme-a", credsA);
+			const modelsB = await registry.getModelsForProvider("acme-b", credsB);
+			expect(modelsA.map((m) => m.id)).toEqual(["model-a"]);
+			expect(modelsB.map((m) => m.id)).toEqual(["model-b"]);
+		}
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+	});
+
+	it("resolves a chat client through the clientKind fallback without the built-in registrar", () => {
+		const registry = new ProviderRegistry(logger);
+		registerCustomLitellmProvider(registry, mintCustomProviderId("acme-ai"), logger);
+
+		const client = registry.getClientForProviderOrKind(
+			"acme-ai",
+			{ type: "apikey", baseUrl: "http://localhost:4000" },
+			"litellm",
+		);
+		expect(client).not.toBeNull();
+	});
+
+	it("does not pin the custom id to the LiteLLM client when the entry's kind changes", () => {
+		// Live-reload staleness regression: registrations are never removed, so a
+		// factory keyed by the custom id would keep serving the LiteLLM client
+		// after providers.json changes the entry's `type`. The factory must live
+		// under the kind key only, letting routing follow the current catalog kind.
+		const registry = new ProviderRegistry(logger);
+		registerCustomLitellmProvider(registry, mintCustomProviderId("acme-ai"), logger);
+
+		const openaiCompatibleClient = { chat: vi.fn() };
+		registry.registerClientFactory("openai-compatible", () => openaiCompatibleClient);
+
+		const client = registry.getClientForProviderOrKind(
+			"acme-ai",
+			{ type: "apikey", baseUrl: "http://localhost:4000" },
+			"openai-compatible",
+		);
+		expect(client).toBe(openaiCompatibleClient);
 	});
 });
 

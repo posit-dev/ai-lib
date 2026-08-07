@@ -23,14 +23,27 @@
  * without a master key needs no auth. The key is sent both as `x-api-key`
  * (what the Anthropic SDK sends on `/v1/messages`) and `Authorization: Bearer`
  * during discovery; LiteLLM accepts either scheme for virtual keys.
+ *
+ * Two registrars share the same wire knowledge:
+ * - `registerLitellmProvider` — the built-in `litellm` provider.
+ * - `registerCustomLitellmProvider` — a `providers.custom` entry with
+ *   `type: "litellm"` (an organization's own gateway under its own name).
+ *   The model fetcher is registered under the custom provider id (with its
+ *   own cache, stamping that id into discovered models), while the client
+ *   factory is registered under the kind key `"litellm"` only — chat routing
+ *   reaches it through the registry's `clientKind` fallback, which reads the
+ *   current catalog kind and therefore cannot go stale when an entry's
+ *   `type` changes on a live providers.json reload.
  */
 
+import type { ResolvedProviderId } from "ai-config";
 import { getLitellmModelCapabilities, inferModelCapabilities } from "ai-config";
 
 import { AnthropicClient } from "../model-clients/AnthropicClient";
 import type { ApiKeyCredentials, Logger, ModelInfo } from "../types";
+import type { ClearableModelFetcher } from "./cached-model-fetcher";
 import { createCachedModelFetcher } from "./cached-model-fetcher";
-import type { ProviderRegistry } from "./ProviderRegistry";
+import type { ClientFactory, ProviderRegistry } from "./ProviderRegistry";
 
 /**
  * Resolve the proxy's `/v1` API base from the configured base URL, tolerating
@@ -58,7 +71,11 @@ interface LitellmModelInfoEntry {
 	};
 }
 
-function toModelInfo(entry: LitellmModelInfoEntry, alias: string): ModelInfo {
+function toModelInfo(
+	entry: LitellmModelInfoEntry,
+	alias: string,
+	providerId: ResolvedProviderId,
+): ModelInfo {
 	const info = entry.model_info ?? {};
 	const underlyingModel = entry.litellm_params?.model ?? "";
 
@@ -75,7 +92,7 @@ function toModelInfo(entry: LitellmModelInfoEntry, alias: string): ModelInfo {
 	const model: ModelInfo = {
 		id: alias,
 		name: alias,
-		providerId: "litellm",
+		providerId,
 		...inferredCapabilities,
 		vendor: isClaude ? "anthropic" : info.litellm_provider || "litellm",
 		protocol: "anthropic-messages",
@@ -95,10 +112,14 @@ function toModelInfo(entry: LitellmModelInfoEntry, alias: string): ModelInfo {
 }
 
 /**
- * Parse a `/v1/model/info` response into chat-capable models.
+ * Parse a `/v1/model/info` response into chat-capable models, stamped with
+ * `providerId` (the built-in `"litellm"` or a custom provider id).
  * Exported for tests.
  */
-export function parseLitellmModelInfoResponse(data: unknown): ModelInfo[] {
+export function parseLitellmModelInfoResponse(
+	data: unknown,
+	providerId: ResolvedProviderId = "litellm",
+): ModelInfo[] {
 	const entries = (data as { data?: LitellmModelInfoEntry[] }).data ?? [];
 
 	const models: ModelInfo[] = [];
@@ -110,7 +131,7 @@ export function parseLitellmModelInfoResponse(data: unknown): ModelInfo[] {
 		// image generation, audio, rerank, ...).
 		const mode = entry.model_info?.mode;
 		if (typeof mode === "string" && mode !== "chat") continue;
-		models.push(toModelInfo(entry, alias));
+		models.push(toModelInfo(entry, alias, providerId));
 	}
 	return models;
 }
@@ -119,48 +140,83 @@ export function parseLitellmModelInfoResponse(data: unknown): ModelInfo[] {
 // Registration
 // ---------------------------------------------------------------------------
 
-export function registerLitellmProvider(registry: ProviderRegistry, logger: Logger): void {
-	registry.registerModelFetcher(
-		"litellm",
-		createCachedModelFetcher<ApiKeyCredentials>({
-			providerId: "litellm",
-			resolveUrl: (credentials) => `${litellmV1BaseUrl(credentials.baseUrl ?? "")}/model/info`,
-			hasCredentials: (credentials) => Boolean(credentials.baseUrl?.trim()),
-			createHeaders: (credentials): Record<string, string> =>
-				credentials.apiKey
-					? {
-							"x-api-key": credentials.apiKey,
-							Authorization: `Bearer ${credentials.apiKey}`,
-						}
-					: {},
-			parseResponse: parseLitellmModelInfoResponse,
-			fallbackModels: [],
-			logger,
-		}),
-	);
-
-	registry.registerClientFactory("litellm", (credentials) => {
-		if (credentials.type !== "apikey") {
-			throw new Error(`LiteLLM provider requires API key credentials, got: ${credentials.type}`);
-		}
-		if (!credentials.baseUrl?.trim()) {
-			throw new Error("LiteLLM provider requires a base URL");
-		}
-		const client = new AnthropicClient(
-			credentials.apiKey,
-			litellmV1BaseUrl(credentials.baseUrl),
-			credentials.customHeaders,
-		);
-		// The catalog pipeline forwards the raw connection baseUrl as a
-		// per-request routing override (params.baseUrl), which would clobber the
-		// normalized constructor URL inside AnthropicClient. Normalize it here so
-		// every path into the proxy lands on `/v1` — litellm wire knowledge stays
-		// in this module.
-		return {
-			chat: (params) =>
-				client.chat(
-					params.baseUrl ? { ...params, baseUrl: litellmV1BaseUrl(params.baseUrl) } : params,
-				),
-		};
+/**
+ * Build a cached `/v1/model/info` fetcher for one gateway. Each call creates
+ * its own `createCachedModelFetcher` instance, so every registered provider id
+ * (the built-in plus each custom entry) gets an independent per-gateway cache.
+ */
+function createLitellmModelFetcher(
+	providerId: ResolvedProviderId,
+	logger: Logger,
+): ClearableModelFetcher {
+	return createCachedModelFetcher<ApiKeyCredentials>({
+		providerId,
+		resolveUrl: (credentials) => `${litellmV1BaseUrl(credentials.baseUrl ?? "")}/model/info`,
+		hasCredentials: (credentials) => Boolean(credentials.baseUrl?.trim()),
+		createHeaders: (credentials): Record<string, string> =>
+			credentials.apiKey
+				? {
+						"x-api-key": credentials.apiKey,
+						Authorization: `Bearer ${credentials.apiKey}`,
+					}
+				: {},
+		parseResponse: (data) => parseLitellmModelInfoResponse(data, providerId),
+		fallbackModels: [],
+		logger,
 	});
+}
+
+/**
+ * The shared LiteLLM chat-client factory. Module-level so both registrars set
+ * the same value under the kind key `"litellm"` — re-registration is a no-op.
+ */
+const litellmClientFactory: ClientFactory = (credentials) => {
+	if (credentials.type !== "apikey") {
+		throw new Error(`LiteLLM provider requires API key credentials, got: ${credentials.type}`);
+	}
+	if (!credentials.baseUrl?.trim()) {
+		throw new Error("LiteLLM provider requires a base URL");
+	}
+	const client = new AnthropicClient(
+		credentials.apiKey,
+		litellmV1BaseUrl(credentials.baseUrl),
+		credentials.customHeaders,
+	);
+	// The catalog pipeline forwards the raw connection baseUrl as a
+	// per-request routing override (params.baseUrl), which would clobber the
+	// normalized constructor URL inside AnthropicClient. Normalize it here so
+	// every path into the proxy lands on `/v1` — litellm wire knowledge stays
+	// in this module.
+	return {
+		chat: (params) =>
+			client.chat(
+				params.baseUrl ? { ...params, baseUrl: litellmV1BaseUrl(params.baseUrl) } : params,
+			),
+	};
+};
+
+/** Register the built-in `litellm` provider. */
+export function registerLitellmProvider(registry: ProviderRegistry, logger: Logger): void {
+	registry.registerModelFetcher("litellm", createLitellmModelFetcher("litellm", logger));
+	registry.registerClientFactory("litellm", litellmClientFactory);
+}
+
+/**
+ * Register a `providers.custom` entry with `type: "litellm"`.
+ *
+ * The model fetcher goes under the given custom provider id (independent
+ * cache; discovered models carry that id). The client factory is registered
+ * under the kind key `"litellm"` only — NOT under the custom id — so chat
+ * resolution goes through `getClientForProviderOrKind`'s `clientKind`
+ * fallback. Routing therefore follows the *current* catalog kind: an id-keyed
+ * factory would keep serving the LiteLLM client after a live providers.json
+ * reload changes the entry's `type`, because the registry has no unregister.
+ */
+export function registerCustomLitellmProvider(
+	registry: ProviderRegistry,
+	providerId: ResolvedProviderId,
+	logger: Logger,
+): void {
+	registry.registerModelFetcher(providerId, createLitellmModelFetcher(providerId, logger));
+	registry.registerClientFactory("litellm", litellmClientFactory);
 }

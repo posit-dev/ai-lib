@@ -122,6 +122,7 @@ export const SUPPORTED_CUSTOM_CLIENT_KIND_VALUES = [
 	"deepseek",
 	"openrouter",
 	"ms-foundry",
+	"litellm",
 ] as const;
 
 export type SupportedCustomClientKind = (typeof SUPPORTED_CUSTOM_CLIENT_KIND_VALUES)[number];

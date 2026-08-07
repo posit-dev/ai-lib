@@ -101,6 +101,27 @@ while gpt-oss inference uses `/v1` and GPT-5.x Responses inference uses
 `/openai/v1`. The provider assigns the inference endpoint from its family
 capability rule rather than assuming the listing path is callable.
 
+### Custom-provider registrars (kind-keyed factory)
+
+When a provider kind can also back `providers.custom` entries (LiteLLM is the
+reference: `registerCustomLitellmProvider(registry, providerId, logger)`), the
+module exports a second registrar that consumers call once per custom entry:
+
+- The **model fetcher** is registered under the custom provider id, with its
+  own `createCachedModelFetcher` instance (independent per-gateway cache) and
+  the custom id stamped into each discovered `ModelInfo`.
+- The **client factory** is registered under the kind key only (e.g.
+  `"litellm"`), never under the custom id. Chat resolution reaches it through
+  `getClientForProviderOrKind`'s `clientKind` fallback, which reads the
+  *current* catalog kind. `ProviderRegistry` has no unregister, and consumers
+  re-run registration against the same registry on live providers.json
+  reloads — an id-keyed factory would keep serving the old client after an
+  entry's `type` changes. Per-id fetchers are safe because every pass
+  re-registers something for each current custom id (`Map.set` overwrites).
+
+All wire knowledge (URL normalization, discovery parsing, header schemes)
+stays inside the provider module; callers supply only an id.
+
 ## Step 6: Export from Package
 
 **File**: `src/providers.ts`

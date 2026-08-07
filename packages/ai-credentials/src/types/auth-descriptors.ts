@@ -55,6 +55,7 @@ export const SUPPORTED_CUSTOM_CLIENT_KIND_VALUES = [
 	"deepseek",
 	"openrouter",
 	"ms-foundry",
+	"litellm",
 ] as const;
 
 /** Union of supported custom client kind string literals. */
@@ -77,6 +78,7 @@ const CUSTOM_CLIENT_KIND_AUTH_DESCRIPTORS = {
 	deepseek: { authMethodId: "apikey", apiKeyOptional: false },
 	openrouter: { authMethodId: "apikey", apiKeyOptional: false },
 	"ms-foundry": { authMethodId: "apikey", apiKeyOptional: false },
+	litellm: { authMethodId: "apikey", apiKeyOptional: true },
 } as const satisfies Record<SupportedCustomClientKind, CustomAuthMapping>;
 
 /**
