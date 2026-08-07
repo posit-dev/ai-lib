@@ -384,6 +384,48 @@ describe("createStoreBackend", () => {
 		});
 	});
 
+	describe("update-aws mutation", () => {
+		it("atomically preserves or clears stored manual keys while updating non-secret settings", async () => {
+			const backend = createStoreBackend({ store, resolveAuthMethod, env: {} });
+			await backend.mutateCredentials("bedrock", {
+				kind: "replace",
+				source: {
+					type: "aws-credentials",
+					region: "eu-west-1",
+					profile: "prod",
+					accessKeyId: "AKIA_TEST",
+					secretAccessKey: "secret_test",
+					sessionToken: "token_test",
+				},
+			});
+
+			await backend.mutateCredentials("bedrock", {
+				kind: "update-aws",
+				region: "eu-west-2",
+				profile: "staging",
+				keys: { kind: "preserve" },
+			});
+			expect(await backend.getCredentials("bedrock")).toEqual({
+				type: "aws-credentials",
+				region: "eu-west-2",
+				profile: "staging",
+				accessKeyId: "AKIA_TEST",
+				secretAccessKey: "secret_test",
+				sessionToken: "token_test",
+			});
+
+			await backend.mutateCredentials("bedrock", {
+				kind: "update-aws",
+				region: "ca-central-1",
+				keys: { kind: "clear" },
+			});
+			expect(await backend.getCredentials("bedrock")).toEqual({
+				type: "aws-credentials",
+				region: "ca-central-1",
+			});
+		});
+	});
+
 	describe("custom providers (widened ResolvedProviderId, Phase 0 #2)", () => {
 		// Custom catalog providers arrive as arbitrary (minted) id strings whose
 		// descriptors come from the resolved catalog at runtime, not a fixed map.

@@ -48,6 +48,20 @@ export type CredentialSourceInput =
 
 export type CredentialMutation =
 	| { kind: "replace"; source: CredentialSourceInput }
+	| {
+			kind: "update-aws";
+			region: string;
+			profile?: string;
+			keys:
+				| { kind: "preserve" }
+				| { kind: "clear" }
+				| {
+						kind: "replace";
+						accessKeyId: string;
+						secretAccessKey: string;
+						sessionToken?: string;
+				  };
+	  }
 	| { kind: "clear" };
 
 export interface CredentialStatus {
