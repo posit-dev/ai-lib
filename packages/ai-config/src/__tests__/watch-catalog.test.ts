@@ -214,6 +214,46 @@ describe("watchResolvedProviderCatalog", () => {
 		expect(lastChange.catalog.find((p) => p.id === "anthropic")?.enabled).toBe(false);
 	});
 
+	// PROVIDER-SETTINGS-MIGRATION(legacy-positron) gate: delete this test with
+	// the loader option.
+	it("should fold the enforced env layer into watch-path rebuilds when legacyPositronEnforcedSettings is set", async () => {
+		const configPath = path.join(tempDir, "providers.json");
+		await writeConfig(configPath, {});
+
+		const changes: ProviderCatalogChange[] = [];
+		const watcher = watchResolvedProviderCatalog((change) => changes.push(change), {
+			baseline: STANDALONE_BASELINE,
+			configPath,
+			logger: mockLogger,
+			envVars: {
+				POSITRON_ENFORCED_SETTINGS: JSON.stringify({
+					"authentication.anthropic.baseUrl": "https://enforced.example.com",
+				}),
+			},
+			legacyPositronEnforcedSettings: true,
+		});
+
+		// Wait for the initial load.
+		await new Promise((resolve) => setTimeout(resolve, 500));
+
+		// Trigger a rebuild through an unrelated provider so an event fires;
+		// the emitted catalog must still carry the enforced anthropic value —
+		// this pins the watch-path fold of the flag-enabled enforced layer.
+		await writeConfig(configPath, {
+			providers: { openai: { baseUrl: "https://user-openai.example.com" } },
+		});
+
+		await new Promise((resolve) => setTimeout(resolve, 600));
+
+		watcher.dispose();
+
+		expect(changes.length).toBeGreaterThanOrEqual(1);
+		const lastChange = changes[changes.length - 1];
+		expect(lastChange.catalog.find((p) => p.id === "anthropic")?.connection.baseUrl).toBe(
+			"https://enforced.example.com",
+		);
+	});
+
 	it("should include the full catalog in change events", async () => {
 		const configPath = path.join(tempDir, "providers.json");
 		await writeConfig(configPath, {});

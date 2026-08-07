@@ -50,22 +50,16 @@ export async function loadResolvedProviderCatalog(
 		logger: opts.logger,
 	});
 
-	// PROVIDER-SETTINGS-MIGRATION(legacy-positron): fold the legacy layers into
-	// the load path too. The watch path subscribes to the reader's change
-	// signal separately; this load-path fold is load-bearing because the
-	// watch's initial rebuild does not emit, so without it the first catalog
-	// would miss legacy settings until the first change fires.
-	if (opts.legacyPositronSettings) {
-		const providers = createLegacyPositronSourceProviders(
-			opts.legacyPositronSettings,
-			env,
-			opts.logger,
-		);
-		const legacy = await Promise.all(providers.map((p) => p.read()));
-		for (const source of legacy) {
-			if (source) {
-				sources.push(source);
-			}
+	// PROVIDER-SETTINGS-MIGRATION(legacy-positron): fold the opted-into legacy
+	// layers into the load path too. The watch path subscribes to the reader's
+	// change signal separately; this load-path fold is load-bearing because
+	// the watch's initial rebuild does not emit, so without it the first
+	// catalog would miss legacy settings until the first change fires.
+	const legacyProviders = createLegacyPositronSourceProviders(opts, env, opts.logger);
+	const legacy = await Promise.all(legacyProviders.map((p) => p.read()));
+	for (const source of legacy) {
+		if (source) {
+			sources.push(source);
 		}
 	}
 

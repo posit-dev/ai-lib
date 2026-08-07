@@ -33,9 +33,11 @@ from filesystem I/O:
 | `ai-config/node`                  | Re-exports the pure entry plus the three filesystem seams (`loadResolvedProviderCatalog`, `mutateProvidersConfig`, `watchResolvedProviderCatalog`) and path constants                                                                                                                                      | Node FS        |
 | `ai-config/providers.schema.json` | The generated JSON Schema, exported so editors can validate/autocomplete `providers.json`                                                                                                                                                                                                                  | No             |
 
-Legacy Positron settings reach the loader through the `legacyPositronSettings`
-option — a two-method injected reader — so no entry imports `vscode` and the
-map/translator live inside ai-config (see [Legacy Positron settings](#legacy-positron-settings-provider-settings-migration)).
+Legacy Positron settings reach the loader through two independent options —
+`legacyPositronSettings` (a two-method injected reader for the user-set
+channel) and `legacyPositronEnforcedSettings` (a boolean for the
+`POSITRON_ENFORCED_SETTINGS` admin channel) — so no entry imports `vscode` and
+the map/translator live inside ai-config (see [Legacy Positron settings](#legacy-positron-settings-provider-settings-migration)).
 
 ### Pure entry (`ai-config`)
 
@@ -55,7 +57,7 @@ Re-exports the pure entry, plus:
 - **Read seam**: `loadResolvedProviderCatalog(opts)` — the single read entry point.
 - **Write seam**: `mutateProvidersConfig(mutator, opts)` — cross-process-safe mutation.
 - **Watch seam**: `watchResolvedProviderCatalog(handler, opts)` — emits typed `ProviderCatalogChange` events.
-- **Types**: `LoadCatalogOptions` (including the transitional `legacyPositronSettings` option), `MutateConfigOptions`, `WatchCatalogOptions`, `ProviderCatalogChange`, `LoggerLike`, `Disposable`.
+- **Types**: `LoadCatalogOptions` (including the transitional `legacyPositronSettings` / `legacyPositronEnforcedSettings` options), `MutateConfigOptions`, `WatchCatalogOptions`, `ProviderCatalogChange`, `LoggerLike`, `Disposable`.
 
 ## Schema Structure (`src/schema.ts`)
 
@@ -119,9 +121,10 @@ Config flows through three stages: **assemble sources → resolve → watch**. P
    validated against `providersConfigSchema`), the enforced fragment from
    `POSIT_AI_PROVIDERS_ENFORCED`, and the defaults fragment from
    `POSIT_AI_PROVIDERS_DEFAULT` (both validated against the relaxed
-   `providersConfigFragmentSchema`), plus — when the loader was given
-   `legacyPositronSettings` — the two legacy Positron layers. Each becomes a
-   `ProviderConfigSource` tagged with its `kind` (`enforced` /
+   `providersConfigFragmentSchema`), plus the legacy Positron layers the
+   loader opted into (`legacyPositronSettings` → `legacy-positron`,
+   `legacyPositronEnforcedSettings` → `legacy-positron-enforced`). Each
+   becomes a `ProviderConfigSource` tagged with its `kind` (`enforced` /
    `legacy-positron-enforced` / `user` / `legacy-positron` / `default`).
 2. **Resolve** (`src/resolve-catalog.ts`, `resolveProviderCatalog()`): rank the
    sources by kind (`enforced` > `legacy-positron-enforced` > `user` >
@@ -191,20 +194,24 @@ warnedKeys?)`: the pure translator from a `LegacySettingsReader` (`get` +
   values redacted to names. Shared verbatim by the runtime layers and
   Positron's one-shot migration.
 - **`sources.ts`** — internal (never exported from the entries) builders for
-  the two runtime layers, assembled by both the load and watch seams whenever
-  `LoadCatalogOptions.legacyPositronSettings` is present: `legacy-positron`
-  (reader-backed, watchable, below `user`) and `legacy-positron-enforced`
-  (the `POSITRON_ENFORCED_SETTINGS` env payload, payload-only reads, above
-  `user`, below `enforced`). Opt-in is presence of the reader; no option means
-  neither layer, even if the env var is set.
+  the two runtime layers, assembled by both the load and watch seams from the
+  loader options — each layer is an independent opt-in: `legacy-positron`
+  (reader-backed, watchable, below `user`) requires the
+  `legacyPositronSettings` reader; `legacy-positron-enforced` (the
+  `POSITRON_ENFORCED_SETTINGS` env payload, payload-only reads, above `user`,
+  below `enforced`) requires `legacyPositronEnforcedSettings: true`. Neither
+  option means neither layer, even if the env var is set; the reader never
+  smuggles the enforced layer in.
 
-The `legacy-positron` layer is deliberately kept despite Positron's
-auto-migration: the migration self-extinguishes once providers.json is
-populated by any means, so users with a populated file plus legacy settings
-(enterprise baseUrl/proxy configs) are never migrated and rely on this layer;
-old Positron builds sharing the settings file (and settings sync) also keep
-writing the legacy channel. Retiring the layer later is loader-internal (zero
-consumer edits; expected trigger posit-dev/positron#14709).
+The two layers split because Positron ≥ 2026.08 migrates legacy settings into
+providers.json without clearing them (old builds and settings sync still read
+the legacy channel), so keeping the `legacy-positron` fallback there means a
+cleared providers.json value silently resurrects its stale legacy source.
+Migrated hosts therefore pass only `legacyPositronEnforcedSettings: true`
+(admin enforcement keeps working); the assistant extension passes the reader
+only on pre-migration Positron (< 2026.08). Retiring either layer later is
+loader-internal (zero consumer edits; expected trigger
+posit-dev/positron#14709).
 
 ## File I/O Seams
 

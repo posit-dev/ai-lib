@@ -73,8 +73,9 @@ packages/ai-provider-bridge/src/
 | `ai-config/providers.schema.json` | Generated JSON Schema for editor validation/autocomplete of `providers.json`                                                                                                                                  | No           |
 
 No `ai-config` entry imports `vscode`; legacy Positron settings reach the
-loader through the `legacyPositronSettings` option's injected reader
-(PROVIDER-SETTINGS-MIGRATION).
+loader through the `legacyPositronSettings` option's injected reader and the
+`legacyPositronEnforcedSettings` boolean — one per legacy layer, independently
+opted into (PROVIDER-SETTINGS-MIGRATION).
 
 **`ai-credentials`**
 

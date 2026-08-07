@@ -57,21 +57,38 @@ export interface LoadCatalogOptions {
 	readonly envVars?: Record<string, string | undefined>;
 
 	/**
-	 * PROVIDER-SETTINGS-MIGRATION(legacy-positron): opt in to the legacy
-	 * Positron settings channels. Delete when the migration window closes.
+	 * PROVIDER-SETTINGS-MIGRATION(legacy-positron): opt in to the user-set
+	 * legacy Positron settings channel. Delete when the migration window
+	 * closes.
 	 *
-	 * Presence enables BOTH legacy layers:
-	 * - `legacy-positron-enforced`: POSITRON_ENFORCED_SETTINGS, read from the
-	 *   loader's `envVars` (default `process.env`), above `user`, below
-	 *   `enforced`.
-	 * - `legacy-positron`: user-set legacy settings via this reader, below
-	 *   `user`, above `default`.
+	 * Presence enables the `legacy-positron` layer only: user-set legacy
+	 * settings via this reader, below `user`, above `default`. The
+	 * admin-enforced channel is a separate opt-in — see
+	 * {@link legacyPositronEnforcedSettings}.
 	 *
-	 * Both layers fold into BOTH the load and watch paths internally — the
+	 * The layer folds into BOTH the load and watch paths internally — the
 	 * watch's initial rebuild does not emit, so a load-path miss would drop
 	 * legacy settings until the first change.
 	 */
 	readonly legacyPositronSettings?: LegacySettingsReader;
+
+	/**
+	 * PROVIDER-SETTINGS-MIGRATION(legacy-positron): opt in to the legacy
+	 * Workbench admin-enforcement channel. Delete when the migration window
+	 * closes.
+	 *
+	 * `true` enables the `legacy-positron-enforced` layer:
+	 * POSITRON_ENFORCED_SETTINGS, read from the loader's `envVars` (default
+	 * `process.env`), above `user`, below `enforced`. Unset or `false`
+	 * disables it.
+	 *
+	 * Independent of {@link legacyPositronSettings} so hosts on Positron
+	 * versions that migrate settings into providers.json (>= 2026.08) can keep
+	 * admin enforcement without the user-settings fallback: with the fallback,
+	 * clearing a migrated providers.json value would silently resurrect the
+	 * stale legacy setting the migration copied it from.
+	 */
+	readonly legacyPositronEnforcedSettings?: boolean;
 }
 
 /**
@@ -90,7 +107,8 @@ export interface MutateConfigOptions {
 /**
  * Options for `watchResolvedProviderCatalog()`.
  *
- * Inherits `legacyPositronSettings` from {@link LoadCatalogOptions} so the
+ * Inherits the legacy opt-ins (`legacyPositronSettings`,
+ * `legacyPositronEnforcedSettings`) from {@link LoadCatalogOptions} so the
  * same legacy layers are folded into both the load and watch paths.
  */
 export type WatchCatalogOptions = LoadCatalogOptions;

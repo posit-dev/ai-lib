@@ -458,7 +458,11 @@ function makeSources(
 			};
 		},
 	};
-	const [enforced, legacy] = createLegacyPositronSourceProviders(reader, env, logger);
+	const [enforced, legacy] = createLegacyPositronSourceProviders(
+		{ legacyPositronSettings: reader, legacyPositronEnforcedSettings: true },
+		env,
+		logger,
+	);
 	return { enforced, legacy, logger, fire: () => fireChange?.(), disposed };
 }
 
