@@ -269,6 +269,11 @@ The `memory-bank/` directory is a **single, repo-wide** documentation set coveri
   - The generic typed single-file KV store (`SingleFileStore`)
   - Atomic writes, cross-process locking, secure permissions, file watching
 
+- `./memory-bank/credentialResolver.md`
+  - The resolver surface (`getCredentials` / `startAuthentication` / `mutateCredentials`) and host-selected backends
+  - Root-owned OAuth acquisition/refresh; the Databricks source & concurrency (generation) model
+  - The `StoredProviderCredentials` on-disk format, the env resolver, and `storageKeyFor`
+
 ## Planning Files
 
 When creating planning documents for complex tasks:

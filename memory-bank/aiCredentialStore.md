@@ -19,6 +19,12 @@ application. The pure root and `/types` entrypoints remain browser-safe;
 platform dependencies are isolated to `/store`, `/store-backend`, and
 `/positron`.
 
+The resolver half — the `CredentialProvider` surface, backends, OAuth
+acquisition/refresh, the Databricks source/concurrency model, and the
+`StoredProviderCredentials` on-disk format — is documented in
+[credentialResolver.md](./credentialResolver.md); this document covers the
+store primitive and the package-wide invariants.
+
 ## Entrypoints
 
 | Entrypoint                     | Purpose                                                                                                | Browser-safe? |

@@ -128,6 +128,19 @@ reasoning-model behavior, map UI `"off"` to wire `"none"`, and retain native
 tool-result images. The Mantle provider receives `apiKey: ""` so a stale
 `AWS_BEARER_TOKEN_BEDROCK` cannot override configured SigV4 credentials.
 
+Mantle uses SigV4 AWS credentials; Bedrock bearer API keys do not enable the
+route. It also has its own IAM namespace: discovery needs
+`bedrock-mantle:ListModels`, while inference needs
+`bedrock-mantle:CreateInference`. First use of a model may additionally require
+`aws-marketplace:Subscribe` and `aws-marketplace:ViewSubscriptions` through
+Mantle, unless an administrator has already enabled it; those Marketplace
+permissions are not needed after subscription. AWS's
+`AmazonBedrockMantleInferenceAccess` managed policy includes this bootstrap.
+
+`store: false` disables retrievable Responses storage but is not a
+zero-retention guarantee: AWS account/project retention policy is configured
+separately and may still retain data according to that policy.
+
 **`ApiKeyCredentials.customHeaders`** -- Optional `Record<string, string>` of extra HTTP headers attached to every request for the provider. Intended for additive enterprise-gateway markers (e.g. Databricks `x-databricks-use-coding-agent-mode`, tenancy/routing headers). Precedence varies:
 
 | Path                                                                                                          | Behavior                                                                                                         |
