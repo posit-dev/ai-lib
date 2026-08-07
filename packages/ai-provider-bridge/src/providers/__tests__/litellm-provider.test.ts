@@ -12,6 +12,18 @@ import {
 } from "../litellm-provider";
 import { ProviderRegistry } from "../ProviderRegistry";
 
+const logger: Logger = {
+	info: vi.fn(),
+	warn: vi.fn(),
+	error: vi.fn(),
+	debug: vi.fn(),
+	trace: vi.fn(),
+};
+
+afterEach(() => {
+	vi.unstubAllGlobals();
+});
+
 describe("litellmV1BaseUrl", () => {
 	it("appends /v1 to a bare proxy address", () => {
 		expect(litellmV1BaseUrl("http://localhost:4000")).toBe("http://localhost:4000/v1");
@@ -25,22 +37,10 @@ describe("litellmV1BaseUrl", () => {
 });
 
 describe("litellm client factory", () => {
-	const logger: Logger = {
-		info: vi.fn(),
-		warn: vi.fn(),
-		error: vi.fn(),
-		debug: vi.fn(),
-		trace: vi.fn(),
-	};
-
 	const cancellationToken: CancellationToken = {
 		isCancellationRequested: false,
 		onCancellationRequested: () => ({ dispose() {} }),
 	};
-
-	afterEach(() => {
-		vi.unstubAllGlobals();
-	});
 
 	it("normalizes a per-request baseUrl routing override to /v1", async () => {
 		// The catalog pipeline forwards the raw connection baseUrl (e.g.
@@ -90,6 +90,33 @@ describe("litellm client factory", () => {
 	});
 });
 
+describe("litellm model fetcher", () => {
+	it("requests model metadata from the normalized endpoint with both API key headers", async () => {
+		const fetchMock = vi.fn(async () =>
+			Response.json({ data: [{ model_name: "claude-haiku-4-5", model_info: { mode: "chat" } }] }),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		const registry = new ProviderRegistry(logger);
+		registerLitellmProvider(registry, logger);
+
+		const models = await registry.getModelsForProvider("litellm", {
+			type: "apikey",
+			apiKey: "sk-test",
+			baseUrl: "http://localhost:4000/",
+		});
+
+		expect(models.map((model) => model.id)).toEqual(["claude-haiku-4-5"]);
+		expect(fetchMock).toHaveBeenCalledOnce();
+		expect(fetchMock).toHaveBeenCalledWith("http://localhost:4000/v1/model/info", {
+			headers: {
+				"x-api-key": "sk-test",
+				Authorization: "Bearer sk-test",
+			},
+		});
+	});
+});
+
 describe("parseLitellmModelInfoResponse", () => {
 	it("filters non-chat modes but keeps entries with unknown mode", () => {
 		const models = parseLitellmModelInfoResponse({
@@ -121,14 +148,21 @@ describe("parseLitellmModelInfoResponse", () => {
 				{
 					model_name: "my-sonnet",
 					litellm_params: { model: "anthropic/claude-sonnet-5-20251101" },
-					model_info: { litellm_provider: "anthropic", mode: "chat" },
+					model_info: {
+						litellm_provider: "anthropic",
+						mode: "chat",
+						max_input_tokens: 200_000,
+						max_output_tokens: 20_000,
+					},
 				},
 			],
 		});
 		expect(model.id).toBe("my-sonnet");
 		expect(model.vendor).toBe("anthropic");
 		expect(model.thinkingEffortLevels).toContain("high");
-		expect(model.maxContextLength).toBe(1_000_000);
+		expect(model.maxInputTokens).toBe(200_000);
+		expect(model.maxOutputTokens).toBe(20_000);
+		expect(model.maxContextLength).toBe(200_000);
 		expect(model.supportsImages).toBe(true);
 		expect(model.supportsWebSearch).toBe(false);
 	});

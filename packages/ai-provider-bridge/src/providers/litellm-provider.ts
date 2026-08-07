@@ -25,25 +25,12 @@
  * during discovery; LiteLLM accepts either scheme for virtual keys.
  */
 
-import { getLitellmModelCapabilities } from "ai-config";
+import { getLitellmModelCapabilities, inferModelCapabilities } from "ai-config";
 
 import { AnthropicClient } from "../model-clients/AnthropicClient";
 import type { ApiKeyCredentials, Logger, ModelInfo } from "../types";
 import { createCachedModelFetcher } from "./cached-model-fetcher";
 import type { ProviderRegistry } from "./ProviderRegistry";
-
-/** Conservative defaults for aliases whose upstream model is unrecognized. */
-const LITELLM_DEFAULTS = {
-	vendor: "litellm" as const,
-	protocol: "anthropic-messages" as const,
-	supportsTools: true,
-	supportsImages: false,
-	supportsToolResultImages: false,
-	supportsWebSearch: false,
-	maxInputTokens: 128_000,
-	maxOutputTokens: 16_384,
-	maxContextLength: 128_000,
-} satisfies Partial<ModelInfo>;
 
 /**
  * Resolve the proxy's `/v1` API base from the configured base URL, tolerating
@@ -75,32 +62,34 @@ function toModelInfo(entry: LitellmModelInfoEntry, alias: string): ModelInfo {
 	const info = entry.model_info ?? {};
 	const underlyingModel = entry.litellm_params?.model ?? "";
 
-	// Claude detection tries the underlying model id first, then the alias
-	// (admins often name aliases after the model, and some proxies omit
-	// litellm_params entirely).
-	const claudeCapabilities =
-		getLitellmModelCapabilities(underlyingModel) ?? getLitellmModelCapabilities(alias);
+	// Capability inference tries the underlying model id first when it identifies
+	// a Claude model, then the alias (admins often use a Claude-looking alias, and
+	// some proxies omit litellm_params entirely). The shared inference seam owns
+	// both the Anthropic table and the conservative non-Claude baseline.
+	const underlyingIsClaude = getLitellmModelCapabilities(underlyingModel) !== undefined;
+	const capabilityModelId = underlyingIsClaude ? underlyingModel : alias;
+	const isClaude =
+		underlyingIsClaude || getLitellmModelCapabilities(capabilityModelId) !== undefined;
+	const inferredCapabilities = inferModelCapabilities("litellm", capabilityModelId);
 
 	const model: ModelInfo = {
 		id: alias,
 		name: alias,
 		providerId: "litellm",
-		...LITELLM_DEFAULTS,
-		...(claudeCapabilities
-			? { vendor: "anthropic", supportsImages: true, ...claudeCapabilities }
-			: {
-					...(info.litellm_provider && { vendor: info.litellm_provider }),
-					...(typeof info.max_input_tokens === "number" && {
-						maxInputTokens: info.max_input_tokens,
-						maxContextLength: info.max_input_tokens,
-					}),
-					...(typeof info.max_output_tokens === "number" && {
-						maxOutputTokens: info.max_output_tokens,
-					}),
-					...(typeof info.supports_vision === "boolean" && {
-						supportsImages: info.supports_vision,
-					}),
-				}),
+		...inferredCapabilities,
+		vendor: isClaude ? "anthropic" : info.litellm_provider || "litellm",
+		protocol: "anthropic-messages",
+		...(!isClaude &&
+			typeof info.supports_vision === "boolean" && {
+				supportsImages: info.supports_vision,
+			}),
+		...(typeof info.max_input_tokens === "number" && {
+			maxInputTokens: info.max_input_tokens,
+			maxContextLength: info.max_input_tokens,
+		}),
+		...(typeof info.max_output_tokens === "number" && {
+			maxOutputTokens: info.max_output_tokens,
+		}),
 	};
 	return model;
 }
