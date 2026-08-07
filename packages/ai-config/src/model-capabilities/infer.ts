@@ -7,6 +7,7 @@ import { getAnthropicModelCapabilities } from "./anthropic-helpers.js";
 import { getBedrockMantleModelCapabilities } from "./bedrock-mantle-helpers.js";
 import { getDeepSeekModelCapabilities } from "./deepseek-helpers.js";
 import { getGeminiModelCapabilities } from "./gemini-helpers.js";
+import { getLitellmModelCapabilities } from "./litellm-helpers.js";
 import { getOpenAIModelCapabilities, openaiMaxInputTokens } from "./openai-helpers.js";
 import { getPositAiModelCapabilities } from "./positai-helpers.js";
 import { getSnowflakeCortexModelCapabilities } from "./snowflake-cortex-helpers.js";
@@ -66,6 +67,10 @@ function familyDefaults(providerId: string, modelId: string): Partial<InferredMo
 				thinkingEffortLevels: caps.thinkingEffortLevels,
 			};
 		}
+		case "litellm":
+			// LiteLLM ids here are proxy aliases; a Claude-looking alias gets
+			// Anthropic capabilities, anything else stays conservative.
+			return getLitellmModelCapabilities(modelId) ?? {};
 		case "snowflake-cortex":
 			// Cortex serves a fixed catalog at its own token windows, which differ
 			// from the upstream vendor limits; the shared table owns them.

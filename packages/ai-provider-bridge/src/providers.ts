@@ -19,6 +19,7 @@ export { registerFoundryProvider } from "./providers/foundry-provider";
 export { registerGeminiProvider } from "./providers/gemini-provider";
 export { registerGoogleVertexProvider } from "./providers/google-vertex-provider";
 export type { GoogleVertexProviderCallbacks } from "./providers/google-vertex-provider";
+export { registerLitellmProvider } from "./providers/litellm-provider";
 export { registerLMStudioProvider } from "./providers/lmstudio-provider";
 export { registerOllamaProvider } from "./providers/ollama-provider";
 export { registerOpenAICompatibleProvider } from "./providers/openai-compatible-provider";

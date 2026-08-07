@@ -274,6 +274,7 @@ const BUILTIN_CONNECTION_SECTIONS = {
 	"ms-foundry": [],
 	deepseek: [],
 	databricks: ["databricks"],
+	litellm: [],
 } as const satisfies Record<BuiltinProviderId, readonly ConnectionSectionName[]>;
 
 /**

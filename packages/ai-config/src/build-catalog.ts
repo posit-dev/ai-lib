@@ -56,6 +56,7 @@ const BUILTIN_CLIENT_KIND = {
 	"ms-foundry": "ms-foundry",
 	deepseek: "deepseek",
 	databricks: "databricks",
+	litellm: "litellm",
 } as const satisfies Record<BuiltinProviderId, ClientKind>;
 
 /**

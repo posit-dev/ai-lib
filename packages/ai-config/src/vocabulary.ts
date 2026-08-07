@@ -34,6 +34,7 @@ export const BUILTIN_PROVIDER_IDS = [
 	"ms-foundry",
 	"deepseek",
 	"databricks",
+	"litellm",
 ] as const;
 
 export type BuiltinProviderId = (typeof BUILTIN_PROVIDER_IDS)[number];
@@ -88,6 +89,7 @@ export const CLIENT_KIND_VALUES = [
 	"copilot",
 	"ms-foundry",
 	"databricks",
+	"litellm",
 ] as const;
 
 export type ClientKind = (typeof CLIENT_KIND_VALUES)[number];
