@@ -189,6 +189,7 @@ describe("listInferenceProfileIds", () => {
 		expect(log.debug).toHaveBeenCalledWith(
 			expect.stringContaining("bedrock:ListInferenceProfiles"),
 		);
+		expect(log.debug).not.toHaveBeenCalledWith(expect.stringContaining("Falling back"));
 		expect(log.warn).not.toHaveBeenCalled();
 	});
 

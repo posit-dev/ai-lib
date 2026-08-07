@@ -316,7 +316,7 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 		const key = keyFor(providerId);
 		if (!key) throw new Error(`Unknown provider: ${providerId}`);
 		await store.withLock(async () => {
-			await store.get<unknown>(key);
+			const current = await readRecord(providerId);
 			const generation = generationFactory();
 			if (mutation.kind === "clear") {
 				await store.set(key, {
@@ -325,6 +325,43 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 					configured: false,
 					authenticated: false,
 				} satisfies StoredProviderCredentials);
+				return;
+			}
+			if (mutation.kind === "update-aws") {
+				let manualKeys: {
+					accessKeyId?: string;
+					secretAccessKey?: string;
+					sessionToken?: string;
+				} = {};
+				if (mutation.keys.kind === "preserve") {
+					const existing = current?.awsAuth;
+					if (!existing?.accessKeyId || !existing.secretAccessKey) {
+						throw new Error("No stored manual AWS keys are available to preserve");
+					}
+					manualKeys = {
+						accessKeyId: existing.accessKeyId,
+						secretAccessKey: existing.secretAccessKey,
+						...(existing.sessionToken ? { sessionToken: existing.sessionToken } : {}),
+					};
+				} else if (mutation.keys.kind === "replace") {
+					manualKeys = {
+						accessKeyId: mutation.keys.accessKeyId,
+						secretAccessKey: mutation.keys.secretAccessKey,
+						...(mutation.keys.sessionToken ? { sessionToken: mutation.keys.sessionToken } : {}),
+					};
+				}
+				await store.set(
+					key,
+					recordForSource(
+						{
+							type: "aws-credentials",
+							region: mutation.region,
+							...(mutation.profile ? { profile: mutation.profile } : {}),
+							...manualKeys,
+						},
+						generation,
+					),
+				);
 				return;
 			}
 			await store.set(key, recordForSource(mutation.source, generation));

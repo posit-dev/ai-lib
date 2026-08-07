@@ -324,56 +324,57 @@ export function registerBedrockProvider(
 					// fabricated ID would fail at invoke time). Prefix construction is
 					// only the fallback for when discovery is unavailable.
 					const freshModels: ModelInfo[] =
-						response.modelSummaries
-							?.filter((model) => !model.modelId?.startsWith("openai."))
-							.flatMap((model) => {
-								const inferenceProfileId =
-									profileMap !== null
-										? profileMap.get(model.modelId!)
-										: regionPrefix !== null
-											? `${regionPrefix}.${model.modelId}`
-											: undefined;
-								if (!inferenceProfileId) {
-									logger.debug(
-										`[Bedrock] Skipping ${model.modelId}: no inference profile available in ${credentials.region}`,
-									);
-									return [];
-								}
-								// Extract vendor from model ID (e.g., "anthropic.claude-..." → "anthropic")
-								const vendor = model.modelId?.split(".")[0] || "aws";
-
-								// Determine capabilities based on model metadata
-								const supportsTools = Boolean(
-									model.responseStreamingSupported &&
-									(vendor === "anthropic" || vendor === "amazon"),
+						response.modelSummaries?.flatMap((model) => {
+							const modelId = model.modelId;
+							if (!modelId || modelId.startsWith("openai.")) {
+								return [];
+							}
+							const inferenceProfileId =
+								profileMap !== null
+									? profileMap.get(modelId)
+									: regionPrefix !== null
+										? `${regionPrefix}.${modelId}`
+										: undefined;
+							if (!inferenceProfileId) {
+								logger.debug(
+									`[Bedrock] Skipping ${modelId}: no inference profile available in ${credentials.region}`,
 								);
-								const supportsImages = vendor === "anthropic" || vendor === "amazon";
+								return [];
+							}
+							// Extract vendor from model ID (e.g., "anthropic.claude-..." → "anthropic")
+							const vendor = modelId.split(".")[0] || "aws";
 
-								// Infer capabilities for Anthropic models
-								const capabilities = getAnthropicModelCapabilities(model.modelId!);
+							// Determine capabilities based on model metadata
+							const supportsTools = Boolean(
+								model.responseStreamingSupported && (vendor === "anthropic" || vendor === "amazon"),
+							);
+							const supportsImages = vendor === "anthropic" || vendor === "amazon";
 
-								return [
-									{
-										id: inferenceProfileId,
-										name: model.modelName || model.modelId!,
-										providerId: BEDROCK_PROVIDER_ID,
-										vendor,
-										family: undefined,
-										maxInputTokens: undefined,
-										maxOutputTokens: undefined,
-										supportsTools,
-										supportsImages,
-										supportsToolResultImages: supportsImages,
-										supportedInputMediaTypes: supportsImages
-											? ["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"]
-											: undefined,
-										maxContextLength: 200000,
-										// Spread Anthropic capabilities (token limits, family, thinking effort)
-										...capabilities,
-										supportsWebSearch: false,
-									},
-								];
-							}) || [];
+							// Infer capabilities for Anthropic models
+							const capabilities = getAnthropicModelCapabilities(modelId);
+
+							return [
+								{
+									id: inferenceProfileId,
+									name: model.modelName || modelId,
+									providerId: BEDROCK_PROVIDER_ID,
+									vendor,
+									family: undefined,
+									maxInputTokens: undefined,
+									maxOutputTokens: undefined,
+									supportsTools,
+									supportsImages,
+									supportsToolResultImages: supportsImages,
+									supportedInputMediaTypes: supportsImages
+										? ["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"]
+										: undefined,
+									maxContextLength: 200000,
+									// Spread Anthropic capabilities (token limits, family, thinking effort)
+									...capabilities,
+									supportsWebSearch: false,
+								},
+							];
+						}) || [];
 
 					// Update cache
 					lastFetch = Date.now();

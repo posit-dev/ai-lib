@@ -43,7 +43,7 @@ the map/translator live inside ai-config (see [Legacy Positron settings](#legacy
 
 - **Vocabulary** (`src/vocabulary.ts`): `BUILTIN_PROVIDER_IDS`, `CLIENT_KIND_VALUES`, `PROTOCOL_VALUES`, `RESERVED_PROVIDER_KEYS`, `isBuiltinProviderId()`, and the `BuiltinProviderId` / `ClientKind` / `Protocol` / `ReservedProviderKey` types.
 - **Schemas** (`src/schema.ts`): `providersConfigSchema` (full, strict) and `providersConfigFragmentSchema` (relaxed — custom-entry `type` optional; the fragment shape every catalog config source carries).
-- **Types** (`src/types.ts`): types inferred from the Zod schemas (`ProvidersConfig`, `ProvidersMap`, `BuiltinProviderBlock`, `CustomProviderEntry`, `ModelsBlock`, `ModelOverride`, `CustomModel`, …) plus resolution outputs (`ResolvedProvider`, `ResolvedConnection`, `ResolvedModelInfo`) and the branded `CustomProviderId`. `mintCustomProviderId()` is the **only** way to produce a `CustomProviderId`.
+- **Types** (`src/types.ts`): types inferred from the Zod schemas (`ProvidersConfig`, `ProvidersMap`, `BuiltinProviderBlock`, `CustomProviderEntry`, `ModelsBlock`, `ModelOverride`, `CustomModel`, …) plus resolution outputs (`ResolvedProvider`, `ResolvedConnection`, `ResolvedConnectionProvenance`, `ResolvedModelInfo`) and the branded `CustomProviderId`. `mintCustomProviderId()` is the **only** way to produce a `CustomProviderId`.
 - **Defaults** (`src/defaults.ts`): per-provider connection defaults and the `PROVIDER_CONNECTION_DEFAULTS` map.
 - **Resolution helpers**: `resolveModels()` and `mergeEnforced()` are pure and exported; `resolveEnabled()` / connection resolution are internal helpers used by the catalog builder.
 - **Config-source contracts** (`src/config-source.ts`): `ProviderConfigSource` (public — the resolver's input) and the internal `ProviderConfigSourceProvider` (loader machinery, not exported). `Disposable` stays public as the return type of `LegacySettingsReader.watch`.
@@ -134,7 +134,9 @@ Config flows through three stages: **assemble sources → resolve → watch**. P
    leaf-key (`mergeConfigFragments`), `allow`/`deny` arrays wholesale-replace.
    Connection env vars are a resolver-owned source ranked below `enforced` and
    `legacy-positron-enforced` but above `user`/`legacy-positron`/`default` — not
-   a post-resolution overlay. `loadResolvedProviderCatalog()`
+   a post-resolution overlay. The resolver also retains narrow semantic
+   provenance for connection values whose source changes consumer behavior.
+   `loadResolvedProviderCatalog()`
    (`src/node/load-catalog.ts`) is the public read seam that composes assembly +
    resolve and returns `readonly ResolvedProvider[]`. (`mergeEnforced` — the
    two-layer merge — remains exported as a low-level primitive, but the layered
@@ -142,7 +144,20 @@ Config flows through three stages: **assemble sources → resolve → watch**. P
 3. **Watch** (`src/node/watch-catalog.ts`, `watchResolvedProviderCatalog()`):
    source-aware — watches the file via `fs.watch` and subscribes to the legacy
    reader's change signal; **any** source change re-resolves the catalog and
-   emits a typed `ProviderCatalogChange` when something actually changed.
+   emits a typed `ProviderCatalogChange` when a resolved value or its retained
+   connection provenance actually changed.
+
+### Connection provenance
+
+`ResolvedProvider.connectionProvenance` is deliberately separate from runtime
+`connection` values so consumers cannot accidentally spread metadata into SDK
+options. It currently records the semantic origin of Bedrock's effective
+`aws.region`: `environment` means ambient `AWS_REGION` is the only source of
+that value, while `configuration` means a user, legacy, admin, or default source
+also deliberately declares it. An equal explicit value therefore remains
+distinguishable from ambient-only state. This lets auth-readiness policy stay
+conservative without forcing consumers to reconstruct ai-config's precedence
+stack.
 
 ### Model selection (`resolveModels`)
 

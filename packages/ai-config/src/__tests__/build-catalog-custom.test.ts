@@ -32,7 +32,12 @@ function configWithCustom(): ProvidersConfig {
 
 describe("buildCatalog custom providers", () => {
 	it("includes custom providers", () => {
-		const catalog = buildCatalog(configWithCustom(), layersOf(configWithCustom()), BASELINE);
+		const catalog = buildCatalog(
+			configWithCustom(),
+			layersOf(configWithCustom()),
+			BASELINE,
+			new Map(),
+		);
 		const customEntry = catalog.find((p) => p.id === "my-gateway");
 		expect(customEntry).toBeDefined();
 		expect(customEntry!.clientKind).toBe("openai-compatible");

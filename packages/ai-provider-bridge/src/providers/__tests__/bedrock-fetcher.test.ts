@@ -196,6 +196,35 @@ describe("Bedrock inference profile discovery", () => {
 		expect(models.some((model) => model.id === `us.${CLAUDE_MODEL_ID}`)).toBe(true);
 	});
 
+	it("does not fabricate a fallback ID for a foundation model without an ID", async () => {
+		listMantleModels.mockResolvedValueOnce([]);
+		listFoundationModels.mockResolvedValueOnce({
+			modelSummaries: [
+				{
+					modelName: "Missing model ID",
+					responseStreamingSupported: true,
+				},
+			],
+		});
+		listInferenceProfiles.mockRejectedValueOnce(
+			Object.assign(new Error("denied"), {
+				name: "AccessDeniedException",
+				$metadata: { httpStatusCode: 403 },
+			}),
+		);
+		const registry = new ProviderRegistry(logger());
+		const onProviderStatusChange = vi.fn(async () => {});
+		registerBedrockProvider(registry, logger(), { onProviderStatusChange });
+
+		const models = await registry.getModelsForProvider("bedrock", credentialsFor("us-east-1"));
+
+		expect(models).toEqual([]);
+		expect(onProviderStatusChange).toHaveBeenCalledWith(expect.objectContaining({ status: "ok" }));
+		expect(onProviderStatusChange).not.toHaveBeenCalledWith(
+			expect.objectContaining({ status: "network_error" }),
+		);
+	});
+
 	it("returns no Converse models when discovery is unavailable in an unhandled family", async () => {
 		listInferenceProfiles.mockRejectedValueOnce(
 			Object.assign(new Error("denied"), {

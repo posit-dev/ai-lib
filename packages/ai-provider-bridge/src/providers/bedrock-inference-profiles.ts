@@ -117,7 +117,7 @@ export async function listInferenceProfileIds(
 	} catch (error) {
 		if (isAccessDenied(error)) {
 			logger.debug(
-				"[Bedrock] Inference profile discovery denied; bedrock:ListInferenceProfiles may be missing from the IAM policy. Falling back to prefix-constructed model IDs.",
+				"[Bedrock] Inference profile discovery denied; bedrock:ListInferenceProfiles may be missing from the IAM policy.",
 			);
 		} else {
 			const message = error instanceof Error ? error.message : String(error);
