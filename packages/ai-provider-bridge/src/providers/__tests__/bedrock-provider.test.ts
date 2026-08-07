@@ -24,7 +24,12 @@ describe("getInferenceProfilePrefix", () => {
 		expect(getInferenceProfilePrefix("ap-southeast-1")).toBe("apac");
 	});
 
-	it("defaults unknown regions to us", () => {
-		expect(getInferenceProfilePrefix("ca-central-1")).toBe("us");
+	it("returns null for region families with no known legacy prefix", () => {
+		// The old "default to us" behavior fabricated `us.` IDs that are not
+		// invokable from these regions; with ListInferenceProfiles discovery as
+		// the primary source, the fallback no longer pretends.
+		expect(getInferenceProfilePrefix("ca-central-1")).toBeNull();
+		expect(getInferenceProfilePrefix("sa-east-1")).toBeNull();
+		expect(getInferenceProfilePrefix("il-central-1")).toBeNull();
 	});
 });

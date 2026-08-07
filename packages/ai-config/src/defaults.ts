@@ -37,7 +37,14 @@ export const LMSTUDIO_DEFAULTS = {
 	endpoint: "http://localhost:1234/v1",
 } as const satisfies ResolvedConnection;
 
-/** AWS Bedrock default region. */
+/**
+ * AWS Bedrock default region.
+ *
+ * Deliberately **not** in {@link PROVIDER_CONNECTION_DEFAULTS}: injecting it
+ * into the resolved connection would make the baked-in default outrank the
+ * user's stored credential region downstream. It is applied instead at
+ * credential-synthesis time (and by UI forms) as a last-resort fallback.
+ */
 export const BEDROCK_DEFAULTS = {
 	aws: { region: "us-east-1" },
 } as const satisfies ResolvedConnection;
@@ -57,6 +64,5 @@ export const PROVIDER_CONNECTION_DEFAULTS: Readonly<
 	positai: POSIT_AI_DEFAULTS,
 	ollama: OLLAMA_DEFAULTS,
 	lmstudio: LMSTUDIO_DEFAULTS,
-	bedrock: BEDROCK_DEFAULTS,
 	"google-vertex": GOOGLE_VERTEX_DEFAULTS,
 };

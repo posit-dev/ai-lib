@@ -12,6 +12,7 @@ import { createAwsCredentialProvider } from "../aws-credentials";
 import { BedrockClient } from "../model-clients/BedrockClient";
 import type { AwsCredentials, Logger, ModelInfo, ProviderCredentials } from "../types";
 import { NOTIFICATION_ACTIONS } from "../types";
+import { listInferenceProfileIds } from "./bedrock-inference-profiles";
 import { listMantleModels } from "./bedrock-mantle-models";
 import { isAwsSsoProfileConfigured } from "./bedrock-sso";
 import { getOpenAIModelName } from "./openai-model-names";
@@ -68,8 +69,13 @@ const MODEL_CACHE_TTL = 60 * 60 * 1000;
  * GovCloud must be checked before the general `us-` case: `us-gov-west-1`
  * also starts with `us-`, but its profiles live under the `us-gov` partition
  * and the commercial `us.` profiles don't exist there.
+ *
+ * Returns `null` for region families with no known legacy prefix (`ca-`,
+ * `sa-`, `me-`, `af-`, `il-`, …). Prefix construction is only a fallback for
+ * when `ListInferenceProfiles` discovery is unavailable, and fabricating a
+ * `us.` ID for those regions produces IDs that fail at invoke time.
  */
-export function getInferenceProfilePrefix(region: string): string {
+export function getInferenceProfilePrefix(region: string): string | null {
 	if (region.startsWith("us-gov-")) {
 		return "us-gov";
 	}
@@ -82,8 +88,7 @@ export function getInferenceProfilePrefix(region: string): string {
 	if (region.startsWith("ap-")) {
 		return "apac";
 	}
-	// Default to US for unknown regions
-	return "us";
+	return null;
 }
 
 /**
@@ -293,19 +298,47 @@ export function registerBedrockProvider(
 						byOutputModality: "TEXT", // Only text output models
 					});
 
-					const response = await listClient.send(command);
+					// Run the foundation-model list and inference-profile discovery in
+					// parallel — discovery is a second listing off the same client, not a
+					// serialized round trip.
+					const regionPrefix = getInferenceProfilePrefix(credentials.region);
+					const [response, profileMap] = await Promise.all([
+						listClient.send(command),
+						listInferenceProfileIds(listClient, regionPrefix, logger),
+					]);
 
 					// Debug logging
 					logger.debug(
 						`[Bedrock] API returned ${response.modelSummaries?.length || 0} Anthropic models`,
 					);
 
-					// Parse response - construct inference profile IDs
-					const regionPrefix = getInferenceProfilePrefix(credentials.region);
+					if (profileMap === null && regionPrefix === null) {
+						logger.info(
+							`[Bedrock] Inference profile discovery is unavailable and region ${credentials.region} has no known legacy profile prefix; bedrock:ListInferenceProfiles is required to list models in this region.`,
+						);
+					}
+
+					// Parse response - resolve invokable inference profile IDs.
+					// A successful discovery is authoritative for the region: models
+					// absent from the map are skipped rather than prefix-guessed (a
+					// fabricated ID would fail at invoke time). Prefix construction is
+					// only the fallback for when discovery is unavailable.
 					const freshModels: ModelInfo[] =
 						response.modelSummaries
 							?.filter((model) => !model.modelId?.startsWith("openai."))
-							.map((model) => {
+							.flatMap((model) => {
+								const inferenceProfileId =
+									profileMap !== null
+										? profileMap.get(model.modelId!)
+										: regionPrefix !== null
+											? `${regionPrefix}.${model.modelId}`
+											: undefined;
+								if (!inferenceProfileId) {
+									logger.debug(
+										`[Bedrock] Skipping ${model.modelId}: no inference profile available in ${credentials.region}`,
+									);
+									return [];
+								}
 								// Extract vendor from model ID (e.g., "anthropic.claude-..." → "anthropic")
 								const vendor = model.modelId?.split(".")[0] || "aws";
 
@@ -316,33 +349,30 @@ export function registerBedrockProvider(
 								);
 								const supportsImages = vendor === "anthropic" || vendor === "amazon";
 
-								// Construct cross-region inference profile ID
-								// Claude 4.x and newer models require inference profiles, not direct model IDs
-								// Format: {region-prefix}.{model-id} (e.g., "us.anthropic.claude-sonnet-4-5-...")
-								const inferenceProfileId = `${regionPrefix}.${model.modelId}`;
-
 								// Infer capabilities for Anthropic models
 								const capabilities = getAnthropicModelCapabilities(model.modelId!);
 
-								return {
-									id: inferenceProfileId,
-									name: model.modelName || model.modelId!,
-									providerId: BEDROCK_PROVIDER_ID,
-									vendor,
-									family: undefined,
-									maxInputTokens: undefined,
-									maxOutputTokens: undefined,
-									supportsTools,
-									supportsImages,
-									supportsToolResultImages: supportsImages,
-									supportedInputMediaTypes: supportsImages
-										? ["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"]
-										: undefined,
-									maxContextLength: 200000,
-									// Spread Anthropic capabilities (token limits, family, thinking effort)
-									...capabilities,
-									supportsWebSearch: false,
-								};
+								return [
+									{
+										id: inferenceProfileId,
+										name: model.modelName || model.modelId!,
+										providerId: BEDROCK_PROVIDER_ID,
+										vendor,
+										family: undefined,
+										maxInputTokens: undefined,
+										maxOutputTokens: undefined,
+										supportsTools,
+										supportsImages,
+										supportsToolResultImages: supportsImages,
+										supportedInputMediaTypes: supportsImages
+											? ["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"]
+											: undefined,
+										maxContextLength: 200000,
+										// Spread Anthropic capabilities (token limits, family, thinking effort)
+										...capabilities,
+										supportsWebSearch: false,
+									},
+								];
 							}) || [];
 
 					// Update cache

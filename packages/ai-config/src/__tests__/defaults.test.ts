@@ -43,12 +43,14 @@ describe("provider connection defaults", () => {
 		expect(PROVIDER_CONNECTION_DEFAULTS.positai).toBe(POSIT_AI_DEFAULTS);
 		expect(PROVIDER_CONNECTION_DEFAULTS.ollama).toBe(OLLAMA_DEFAULTS);
 		expect(PROVIDER_CONNECTION_DEFAULTS.lmstudio).toBe(LMSTUDIO_DEFAULTS);
-		expect(PROVIDER_CONNECTION_DEFAULTS.bedrock).toBe(BEDROCK_DEFAULTS);
 		expect(PROVIDER_CONNECTION_DEFAULTS["google-vertex"]).toBe(GOOGLE_VERTEX_DEFAULTS);
 	});
 
 	it("providers without specific defaults are not in the map", () => {
 		expect(PROVIDER_CONNECTION_DEFAULTS.anthropic).toBeUndefined();
 		expect(PROVIDER_CONNECTION_DEFAULTS.openai).toBeUndefined();
+		// Bedrock's default region is applied at credential-synthesis time,
+		// not baked into the resolved connection — see BEDROCK_DEFAULTS.
+		expect(PROVIDER_CONNECTION_DEFAULTS.bedrock).toBeUndefined();
 	});
 });
