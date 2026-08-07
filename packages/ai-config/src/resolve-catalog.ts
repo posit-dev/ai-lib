@@ -27,6 +27,7 @@ import type {
 	LoggerLike,
 	PlatformBaseline,
 	ProvidersConfig,
+	ResolvedConnectionProvenance,
 	ResolvedProvider,
 } from "./types.js";
 
@@ -196,7 +197,44 @@ export function resolveProviderCatalog(
 	const enabledLayers = kept
 		.filter((s): s is ProviderConfigSource => s.kind !== "env")
 		.map<EnablementLayer>((s) => s.config.providers);
-	return buildCatalog(config, enabledLayers, baseline);
+	const connectionProvenance = resolveConnectionProvenance(kept, config);
+	return buildCatalog(config, enabledLayers, baseline, connectionProvenance);
+}
+
+/**
+ * Retain semantic provenance only for connection values whose source affects
+ * downstream behavior. The resolved catalog stays narrow: callers learn
+ * whether the effective AWS region has deliberate configuration evidence,
+ * not the resolver's complete ranked-source stack.
+ *
+ * A non-env source that declares the effective value counts as configuration
+ * even when the higher-ranked env layer supplies the same value. Equal values
+ * therefore preserve deliberate intent without changing value precedence.
+ */
+function resolveConnectionProvenance(
+	kept: readonly RankedConfigSource[],
+	config: ProvidersConfig,
+): ReadonlyMap<string, ResolvedConnectionProvenance> {
+	const result = new Map<string, ResolvedConnectionProvenance>();
+	const bedrockRegion = config.providers?.bedrock?.aws?.region;
+	if (!bedrockRegion) return result;
+
+	const sourceProvidesRegion = (source: RankedConfigSource): boolean =>
+		source.config.providers?.bedrock?.aws?.region === bedrockRegion;
+	const hasConfigurationEvidence = kept.some(
+		(source) => source.kind !== "env" && sourceProvidesRegion(source),
+	);
+	const hasEnvironmentEvidence = kept.some(
+		(source) => source.kind === "env" && sourceProvidesRegion(source),
+	);
+
+	if (hasConfigurationEvidence) {
+		result.set("bedrock", { aws: { region: "configuration" } });
+	} else if (hasEnvironmentEvidence) {
+		result.set("bedrock", { aws: { region: "environment" } });
+	}
+
+	return result;
 }
 
 // ---------------------------------------------------------------------------

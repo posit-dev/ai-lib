@@ -256,6 +256,7 @@ interface ProviderSignature {
 	enabled: boolean;
 	clientKind: string;
 	connection: string; // JSON-serialized for comparison
+	connectionProvenance: string; // JSON-serialized for comparison
 	models: string; // JSON-serialized for comparison
 }
 
@@ -264,6 +265,7 @@ function toSignature(p: ResolvedProvider): ProviderSignature {
 		enabled: p.enabled,
 		clientKind: p.clientKind,
 		connection: JSON.stringify(p.connection),
+		connectionProvenance: JSON.stringify(p.connectionProvenance),
 		models: JSON.stringify(p.models),
 	};
 }
@@ -308,7 +310,11 @@ function diffCatalogs(
 		if (prev.enabled !== curr.enabled) {
 			enabledChanged = true;
 		}
-		if (prev.clientKind !== curr.clientKind || prev.connection !== curr.connection) {
+		if (
+			prev.clientKind !== curr.clientKind ||
+			prev.connection !== curr.connection ||
+			prev.connectionProvenance !== curr.connectionProvenance
+		) {
 			connectionChanged = true;
 		}
 		if (prev.models !== curr.models) {

@@ -27,8 +27,8 @@ import type { LoadCatalogOptions } from "./types.js";
  *
  * Consumers iterate the returned catalog instead of the static
  * `PROVIDER_REGISTRY`. Each entry carries: `id`, `clientKind`, `enabled`,
- * `connection`, and `models` (policy and custom declarations, not discovered
- * models).
+ * `connection`, narrow `connectionProvenance`, and `models` (policy and custom
+ * declarations, not discovered models).
  *
  * The file need not exist — a missing file is equivalent to `{}`.
  *

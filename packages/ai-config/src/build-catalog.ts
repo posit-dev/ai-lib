@@ -21,6 +21,7 @@ import type {
 	ProvidersConfig,
 	ProvidersMap,
 	ResolvedConnection,
+	ResolvedConnectionProvenance,
 	ResolvedProvider,
 } from "./types.js";
 import { mintCustomProviderId } from "./types.js";
@@ -75,6 +76,7 @@ export function buildCatalog(
 	mergedConfig: ProvidersConfig,
 	enabledLayers: readonly EnablementLayer[],
 	baseline: PlatformBaseline,
+	connectionProvenance: ReadonlyMap<string, ResolvedConnectionProvenance>,
 ): readonly ResolvedProvider[] {
 	const providers = mergedConfig.providers;
 	const catalog: ResolvedProvider[] = [];
@@ -90,6 +92,7 @@ export function buildCatalog(
 			clientKind: BUILTIN_CLIENT_KIND[id],
 			enabled,
 			connection,
+			connectionProvenance: connectionProvenance.get(id) ?? {},
 			models: block?.models,
 		});
 	}
@@ -107,6 +110,7 @@ export function buildCatalog(
 				clientKind: entry.type,
 				enabled,
 				connection,
+				connectionProvenance: connectionProvenance.get(name) ?? {},
 				models: entry.models,
 			});
 		}

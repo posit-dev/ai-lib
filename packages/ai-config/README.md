@@ -73,6 +73,7 @@ Both are Zod schemas. `providersConfigSchema` is the source of truth for the on-
 | `ProvidersConfigFragment` / `ProvidersMapFragment` | Relaxed fragment variants (the shape every config source carries) where custom-entry `type` is optional. |
 | `ResolvedProvider`                                 | A uniform resolved catalog entry (see below).                                                            |
 | `ResolvedConnection`                               | Non-secret connection config resolved from a provider block.                                             |
+| `ResolvedConnectionProvenance`                     | Semantic origin metadata retained for connection fields whose source affects consumers.                  |
 | `ResolvedProviderId`                               | `BuiltinProviderId \| CustomProviderId`.                                                                 |
 | `CustomProviderId`                                 | A branded custom id, produced only by `mintCustomProviderId()`.                                          |
 | `ModelInfoLike` / `ResolvedModelInfo`              | Input/output shapes for `resolveModels()`.                                                               |
@@ -84,11 +85,12 @@ interface ResolvedProvider {
   readonly clientKind: ClientKind; // client implementation to instantiate
   readonly enabled: boolean; // after all precedence layers
   readonly connection: ResolvedConnection;
+  readonly connectionProvenance: ResolvedConnectionProvenance;
   readonly models: ModelsBlock | undefined;
 }
 ```
 
-`ResolvedProvider` deliberately does **not** carry discovered models — those need credentials and a runtime fetcher that `ai-config` cannot hold. Use `resolveModels()` for that step.
+`connectionProvenance` is deliberately narrower than the resolver's internal source stack. It currently records whether `aws.region` is ambient-environment-only or has deliberate configuration evidence; a non-environment source declaring the effective value counts as configuration even when `AWS_REGION` supplies the same string. `ResolvedProvider` deliberately does **not** carry discovered models — those need credentials and a runtime fetcher that `ai-config` cannot hold. Use `resolveModels()` for that step.
 
 #### `mintCustomProviderId(id: string): CustomProviderId`
 
@@ -274,8 +276,8 @@ sub.dispose();
 Config flows through **assemble sources → resolve → watch**:
 
 1. **Assemble sources**: the node seam reads the user file (missing → `{}`, validated against `providersConfigSchema`), the enforced fragment from `POSIT_AI_PROVIDERS_ENFORCED`, and the defaults fragment from `POSIT_AI_PROVIDERS_DEFAULT` (both validated against the relaxed `providersConfigFragmentSchema`), plus the legacy Positron layers opted into per option (`legacyPositronSettings` reader → `legacy-positron`, `legacyPositronEnforcedSettings: true` → `legacy-positron-enforced`), translated from the legacy Positron settings. Each becomes a `ProviderConfigSource` tagged with its `kind`.
-2. **Resolve** (`resolveProviderCatalog`): rank the sources by kind (`enforced` > `legacy-positron-enforced` > connection env > `user` > `legacy-positron` > `default`), fold them low → high so the sealed `enforced` overlay can never be overwritten, apply the `PlatformBaseline` beneath, and build `ResolvedProvider[]` — objects deep-merge per leaf-key, `allow`/`deny` arrays wholesale-replace. Connection env vars are a resolver-owned source below `enforced`, not a post-resolution overlay.
-3. **Watch** (`watchResolvedProviderCatalog`): debounced (~300ms), ancestor-aware watch over **every** source (file via `fs.watch`; the legacy reader's `watch` signal; env sources are static) that re-resolves, diffs against the previous catalog, and emits a typed change only when something actually changed.
+2. **Resolve** (`resolveProviderCatalog`): rank the sources by kind (`enforced` > `legacy-positron-enforced` > connection env > `user` > `legacy-positron` > `default`), fold them low → high so the sealed `enforced` overlay can never be overwritten, apply the `PlatformBaseline` beneath, and build `ResolvedProvider[]` — objects deep-merge per leaf-key, `allow`/`deny` arrays wholesale-replace. Connection env vars are a resolver-owned source below `enforced`, not a post-resolution overlay. The resolver retains narrow semantic provenance for fields whose origin affects consumers.
+3. **Watch** (`watchResolvedProviderCatalog`): debounced (~300ms), ancestor-aware watch over **every** source (file via `fs.watch`; the legacy reader's `watch` signal; env sources are static) that re-resolves, diffs values and connection provenance against the previous catalog, and emits a typed change only when something actually changed.
 
 The read path **degrades gracefully**: malformed or missing files log a warning and fall back rather than throwing.
 

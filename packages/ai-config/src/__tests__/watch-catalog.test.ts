@@ -95,6 +95,35 @@ describe("watchResolvedProviderCatalog", () => {
 		expect(lastChange.connectionChanged).toBe(true);
 	});
 
+	it("should fire when equal-value explicit config changes connection provenance", async () => {
+		const configPath = path.join(tempDir, "providers.json");
+		await writeConfig(configPath, {});
+
+		const changes: ProviderCatalogChange[] = [];
+		const watcher = watchResolvedProviderCatalog((change) => changes.push(change), {
+			baseline: STANDALONE_BASELINE,
+			configPath,
+			envVars: { AWS_REGION: "us-west-2" },
+			logger: mockLogger,
+		});
+
+		await new Promise((resolve) => setTimeout(resolve, 500));
+
+		await writeConfig(configPath, {
+			providers: { bedrock: { aws: { region: "us-west-2" } } },
+		});
+
+		await new Promise((resolve) => setTimeout(resolve, 600));
+		watcher.dispose();
+
+		expect(changes.length).toBeGreaterThanOrEqual(1);
+		const lastChange = changes[changes.length - 1];
+		expect(lastChange.connectionChanged).toBe(true);
+		expect(
+			lastChange.catalog.find((provider) => provider.id === "bedrock")?.connectionProvenance,
+		).toEqual({ aws: { region: "configuration" } });
+	});
+
 	it("should stop firing after dispose", async () => {
 		const configPath = path.join(tempDir, "providers.json");
 		await writeConfig(configPath, {});

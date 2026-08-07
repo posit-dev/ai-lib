@@ -131,6 +131,26 @@ export interface ResolvedConnection {
 }
 
 /**
+ * Semantic origin of a resolved connection value.
+ *
+ * `configuration` means a non-ambient source (user, legacy, admin, or
+ * defaults) explicitly supplied the effective value. `environment` means the
+ * ambient connection-env layer is the only source of that value.
+ */
+export type ResolvedConnectionValueProvenance = "configuration" | "environment";
+
+/**
+ * Provenance retained for connection fields whose origin affects consumers.
+ * Kept separate from `ResolvedConnection` so metadata can never be spread into
+ * a provider client's runtime connection options by accident.
+ */
+export interface ResolvedConnectionProvenance {
+	readonly aws?: {
+		readonly region?: ResolvedConnectionValueProvenance;
+	};
+}
+
+/**
  * A resolved provider entry in the catalog — the uniform shape consumers
  * iterate instead of the static PROVIDER_REGISTRY.
  *
@@ -154,6 +174,9 @@ export interface ResolvedProvider {
 
 	/** Resolved non-secret connection config. */
 	readonly connection: ResolvedConnection;
+
+	/** Origin metadata for connection fields whose source affects behavior. */
+	readonly connectionProvenance: ResolvedConnectionProvenance;
 
 	/** Model policy and custom declarations, if configured. */
 	readonly models: ModelsBlock | undefined;

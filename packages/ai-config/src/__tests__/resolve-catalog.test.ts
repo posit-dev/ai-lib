@@ -394,6 +394,52 @@ describe("resolveProviderCatalog — legacy-positron layer merge semantics", () 
 		});
 		expect(find(defaultOnly, "bedrock")?.connection.aws?.region).toBeUndefined();
 	});
+
+	it("preserves whether the effective AWS region is ambient-only or deliberately configured", () => {
+		const ambientOnly = resolveProviderCatalog({
+			sources: [],
+			baseline: STANDALONE,
+			envVars: { AWS_REGION: "us-west-2" },
+		});
+		expect(find(ambientOnly, "bedrock")?.connectionProvenance.aws?.region).toBe("environment");
+
+		const enforcedEqualToEnv = resolveProviderCatalog({
+			sources: [
+				source("enforced", {
+					providers: { bedrock: { aws: { region: "us-west-2" } } },
+				}),
+			],
+			baseline: STANDALONE,
+			envVars: { AWS_REGION: "us-west-2" },
+		});
+		expect(find(enforcedEqualToEnv, "bedrock")?.connectionProvenance.aws?.region).toBe(
+			"configuration",
+		);
+
+		const userEqualToEnv = resolveProviderCatalog({
+			sources: [
+				source("user", {
+					providers: { bedrock: { aws: { region: "us-west-2" } } },
+				}),
+			],
+			baseline: STANDALONE,
+			envVars: { AWS_REGION: "us-west-2" },
+		});
+		expect(find(userEqualToEnv, "bedrock")?.connectionProvenance.aws?.region).toBe("configuration");
+
+		const envOverridesDifferentUserValue = resolveProviderCatalog({
+			sources: [
+				source("user", {
+					providers: { bedrock: { aws: { region: "eu-west-1" } } },
+				}),
+			],
+			baseline: STANDALONE,
+			envVars: { AWS_REGION: "us-west-2" },
+		});
+		expect(find(envOverridesDifferentUserValue, "bedrock")?.connectionProvenance.aws?.region).toBe(
+			"environment",
+		);
+	});
 });
 
 describe("resolveProviderCatalog — enforced beats connection env", () => {
