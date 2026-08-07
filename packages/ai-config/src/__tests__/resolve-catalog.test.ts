@@ -362,9 +362,9 @@ describe("resolveProviderCatalog — legacy-positron layer merge semantics", () 
 		expect(resolved?.account).toBe("user-acct");
 	});
 
-	it("AWS region ordering: env > legacy authentication setting > us-east-1 default", () => {
-		// legacy setting beats the us-east-1 default (revival of the previously-dead
-		// authentication.aws.credentials.AWS_REGION).
+	it("AWS region ordering: env > legacy authentication setting > unset", () => {
+		// legacy setting surfaces in the resolved connection (revival of the
+		// previously-dead authentication.aws.credentials.AWS_REGION).
 		const hostOnly = resolveProviderCatalog({
 			sources: [
 				source("legacy-positron", { providers: { bedrock: { aws: { region: "eu-west-1" } } } }),
@@ -384,13 +384,15 @@ describe("resolveProviderCatalog — legacy-positron layer merge semantics", () 
 		});
 		expect(find(withEnv, "bedrock")?.connection.aws?.region).toBe("ap-south-1");
 
-		// no legacy setting, no env → the us-east-1 default.
+		// no legacy setting, no env → no region in the resolved connection.
+		// The us-east-1 default is applied later, at credential-synthesis time,
+		// so it doesn't outrank the user's stored credential region.
 		const defaultOnly = resolveProviderCatalog({
 			sources: [source("user", { providers: {} })],
 			baseline: STANDALONE,
 			envVars: {},
 		});
-		expect(find(defaultOnly, "bedrock")?.connection.aws?.region).toBe("us-east-1");
+		expect(find(defaultOnly, "bedrock")?.connection.aws?.region).toBeUndefined();
 	});
 });
 
