@@ -2,9 +2,15 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { litellmV1BaseUrl, parseLitellmModelInfoResponse } from "../litellm-provider";
+import type { CancellationToken, Logger } from "../../types";
+import {
+	litellmV1BaseUrl,
+	parseLitellmModelInfoResponse,
+	registerLitellmProvider,
+} from "../litellm-provider";
+import { ProviderRegistry } from "../ProviderRegistry";
 
 describe("litellmV1BaseUrl", () => {
 	it("appends /v1 to a bare proxy address", () => {
@@ -15,6 +21,72 @@ describe("litellmV1BaseUrl", () => {
 		expect(litellmV1BaseUrl("http://localhost:4000/")).toBe("http://localhost:4000/v1");
 		expect(litellmV1BaseUrl("http://localhost:4000/v1")).toBe("http://localhost:4000/v1");
 		expect(litellmV1BaseUrl("http://localhost:4000/v1/")).toBe("http://localhost:4000/v1");
+	});
+});
+
+describe("litellm client factory", () => {
+	const logger: Logger = {
+		info: vi.fn(),
+		warn: vi.fn(),
+		error: vi.fn(),
+		debug: vi.fn(),
+		trace: vi.fn(),
+	};
+
+	const cancellationToken: CancellationToken = {
+		isCancellationRequested: false,
+		onCancellationRequested: () => ({ dispose() {} }),
+	};
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it("normalizes a per-request baseUrl routing override to /v1", async () => {
+		// The catalog pipeline forwards the raw connection baseUrl (e.g.
+		// `http://localhost:4000`) as params.baseUrl, which wins over the
+		// constructor URL inside AnthropicClient — unnormalized, chat would hit
+		// `/messages` instead of `/v1/messages` and 404.
+		const urls: string[] = [];
+		const fetchMock = vi.fn(async (input: string | URL | Request) => {
+			urls.push(
+				typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+			);
+			return new Response(
+				JSON.stringify({
+					type: "error",
+					error: { type: "invalid_request_error", message: "stop here" },
+				}),
+				{ status: 400, headers: { "content-type": "application/json" } },
+			);
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		const registry = new ProviderRegistry(logger);
+		registerLitellmProvider(registry, logger);
+		const client = registry.getClientForProvider("litellm", {
+			type: "apikey",
+			apiKey: "sk-test",
+			baseUrl: "http://localhost:4000",
+		});
+		expect(client).not.toBeNull();
+
+		try {
+			const stream = await client!.chat({
+				model: "claude-haiku-4-5",
+				messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+				maxOutputTokens: 10,
+				baseUrl: "http://localhost:4000",
+				cancellationToken,
+			});
+			for await (const _part of stream) {
+				// Drain; the mocked 400 surfaces as an error part or a throw.
+			}
+		} catch {
+			// The mocked error response is expected — only the URL matters.
+		}
+
+		expect(urls[0]).toBe("http://localhost:4000/v1/messages");
 	});
 });
 

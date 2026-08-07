@@ -157,10 +157,21 @@ export function registerLitellmProvider(registry: ProviderRegistry, logger: Logg
 		if (!credentials.baseUrl?.trim()) {
 			throw new Error("LiteLLM provider requires a base URL");
 		}
-		return new AnthropicClient(
+		const client = new AnthropicClient(
 			credentials.apiKey,
 			litellmV1BaseUrl(credentials.baseUrl),
 			credentials.customHeaders,
 		);
+		// The catalog pipeline forwards the raw connection baseUrl as a
+		// per-request routing override (params.baseUrl), which would clobber the
+		// normalized constructor URL inside AnthropicClient. Normalize it here so
+		// every path into the proxy lands on `/v1` — litellm wire knowledge stays
+		// in this module.
+		return {
+			chat: (params) =>
+				client.chat(
+					params.baseUrl ? { ...params, baseUrl: litellmV1BaseUrl(params.baseUrl) } : params,
+				),
+		};
 	});
 }
