@@ -8,7 +8,7 @@ import * as path from "path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { loadResolvedProviderCatalog } from "../node/load-catalog.js";
+import { loadProviderCatalogReport, loadResolvedProviderCatalog } from "../node/load-catalog.js";
 import { mutateProvidersConfig } from "../node/mutate-config.js";
 import type { ProvidersConfig, ResolvedProvider } from "../types.js";
 import type { PlatformBaseline } from "../types.js";
@@ -67,6 +67,37 @@ describe("loadResolvedProviderCatalog", () => {
 	// ========================================================================
 
 	describe("basic loading", () => {
+		it("keeps valid provider blocks when an unknown provider key is present", async () => {
+			const configPath = path.join(tempDir, "providers.json");
+			await fs.writeFile(
+				configPath,
+				JSON.stringify({
+					providers: {
+						anthropic: { baseUrl: "https://anthropic.example.com" },
+						portkey: { baseUrl: "https://portkey.example.com" },
+					},
+				}),
+			);
+
+			const report = await loadProviderCatalogReport({
+				baseline: STANDALONE_BASELINE,
+				configPath,
+				logger: mockLogger,
+			});
+
+			expect(findProvider(report.catalog, "anthropic")?.connection.baseUrl).toBe(
+				"https://anthropic.example.com",
+			);
+			expect(report.issues).toEqual([
+				expect.objectContaining({
+					path: ["providers", "portkey"],
+					source: { kind: "user", label: configPath },
+					message: expect.stringContaining("portkey"),
+				}),
+			]);
+			expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining("portkey"));
+		});
+
 		it("loads comments and trailing commas from providers.json", async () => {
 			const configPath = path.join(tempDir, "providers.json");
 			await fs.writeFile(
@@ -249,6 +280,35 @@ describe("loadResolvedProviderCatalog", () => {
 			expect(mockLogger.warn).toHaveBeenCalledWith(
 				expect.stringContaining("Failed to parse TEST_ENFORCED"),
 			);
+		});
+
+		it("keeps an invalid env fragment all-or-nothing and reports its source", async () => {
+			const configPath = await writeConfig(tempDir, {
+				providers: { anthropic: { baseUrl: "https://user.example.com" } },
+			});
+			const report = await loadProviderCatalogReport({
+				baseline: STANDALONE_BASELINE,
+				configPath,
+				enforcedEnvVar: "TEST_ENFORCED",
+				envVars: {
+					TEST_ENFORCED: JSON.stringify({
+						providers: {
+							anthropic: { baseUrl: "https://admin.example.com" },
+							portkey: {},
+						},
+					}),
+				},
+			});
+
+			expect(findProvider(report.catalog, "anthropic")?.connection.baseUrl).toBe(
+				"https://user.example.com",
+			);
+			expect(report.issues).toEqual([
+				expect.objectContaining({
+					source: { kind: "enforced", label: "TEST_ENFORCED" },
+					message: expect.stringContaining("portkey"),
+				}),
+			]);
 		});
 
 		it("enforced fragment can disable a custom provider without specifying type", async () => {
@@ -744,6 +804,33 @@ describe("loadResolvedProviderCatalog", () => {
 			expect(catalog.length).toBe(BUILTIN_PROVIDER_IDS.length);
 			expect(findProvider(catalog, "anthropic")?.connection.baseUrl).toBeUndefined();
 		});
+
+		it("returns recurring legacy issues on every read until the setting is fixed", async () => {
+			const configPath = await writeConfig(tempDir, {});
+			let values: Record<string, unknown> = { "authentication.anthropic.baseUrl": 42 };
+			const reader = {
+				get: (key: string) => values[key],
+				watch: () => ({ dispose: () => {} }),
+			};
+			const opts = {
+				baseline: STANDALONE_BASELINE,
+				configPath,
+				legacyPositronSettings: reader,
+			};
+
+			const first = await loadProviderCatalogReport(opts);
+			const second = await loadProviderCatalogReport(opts);
+			expect(first.issues).toEqual(second.issues);
+			expect(first.issues).toEqual([
+				expect.objectContaining({
+					source: { kind: "legacy-positron", label: "legacy Positron settings" },
+					message: expect.stringContaining("expected a string"),
+				}),
+			]);
+
+			values = {};
+			expect((await loadProviderCatalogReport(opts)).issues).toEqual([]);
+		});
 	});
 });
 
@@ -865,6 +952,17 @@ describe("mutateProvidersConfig", () => {
 
 		expect(mutator).not.toHaveBeenCalled();
 		expect(await fs.readFile(configPath, "utf-8")).toBe(original);
+	});
+
+	it("names an unknown provider key and leaves the file byte-for-byte untouched", async () => {
+		const configPath = path.join(tempDir, "providers.json");
+		const bytes = `{"providers":{"anthropic":{"enabled":true},"portkey":{}}}\n`;
+		await fs.writeFile(configPath, bytes);
+
+		await expect(mutateProvidersConfig((current) => current, { configPath })).rejects.toThrow(
+			/portkey/,
+		);
+		expect(await fs.readFile(configPath, "utf-8")).toBe(bytes);
 	});
 
 	it("aborts when the config cannot be read without changing the file", async () => {

@@ -461,7 +461,6 @@ function makeSources(
 	const [enforced, legacy] = createLegacyPositronSourceProviders(
 		{ legacyPositronSettings: reader, legacyPositronEnforcedSettings: true },
 		env,
-		logger,
 	);
 	return { enforced, legacy, logger, fire: () => fireChange?.(), disposed };
 }
@@ -471,7 +470,7 @@ describe("createLegacyPositronSourceProviders — legacy-positron source", () =>
 		const { legacy } = makeSources({
 			"authentication.anthropic.baseUrl": "https://proxy.example.com",
 		});
-		const source = legacy.read();
+		const source = legacy.read().source;
 		expect(source).toMatchObject({
 			kind: "legacy-positron",
 			config: { providers: { anthropic: { baseUrl: "https://proxy.example.com" } } },
@@ -480,7 +479,7 @@ describe("createLegacyPositronSourceProviders — legacy-positron source", () =>
 
 	it("returns no source when nothing is set", () => {
 		const { legacy, logger } = makeSources({});
-		expect(legacy.read()).toBeUndefined();
+		expect(legacy.read()).toEqual({ source: undefined, issues: [] });
 		expect(logger.warn).not.toHaveBeenCalled();
 	});
 
@@ -508,39 +507,45 @@ function readEnforced(payload: unknown, extraEnv: Record<string, string | undefi
 				payload === undefined ? undefined : JSON.stringify(payload),
 		},
 	);
-	return { source: enforced.read(), logger, provider: enforced };
+	const report = enforced.read();
+	return { source: report.source, issues: report.issues, logger, provider: enforced };
 }
 
 describe("createLegacyPositronSourceProviders — enforced envelope", () => {
 	it("unset env var → no source", () => {
-		const { source, logger } = readEnforced(undefined);
+		const { source, issues, logger } = readEnforced(undefined);
 		expect(source).toBeUndefined();
+		expect(issues).toEqual([]);
 		expect(logger.warn).not.toHaveBeenCalled();
 	});
 
-	it("malformed JSON → warn once and skip the whole source", () => {
+	it("malformed JSON → reports the current issue on every read and skips the source", () => {
 		const { enforced, logger } = makeSources(
 			{},
 			{ [POSITRON_ENFORCED_SETTINGS_ENV_VAR]: "{not json" },
 		);
-		expect(enforced.read()).toBeUndefined();
-		expect(enforced.read()).toBeUndefined();
-		const warns = logger.warn.mock.calls.filter(([msg]) => String(msg).includes("Failed to parse"));
-		expect(warns).toHaveLength(1);
+		const first = enforced.read();
+		const second = enforced.read();
+		expect(first.source).toBeUndefined();
+		expect(first.issues).toEqual(second.issues);
+		expect(first.issues[0].message).toContain("Failed to parse");
+		expect(logger.warn).not.toHaveBeenCalled();
 	});
 
 	it("non-object payload (array) → warn and skip", () => {
-		const { source, logger } = readEnforced(["authentication.anthropic.baseUrl"]);
+		const { source, issues, logger } = readEnforced(["authentication.anthropic.baseUrl"]);
 		expect(source).toBeUndefined();
-		expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("not a JSON object"));
+		expect(issues[0].message).toContain("not a JSON object");
+		expect(logger.warn).not.toHaveBeenCalled();
 	});
 
 	it("payload with no provider-relevant keys is inert (no source, no warnings)", () => {
-		const { source, logger } = readEnforced({
+		const { source, issues, logger } = readEnforced({
 			"editor.formatOnSave": false,
 			"[r]": { "editor.formatOnSave": true },
 		});
 		expect(source).toBeUndefined();
+		expect(issues).toEqual([]);
 		expect(logger.warn).not.toHaveBeenCalled();
 	});
 
@@ -599,24 +604,28 @@ describe("createLegacyPositronSourceProviders — enforced translation", () => {
 	});
 
 	it("drops a wrong-typed key with a warning, keeping the rest", () => {
-		const { source, logger } = readEnforced({
+		const { source, issues, logger } = readEnforced({
 			"authentication.anthropic.baseUrl": 42,
 			"authentication.anthropic.customHeaders": { "x-team": "ml" },
 		});
 		expect(source?.config.providers?.anthropic).toEqual({ customHeaders: { "x-team": "ml" } });
-		expect(logger.warn).toHaveBeenCalledWith(
-			expect.stringContaining('"authentication.anthropic.baseUrl"'),
-		);
+		expect(issues[0]).toMatchObject({
+			path: ["authentication.anthropic.baseUrl"],
+			message: expect.stringContaining('"authentication.anthropic.baseUrl"'),
+		});
+		expect(logger.warn).not.toHaveBeenCalled();
 	});
 
-	it("warns once per dropped key, not per re-read", () => {
+	it("reports a dropped key on every re-read without logging", () => {
 		const { provider, logger } = readEnforced({
 			"authentication.snowflake.credentials": "not-an-object",
 			"authentication.anthropic.baseUrl": "https://proxy.example.com",
 		});
-		provider.read(); // watch-seam rebuilds re-read; warnings must not repeat
-		const drops = logger.warn.mock.calls.filter(([msg]) => String(msg).includes("Ignoring"));
-		expect(drops).toHaveLength(1);
+		const first = provider.read();
+		const second = provider.read();
+		expect(first.issues).toHaveLength(1);
+		expect(second.issues).toEqual(first.issues);
+		expect(logger.warn).not.toHaveBeenCalled();
 	});
 
 	it("never falls back to ambient env vars (payload-only reads)", () => {
@@ -633,10 +642,11 @@ describe("createLegacyPositronSourceProviders — enforced translation", () => {
 	it("a valid non-empty payload emits no warnings", () => {
 		// The legacy channel is still the documented admin channel this release;
 		// deprecation messaging belongs in admin-facing docs, not user logs.
-		const { source, logger } = readEnforced({
+		const { source, issues, logger } = readEnforced({
 			"authentication.anthropic.baseUrl": "https://proxy.example.com",
 		});
 		expect(source).toBeDefined();
+		expect(issues).toEqual([]);
 		expect(logger.warn).not.toHaveBeenCalled();
 	});
 });

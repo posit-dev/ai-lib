@@ -23,10 +23,15 @@
  *   change within a process).
  */
 
-import type { ProviderConfigSourceProvider } from "../config-source.js";
+import { sourceConfigIssue } from "../config-issue.js";
+import type { ConfigIssue } from "../config-issue.js";
+import type {
+	ProviderConfigSourceProvider,
+	ProviderConfigSourceReadReport,
+} from "../config-source.js";
 import type { ProviderConfigSource } from "../resolve-catalog.js";
-import type { ProvidersConfigFragment, LoggerLike } from "../types.js";
-import { translateLegacyPositronSettings } from "./translate.js";
+import type { ProvidersConfigFragment } from "../types.js";
+import { translateLegacyPositronSettingsReport } from "./translate.js";
 import type { LegacySettingsReader } from "./translate.js";
 
 /** The legacy Workbench admin-enforcement env var (name owned by Workbench). */
@@ -47,14 +52,13 @@ export function createLegacyPositronSourceProviders(
 		readonly legacyPositronEnforcedSettings?: boolean;
 	},
 	env: Readonly<Record<string, string | undefined>>,
-	logger?: LoggerLike,
 ): ProviderConfigSourceProvider[] {
 	const providers: ProviderConfigSourceProvider[] = [];
 	if (opts.legacyPositronEnforcedSettings) {
-		providers.push(createEnforcedSettingsProvider(env, logger));
+		providers.push(createEnforcedSettingsProvider(env));
 	}
 	if (opts.legacyPositronSettings) {
-		providers.push(createReaderSettingsProvider(opts.legacyPositronSettings, logger));
+		providers.push(createReaderSettingsProvider(opts.legacyPositronSettings));
 	}
 	return providers;
 }
@@ -63,21 +67,18 @@ export function createLegacyPositronSourceProviders(
 // legacy-positron — reader-backed, watchable
 // ---------------------------------------------------------------------------
 
-function createReaderSettingsProvider(
-	reader: LegacySettingsReader,
-	logger?: LoggerLike,
-): ProviderConfigSourceProvider {
-	// Owned by the provider (which re-reads on every catalog rebuild) so each
-	// dropped key warns once, not once per rebuild.
-	const warnedKeys = new Set<string>();
-
+function createReaderSettingsProvider(reader: LegacySettingsReader): ProviderConfigSourceProvider {
 	return {
-		read(): ProviderConfigSource | undefined {
-			const { config } = translateLegacyPositronSettings(reader, logger, warnedKeys);
-			if (!hasProviders(config)) {
-				return undefined;
-			}
-			return { kind: "legacy-positron", label: "legacy Positron settings", config };
+		read(): ProviderConfigSourceReadReport {
+			const identity = {
+				kind: "legacy-positron",
+				label: "legacy Positron settings",
+			} satisfies Pick<ProviderConfigSource, "kind" | "label">;
+			const { config, issues } = translateLegacyPositronSettingsReport(reader);
+			return {
+				source: hasProviders(config) ? { ...identity, config } : undefined,
+				issues: issues.map((issue) => sourceConfigIssue(issue, identity)),
+			};
 		},
 
 		watch(onChange: () => void) {
@@ -92,24 +93,16 @@ function createReaderSettingsProvider(
 
 function createEnforcedSettingsProvider(
 	env: Readonly<Record<string, string | undefined>>,
-	logger?: LoggerLike,
 ): ProviderConfigSourceProvider {
-	const warnedKeys = new Set<string>();
-	let warnedEnvelope = false;
-
-	const warnEnvelopeOnce = (message: string) => {
-		if (warnedEnvelope) {
-			return;
-		}
-		warnedEnvelope = true;
-		logger?.warn(message);
-	};
-
 	return {
-		read(): ProviderConfigSource | undefined {
+		read(): ProviderConfigSourceReadReport {
+			const identity = {
+				kind: "legacy-positron-enforced",
+				label: POSITRON_ENFORCED_SETTINGS_ENV_VAR,
+			} satisfies Pick<ProviderConfigSource, "kind" | "label">;
 			const raw = env[POSITRON_ENFORCED_SETTINGS_ENV_VAR];
 			if (!raw) {
-				return undefined;
+				return { issues: [] };
 			}
 
 			let parsed: unknown;
@@ -118,33 +111,27 @@ function createEnforcedSettingsProvider(
 			} catch {
 				// No error detail: JSON.parse messages embed input snippets, and
 				// this payload can carry credential-adjacent values.
-				warnEnvelopeOnce(
-					`[ai-config] Failed to parse ${POSITRON_ENFORCED_SETTINGS_ENV_VAR} as JSON. Ignoring.`,
+				return issueOnly(
+					identity,
+					`Failed to parse ${POSITRON_ENFORCED_SETTINGS_ENV_VAR} as JSON. Ignoring.`,
 				);
-				return undefined;
 			}
 			if (!isPlainObject(parsed)) {
-				warnEnvelopeOnce(
-					`[ai-config] ${POSITRON_ENFORCED_SETTINGS_ENV_VAR} is not a JSON object. Ignoring.`,
+				return issueOnly(
+					identity,
+					`${POSITRON_ENFORCED_SETTINGS_ENV_VAR} is not a JSON object. Ignoring.`,
 				);
-				return undefined;
 			}
 
 			// A flat dotted-key payload read through the shared translator; keys
 			// shaped like "[lang]" overrides are never queried, so they are inert.
 			const payload = parsed;
-			const { config } = translateLegacyPositronSettings(
-				{ get: (key) => payload[key] },
-				logger,
-				warnedKeys,
-			);
-			if (!hasProviders(config)) {
-				return undefined;
-			}
+			const { config, issues } = translateLegacyPositronSettingsReport({
+				get: (key) => payload[key],
+			});
 			return {
-				kind: "legacy-positron-enforced",
-				label: POSITRON_ENFORCED_SETTINGS_ENV_VAR,
-				config,
+				source: hasProviders(config) ? { ...identity, config } : undefined,
+				issues: issues.map((issue) => sourceConfigIssue(issue, identity)),
 			};
 		},
 	};
@@ -160,4 +147,12 @@ function hasProviders(config: ProvidersConfigFragment): boolean {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function issueOnly(
+	identity: Pick<ProviderConfigSource, "kind" | "label">,
+	message: string,
+): ProviderConfigSourceReadReport {
+	const issue: ConfigIssue = { severity: "warning", path: [], message };
+	return { issues: [sourceConfigIssue(issue, identity)] };
 }

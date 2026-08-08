@@ -402,12 +402,19 @@ export const customProviderEntryFragmentSchema = z
  * type. The single cast bridges the two (there is no subtype relation between
  * two `ZodObject`s with different shapes).
  */
+/**
+ * Canonical strict validator for each built-in provider block. Kept out of
+ * the package entrypoint, but shared by the full schema and tolerant salvage
+ * so adding a built-in id cannot make those paths disagree.
+ */
+export const builtinProviderBlockSchemas = Object.fromEntries(
+	BUILTIN_PROVIDER_IDS.map((id) => [id, connectionBlockSchema(BUILTIN_CONNECTION_SECTIONS[id])]),
+) as Record<BuiltinProviderId, typeof builtinProviderBlockSchema>;
+
 function optionalBuiltinBlock(
 	id: BuiltinProviderId,
 ): z.ZodOptional<typeof builtinProviderBlockSchema> {
-	return connectionBlockSchema(
-		BUILTIN_CONNECTION_SECTIONS[id],
-	).optional() as unknown as z.ZodOptional<typeof builtinProviderBlockSchema>;
+	return builtinProviderBlockSchemas[id].optional();
 }
 
 const builtinProviderKeys = Object.fromEntries(
@@ -457,22 +464,27 @@ export const providersConfigSchema = z
 			return;
 		}
 		for (const name of Object.keys(custom)) {
-			if (isBuiltinProviderId(name)) {
+			for (const message of customProviderNameIssues(name)) {
 				ctx.addIssue({
 					code: "custom",
-					message: `Custom provider name "${name}" collides with a built-in provider id.`,
-					path: ["providers", "custom", name],
-				});
-			}
-			if ((RESERVED_PROVIDER_KEYS as readonly string[]).includes(name)) {
-				ctx.addIssue({
-					code: "custom",
-					message: `Custom provider name "${name}" is a reserved key.`,
+					message,
 					path: ["providers", "custom", name],
 				});
 			}
 		}
 	});
+
+/** Shared custom-provider name policy for strict parsing and salvage. */
+export function customProviderNameIssues(name: string): readonly string[] {
+	const issues: string[] = [];
+	if (isBuiltinProviderId(name)) {
+		issues.push(`Custom provider name "${name}" collides with a built-in provider id.`);
+	}
+	if ((RESERVED_PROVIDER_KEYS as readonly string[]).includes(name)) {
+		issues.push(`Custom provider name "${name}" is a reserved key.`);
+	}
+	return issues;
+}
 
 /**
  * Relaxed schema for partial config fragments — the shape every catalog

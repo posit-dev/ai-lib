@@ -44,7 +44,8 @@ export * from "../index.js";
 export { AI_CONFIG_DIR, PROVIDERS_CONFIG_PATH } from "./paths.js";
 
 // --- Read seam (the single deep read seam) ---------------------------------
-export { loadResolvedProviderCatalog } from "./load-catalog.js";
+export { loadProviderCatalogReport, loadResolvedProviderCatalog } from "./load-catalog.js";
+export type { LoadedProviderCatalogReport } from "./load-catalog.js";
 
 // --- Source assembly (file + env fragments → ProviderConfigSource[]) -------
 // The deep seam is `loadConfigSources` + `resolveProviderCatalog`; the raw

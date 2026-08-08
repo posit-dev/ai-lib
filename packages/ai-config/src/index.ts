@@ -118,15 +118,20 @@ export {
 } from "./base-url.js";
 
 // --- Deep resolver seam (owns the precedence stack) ------------------------
-export { resolveProviderCatalog } from "./resolve-catalog.js";
+export { resolveProviderCatalog, resolveProviderCatalogReport } from "./resolve-catalog.js";
 export type {
 	ProviderConfigSource,
 	ProviderConfigSourceKind,
+	ProviderCatalogReport,
 	ResolveProviderCatalogOptions,
 } from "./resolve-catalog.js";
+export type { ConfigIssue, SourcedConfigIssue } from "./config-issue.js";
+
+// --- Tolerant providers.json validation ------------------------------------
+export { salvageProvidersConfig } from "./salvage-config.js";
 
 // --- Disposable (returned by LegacySettingsReader.watch) --------------------
-export type { Disposable } from "./config-source.js";
+export type { Disposable, ProviderConfigSourceReadReport } from "./config-source.js";
 
 // --- Enforcement merge -----------------------------------------------------
 export { mergeConfigFragments, mergeEnforced } from "./enforce.js";

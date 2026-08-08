@@ -5,7 +5,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { ProviderConfigSource } from "../resolve-catalog.js";
-import { recoverValidStack, resolveProviderCatalog } from "../resolve-catalog.js";
+import {
+	recoverValidStack,
+	resolveProviderCatalog,
+	resolveProviderCatalogReport,
+} from "../resolve-catalog.js";
 import type { PlatformBaseline, ResolvedProvider } from "../types.js";
 
 const STANDALONE: PlatformBaseline = { defaultEnabled: true };
@@ -618,6 +622,32 @@ describe("recoverValidStack — choose dropped source", () => {
 		expect(config.providers?.anthropic?.enabled).toBe(true);
 		// A warning was emitted for each dropped source.
 		expect(logger.warn).toHaveBeenCalledTimes(2);
+	});
+
+	it("returns dropped-overlay source identity through the resolver report", () => {
+		const report = resolveProviderCatalogReport({
+			sources: [
+				{ kind: "enforced", label: "TEST_ENFORCED", config: badCustom("ghost") },
+				source("user", { providers: { anthropic: { enabled: true } } }),
+			],
+			baseline: STANDALONE,
+			envVars: {},
+		});
+
+		expect(find(report.catalog, "anthropic")?.enabled).toBe(true);
+		expect(report.issues).toEqual([
+			expect.objectContaining({
+				source: { kind: "enforced", label: "TEST_ENFORCED" },
+				message: expect.stringContaining("invalid merged result"),
+			}),
+		]);
+		expect(
+			resolveProviderCatalog({
+				sources: [source("user", {})],
+				baseline: STANDALONE,
+				envVars: {},
+			}),
+		).toBeInstanceOf(Array);
 	});
 });
 

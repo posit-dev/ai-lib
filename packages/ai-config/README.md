@@ -1,6 +1,6 @@
 # ai-config
 
-Owns the full lifecycle of `~/.posit/ai/providers.json`: JSONC parsing, schema validation, defaults, the resolution pipeline that turns a raw file into an effective provider catalog, and the filesystem seams that load, watch, and mutate the file safely across processes. The file accepts `//` and `/* ... */` comments plus trailing commas.
+Owns the full lifecycle of `~/.posit/ai/providers.json`: JSONC parsing, schema validation, defaults, the resolution pipeline that turns a raw file into an effective provider catalog, and the filesystem seams that load, watch, and mutate the file safely across processes. The file accepts `//` and `/* ... */` comments plus trailing commas. Reads skip unknown or invalid provider blocks with a warning while preserving valid siblings; mutations remain strict and abort without rewriting an invalid file.
 
 This package is part of the [`ai-lib`](../../README.md) monorepo. It is a dependency-light leaf: it does **not** import `ai-provider-bridge` or `ai-credentials`. Compatibility with the bridge's vocabulary (provider IDs, protocols, client kinds) is enforced at compile time by a [shape guard](../../typechecks), not by an import edge.
 
@@ -18,7 +18,8 @@ No entry imports `vscode`. Legacy Positron settings reach the loader through the
 
 The three filesystem seams (`ai-config/node`):
 
-- **`loadResolvedProviderCatalog(opts)`** — the single read entry point; returns `readonly ResolvedProvider[]`.
+- **`loadProviderCatalogReport(opts)`** — canonical read entry point; returns `{ catalog, issues }`.
+- **`loadResolvedProviderCatalog(opts)`** — compatibility wrapper returning the report's bare catalog.
 - **`mutateProvidersConfig(mutator, opts)`** — cross-process-safe read-modify-write.
 - **`watchResolvedProviderCatalog(handler, opts)`** — emits typed `ProviderCatalogChange` events (`enabledChanged`, `connectionChanged`, `modelsChanged`).
 
@@ -96,17 +97,21 @@ interface ResolvedProvider {
 
 The one sanctioned producer of the branded `CustomProviderId`. Validates the id against built-in and reserved-key collisions; **throws** if the id is empty, collides with a built-in id, or is a reserved key (`default`, `custom`).
 
-#### `resolveProviderCatalog(opts): readonly ResolvedProvider[]`
+#### `resolveProviderCatalogReport(opts): { catalog, issues }`
 
-The **deep resolver seam** — the one place that owns the entire precedence stack. It takes an ordered list of `ProviderConfigSource`s plus a `PlatformBaseline` and returns a fully resolved catalog. Hosts only _contribute sources_; precedence knowledge (rank per kind, the sealed-enforced invariant, deep-merge and array-replace rules) lives here.
+The **deep resolver seam** — the one place that owns the entire precedence stack. It takes an ordered list of `ProviderConfigSource`s plus a `PlatformBaseline` and returns a fully resolved catalog together with structured issues for any relaxed overlay dropped during merged-result recovery. Hosts only _contribute sources_; precedence knowledge lives here. The reconstructed merged config is sealed by the full runtime schema before catalog construction.
 
 ```ts
-function resolveProviderCatalog(opts: {
+function resolveProviderCatalogReport(opts: {
   sources: readonly ProviderConfigSource[]; // any order — ranked by `kind`
   baseline: PlatformBaseline;
   envVars?: Record<string, string | undefined>; // non-secret connection source ranked below enforced (default {})
-}): readonly ResolvedProvider[];
+}): { catalog: readonly ResolvedProvider[]; issues: readonly SourcedConfigIssue[] };
 ```
+
+`resolveProviderCatalog(opts)` remains the bare-catalog compatibility wrapper and preserves its
+existing warning logging. The report seam is silent so an orchestrator can compare complete issue
+snapshots before deciding what to render.
 
 A `ProviderConfigSource` declares _what it is_ via `kind`, not _where it sits_. The resolver maps each kind to a fixed rank, highest → lowest: **`enforced` > `legacy-positron-enforced` > connection env > `user` > `legacy-positron` > `default`**, with the `PlatformBaseline` beneath all sources. The two `legacy-positron*` kinds are the transitional legacy Positron settings channels, split by whether they must beat or yield to `providers.json`. The `enforced` layer is a **sealed overlay** — no lower source can overwrite an enforced key (a correctness invariant). Connection env vars (from `envVars`) are converted into a resolver-owned source ranked below `enforced` but above `user`, so admin pins always win while env vars still override file-based config. Object fields deep-merge per leaf-key; `allow`/`deny` arrays wholesale-replace.
 
@@ -177,15 +182,17 @@ import { AI_CONFIG_DIR, PROVIDERS_CONFIG_PATH } from "ai-config/node";
 // ~/.posit/ai  and  ~/.posit/ai/providers.json
 ```
 
-#### `loadResolvedProviderCatalog(opts): Promise<readonly ResolvedProvider[]>`
+#### `loadProviderCatalogReport(opts): Promise<{ catalog, issues }>`
 
-The single read seam. Assembles the config sources (the JSONC user file → `{}` if missing, the strict-JSON `POSIT_AI_PROVIDERS_ENFORCED` / `POSIT_AI_PROVIDERS_DEFAULT` env fragments, and the legacy Positron layers opted into via `legacyPositronSettings` / `legacyPositronEnforcedSettings`), delegates precedence to `resolveProviderCatalog`, applies the platform baseline, and returns the resolved catalog. The read path degrades gracefully — malformed/missing files log a warning and fall back rather than throwing.
+The canonical read seam. Assembles source-read reports (each shaped as `{ source?, issues }`), delegates precedence to `resolveProviderCatalogReport`, applies the platform baseline, and returns one complete issue snapshot beside the catalog. Source readers never log; this one-shot orchestrator renders the completed report once. The JSONC user-file reader salvages valid siblings at whole-provider-block granularity. Strict-JSON admin env fragments remain all-or-nothing. Legacy Positron readers reconstruct their current issues on every read, so a fixed-then-rebroken setting can recur correctly.
 
 ```ts
-const catalog = await loadResolvedProviderCatalog({
+const { catalog, issues } = await loadProviderCatalogReport({
   baseline: { defaultEnabled: true },
 });
 ```
+
+`loadResolvedProviderCatalog(opts)` remains a compatibility wrapper returning `.catalog`.
 
 `LoadCatalogOptions`:
 
@@ -202,7 +209,7 @@ const catalog = await loadResolvedProviderCatalog({
 
 #### `mutateProvidersConfig(mutator, opts?): Promise<void>`
 
-Cross-process-safe read-modify-write. The `mutator` receives the current validated config and returns the new one. Returning the same object is a valid no-op (the write still happens; it's idempotent). The seam owns all write safety: `proper-lockfile` locking with stale reclamation, an in-process serialization queue per path, race-safe first creation (`wx`), atomic temp-file-plus-rename writes, and seed-metadata (`$schema`, `version`) injection on first creation. If the existing file cannot be read, parsed, or validated, the mutation rejects without writing; fix the file before retrying. Successful programmatic writes serialize the whole object with `JSON.stringify`, so they strip comments from existing JSONC.
+Cross-process-safe read-modify-write. Unlike tolerant reads, mutation parses the entire file strictly: unknown or invalid keys abort with the offending path named, and the original bytes remain untouched. The `mutator` receives the current validated config and returns the new one. The seam owns locking, serialization, race-safe creation, atomic writes, and seed metadata.
 
 ```ts
 await mutateProvidersConfig((current) => ({
@@ -218,7 +225,7 @@ await mutateProvidersConfig((current) => ({
 
 #### `watchResolvedProviderCatalog(handler, opts): Disposable`
 
-The single watch seam. Debounced (~300ms), ancestor-aware `fs.watch` that reloads, diffs against the previous catalog, and invokes `handler` only when something actually changed. Returns a `Disposable` — call `.dispose()` to stop.
+The single watch seam. Debounced (~300ms), ancestor-aware `fs.watch` that reloads and compares both the catalog and the complete issue snapshot. Issue comparison is order-insensitive and structural. The watcher emits issue-only add and clear transitions, and logs only newly added/changed issues; a persistent identical issue is quiet until it clears and recurs. Returns a `Disposable` — call `.dispose()` to stop.
 
 ```ts
 const sub = watchResolvedProviderCatalog(
@@ -226,6 +233,7 @@ const sub = watchResolvedProviderCatalog(
     if (change.enabledChanged) reregisterProviders(change.catalog);
     if (change.connectionChanged) invalidateModelCaches(change.catalog);
     if (change.modelsChanged) refreshModelLists(change.catalog);
+    if (change.issuesChanged) replaceConfigIssues(change.issues);
   },
   { baseline: { defaultEnabled: true } },
 );
@@ -233,7 +241,7 @@ const sub = watchResolvedProviderCatalog(
 sub.dispose();
 ```
 
-`WatchCatalogOptions` extends `LoadCatalogOptions`. The `ProviderCatalogChange` event carries the full new `catalog` plus the three boolean flags shown above.
+`WatchCatalogOptions` extends `LoadCatalogOptions`. The `ProviderCatalogChange` event carries the full new `catalog`, complete `issues`, and four flags: `enabledChanged`, `connectionChanged`, `modelsChanged`, and `issuesChanged`.
 
 #### Node-only types
 
@@ -241,7 +249,10 @@ sub.dispose();
 
 ## `providers.json` shape
 
-`providers.json` is JSONC: line comments, block comments, and trailing commas are supported. VS
+`providers.json` is JSONC: line comments, block comments, and trailing commas are supported. A
+healthy file takes the strict fast path. If schema validation fails, tolerant reads drop an
+unknown/invalid root key, built-in block, or custom-provider entry as one unit and preserve valid
+siblings; unsupported versions and non-object roots/providers still degrade to `{}`. VS
 Code still associates the `.json` extension with strict JSON by default, so it may show comments
 as errors unless you map the file to JSONC, for example with
 `"files.associations": { "**/.posit/ai/providers.json": "jsonc" }`. The `$schema` hint provides
@@ -281,15 +292,16 @@ validation and autocomplete whether the editor language mode is JSON or JSONC.
 
 Config flows through **assemble sources → resolve → watch**:
 
-1. **Assemble sources**: the node seam reads the user file (missing → `{}`, validated against `providersConfigSchema`), the enforced fragment from `POSIT_AI_PROVIDERS_ENFORCED`, and the defaults fragment from `POSIT_AI_PROVIDERS_DEFAULT` (both validated against the relaxed `providersConfigFragmentSchema`), plus the legacy Positron layers opted into per option (`legacyPositronSettings` reader → `legacy-positron`, `legacyPositronEnforcedSettings: true` → `legacy-positron-enforced`), translated from the legacy Positron settings. Each becomes a `ProviderConfigSource` tagged with its `kind`.
-2. **Resolve** (`resolveProviderCatalog`): rank the sources by kind (`enforced` > `legacy-positron-enforced` > connection env > `user` > `legacy-positron` > `default`), fold them low → high so the sealed `enforced` overlay can never be overwritten, apply the `PlatformBaseline` beneath, and build `ResolvedProvider[]` — objects deep-merge per leaf-key, `allow`/`deny` arrays wholesale-replace. Connection env vars are a resolver-owned source below `enforced`, not a post-resolution overlay. The resolver retains narrow semantic provenance for fields whose origin affects consumers.
-3. **Watch** (`watchResolvedProviderCatalog`): debounced (~300ms), ancestor-aware watch over **every** source (file via `fs.watch`; the legacy reader's `watch` signal; env sources are static) that re-resolves, diffs values and connection provenance against the previous catalog, and emits a typed change only when something actually changed.
+1. **Assemble sources**: the node seam reads a report from each user/env/legacy layer. The user file is salvaged block-by-block; admin fragments remain strict and all-or-nothing.
+2. **Resolve** (`resolveProviderCatalogReport`): rank the sources by kind (`enforced` > `legacy-positron-enforced` > connection env > `user` > `legacy-positron` > `default`), fold them low → high, runtime-validate the result, and return the catalog plus any overlay-drop issues.
+3. **Watch** (`watchResolvedProviderCatalog`): debounced (~300ms), ancestor-aware watch over every source that re-resolves and structurally diffs both catalog and issue snapshots.
 
-The file read path parses JSONC and **degrades gracefully**: malformed or missing files log a warning and fall back rather than throwing. Serialized environment fragments remain strict JSON.
+The file read path parses JSONC and degrades gracefully: syntax failures become issues and `{}`;
+schema failures salvage valid siblings. Serialized environment fragments remain strict JSON.
 
 ## File I/O guarantees
 
-`mutateProvidersConfig` owns cross-process write safety so callers just supply a mutator: a `proper-lockfile` lock (with retries and stale detection), an in-process serialization queue per path, race-safe first creation (exclusive `wx` flag), atomic write (temp file + rename), seed-metadata injection (`$schema`, `version`) on first creation, and a best-effort copy of `providers.schema.json` alongside the config. It never treats unreadable, syntax-invalid, or schema-invalid existing content as empty: any such failure aborts the mutation and leaves the file byte-for-byte unchanged. Writes currently reserialize the entire config as strict JSON, which preserves values but strips JSONC comments.
+`mutateProvidersConfig` owns cross-process write safety so callers just supply a mutator: a `proper-lockfile` lock (with retries and stale detection), an in-process serialization queue per path, race-safe first creation (exclusive `wx` flag), atomic write (temp file + rename), seed-metadata injection (`$schema`, `version`) on first creation, and a best-effort copy of `providers.schema.json` alongside the config. It never treats unreadable, syntax-invalid, unknown-key, or schema-invalid existing content as empty: any such failure names the offending path, aborts the mutation, and leaves the file byte-for-byte unchanged.
 
 ## Development
 

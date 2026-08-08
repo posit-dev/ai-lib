@@ -10,6 +10,13 @@ A small monorepo of platform-neutral packages that provide the LLM provider infr
 | [`ai-config`](packages/ai-config)                   | `~/.posit/ai/providers.json` schema, validation, defaults, and the load → enforce → build → watch resolution pipeline    |
 | [`ai-credentials`](packages/ai-credentials)         | Credential types, shaping, and generic typed single-file KV store (atomic writes, cross-process locking, file watching)  |
 
+### ai-config read tolerance
+
+`ai-config` reads `providers.json` tolerantly at provider-block granularity: an unknown or
+invalid provider key is skipped with a structured warning while valid sibling providers remain
+active. Programmatic mutations stay strict and abort without rewriting an invalid file, so a
+write can never silently delete configuration it does not understand.
+
 ## Dependency graph
 
 ```

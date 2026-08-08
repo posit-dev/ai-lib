@@ -17,10 +17,14 @@
 import * as fs from "fs";
 import * as path from "path";
 
-import type { ProviderConfigSourceProvider } from "../config-source.js";
+import { formatConfigIssue } from "../config-issue.js";
+import type { SourcedConfigIssue } from "../config-issue.js";
+import type {
+	ProviderConfigSourceProvider,
+	ProviderConfigSourceReadReport,
+} from "../config-source.js";
 import { createLegacyPositronSourceProviders } from "../legacy-positron-settings/sources.js";
-import type { ProviderConfigSource } from "../resolve-catalog.js";
-import { resolveProviderCatalog } from "../resolve-catalog.js";
+import { resolveProviderCatalogReport } from "../resolve-catalog.js";
 import type { LoggerLike, ResolvedProvider } from "../types.js";
 import { readEnvFragment, readFileConfig } from "./load-config.js";
 import { DEFAULT_ENV_VAR, ENFORCED_ENV_VAR, PROVIDERS_CONFIG_PATH } from "./paths.js";
@@ -53,15 +57,16 @@ export function watchResolvedProviderCatalog(
 	// (static) + the legacy Positron layers the loader opted into.
 	const sourceProviders: ProviderConfigSourceProvider[] = [
 		createFileSourceProvider(configPath, logger),
-		createEnvSourceProvider("enforced", opts.enforcedEnvVar ?? ENFORCED_ENV_VAR, env, logger),
-		createEnvSourceProvider("default", opts.defaultEnvVar ?? DEFAULT_ENV_VAR, env, logger),
+		createEnvSourceProvider("enforced", opts.enforcedEnvVar ?? ENFORCED_ENV_VAR, env),
+		createEnvSourceProvider("default", opts.defaultEnvVar ?? DEFAULT_ENV_VAR, env),
 		// PROVIDER-SETTINGS-MIGRATION(legacy-positron)
-		...createLegacyPositronSourceProviders(opts, env, logger),
+		...createLegacyPositronSourceProviders(opts, env),
 	];
 
 	let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 	let disposed = false;
 	let previousCatalog: readonly ResolvedProvider[] | undefined;
+	let previousIssues: readonly SourcedConfigIssue[] | undefined;
 	const subscriptions: Disposable[] = [];
 
 	// ----- Load and diff -----
@@ -69,20 +74,26 @@ export function watchResolvedProviderCatalog(
 	async function rebuild(): Promise<void> {
 		if (disposed) return;
 		try {
-			const settled = await Promise.all(sourceProviders.map((p) => p.read()));
-			const sources = settled.filter((s): s is ProviderConfigSource => s !== undefined);
+			const reports = await Promise.all(sourceProviders.map((provider) => provider.read()));
+			const sources = reports.flatMap((report) => (report.source ? [report.source] : []));
 
-			const newCatalog = resolveProviderCatalog({
+			const resolver = resolveProviderCatalogReport({
 				sources,
 				baseline: opts.baseline,
 				// Node seam: inject the resolved env (process.env by default) so
 				// the pure resolver stays free of Node globals.
 				envVars: env,
-				logger,
 			});
+			const newCatalog = resolver.catalog;
+			const newIssues = [...reports.flatMap((report) => report.issues), ...resolver.issues];
 
-			const change = diffCatalogs(previousCatalog, newCatalog);
+			for (const issue of addedIssues(previousIssues, newIssues)) {
+				logger?.warn(formatConfigIssue(issue));
+			}
+
+			const change = diffCatalogs(previousCatalog, newCatalog, previousIssues, newIssues);
 			previousCatalog = newCatalog;
+			previousIssues = newIssues;
 
 			// Only fire on actual changes (skip initial load).
 			if (change) {
@@ -142,9 +153,8 @@ function createFileSourceProvider(
 	const dir = path.dirname(configPath);
 
 	return {
-		async read(): Promise<ProviderConfigSource> {
-			const config = await readFileConfig(configPath, logger);
-			return { kind: "user", label: configPath, config };
+		async read(): Promise<ProviderConfigSourceReadReport> {
+			return readFileConfig(configPath);
 		},
 
 		watch(onChange: () => void): Disposable {
@@ -233,12 +243,10 @@ function createEnvSourceProvider(
 	kind: "enforced" | "default",
 	envVarName: string,
 	env: Record<string, string | undefined>,
-	logger: LoggerLike | undefined,
 ): ProviderConfigSourceProvider {
 	return {
-		read(): ProviderConfigSource | undefined {
-			const config = readEnvFragment(envVarName, env, logger);
-			return config ? { kind, label: envVarName, config } : undefined;
+		read(): ProviderConfigSourceReadReport {
+			return readEnvFragment(kind, envVarName, env);
 		},
 	};
 }
@@ -277,6 +285,8 @@ function toSignature(p: ResolvedProvider): ProviderSignature {
 function diffCatalogs(
 	previous: readonly ResolvedProvider[] | undefined,
 	current: readonly ResolvedProvider[],
+	previousIssues: readonly SourcedConfigIssue[] | undefined,
+	currentIssues: readonly SourcedConfigIssue[],
 ): ProviderCatalogChange | undefined {
 	if (!previous) {
 		// Initial load — no previous to diff against
@@ -286,6 +296,7 @@ function diffCatalogs(
 	let enabledChanged = false;
 	let connectionChanged = false;
 	let modelsChanged = false;
+	const issuesChanged = !issueSetsEqual(previousIssues ?? [], currentIssues);
 
 	// Build signature lookups by id
 	const prevById = new Map(previous.map((p) => [p.id as string, toSignature(p)]));
@@ -323,14 +334,43 @@ function diffCatalogs(
 	}
 
 	// If nothing changed, don't fire
-	if (!enabledChanged && !connectionChanged && !modelsChanged) {
+	if (!enabledChanged && !connectionChanged && !modelsChanged && !issuesChanged) {
 		return undefined;
 	}
 
 	return {
 		catalog: current,
+		issues: currentIssues,
 		enabledChanged,
 		connectionChanged,
 		modelsChanged,
+		issuesChanged,
 	};
+}
+
+function issueKey(issue: SourcedConfigIssue): string {
+	return JSON.stringify({
+		source: issue.source,
+		path: issue.path,
+		severity: issue.severity,
+		message: issue.message,
+	});
+}
+
+function issueSetsEqual(
+	left: readonly SourcedConfigIssue[],
+	right: readonly SourcedConfigIssue[],
+): boolean {
+	if (left.length !== right.length) return false;
+	const leftKeys = left.map(issueKey).sort();
+	const rightKeys = right.map(issueKey).sort();
+	return leftKeys.every((key, index) => key === rightKeys[index]);
+}
+
+function addedIssues(
+	previous: readonly SourcedConfigIssue[] | undefined,
+	current: readonly SourcedConfigIssue[],
+): readonly SourcedConfigIssue[] {
+	const previousKeys = new Set((previous ?? []).map(issueKey));
+	return current.filter((issue) => !previousKeys.has(issueKey(issue)));
 }

@@ -4,6 +4,8 @@
 
 /** Shared parse-and-validate seam for the user-editable providers.json file. */
 
+import { salvageProvidersConfig } from "../salvage-config.js";
+import type { SalvagedProvidersConfig } from "../salvage-config.js";
 import { providersConfigSchema } from "../schema.js";
 import type { ProvidersConfig } from "../types.js";
 import { parseJsonc } from "./parse-jsonc.js";
@@ -17,4 +19,9 @@ import { parseJsonc } from "./parse-jsonc.js";
  */
 export function parseProvidersConfig(text: string): ProvidersConfig {
 	return providersConfigSchema.parse(parseJsonc(text));
+}
+
+/** Parse JSONC syntax, then salvage independently valid provider blocks. */
+export function parseProvidersConfigTolerant(text: string): SalvagedProvidersConfig {
+	return salvageProvidersConfig(parseJsonc(text));
 }

@@ -27,11 +27,11 @@ enablement in Posit Assistant lives in the main monorepo's
 The package has two code entrypoints, splitting pure (browser/test-safe) logic
 from filesystem I/O:
 
-| Entrypoint                        | What it exports                                                                                                                                                                                                                                                                                            | External deps?          |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
-| `ai-config`                       | Vocabulary, Zod schemas, inferred types, defaults, the pure resolution helpers (`resolveModels`, `mergeEnforced`), bare-host base URL correction (`normalizeBaseUrlForProvider` + host constants), the legacy Positron settings map/translator, and the model capability tables + `inferModelCapabilities` | No                      |
-| `ai-config/node`                  | Re-exports the pure entry plus the three filesystem seams (`loadResolvedProviderCatalog`, `mutateProvidersConfig`, `watchResolvedProviderCatalog`) and path constants                                                                                                                                      | Node FS, `jsonc-parser` |
-| `ai-config/providers.schema.json` | The generated JSON Schema, exported so editors can validate/autocomplete `providers.json`                                                                                                                                                                                                                  | No                      |
+| Entrypoint                        | What it exports                                                                                                                                                                                                                                      | External deps?          |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| `ai-config`                       | Vocabulary, schemas/types/defaults, `salvageProvidersConfig`, structured config issues, the pure report resolver (`resolveProviderCatalogReport` plus compatibility wrapper), resolution helpers, legacy translation, and model capability inference | No                      |
+| `ai-config/node`                  | Re-exports the pure entry plus `loadProviderCatalogReport` / `loadResolvedProviderCatalog`, strict mutation, issue-aware watching, and path constants                                                                                                | Node FS, `jsonc-parser` |
+| `ai-config/providers.schema.json` | The generated JSON Schema, exported so editors can validate/autocomplete `providers.json`                                                                                                                                                            | No                      |
 
 Legacy Positron settings reach the loader through two independent options —
 `legacyPositronSettings` (a two-method injected reader for the user-set
@@ -47,6 +47,8 @@ the map/translator live inside ai-config (see [Legacy Positron settings](#legacy
 - **Defaults** (`src/defaults.ts`): per-provider connection defaults and the `PROVIDER_CONNECTION_DEFAULTS` map. **Bedrock deliberately carries no entry**: `BEDROCK_DEFAULTS` (`us-east-1`) is exported but absent from `PROVIDER_CONNECTION_DEFAULTS`, because layering it into the resolved connection made the baked-in default outrank a user's stored credential region downstream (posit-dev/assistant#2002). Consumers apply the fallback at credential-synthesis time instead; do not "fix" the omission by adding Bedrock to the defaults map.
 - **Resolution helpers**: `resolveModels()` and `mergeEnforced()` are pure and exported; `resolveEnabled()` / connection resolution are internal helpers used by the catalog builder.
 - **Config-source contracts** (`src/config-source.ts`): `ProviderConfigSource` (public — the resolver's input) and the internal `ProviderConfigSourceProvider` (loader machinery, not exported). `Disposable` stays public as the return type of `LegacySettingsReader.watch`.
+- **Structured diagnostics** (`src/config-issue.ts`): `ConfigIssue` is source-agnostic; `SourcedConfigIssue` adds a required normalized `{ kind, label }` identity. Its source kind reuses `ProviderConfigSourceKind` and widens only for the resolver-private `"env"` source.
+- **Tolerant validation** (`src/salvage-config.ts`): `salvageProvidersConfig()` takes the healthy full-schema fast path, otherwise drops malformed values at whole root/provider/custom-entry granularity and seals the reconstruction with `providersConfigSchema` before returning.
 - **Constant**: `PROVIDERS_CONFIG_VERSION = 1` — the on-disk format version.
 
 ### Node entry (`ai-config/node`)
@@ -137,16 +139,38 @@ Config flows through three stages: **assemble sources → resolve → watch**. P
    `legacy-positron-enforced` but above `user`/`legacy-positron`/`default` — not
    a post-resolution overlay. The resolver also retains narrow semantic
    provenance for connection values whose source changes consumer behavior.
-   `loadResolvedProviderCatalog()`
-   (`src/node/load-catalog.ts`) is the public read seam that composes assembly +
-   resolve and returns `readonly ResolvedProvider[]`. (`mergeEnforced` — the
+   `loadProviderCatalogReport()` (`src/node/load-catalog.ts`) is the canonical
+   public read seam and returns `{ catalog, issues }`; `loadResolvedProviderCatalog()`
+   is its bare-catalog compatibility wrapper. (`mergeEnforced` — the
    two-layer merge — remains exported as a low-level primitive, but the layered
    resolver is the seam consumers should use.)
 3. **Watch** (`src/node/watch-catalog.ts`, `watchResolvedProviderCatalog()`):
    source-aware — watches the file via `fs.watch` and subscribes to the legacy
    reader's change signal; **any** source change re-resolves the catalog and
-   emits a typed `ProviderCatalogChange` when a resolved value or its retained
-   connection provenance actually changed.
+   emits a typed `ProviderCatalogChange` when a resolved value, retained
+   connection provenance, or complete issue snapshot changes. Issue snapshots
+   compare order-insensitively by source/path/severity/message, so issue-only
+   additions and empty clears emit while identical rebuilds remain quiet.
+
+### Read salvage and report invariant
+
+User-file reads are deliberately tolerant, while mutations are deliberately strict. The tolerant
+parser shares JSONC syntax parsing with the strict parser, then calls `salvageProvidersConfig`.
+Unknown root/provider keys, wrong-typed `$schema`, invalid built-in blocks, and invalid custom
+entries are dropped one whole block at a time with one issue; valid siblings survive. Non-object
+roots/providers and unsupported versions degrade to `{}` because their semantics are not safe to
+reconstruct. The final full-schema parse is a runtime seal: downstream recovery may rely on the
+user source being valid alone. A seal failure degrades to `{}` with an error issue rather than
+throwing.
+
+Every source reader returns the same `{ source?, issues }` report and never logs. Env fragments
+remain strict and all-or-nothing. Internal legacy Positron providers report their current invalid
+keys on every read (including recurrence after a fix); the exported
+`translateLegacyPositronSettings(reader, logger?, warnedKeys?)` compatibility function retains its
+historical warn-once behavior. `resolveProviderCatalogReport` is silent and carries overlay-drop
+issues; `resolveProviderCatalog` renders those issues for compatibility. The one-shot node load
+renders its complete report once, while the watcher renders only newly added/changed issues after
+snapshot comparison.
 
 ### Connection provenance
 
@@ -200,15 +224,15 @@ together when the legacy channels retire.
   key the map consumes (Positron's migration uses it as its
   something-to-migrate check).
 - **`translate.ts`** — `translateLegacyPositronSettings(reader, logger?,
-warnedKeys?)`: the pure translator from a `LegacySettingsReader` (`get` +
+warnedKeys?)`: the compatibility translator from a `LegacySettingsReader` (`get` +
   required `watch`) to `{ config, migrations }`. Omit-empty everywhere; per-key
   shape validation with warn-once drop; bare-host base URL correction applied
   internally via `normalizeBaseUrlForProvider`; model overrides synthesized
   into full custom models with `inferModelCapabilities` (user token limits
   win; `maxContextLength` floors at the user's `maxInputTokens`); `migrations`
   records `{ source, destination, value }` per written value with header
-  values redacted to names. Shared verbatim by the runtime layers and
-  Positron's one-shot migration.
+  values redacted to names. The internal report sibling applies the same map
+  silently and returns current per-key issues for source snapshots.
 - **`sources.ts`** — internal (never exported from the entries) builders for
   the two runtime layers, assembled by both the load and watch seams from the
   loader options — each layer is an independent opt-in: `legacy-positron`
@@ -217,7 +241,8 @@ warnedKeys?)`: the pure translator from a `LegacySettingsReader` (`get` +
   `POSITRON_ENFORCED_SETTINGS` env payload, payload-only reads, above `user`,
   below `enforced`) requires `legacyPositronEnforcedSettings: true`. Neither
   option means neither layer, even if the env var is set; the reader never
-  smuggles the enforced layer in.
+  smuggles the enforced layer in. Each `read()` returns `{ source?, issues }`
+  without logging or process-lifetime deduplication.
 
 The two layers split because Positron ≥ 2026.08 migrates legacy settings into
 providers.json without clearing them (old builds and settings sync still read
@@ -234,29 +259,30 @@ posit-dev/positron#14709).
 All three filesystem operations are deep modules — callers get safety guarantees
 without managing locking, atomicity, or watch lifecycle themselves.
 
-- **Load** parses `providers.json` as JSONC and degrades gracefully: missing file, parse errors, and validation
-  failures log a warning and fall back to `{}` (or the user config) rather than
-  throwing.
+- **Load** splits syntax parsing from schema policy. `parseProvidersConfigTolerant` parses JSONC
+  then salvages blocks; syntax/fs failures become sourced issues and `{}`. Readers are silent;
+  `loadProviderCatalogReport` renders the completed snapshot once.
 - **Watch** (`src/node/watch-catalog.ts`) debounces ~300ms to coalesce rapid
   edits, is ancestor-aware (watches the nearest existing parent dir until the
-  config dir appears), reloads + diffs on change, and emits a typed
-  `ProviderCatalogChange` (`enabledChanged`, `connectionChanged`,
-  `modelsChanged`) only when something actually changed. The initial load does
-  not emit (no previous catalog to diff against).
+  config dir appears), reloads + diffs catalog and issues, and emits a typed
+  `ProviderCatalogChange` with category flags plus `issues`/`issuesChanged`.
+  It logs only issue-set additions; clear-then-recur logs again. The initial load does not emit.
 - **Mutate** (`src/node/mutate-config.ts`) takes cross-process safety seriously:
   a `proper-lockfile` lock (with retries and stale detection), an in-process
   serialization queue per config path, race-safe first-creation via the
   exclusive `wx` flag, atomic write (temp file + rename), seed-metadata
   injection (`$schema`, `version`) on first creation, and a best-effort copy of
   `providers.schema.json` alongside the config for editor validation. After
-  ensuring the file exists, every read, JSONC syntax, or schema-validation
-  failure aborts the mutation without rewriting the file. Successful writes
+  ensuring the file exists, strict `parseProvidersConfig` makes every read,
+  JSONC syntax, unknown key, or schema-validation failure abort without
+  rewriting the file; validation errors name offending paths. Successful writes
   serialize the whole config with `JSON.stringify`, so values survive but JSONC
   comments are stripped.
 
 The internal `src/node/parse-jsonc.ts` helper centralizes JSONC behavior through
-the dependency-free, browser-safe `jsonc-parser` package; `parse-providers-config.ts`
-adds strict `providersConfigSchema` validation and is shared by load and mutate.
+the dependency-free, browser-safe `jsonc-parser` package. `parse-providers-config.ts`
+exposes named internal siblings: strict `parseProvidersConfig` for mutation and tolerant
+`parseProvidersConfigTolerant` for reads; both share `parseJsonc`, with no mode flag.
 Neither helper is exported, and only node-side readers import them, so the pure
 `ai-config` entry's dependency and import graph remains unchanged. Machine-supplied
 environment fragments continue to use strict `JSON.parse`.
