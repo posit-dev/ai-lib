@@ -5,6 +5,7 @@
 import { mintCustomProviderId } from "ai-config";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { ModelClientChatParams } from "../../model-clients/ModelClient";
 import type { CancellationToken, Logger } from "../../types";
 import {
 	litellmV1BaseUrl,
@@ -90,6 +91,131 @@ describe("litellm client factory", () => {
 
 		expect(urls[0]).toBe("http://localhost:4000/v1/messages");
 	});
+
+	interface CapturedRequest {
+		url: string;
+		headers: Headers;
+	}
+
+	/** Stub fetch, run one chat() with the given params, return the request. */
+	async function captureChatRequest(
+		params: Partial<ModelClientChatParams>,
+		credentials: { apiKey: string; customHeaders?: Record<string, string> } = {
+			apiKey: "sk-test",
+		},
+	): Promise<CapturedRequest> {
+		const requests: CapturedRequest[] = [];
+		const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+			const url =
+				typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+			const headers = new Headers(input instanceof Request ? input.headers : init?.headers);
+			requests.push({ url, headers });
+			return new Response(JSON.stringify({ error: { message: "stop here" } }), {
+				status: 400,
+				headers: { "content-type": "application/json" },
+			});
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		const registry = new ProviderRegistry(logger);
+		registerLitellmProvider(registry, logger);
+		const client = registry.getClientForProvider("litellm", {
+			type: "apikey",
+			baseUrl: "http://localhost:4000",
+			...credentials,
+		});
+		expect(client).not.toBeNull();
+		try {
+			const stream = await client!.chat({
+				model: "some-model",
+				messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+				maxOutputTokens: 10,
+				cancellationToken,
+				...params,
+			});
+			for await (const _part of stream) {
+				// Drain; the mocked 400 surfaces as an error part or a throw.
+			}
+		} catch {
+			// Expected — only the captured request matters.
+		}
+		expect(requests.length).toBeGreaterThan(0);
+		return requests[0];
+	}
+
+	it("dispatches anthropic-messages (and undefined) to the Anthropic delegate", async () => {
+		const explicit = await captureChatRequest({ protocol: "anthropic-messages" });
+		expect(explicit.url).toBe("http://localhost:4000/v1/messages");
+		expect(explicit.headers.get("x-api-key")).toBe("sk-test");
+
+		// Declared models.custom entries may omit protocol — undefined keeps
+		// the v1 Anthropic-shaped route.
+		const dflt = await captureChatRequest({});
+		expect(dflt.url).toBe("http://localhost:4000/v1/messages");
+	});
+
+	it("dispatches openai-chat to /v1/chat/completions with Bearer auth", async () => {
+		const req = await captureChatRequest({ protocol: "openai-chat" });
+		expect(req.url).toBe("http://localhost:4000/v1/chat/completions");
+		expect(req.headers.get("authorization")).toBe("Bearer sk-test");
+	});
+
+	it("dispatches openai-responses to /v1/responses with Bearer auth", async () => {
+		const req = await captureChatRequest({ protocol: "openai-responses" });
+		expect(req.url).toBe("http://localhost:4000/v1/responses");
+		expect(req.headers.get("authorization")).toBe("Bearer sk-test");
+	});
+
+	it("normalizes legacy protocol values before dispatch", async () => {
+		const req = await captureChatRequest({ protocol: "openai" });
+		expect(req.url).toBe("http://localhost:4000/v1/chat/completions");
+	});
+
+	it("rejects protocols with no litellm route, naming the model", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response("{}")),
+		);
+		const registry = new ProviderRegistry(logger);
+		registerLitellmProvider(registry, logger);
+		const client = registry.getClientForProvider("litellm", {
+			type: "apikey",
+			apiKey: "sk-test",
+			baseUrl: "http://localhost:4000",
+		});
+		await expect(
+			client!.chat({
+				model: "some-model",
+				messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+				maxOutputTokens: 10,
+				cancellationToken,
+				protocol: "bedrock-converse",
+			}),
+		).rejects.toThrow(/some-model.*bedrock-converse/);
+	});
+
+	it("forwards allowed custom headers to both delegates", async () => {
+		const anthropicReq = await captureChatRequest(
+			{ protocol: "anthropic-messages" },
+			{ apiKey: "sk-test", customHeaders: { "X-Tenant": "acme" } },
+		);
+		expect(anthropicReq.headers.get("x-tenant")).toBe("acme");
+
+		const openaiReq = await captureChatRequest(
+			{ protocol: "openai-chat" },
+			{ apiKey: "sk-test", customHeaders: { "X-Tenant": "acme" } },
+		);
+		expect(openaiReq.headers.get("x-tenant")).toBe("acme");
+	});
+
+	it("keeps custom headers flowing on the keyless OpenAI path while stripping Authorization", async () => {
+		const req = await captureChatRequest(
+			{ protocol: "openai-chat" },
+			{ apiKey: "", customHeaders: { "X-Tenant": "acme" } },
+		);
+		expect(req.headers.get("x-tenant")).toBe("acme");
+		expect(req.headers.get("authorization")).toBeNull();
+	});
 });
 
 describe("litellm model fetcher", () => {
@@ -131,6 +257,7 @@ describe("registerCustomLitellmProvider", () => {
 
 		const models = await registry.getModelsForProvider("acme-ai", {
 			type: "apikey",
+			apiKey: "",
 			baseUrl: "http://localhost:4000",
 		});
 
@@ -151,8 +278,8 @@ describe("registerCustomLitellmProvider", () => {
 		registerCustomLitellmProvider(registry, mintCustomProviderId("acme-a"), logger);
 		registerCustomLitellmProvider(registry, mintCustomProviderId("acme-b"), logger);
 
-		const credsA = { type: "apikey", baseUrl: "http://gateway-a:4000" } as const;
-		const credsB = { type: "apikey", baseUrl: "http://gateway-b:4000" } as const;
+		const credsA = { type: "apikey", apiKey: "", baseUrl: "http://gateway-a:4000" } as const;
+		const credsB = { type: "apikey", apiKey: "", baseUrl: "http://gateway-b:4000" } as const;
 
 		// Two reads per provider: the second must serve from that provider's own
 		// cache (one fetch per gateway), and each keeps its own model list.
@@ -171,7 +298,7 @@ describe("registerCustomLitellmProvider", () => {
 
 		const client = registry.getClientForProviderOrKind(
 			"acme-ai",
-			{ type: "apikey", baseUrl: "http://localhost:4000" },
+			{ type: "apikey", apiKey: "", baseUrl: "http://localhost:4000" },
 			"litellm",
 		);
 		expect(client).not.toBeNull();
@@ -190,7 +317,7 @@ describe("registerCustomLitellmProvider", () => {
 
 		const client = registry.getClientForProviderOrKind(
 			"acme-ai",
-			{ type: "apikey", baseUrl: "http://localhost:4000" },
+			{ type: "apikey", apiKey: "", baseUrl: "http://localhost:4000" },
 			"openai-compatible",
 		);
 		expect(client).toBe(openaiCompatibleClient);
@@ -269,7 +396,7 @@ describe("parseLitellmModelInfoResponse", () => {
 		expect(model.maxOutputTokens).toBe(64_000);
 	});
 
-	it("maps non-Claude metadata without offering thinking levels", () => {
+	it("gives recognized OpenAI reasoning models thinking levels and the Responses route", () => {
 		const [model] = parseLitellmModelInfoResponse({
 			data: [
 				{
@@ -286,10 +413,68 @@ describe("parseLitellmModelInfoResponse", () => {
 			],
 		});
 		expect(model.vendor).toBe("openai");
-		expect(model.thinkingEffortLevels).toBeUndefined();
+		// The stateless encrypted-reasoning round-trip survives LiteLLM's
+		// /v1/responses (empirically verified), so reasoning models keep
+		// their thinking levels and route over openai-responses.
+		expect(model.thinkingEffortLevels).toContain("high");
+		expect(model.protocol).toBe("openai-responses");
 		expect(model.maxInputTokens).toBe(272_000);
 		expect(model.maxOutputTokens).toBe(128_000);
 		expect(model.supportsImages).toBe(true);
+	});
+
+	it("routes non-reasoning OpenAI models over openai-chat", () => {
+		const [model] = parseLitellmModelInfoResponse({
+			data: [
+				{
+					model_name: "my-4o",
+					litellm_params: { model: "openai/gpt-4o" },
+					model_info: { litellm_provider: "openai", mode: "chat" },
+				},
+			],
+		});
+		expect(model.protocol).toBe("openai-chat");
+		expect(model.thinkingEffortLevels).toBeUndefined();
+	});
+
+	it("stamps the per-family protocol on each alias", () => {
+		const models = parseLitellmModelInfoResponse({
+			data: [
+				{
+					model_name: "my-sonnet",
+					litellm_params: { model: "anthropic/claude-sonnet-5" },
+					model_info: { litellm_provider: "anthropic", mode: "chat" },
+				},
+				{
+					model_name: "gemini-flash",
+					litellm_params: { model: "gemini/gemini-2.5-flash" },
+					model_info: { litellm_provider: "gemini", mode: "chat" },
+				},
+				{ model_name: "bare-alias" },
+			],
+		});
+		expect(models.map((m) => [m.id, m.protocol])).toEqual([
+			["my-sonnet", "anthropic-messages"],
+			["gemini-flash", "openai-chat"],
+			["bare-alias", "openai-chat"],
+		]);
+	});
+
+	it("classifies a deceptive alias by its underlying id, not the alias", () => {
+		const [model] = parseLitellmModelInfoResponse({
+			data: [
+				{
+					model_name: "gpt-4o",
+					litellm_params: { model: "gemini/gemini-2.5-flash" },
+					model_info: { litellm_provider: "gemini", mode: "chat" },
+				},
+			],
+		});
+		expect(model.protocol).toBe("openai-chat");
+		expect(model.thinkingEffortLevels).toBeUndefined();
+		expect(model.vendor).toBe("gemini");
+		// Conservative defaults, not the gpt-4o capability row.
+		expect(model.maxContextLength).toBe(128_000);
 	});
 
 	it("falls back to conservative defaults when model_info is all null (Ollama-style)", () => {

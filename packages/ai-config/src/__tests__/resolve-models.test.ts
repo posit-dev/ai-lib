@@ -334,6 +334,27 @@ describe("resolveModels", () => {
 		expect(result[0].resolvedBaseUrl).toBe("https://custom.example.com");
 	});
 
+	it("custom model without protocol resolves to undefined protocol", () => {
+		// The litellm dispatching client keys its default (Anthropic-shaped)
+		// route on an undefined resolved protocol — a declared custom model
+		// that omits `protocol` must not have one invented for it.
+		const block: ModelsBlock = {
+			custom: [
+				{
+					id: "custom-plain",
+					name: "Custom Plain",
+					maxContextLength: 50000,
+					supportsTools: true,
+					supportsImages: false,
+					supportsToolResultImages: false,
+					supportsWebSearch: false,
+				},
+			],
+		};
+		const result = resolveModels(block, [], { baseUrl: "https://provider.example.com" });
+		expect(result[0].resolvedProtocol).toBeUndefined();
+	});
+
 	// --- Full pipeline ---
 
 	it("full pipeline: discovery + custom + overrides + allow + deny + routing", () => {

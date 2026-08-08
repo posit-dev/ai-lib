@@ -74,7 +74,14 @@ export { getBedrockMantleModelCapabilities } from "./model-capabilities/bedrock-
 export { getDeepSeekModelCapabilities } from "./model-capabilities/deepseek-helpers.js";
 export { getGeminiModelCapabilities } from "./model-capabilities/gemini-helpers.js";
 export { getGemmaModelCapabilities } from "./model-capabilities/gemma-helpers.js";
-export { getLitellmModelCapabilities } from "./model-capabilities/litellm-helpers.js";
+export {
+	classifyLitellmModel,
+	getLitellmModelCapabilities,
+} from "./model-capabilities/litellm-helpers.js";
+export type {
+	LitellmModelClassification,
+	LitellmModelFamily,
+} from "./model-capabilities/litellm-helpers.js";
 export {
 	getOpenAIModelCapabilities,
 	openaiMaxInputTokens,

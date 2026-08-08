@@ -5,13 +5,25 @@
 /**
  * LiteLLM provider
  *
- * Talks to a LiteLLM proxy through its unified `/v1/messages` endpoint
- * (Anthropic-shaped, alias-routed, cross-provider), so Anthropic-protocol
- * features — explicit cache breakpoints, thinking-block round-trips — survive
- * for Claude models behind the proxy (direct Anthropic, Bedrock, Vertex).
- * Non-Claude upstreams work through LiteLLM's translation layer but lose
- * reasoning continuity, so they get conservative capabilities and no thinking
- * effort levels.
+ * Routes each proxy alias over its natural wire protocol, all against the
+ * same gateway:
+ *
+ * - Claude families (direct Anthropic, Bedrock, Vertex) speak the
+ *   Anthropic-shaped `/v1/messages`, so explicit cache breakpoints and
+ *   thinking-block round-trips survive.
+ * - Recognized OpenAI reasoning models speak `/v1/responses`, which preserves
+ *   our stateless `store: false` encrypted-reasoning round-trip (verified
+ *   against LiteLLM 1.95.0), so they keep `thinkingEffortLevels`.
+ * - Everything else (other OpenAI models, Gemini, local upstreams, …) speaks
+ *   `/v1/chat/completions`.
+ *
+ * The fetcher stamps a per-alias `protocol` (family detection lives in
+ * ai-config's `classifyLitellmModel` — the single source of truth shared with
+ * capability inference); the catalog pipeline resolves it with the standard
+ * precedence (user override > provider connection `protocol` > this stamp)
+ * and the chat client dispatches on the resolved value per request. A
+ * connection-level `protocol` therefore flattens *all* aliases to one
+ * protocol — that's the admin escape hatch, not a bug.
  *
  * Model discovery uses `GET {baseUrl}/v1/model/info` (NOT `/v1/models`, which
  * is OpenAI-shaped and carries no metadata). Every `model_info` field is
@@ -20,9 +32,10 @@
  *
  * Credentials are `apikey` credentials: `baseUrl` is required (the proxy
  * address, e.g. `http://localhost:4000`); `apiKey` is optional — a proxy
- * without a master key needs no auth. The key is sent both as `x-api-key`
- * (what the Anthropic SDK sends on `/v1/messages`) and `Authorization: Bearer`
- * during discovery; LiteLLM accepts either scheme for virtual keys.
+ * without a master key needs no auth. LiteLLM accepts both `x-api-key` and
+ * `Authorization: Bearer` on every endpoint, so the same key rides in
+ * whichever scheme each delegate's SDK sends (`x-api-key` on `/v1/messages`,
+ * `Bearer` on the OpenAI-shaped endpoints) and in both during discovery.
  *
  * Two registrars share the same wire knowledge:
  * - `registerLitellmProvider` — the built-in `litellm` provider.
@@ -37,10 +50,12 @@
  */
 
 import type { ResolvedProviderId } from "ai-config";
-import { getLitellmModelCapabilities, inferModelCapabilities } from "ai-config";
+import { classifyLitellmModel, inferModelCapabilities } from "ai-config";
 
 import { AnthropicClient } from "../model-clients/AnthropicClient";
+import { OpenAIClient } from "../model-clients/OpenAIClient";
 import type { ApiKeyCredentials, Logger, ModelInfo } from "../types";
+import { normalizeProtocol } from "../types";
 import type { ClearableModelFetcher } from "./cached-model-fetcher";
 import { createCachedModelFetcher } from "./cached-model-fetcher";
 import type { ClientFactory, ProviderRegistry } from "./ProviderRegistry";
@@ -77,17 +92,30 @@ function toModelInfo(
 	providerId: ResolvedProviderId,
 ): ModelInfo {
 	const info = entry.model_info ?? {};
-	const underlyingModel = entry.litellm_params?.model ?? "";
 
-	// Capability inference tries the underlying model id first when it identifies
-	// a Claude model, then the alias (admins often use a Claude-looking alias, and
-	// some proxies omit litellm_params entirely). The shared inference seam owns
-	// both the Anthropic table and the conservative non-Claude baseline.
-	const underlyingIsClaude = getLitellmModelCapabilities(underlyingModel) !== undefined;
-	const capabilityModelId = underlyingIsClaude ? underlyingModel : alias;
-	const isClaude =
-		underlyingIsClaude || getLitellmModelCapabilities(capabilityModelId) !== undefined;
+	// Family detection is single-sourced in ai-config: the classifier trusts
+	// the underlying model id (`litellm_params.model`) and falls back to the
+	// alias only when the entry carries no underlying id, and its
+	// `capabilityModelId` feeds the shared capability-inference seam so
+	// routing and capabilities always agree.
+	const { family, capabilityModelId } = classifyLitellmModel({
+		alias,
+		underlyingModel: entry.litellm_params?.model,
+		litellmProvider: info.litellm_provider,
+	});
+	const isClaude = family === "claude";
 	const inferredCapabilities = inferModelCapabilities("litellm", capabilityModelId);
+
+	// Per-family default protocol: Claude speaks the Anthropic-shaped route;
+	// OpenAI reasoning models (the ones with thinking effort levels) get the
+	// Responses route so encrypted-reasoning continuity survives; everything
+	// else speaks Chat Completions.
+	const protocol =
+		family === "claude"
+			? ("anthropic-messages" as const)
+			: family === "openai" && inferredCapabilities.thinkingEffortLevels
+				? ("openai-responses" as const)
+				: ("openai-chat" as const);
 
 	const model: ModelInfo = {
 		id: alias,
@@ -95,7 +123,7 @@ function toModelInfo(
 		providerId,
 		...inferredCapabilities,
 		vendor: isClaude ? "anthropic" : info.litellm_provider || "litellm",
-		protocol: "anthropic-messages",
+		protocol,
 		...(!isClaude &&
 			typeof info.supports_vision === "boolean" && {
 				supportsImages: info.supports_vision,
@@ -177,21 +205,52 @@ const litellmClientFactory: ClientFactory = (credentials) => {
 	if (!credentials.baseUrl?.trim()) {
 		throw new Error("LiteLLM provider requires a base URL");
 	}
-	const client = new AnthropicClient(
+	const v1BaseUrl = litellmV1BaseUrl(credentials.baseUrl);
+	// Two delegates against the same gateway, dispatched per request on the
+	// resolved protocol. Both receive the normalized `/v1` API root (the
+	// Anthropic SDK appends `/messages`; the OpenAI SDK appends
+	// `/chat/completions` or `/responses` per `params.protocol`) and the same
+	// key — LiteLLM accepts it in either header scheme. `customHeaders` go to
+	// both: custom gateway entries rely on non-secret tenancy/routing headers,
+	// which must flow regardless of route. An empty key stays delegate-owned
+	// (the OpenAI client strips `Authorization` for keyless gateways).
+	const anthropicClient = new AnthropicClient(
 		credentials.apiKey,
-		litellmV1BaseUrl(credentials.baseUrl),
+		v1BaseUrl,
 		credentials.customHeaders,
 	);
+	const openaiClient = new OpenAIClient({
+		apiKey: credentials.apiKey,
+		baseUrl: v1BaseUrl,
+		apiMode: "completions",
+		customHeaders: credentials.customHeaders,
+	});
 	// The catalog pipeline forwards the raw connection baseUrl as a
 	// per-request routing override (params.baseUrl), which would clobber the
-	// normalized constructor URL inside AnthropicClient. Normalize it here so
+	// normalized constructor URL inside the delegates. Normalize it here so
 	// every path into the proxy lands on `/v1` — litellm wire knowledge stays
 	// in this module.
 	return {
-		chat: (params) =>
-			client.chat(
-				params.baseUrl ? { ...params, baseUrl: litellmV1BaseUrl(params.baseUrl) } : params,
-			),
+		chat: async (params) => {
+			const routedParams = params.baseUrl
+				? { ...params, baseUrl: litellmV1BaseUrl(params.baseUrl) }
+				: params;
+			const protocol = normalizeProtocol(params.protocol);
+			// Undefined means "no routing decision was made" (declared
+			// `models.custom` entries may omit `protocol`) — take the
+			// Anthropic-shaped route, LiteLLM's own cross-provider default.
+			if (protocol === undefined || protocol === "anthropic-messages") {
+				return anthropicClient.chat(routedParams);
+			}
+			if (protocol === "openai-chat" || protocol === "openai-responses") {
+				// `params.protocol` rides along; OpenAIClient selects the
+				// endpoint (`/chat/completions` vs `/responses`) from it.
+				return openaiClient.chat(routedParams);
+			}
+			throw new Error(
+				`LiteLLM provider cannot route model "${params.model}" over protocol "${protocol}"`,
+			);
+		},
 	};
 };
 

@@ -113,7 +113,7 @@ module exports a second registrar that consumers call once per custom entry:
 - The **client factory** is registered under the kind key only (e.g.
   `"litellm"`), never under the custom id. Chat resolution reaches it through
   `getClientForProviderOrKind`'s `clientKind` fallback, which reads the
-  *current* catalog kind. `ProviderRegistry` has no unregister, and consumers
+  _current_ catalog kind. `ProviderRegistry` has no unregister, and consumers
   re-run registration against the same registry on live providers.json
   reloads — an id-keyed factory would keep serving the old client after an
   entry's `type` changes. Per-id fetchers are safe because every pass
@@ -121,6 +121,29 @@ module exports a second registrar that consumers call once per custom entry:
 
 All wire knowledge (URL normalization, discovery parsing, header schemes)
 stays inside the provider module; callers supply only an id.
+
+### Protocol-dispatching clients (gateway providers)
+
+When one provider fronts upstreams that speak different wire protocols
+(LiteLLM is the reference), the client factory returns a small dispatching
+client that owns one delegate per protocol family and routes each `chat()`
+call on `normalizeProtocol(params.protocol)`:
+
+- LiteLLM owns exactly two delegates: an `AnthropicClient` (`/v1/messages`)
+  and one `OpenAIClient` — the OpenAI client already selects
+  `/chat/completions` vs `/responses` per request from `params.protocol`, so
+  it is not split in two.
+- `undefined` protocol takes the provider's default route (for LiteLLM:
+  Anthropic-shaped — declared `models.custom` entries may omit `protocol`).
+  Protocols with no route are rejected with an error naming the model.
+- The **fetcher stamps the per-alias default protocol** on each `ModelInfo`;
+  family detection is single-sourced in ai-config (`classifyLitellmModel`)
+  and shared with capability inference so routing and capabilities agree.
+  The catalog resolver applies the standard precedence on top (user override
+  > connection `protocol` > fetcher stamp).
+- Both delegates get the same normalized base URL and credentials
+  (`customHeaders` must flow to every delegate — gateway tenancy headers are
+  route-independent; auth headers stay delegate-owned).
 
 ## Step 6: Export from Package
 
