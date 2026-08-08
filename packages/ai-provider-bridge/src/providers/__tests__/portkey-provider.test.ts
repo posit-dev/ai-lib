@@ -263,6 +263,11 @@ describe("portkey model fetcher", () => {
 				"X-Portkey-Provider": "openai",
 				"X-Portkey-Config": "cfg-123",
 				"X-Portkey-Api-Key": "attacker-key",
+				// SDK-managed headers must not reach discovery either — the
+				// provider-owned fetch bypasses the cached fetcher's merge, so the
+				// shared filter is applied inside resolvePortkeyConnection.
+				Authorization: "Bearer sneaky",
+				"X-Api-Key": "sneaky-native",
 				"X-Tenant": "acme",
 			},
 		});
@@ -308,6 +313,26 @@ describe("portkey model fetcher", () => {
 
 		expect(requests).toHaveLength(2);
 		expect(models).toHaveLength(1);
+	});
+
+	it("stops on a repeated non-empty page without duplicating models (no-progress guard)", async () => {
+		// A server that ignores `offset` re-serves the same page; the guard must
+		// detect no *new* ids, not just an empty page.
+		const page = {
+			data: [
+				{ id: "@prod/claude-alias-1", canonical_slug: "claude-haiku-4-5" },
+				{ id: "@prod/claude-alias-2", canonical_slug: "claude-haiku-4-5" },
+			],
+			total: 10,
+		};
+		const { requests } = stubFetchPages([page, page, page]);
+
+		const registry = new ProviderRegistry(logger);
+		registerPortkeyProvider(registry, logger);
+		const models = await registry.getModelsForProvider("portkey", HOSTED_CREDENTIALS);
+
+		expect(requests).toHaveLength(2);
+		expect(models.map((m) => m.id)).toEqual(["@prod/claude-alias-1", "@prod/claude-alias-2"]);
 	});
 
 	it("short-circuits OSS mode to no models without fetching", async () => {

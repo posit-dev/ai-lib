@@ -40,6 +40,7 @@ import {
 	PORTKEY_HOSTED_BASE_URL,
 } from "ai-config";
 
+import { additiveHeaderRecord } from "../custom-headers";
 import { AnthropicClient } from "../model-clients/AnthropicClient";
 import { OpenAIClient } from "../model-clients/OpenAIClient";
 import type { ApiKeyCredentials, Logger, ModelInfo } from "../types";
@@ -192,10 +193,13 @@ export function resolvePortkeyConnection(credentials: ApiKeyCredentials): Portke
 			mode: "hosted",
 			baseUrl,
 			chatHeaders: { ...sanitizedCustomHeaders, ...authHeaders },
-			discoveryHeaders: {
-				...withoutHeaders(sanitizedCustomHeaders, PORTKEY_ROUTING_HEADER_NAMES),
-				...authHeaders,
-			},
+			// Discovery bypasses the cached fetcher's additive-header merge, so the
+			// shared SDK-managed filter (Authorization, x-api-key, …) is applied
+			// here — the chat path gets the same filtering inside the delegates.
+			discoveryHeaders: additiveHeaderRecord(
+				authHeaders,
+				withoutHeaders(sanitizedCustomHeaders, PORTKEY_ROUTING_HEADER_NAMES),
+			),
 		};
 	}
 	if (url.hostname === CANONICAL_PORTKEY_HOSTNAME) {
@@ -230,6 +234,8 @@ export function resolvePortkeyConnection(credentials: ApiKeyCredentials): Portke
 
 /** Hard cap on catalog size — a sane upper bound against a lying `total`. */
 const MAX_DISCOVERED_MODELS = 10_000;
+/** Hard bound on discovery requests, independent of what the server reports. */
+const MAX_DISCOVERY_PAGES = 100;
 
 interface PortkeyCatalogEntry {
 	id: string;
@@ -278,9 +284,10 @@ async function fetchPortkeyCatalog(
 	}
 
 	const models: ModelInfo[] = [];
+	const seenIds = new Set<string>();
 	let received = 0;
 	let pageLimit: number | undefined;
-	for (;;) {
+	for (let pageCount = 0; pageCount < MAX_DISCOVERY_PAGES; pageCount++) {
 		// The resolver's normalized base URL already ends in /v1 — append only
 		// `/models` (never `/v1/models`, which would double the segment).
 		const url =
@@ -293,7 +300,19 @@ async function fetchPortkeyCatalog(
 		}
 		const page = parsePortkeyModelsPage(await response.json());
 
-		for (const entry of page.entries) {
+		// No-progress guard: a page that adds no unseen ids (empty, or a server
+		// that ignores `offset` and repeats a page) ends discovery — without
+		// this, repeated pages would duplicate models and keep requesting until
+		// the model bound.
+		const newEntries = page.entries.filter((entry) => !seenIds.has(entry.id));
+		if (newEntries.length === 0) {
+			break;
+		}
+		for (const entry of newEntries) {
+			seenIds.add(entry.id);
+		}
+
+		for (const entry of newEntries) {
 			const decision = classifyPortkeyModel({
 				id: entry.id,
 				canonicalSlug: entry.canonicalSlug,
@@ -317,10 +336,6 @@ async function fetchPortkeyCatalog(
 			});
 		}
 
-		if (page.entries.length === 0) {
-			// No-progress guard: never spin on a server that repeats pages.
-			break;
-		}
 		received += page.entries.length;
 		pageLimit ??= page.entries.length;
 		if (page.total === undefined || received >= page.total) {
@@ -333,7 +348,8 @@ async function fetchPortkeyCatalog(
 			break;
 		}
 	}
-	return models;
+	// A single oversized page could otherwise exceed the stated hard bound.
+	return models.length > MAX_DISCOVERED_MODELS ? models.slice(0, MAX_DISCOVERED_MODELS) : models;
 }
 
 function createPortkeyModelFetcher(logger: Logger): ClearableModelFetcher {
