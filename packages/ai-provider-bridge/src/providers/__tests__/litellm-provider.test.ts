@@ -437,6 +437,41 @@ describe("parseLitellmModelInfoResponse", () => {
 		expect(model.thinkingEffortLevels).toBeUndefined();
 	});
 
+	it("routes exact and future o-series ids over Responses without a capability-table row", () => {
+		const models = parseLitellmModelInfoResponse({
+			data: ["o3", "o4-mini"].map((id) => ({
+				model_name: id,
+				litellm_params: { model: `openai/${id}` },
+				model_info: { litellm_provider: "openai", mode: "chat" },
+			})),
+		});
+		for (const model of models) {
+			expect(model.protocol, model.id).toBe("openai-responses");
+			expect(model.thinkingEffortLevels, model.id).toEqual(["off", "low", "medium", "high"]);
+		}
+	});
+
+	it("uses LiteLLM reasoning metadata for future OpenAI model versions", () => {
+		const [model] = parseLitellmModelInfoResponse({
+			data: [
+				{
+					model_name: "future-fast",
+					litellm_params: { model: "openai/gpt-6-mini" },
+					model_info: {
+						litellm_provider: "openai",
+						mode: "chat",
+						supports_reasoning: true,
+						supports_minimal_reasoning_effort: true,
+						supports_low_reasoning_effort: false,
+						supports_xhigh_reasoning_effort: true,
+					},
+				},
+			],
+		});
+		expect(model.protocol).toBe("openai-responses");
+		expect(model.thinkingEffortLevels).toEqual(["off", "minimal", "medium", "high", "xhigh"]);
+	});
+
 	it("stamps the per-family protocol on each alias", () => {
 		const models = parseLitellmModelInfoResponse({
 			data: [
@@ -475,6 +510,43 @@ describe("parseLitellmModelInfoResponse", () => {
 		expect(model.vendor).toBe("gemini");
 		// Conservative defaults, not the gpt-4o capability row.
 		expect(model.maxContextLength).toBe(128_000);
+	});
+
+	it("does not leak OpenAI capabilities through a non-OpenAI provider prefix", () => {
+		const [model] = parseLitellmModelInfoResponse({
+			data: [
+				{
+					model_name: "reasoning-alias",
+					litellm_params: { model: "some_gateway/gpt-5-mini" },
+					model_info: {
+						litellm_provider: "some_gateway",
+						mode: "chat",
+						supports_reasoning: true,
+					},
+				},
+			],
+		});
+		expect(model.protocol).toBe("openai-chat");
+		expect(model.thinkingEffortLevels).toBeUndefined();
+		expect(model.maxContextLength).toBe(128_000);
+	});
+
+	it("honors provider metadata when an OpenAI-looking alias has no underlying id", () => {
+		const [model] = parseLitellmModelInfoResponse({
+			data: [
+				{
+					model_name: "gpt-5-mini",
+					model_info: {
+						litellm_provider: "gemini",
+						mode: "chat",
+						supports_reasoning: true,
+					},
+				},
+			],
+		});
+		expect(model.vendor).toBe("gemini");
+		expect(model.protocol).toBe("openai-chat");
+		expect(model.thinkingEffortLevels).toBeUndefined();
 	});
 
 	it("falls back to conservative defaults when model_info is all null (Ollama-style)", () => {

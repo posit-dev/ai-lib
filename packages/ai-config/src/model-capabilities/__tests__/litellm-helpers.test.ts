@@ -102,6 +102,19 @@ describe("classifyLitellmModel", () => {
 		).toBe("openai");
 	});
 
+	it("recognizes future GPT and o-series ids independently of the capability table", () => {
+		for (const underlyingModel of ["openai/gpt-6-mini", "openai/o3", "openai/o4-mini"]) {
+			expect(
+				classifyLitellmModel({
+					alias: "future-model",
+					underlyingModel,
+					litellmProvider: "openai",
+				}).family,
+				underlyingModel,
+			).toBe("openai");
+		}
+	});
+
 	it("falls back to the alias only when the entry has no underlying id", () => {
 		expect(classifyLitellmModel({ alias: "claude-haiku-4-5" })).toEqual({
 			family: "claude",
@@ -115,5 +128,14 @@ describe("classifyLitellmModel", () => {
 			family: "other",
 			capabilityModelId: "totally-custom",
 		});
+	});
+
+	it("lets provider metadata veto an OpenAI-looking alias when the underlying id is absent", () => {
+		expect(
+			classifyLitellmModel({
+				alias: "gpt-5-mini",
+				litellmProvider: "gemini",
+			}),
+		).toEqual({ family: "other", capabilityModelId: "gpt-5-mini" });
 	});
 });

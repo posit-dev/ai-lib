@@ -80,6 +80,7 @@ export {
 } from "./model-capabilities/litellm-helpers.js";
 export type {
 	LitellmModelClassification,
+	LitellmModelClassificationInput,
 	LitellmModelFamily,
 } from "./model-capabilities/litellm-helpers.js";
 export {
@@ -95,7 +96,8 @@ export type {
 	SnowflakeCortexCatalogEntry,
 	SnowflakeCortexModelCapabilities,
 } from "./model-capabilities/snowflake-cortex-helpers.js";
-export { inferModelCapabilities } from "./model-capabilities/infer.js";
+export { inferLitellmModelProfile, inferModelCapabilities } from "./model-capabilities/infer.js";
+export type { LitellmModelProfile, LitellmModelProfileInput } from "./model-capabilities/infer.js";
 
 // --- Defaults --------------------------------------------------------------
 export {

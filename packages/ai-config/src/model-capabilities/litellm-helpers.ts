@@ -15,18 +15,16 @@
  * - Claude models (direct Anthropic, Bedrock, Vertex) keep full Anthropic
  *   capabilities — explicit prompt caching and thinking-signature round-trips
  *   survive on the native `/v1/messages` route.
- * - Recognized OpenAI models get the OpenAI capability table, including
- *   `thinkingEffortLevels` for reasoning models: LiteLLM's `/v1/responses`
- *   preserves the stateless `store: false` encrypted-reasoning round-trip our
- *   OpenAI client uses (verified empirically against LiteLLM 1.95.0).
+ * - OpenAI model families get the OpenAI capability table when one is known.
+ *   Routing is not limited by that table: GPT and o-series ids are recognized
+ *   independently, and LiteLLM's live reasoning metadata supplies the routing
+ *   signal for future versions.
  * - Everything else (Gemini, local models, …) stays conservative.
  *
- * `classifyLitellmModel` is the single source of truth for "what is this
- * alias": the bridge's fetcher consumes it for protocol stamping and vendor
- * labeling, and feeds its `capabilityModelId` back into
- * `inferModelCapabilities("litellm", …)`, whose litellm branch calls
- * `getLitellmModelCapabilities` — keeping family detection and capability
- * inference in agreement.
+ * `classifyLitellmModel` owns family recognition. The higher-level
+ * `inferLitellmModelProfile` seam combines that classification with live
+ * metadata and capability defaults so bridge callers cannot accidentally
+ * classify and infer the same model in inconsistent ways.
  */
 
 import type { InferredModelCapabilities } from "../types.js";
@@ -35,6 +33,12 @@ import { getOpenAIModelCapabilities, openaiMaxInputTokens } from "./openai-helpe
 
 /** Upstream family of a LiteLLM alias, as far as routing is concerned. */
 export type LitellmModelFamily = "claude" | "openai" | "other";
+
+export interface LitellmModelClassificationInput {
+	alias: string;
+	underlyingModel?: string | null;
+	litellmProvider?: string | null;
+}
 
 export interface LitellmModelClassification {
 	family: LitellmModelFamily;
@@ -71,10 +75,12 @@ function isClaudeId(modelId: string): boolean {
 }
 
 function isOpenAIId(modelId: string): boolean {
-	return (
-		getOpenAIModelCapabilities(modelId) !== undefined ||
-		getOpenAIModelCapabilities(bareModelId(modelId)) !== undefined
-	);
+	const bare = bareModelId(modelId).toLowerCase();
+	// Family recognition must not depend on the finite capability table. These
+	// stable namespaces recognize future version bumps (gpt-6, o5, …) while
+	// the provider signal below prevents lookalike ids on other upstreams from
+	// being treated as OpenAI.
+	return bare.startsWith("gpt-") || bare.startsWith("chatgpt-") || /^o\d(?:$|[-.])/.test(bare);
 }
 
 /**
@@ -93,11 +99,9 @@ function isOpenAIId(modelId: string): boolean {
  * when either is present) to name an OpenAI upstream, so a non-OpenAI
  * provider serving an OpenAI-looking id is not routed as OpenAI.
  */
-export function classifyLitellmModel(input: {
-	alias: string;
-	underlyingModel?: string | null;
-	litellmProvider?: string | null;
-}): LitellmModelClassification {
+export function classifyLitellmModel(
+	input: LitellmModelClassificationInput,
+): LitellmModelClassification {
 	const underlying = input.underlyingModel ?? "";
 
 	if (underlying) {
@@ -116,11 +120,14 @@ export function classifyLitellmModel(input: {
 		return { family: "other", capabilityModelId: underlying };
 	}
 
-	// No underlying id: the alias is the only signal.
+	// No underlying id: the alias is the model signal, but a present provider
+	// still has veto power. This prevents a user-facing alias such as
+	// `gpt-5-mini` from overriding `litellm_provider: "gemini"`.
 	if (isClaudeId(input.alias)) {
 		return { family: "claude", capabilityModelId: input.alias };
 	}
-	if (isOpenAIId(input.alias)) {
+	const provider = input.litellmProvider?.trim().toLowerCase();
+	if (isOpenAIId(input.alias) && (!provider || OPENAI_LITELLM_PROVIDERS.has(provider))) {
 		return { family: "openai", capabilityModelId: input.alias };
 	}
 	return { family: "other", capabilityModelId: input.alias };

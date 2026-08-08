@@ -50,7 +50,7 @@
  */
 
 import type { ResolvedProviderId } from "ai-config";
-import { classifyLitellmModel, inferModelCapabilities } from "ai-config";
+import { inferLitellmModelProfile } from "ai-config";
 
 import { AnthropicClient } from "../model-clients/AnthropicClient";
 import { OpenAIClient } from "../model-clients/OpenAIClient";
@@ -83,6 +83,12 @@ interface LitellmModelInfoEntry {
 		max_input_tokens?: number | null;
 		max_output_tokens?: number | null;
 		supports_vision?: boolean | null;
+		supports_reasoning?: boolean | null;
+		supports_minimal_reasoning_effort?: boolean | null;
+		supports_low_reasoning_effort?: boolean | null;
+		supports_xhigh_reasoning_effort?: boolean | null;
+		supports_max_reasoning_effort?: boolean | null;
+		use_openai_responses_path?: boolean | null;
 	};
 }
 
@@ -93,29 +99,24 @@ function toModelInfo(
 ): ModelInfo {
 	const info = entry.model_info ?? {};
 
-	// Family detection is single-sourced in ai-config: the classifier trusts
-	// the underlying model id (`litellm_params.model`) and falls back to the
-	// alias only when the entry carries no underlying id, and its
-	// `capabilityModelId` feeds the shared capability-inference seam so
-	// routing and capabilities always agree.
-	const { family, capabilityModelId } = classifyLitellmModel({
+	// Family, protocol, and capabilities are resolved together so a lookalike
+	// alias cannot make routing and capability inference disagree.
+	const {
+		family,
+		protocol,
+		capabilities: inferredCapabilities,
+	} = inferLitellmModelProfile({
 		alias,
 		underlyingModel: entry.litellm_params?.model,
 		litellmProvider: info.litellm_provider,
+		supportsReasoning: info.supports_reasoning,
+		supportsMinimalReasoningEffort: info.supports_minimal_reasoning_effort,
+		supportsLowReasoningEffort: info.supports_low_reasoning_effort,
+		supportsXhighReasoningEffort: info.supports_xhigh_reasoning_effort,
+		supportsMaxReasoningEffort: info.supports_max_reasoning_effort,
+		useOpenAIResponsesPath: info.use_openai_responses_path,
 	});
 	const isClaude = family === "claude";
-	const inferredCapabilities = inferModelCapabilities("litellm", capabilityModelId);
-
-	// Per-family default protocol: Claude speaks the Anthropic-shaped route;
-	// OpenAI reasoning models (the ones with thinking effort levels) get the
-	// Responses route so encrypted-reasoning continuity survives; everything
-	// else speaks Chat Completions.
-	const protocol =
-		family === "claude"
-			? ("anthropic-messages" as const)
-			: family === "openai" && inferredCapabilities.thinkingEffortLevels
-				? ("openai-responses" as const)
-				: ("openai-chat" as const);
 
 	const model: ModelInfo = {
 		id: alias,
