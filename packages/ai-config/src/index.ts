@@ -89,6 +89,16 @@ export {
 	getOpenAIModelCapabilities,
 	openaiMaxInputTokens,
 } from "./model-capabilities/openai-helpers.js";
+export {
+	classifyPortkeyModel,
+	getPortkeyModelCapabilities,
+	stripCatalogSlug,
+} from "./model-capabilities/portkey-helpers.js";
+export type {
+	PortkeyModelClassification,
+	PortkeyModelClassificationInput,
+	PortkeyModelFamily,
+} from "./model-capabilities/portkey-helpers.js";
 export { getPositAiModelCapabilities } from "./model-capabilities/positai-helpers.js";
 export {
 	getSnowflakeCortexModelCapabilities,
@@ -125,6 +135,9 @@ export {
 	normalizeBaseUrlForProvider,
 	OPENAI_API_VERSION,
 	OPENAI_HOST,
+	PORTKEY_API_VERSION,
+	PORTKEY_HOST,
+	PORTKEY_HOSTED_BASE_URL,
 } from "./base-url.js";
 
 // --- Deep resolver seam (owns the precedence stack) ------------------------

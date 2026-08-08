@@ -56,6 +56,7 @@ export const PROVIDER_IDS = [
 	"deepseek",
 	"databricks",
 	"litellm",
+	"portkey",
 ] as const;
 
 /**

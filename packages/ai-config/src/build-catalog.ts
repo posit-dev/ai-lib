@@ -58,6 +58,7 @@ const BUILTIN_CLIENT_KIND = {
 	deepseek: "deepseek",
 	databricks: "databricks",
 	litellm: "litellm",
+	portkey: "portkey",
 } as const satisfies Record<BuiltinProviderId, ClientKind>;
 
 /**

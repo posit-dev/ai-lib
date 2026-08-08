@@ -15,6 +15,7 @@ import {
 	type LitellmModelFamily,
 } from "./litellm-helpers.js";
 import { getOpenAIModelCapabilities, openaiMaxInputTokens } from "./openai-helpers.js";
+import { getPortkeyModelCapabilities } from "./portkey-helpers.js";
 import { getPositAiModelCapabilities } from "./positai-helpers.js";
 import { getSnowflakeCortexModelCapabilities } from "./snowflake-cortex-helpers.js";
 
@@ -77,6 +78,11 @@ function familyDefaults(providerId: string, modelId: string): Partial<InferredMo
 			// LiteLLM ids here are proxy aliases; a Claude-looking alias gets
 			// Anthropic capabilities, anything else stays conservative.
 			return getLitellmModelCapabilities(modelId) ?? {};
+		case "portkey":
+			// Portkey ids may carry a `@slug/` catalog prefix (stripped inside
+			// the helper). Provisional Claude-or-conservative rule — see
+			// portkey-helpers.ts (TODO(phase1)).
+			return getPortkeyModelCapabilities(modelId) ?? {};
 		case "snowflake-cortex":
 			// Cortex serves a fixed catalog at its own token windows, which differ
 			// from the upstream vendor limits; the shared table owns them.

@@ -83,4 +83,7 @@ export const PROVIDER_ENV_MAPPINGS: Record<string, ProviderEnvMapping> = {
 	litellm: {
 		apiKey: "LITELLM_API_KEY",
 	},
+	portkey: {
+		apiKey: "PORTKEY_API_KEY",
+	},
 };

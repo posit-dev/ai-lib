@@ -28,6 +28,12 @@ export { registerOllamaProvider } from "./providers/ollama-provider";
 export { registerOpenAICompatibleProvider } from "./providers/openai-compatible-provider";
 export { registerOpenAIProvider } from "./providers/openai-provider";
 export { registerOpenRouterProvider } from "./providers/openrouter-provider";
+export {
+	normalizePortkeyGatewayUrl,
+	registerPortkeyProvider,
+	resolvePortkeyConnection,
+} from "./providers/portkey-provider";
+export type { PortkeyConnection } from "./providers/portkey-provider";
 export { registerPositAiProvider } from "./providers/positai-provider";
 export { registerSnowflakeCortexProvider } from "./providers/snowflake-cortex-provider";
 export type { SnowflakeProviderCallbacks } from "./providers/snowflake-cortex-provider";

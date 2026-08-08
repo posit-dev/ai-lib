@@ -275,6 +275,7 @@ const BUILTIN_CONNECTION_SECTIONS = {
 	deepseek: [],
 	databricks: ["databricks"],
 	litellm: [],
+	portkey: [],
 } as const satisfies Record<BuiltinProviderId, readonly ConnectionSectionName[]>;
 
 /**

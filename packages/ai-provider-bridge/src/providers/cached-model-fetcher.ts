@@ -14,24 +14,9 @@ import type { ApiKeyCredentials, Logger, ModelInfo, ProviderCredentials } from "
 
 const DEFAULT_TTL = 60 * 60 * 1000; // 60 minutes
 
-export interface CachedModelFetcherConfig<T extends ProviderCredentials = ProviderCredentials> {
+interface CachedModelFetcherCommonConfig<T extends ProviderCredentials = ProviderCredentials> {
 	/** Provider ID for logging */
 	providerId: string;
-
-	/**
-	 * API endpoint URL (static)
-	 * Either apiUrl or resolveUrl must be provided
-	 */
-	apiUrl?: string;
-
-	/**
-	 * Dynamic URL resolver (for providers with user-configured endpoints)
-	 * Either apiUrl or resolveUrl must be provided
-	 *
-	 * Example for Ollama:
-	 * resolveUrl: (creds) => `${creds.endpoint}/api/tags`
-	 */
-	resolveUrl?: (credentials: T) => string;
 
 	/**
 	 * Predicate to check if credentials are present and valid
@@ -43,12 +28,6 @@ export interface CachedModelFetcherConfig<T extends ProviderCredentials = Provid
 	 * - AWS providers: (c) => Boolean(c.region)
 	 */
 	hasCredentials: (credentials: T) => boolean;
-
-	/** Function to create fetch headers from credentials */
-	createHeaders: (credentials: T) => Record<string, string>;
-
-	/** Function to parse API response into ModelInfo[] */
-	parseResponse: (data: unknown) => ModelInfo[];
 
 	/**
 	 * Optional: Enrich models with additional data after initial fetch
@@ -73,6 +52,54 @@ export interface CachedModelFetcherConfig<T extends ProviderCredentials = Provid
 	/** Logger for diagnostics */
 	logger: Logger;
 }
+
+/**
+ * The single-request variant: the wrapper resolves one URL, builds headers,
+ * performs the fetch (merging allowed custom headers additively), and parses
+ * the response.
+ */
+export interface CachedModelFetcherRequestConfig<
+	T extends ProviderCredentials = ProviderCredentials,
+> extends CachedModelFetcherCommonConfig<T> {
+	/**
+	 * API endpoint URL (static)
+	 * Either apiUrl or resolveUrl must be provided
+	 */
+	apiUrl?: string;
+
+	/**
+	 * Dynamic URL resolver (for providers with user-configured endpoints)
+	 * Either apiUrl or resolveUrl must be provided
+	 *
+	 * Example for Ollama:
+	 * resolveUrl: (creds) => `${creds.endpoint}/api/tags`
+	 */
+	resolveUrl?: (credentials: T) => string;
+
+	/** Function to create fetch headers from credentials */
+	createHeaders: (credentials: T) => Record<string, string>;
+
+	/** Function to parse API response into ModelInfo[] */
+	parseResponse: (data: unknown) => ModelInfo[];
+}
+
+/**
+ * The provider-owned-fetch variant: the provider performs the whole fresh
+ * fetch itself (multi-request pagination, per-operation header policy, mode
+ * short-circuits). The wrapper contributes only the credential guard and the
+ * fresh → stale-cache → fallback policy. Note this variant bypasses the
+ * wrapper's custom-header merge — the provider owns its discovery headers.
+ */
+export interface CachedModelFetcherFetchFreshConfig<
+	T extends ProviderCredentials = ProviderCredentials,
+> extends CachedModelFetcherCommonConfig<T> {
+	/** Fetch a fresh model list. A throw falls back to stale cache, then `fallbackModels`. */
+	fetchFresh: (credentials: T) => Promise<ModelInfo[]>;
+}
+
+export type CachedModelFetcherConfig<T extends ProviderCredentials = ProviderCredentials> =
+	| CachedModelFetcherRequestConfig<T>
+	| CachedModelFetcherFetchFreshConfig<T>;
 
 /**
  * A ModelFetcher with an optional clearCache method for invalidation.
@@ -120,21 +147,27 @@ export function createCachedModelFetcher<T extends ProviderCredentials = Provide
 
 		// Try to fetch from API
 		try {
-			// Resolve URL (either static or dynamic)
-			const apiUrl = config.resolveUrl ? config.resolveUrl(typedCredentials) : config.apiUrl!;
+			let freshModels: ModelInfo[];
+			if ("fetchFresh" in config) {
+				config.logger.debug(`${logPrefix} Fetching models via provider-owned fetch`);
+				freshModels = await config.fetchFresh(typedCredentials);
+			} else {
+				// Resolve URL (either static or dynamic)
+				const apiUrl = config.resolveUrl ? config.resolveUrl(typedCredentials) : config.apiUrl!;
 
-			config.logger.debug(`${logPrefix} Fetching models from API`);
-			const apiKeyCreds = typedCredentials as Partial<ApiKeyCredentials>;
-			const providerHeaders = config.createHeaders(typedCredentials);
-			const headers = additiveHeaderRecord(providerHeaders, apiKeyCreds.customHeaders);
-			const response = await fetch(apiUrl, { headers });
+				config.logger.debug(`${logPrefix} Fetching models from API`);
+				const apiKeyCreds = typedCredentials as Partial<ApiKeyCredentials>;
+				const providerHeaders = config.createHeaders(typedCredentials);
+				const headers = additiveHeaderRecord(providerHeaders, apiKeyCreds.customHeaders);
+				const response = await fetch(apiUrl, { headers });
 
-			if (!response.ok) {
-				throw new Error(`API returned ${response.status}`);
+				if (!response.ok) {
+					throw new Error(`API returned ${response.status}`);
+				}
+
+				const data = await response.json();
+				freshModels = config.parseResponse(data);
 			}
-
-			const data = await response.json();
-			let freshModels = config.parseResponse(data);
 
 			// Enrich models with additional data if enricher provided
 			if (config.enrichModels) {

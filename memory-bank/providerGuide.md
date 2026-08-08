@@ -145,6 +145,28 @@ call on `normalizeProtocol(params.protocol)`:
   (`customHeaders` must flow to every delegate — gateway tenancy headers are
   route-independent; auth headers stay delegate-owned).
 
+**Portkey is the second dispatcher, deliberately mirrored — not extracted**
+(2026-08-08; decision comment in `portkey-provider.ts`). Its wrinkle is
+per-mode credential wiring: LiteLLM sends the same key in each delegate's
+native scheme, while hosted Portkey sends `x-portkey-api-key` on both
+delegates with dummy native credentials, and OSS Portkey sends the upstream's
+key. The standing judgment: extract a shared
+`createProtocolDispatchingClient` only when a **third** gateway provider
+arrives and the credential parameterization proves clean across all three;
+until then, mirror with the convention documented here rather than forcing a
+shallow abstraction.
+
+**Template for future gateway providers** (from the Portkey plan,
+`plans/2026-08-08-1001-portkey-multiprotocol-provider.md` in the consuming
+monorepo): gate implementation on **empirical probes** of the real gateway
+(auth matrix per endpoint, tools + streaming per upstream family, Responses
+stateless reasoning continuity, discovery/pagination shape, error/edge
+shapes), define an **outcome matrix** up front so each probe failure maps to
+a defined narrower ship (e.g. exclude that family from discovery) instead of
+blocking, and pin fixes with **repro-first tests** (the repro must fail on
+the unfixed code before the fix lands). Families whose probes never ran ship
+excluded-with-reason, and widening later is additive.
+
 ## Step 6: Export from Package
 
 **File**: `src/providers.ts`
