@@ -56,7 +56,8 @@ the map/translator live inside ai-config (see [Legacy Positron settings](#legacy
 Re-exports the pure entry, plus:
 
 - **Paths**: `AI_CONFIG_DIR` (`~/.posit/ai`) and `PROVIDERS_CONFIG_PATH`.
-- **Read seam**: `loadResolvedProviderCatalog(opts)` — the single read entry point.
+- **Read seams**: `loadProviderCatalogReport(opts)` is the canonical report-first entry point;
+  `loadResolvedProviderCatalog(opts)` is its bare-catalog compatibility wrapper.
 - **Write seam**: `mutateProvidersConfig(mutator, opts)` — cross-process-safe mutation.
 - **Watch seam**: `watchResolvedProviderCatalog(handler, opts)` — emits typed `ProviderCatalogChange` events.
 - **Types**: `LoadCatalogOptions` (including the transitional `legacyPositronSettings` / `legacyPositronEnforcedSettings` options), `MutateConfigOptions`, `WatchCatalogOptions`, `ProviderCatalogChange`, `LoggerLike`, `Disposable`.
@@ -281,7 +282,9 @@ without managing locking, atomicity, or watch lifecycle themselves.
   comments are stripped.
 
 The internal `src/node/parse-jsonc.ts` helper centralizes JSONC behavior through
-the dependency-free, browser-safe `jsonc-parser` package. `parse-providers-config.ts`
+the dependency-free, browser-safe `jsonc-parser` package. It materializes the parse tree
+with null-prototype objects so raw keys such as `__proto__` survive unchanged for schema
+validation rather than mutating an intermediate object's prototype. `parse-providers-config.ts`
 exposes named internal siblings: strict `parseProvidersConfig` for mutation and tolerant
 `parseProvidersConfigTolerant` for reads; both share `parseJsonc`, with no mode flag.
 Neither helper is exported, and only node-side readers import them, so the pure
@@ -425,9 +428,9 @@ the bridge's `ModelInfo` — compatible by contract, not by import.
 | `src/legacy-positron-settings/`       | PROVIDER-SETTINGS-MIGRATION: legacy settings map, translator, and internal source builders                                                 |
 | `src/build-catalog.ts`                | `buildCatalog()` — assemble `ResolvedProvider[]` from merged config + enablement layers + baseline (pure entry)                            |
 | `src/node/load-config.ts`             | `loadConfigSourceReports()` / readers — silently assemble `{ source?, issues }` reports; compatibility wrapper renders and returns sources |
-| `src/node/parse-jsonc.ts`             | Internal JSONC parser for user-editable ai-config files; comments + trailing commas, `SyntaxError` on invalid input                        |
-| `src/node/parse-providers-config.ts`  | Internal shared JSONC parse + strict `providersConfigSchema` validation seam                                                               |
-| `src/node/load-catalog.ts`            | `loadResolvedProviderCatalog()` — public read seam (assemble sources → `resolveProviderCatalog`)                                           |
+| `src/node/parse-jsonc.ts`             | Internal JSONC parser; comments/trailing commas, null-prototype object materialization, `SyntaxError` on invalid input                     |
+| `src/node/parse-providers-config.ts`  | Internal strict `parseProvidersConfig()` mutation seam + tolerant `parseProvidersConfigTolerant()` read seam                               |
+| `src/node/load-catalog.ts`            | Canonical `loadProviderCatalogReport()` seam + bare-catalog `loadResolvedProviderCatalog()` compatibility wrapper                          |
 | `src/node/mutate-config.ts`           | `mutateProvidersConfig()` — locked, atomic, serialized mutation                                                                            |
 | `src/node/watch-catalog.ts`           | `watchResolvedProviderCatalog()` — watch, reload, diff, emit typed changes                                                                 |
 | `src/node/index.ts`                   | Node entrypoint; re-exports pure entry + filesystem seams                                                                                  |

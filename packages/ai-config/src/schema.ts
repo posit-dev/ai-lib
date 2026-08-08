@@ -12,6 +12,7 @@
 import * as z from "zod/v4";
 
 import { customProviderNameIssues } from "./custom-provider-name.js";
+import { validateUnsafeObjectKeys } from "./unsafe-object-key.js";
 import {
 	BUILTIN_PROVIDER_IDS,
 	CLIENT_KIND_VALUES,
@@ -469,13 +470,16 @@ export const providersMapFragmentSchema = z
 // Root schema
 // ---------------------------------------------------------------------------
 
-export const providersConfigSchema = z
-	.object({
-		$schema: z.string().optional(),
-		version: z.literal(1).optional(),
-		providers: providersMapSchema.optional(),
-	})
-	.strict();
+export const providersConfigSchema = z.preprocess(
+	validateUnsafeObjectKeys,
+	z
+		.object({
+			$schema: z.string().optional(),
+			version: z.literal(1).optional(),
+			providers: providersMapSchema.optional(),
+		})
+		.strict(),
+);
 
 /**
  * Relaxed schema for partial config fragments — the shape every catalog
@@ -484,10 +488,13 @@ export const providersConfigSchema = z
  * connection env vars). Custom provider entries do NOT require the `type`
  * field — full validation happens on the merged result.
  */
-export const providersConfigFragmentSchema = z
-	.object({
-		$schema: z.string().optional(),
-		version: z.literal(1).optional(),
-		providers: providersMapFragmentSchema.optional(),
-	})
-	.strict();
+export const providersConfigFragmentSchema = z.preprocess(
+	validateUnsafeObjectKeys,
+	z
+		.object({
+			$schema: z.string().optional(),
+			version: z.literal(1).optional(),
+			providers: providersMapFragmentSchema.optional(),
+		})
+		.strict(),
+);

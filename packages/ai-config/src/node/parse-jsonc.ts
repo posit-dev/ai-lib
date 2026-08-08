@@ -10,17 +10,17 @@
  * themselves.
  */
 
-import { parse, type ParseError, printParseErrorCode } from "jsonc-parser";
+import { getNodeValue, parseTree, type ParseError, printParseErrorCode } from "jsonc-parser";
 
-/** Parse comments and trailing commas, throwing `SyntaxError` on invalid input. */
+/** Parse JSONC into null-prototype objects, throwing `SyntaxError` on invalid input. */
 export function parseJsonc(text: string): unknown {
 	const errors: ParseError[] = [];
-	const result = parse(text, errors, { allowTrailingComma: true });
+	const tree = parseTree(text, errors, { allowTrailingComma: true });
 
 	if (errors.length > 0) {
 		const first = errors[0];
 		throw new SyntaxError(`${printParseErrorCode(first.error)} at offset ${first.offset}`);
 	}
 
-	return result;
+	return tree === undefined ? undefined : getNodeValue(tree);
 }

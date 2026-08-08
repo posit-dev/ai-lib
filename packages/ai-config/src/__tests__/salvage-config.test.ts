@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 
 import { salvageProvidersConfig } from "../salvage-config.js";
-import { providersConfigSchema } from "../schema.js";
+import { providersConfigFragmentSchema, providersConfigSchema } from "../schema.js";
 import { BUILTIN_PROVIDER_IDS } from "../vocabulary.js";
 
 describe("salvageProvidersConfig", () => {
@@ -89,6 +89,20 @@ describe("salvageProvidersConfig", () => {
 		}
 		expect(report.issues[0].message).toContain(message);
 		expect(report.config.providers?.custom).toEqual({});
+	});
+
+	it.each([
+		["root", '{"__proto__":{}}'],
+		["providers map", '{"providers":{"__proto__":{}}}'],
+		["built-in block", '{"providers":{"anthropic":{"__proto__":{}}}}'],
+		[
+			"custom entry",
+			'{"providers":{"custom":{"gateway":{"type":"openai-compatible","__proto__":{}}}}}',
+		],
+	] as const)("strict full and fragment schemas reject __proto__ at the %s", (_name, raw) => {
+		const input: unknown = JSON.parse(raw);
+		expect(providersConfigSchema.safeParse(input).success).toBe(false);
+		expect(providersConfigFragmentSchema.safeParse(input).success).toBe(false);
 	});
 
 	it.each([

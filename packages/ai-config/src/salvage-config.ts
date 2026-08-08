@@ -12,6 +12,7 @@ import {
 	providersConfigSchema,
 } from "./schema.js";
 import type { ProvidersConfig } from "./types.js";
+import { unsafeObjectKeyPaths } from "./unsafe-object-key.js";
 import { isBuiltinProviderId } from "./vocabulary.js";
 
 export interface SalvagedProvidersConfig {
@@ -154,12 +155,23 @@ function keepParsed<T>(
 	path: readonly (string | number)[],
 	issues: ConfigIssue[],
 ): void {
+	const unsafePath = unsafeObjectKeyPaths(value)[0];
+	if (unsafePath) {
+		issues.push(
+			warning(path, `Object key "__proto__" at ${formatRelativePath(unsafePath)} is unsafe.`),
+		);
+		return;
+	}
 	const parsed = schema.safeParse(value);
 	if (parsed.success) {
 		target[key] = parsed.data;
 		return;
 	}
 	issues.push(warning(path, parsed.error.issues[0]?.message ?? "Invalid provider block."));
+}
+
+function formatRelativePath(path: ConfigIssue["path"]): string {
+	return path.length === 0 ? "the provider block" : path.map(String).join(".");
 }
 
 function warning(path: readonly (string | number)[], message: string): ConfigIssue {

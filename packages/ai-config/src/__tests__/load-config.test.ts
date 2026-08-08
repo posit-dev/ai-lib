@@ -67,6 +67,72 @@ describe("loadResolvedProviderCatalog", () => {
 	// ========================================================================
 
 	describe("basic loading", () => {
+		it.each([
+			[
+				"root",
+				'{"__proto__":{},"providers":{"openai":{"baseUrl":"https://openai.example.com"}}}',
+				["__proto__"],
+			],
+			[
+				"providers map",
+				'{"providers":{"__proto__":{},"openai":{"baseUrl":"https://openai.example.com"}}}',
+				["providers", "__proto__"],
+			],
+			[
+				"built-in provider block",
+				'{"providers":{"anthropic":{"baseUrl":"https://discarded.example.com","__proto__":{}},"openai":{"baseUrl":"https://openai.example.com"}}}',
+				["providers", "anthropic"],
+			],
+			[
+				"custom provider entry",
+				'{"providers":{"custom":{"gateway":{"type":"openai-compatible","__proto__":{}}},"openai":{"baseUrl":"https://openai.example.com"}}}',
+				["providers", "custom", "gateway"],
+			],
+		] as const)("reports a raw unsafe key at the %s", async (_name, raw, issuePath) => {
+			const configPath = path.join(tempDir, "providers.json");
+			await fs.writeFile(configPath, raw);
+
+			const report = await loadProviderCatalogReport({
+				baseline: STANDALONE_BASELINE,
+				configPath,
+			});
+
+			expect(findProvider(report.catalog, "openai")?.connection.baseUrl).toBe(
+				"https://openai.example.com",
+			);
+			expect(report.issues).toEqual([
+				expect.objectContaining({
+					path: issuePath,
+					message: expect.stringContaining("__proto__"),
+				}),
+			]);
+		});
+
+		it("reports a raw unsafe custom-provider key without losing valid siblings", async () => {
+			const configPath = path.join(tempDir, "providers.json");
+			await fs.writeFile(
+				configPath,
+				'{"providers":{"anthropic":{"baseUrl":"https://anthropic.example.com"},"custom":{"__proto__":{"type":"openai-compatible"}}}}',
+			);
+
+			const report = await loadProviderCatalogReport({
+				baseline: STANDALONE_BASELINE,
+				configPath,
+				logger: mockLogger,
+			});
+
+			expect(findProvider(report.catalog, "anthropic")?.connection.baseUrl).toBe(
+				"https://anthropic.example.com",
+			);
+			expect(report.issues).toEqual([
+				expect.objectContaining({
+					path: ["providers", "custom", "__proto__"],
+					source: { kind: "user", label: configPath },
+					message: expect.stringContaining("unsafe"),
+				}),
+			]);
+		});
+
 		it("keeps valid provider blocks when an unknown provider key is present", async () => {
 			const configPath = path.join(tempDir, "providers.json");
 			await fs.writeFile(
@@ -988,6 +1054,18 @@ describe("mutateProvidersConfig", () => {
 		await expect(mutateProvidersConfig((current) => current, { configPath })).rejects.toThrow(
 			/portkey/,
 		);
+		expect(await fs.readFile(configPath, "utf-8")).toBe(bytes);
+	});
+
+	it("rejects a raw unsafe custom-provider key without changing the file", async () => {
+		const configPath = path.join(tempDir, "providers.json");
+		const bytes =
+			'{\n  "providers": {\n    "custom": {\n      "__proto__": { "type": "openai-compatible" }\n    }\n  }\n}\n';
+		await fs.writeFile(configPath, bytes);
+		const mutator = vi.fn((current: ProvidersConfig) => current);
+
+		await expect(mutateProvidersConfig(mutator, { configPath })).rejects.toThrow(/__proto__/);
+		expect(mutator).not.toHaveBeenCalled();
 		expect(await fs.readFile(configPath, "utf-8")).toBe(bytes);
 	});
 
