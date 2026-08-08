@@ -9,9 +9,9 @@
  */
 
 import { createAnthropic } from "@ai-sdk/anthropic";
-import { streamText } from "ai";
 
 import { safeSdkCustomHeaders } from "../custom-headers";
+import { streamTextAnthropicWire } from "../tool-call-ids";
 import type { LMStreamPart } from "../types";
 import { isThinkingEnabled } from "../utils";
 import {
@@ -74,7 +74,7 @@ export class AnthropicClient implements ModelClient {
 			: undefined;
 
 		// Stream the response
-		const result = streamText({
+		const result = streamTextAnthropicWire({
 			allowSystemInMessages: params.allowSystemInMessages,
 			model,
 			messages: params.messages,

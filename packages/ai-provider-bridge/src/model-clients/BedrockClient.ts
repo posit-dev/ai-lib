@@ -17,6 +17,7 @@ import type { LanguageModelV3 } from "@ai-sdk/provider";
 import { streamText } from "ai";
 
 import { createAwsCredentialProvider } from "../aws-credentials";
+import { sanitizeToolCallIdsForAnthropic } from "../tool-call-ids";
 import {
 	hasImagesInToolResults,
 	transformToolResultImagesForCompletions,
@@ -168,6 +169,12 @@ export class BedrockClient implements ModelClient {
 						},
 					}
 				: anthropicProviderOptions;
+
+		// The Anthropic Messages wire validates tool_use.id against
+		// `^[a-zA-Z0-9_-]+$`; sanitize outbound IDs on that route only.
+		if (isAnthropic) {
+			messagesToSend = sanitizeToolCallIdsForAnthropic(messagesToSend);
+		}
 
 		// Stream the response
 		const result = streamText({

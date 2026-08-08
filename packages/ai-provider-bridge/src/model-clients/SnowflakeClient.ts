@@ -16,6 +16,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { streamText } from "ai";
 
 import { safeSdkCustomHeaders } from "../custom-headers";
+import { streamTextAnthropicWire } from "../tool-call-ids";
 import type { LMStreamPart } from "../types";
 import { normalizeProtocol } from "../types";
 import { isClaudeModel, isThinkingEnabled, rejectsEagerInputStreaming } from "../utils";
@@ -260,7 +261,7 @@ export class SnowflakeClient implements ModelClient {
 					}
 				: undefined;
 
-		const result = streamText({
+		const result = streamTextAnthropicWire({
 			allowSystemInMessages: params.allowSystemInMessages,
 			model,
 			messages: params.messages,
