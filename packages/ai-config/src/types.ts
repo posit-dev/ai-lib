@@ -83,7 +83,7 @@ declare const __customProviderId: unique symbol;
 /**
  * A custom provider id — a string branded to prevent collapse to `string`
  * when unioned with `BuiltinProviderId`. Produced only by
- * `mintCustomProviderId()` after catalog-membership validation.
+ * `mintCustomProviderId()` after custom-name policy validation.
  */
 export type CustomProviderId = string & { readonly [__customProviderId]: true };
 
@@ -97,7 +97,8 @@ export type ResolvedProviderId = BuiltinProviderId | CustomProviderId;
 /**
  * Mint a `CustomProviderId` from a string. This is the **one** sanctioned
  * place that produces the branded type. Validates the id against built-in
- * and reserved-key collision rules; throws if the id is invalid.
+ * and reserved-key collision rules and rejects the unsafe object key
+ * `__proto__`; throws if the id is invalid.
  */
 export function mintCustomProviderId(id: string): CustomProviderId {
 	if (!id) {

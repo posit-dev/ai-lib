@@ -10,8 +10,9 @@
  * and the legacy Positron settings layers the loader opted into (the
  * `legacyPositronSettings` reader and/or the `legacyPositronEnforcedSettings`
  * flag). Any source change — file edit, legacy settings change, etc. —
- * triggers a debounced rebuild of the whole catalog and a typed change event. Consumers read change categories
- * (`enabled`/`connection`/`models`) off each event.
+ * triggers a debounced rebuild of the whole catalog and complete issue
+ * snapshot. Consumers receive both snapshots and typed change categories
+ * (`enabled`/`connection`/`models`/`issues`) on each emitted event.
  */
 
 import * as fs from "fs";

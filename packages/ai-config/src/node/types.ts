@@ -123,7 +123,9 @@ export type WatchCatalogOptions = LoadCatalogOptions;
  *
  * Consumers can check these flags to decide which subsystems need updating
  * (e.g. `enabledChanged` → re-register providers, `connectionChanged` →
- * invalidate model caches, `modelsChanged` → refresh model lists).
+ * invalidate model caches, `modelsChanged` → refresh model lists,
+ * `issuesChanged` → replace displayed configuration diagnostics). Each
+ * event also carries the complete current catalog and issue snapshots.
  */
 export interface ProviderCatalogChange {
 	/** The full new catalog. */
