@@ -39,4 +39,8 @@ describe("mintCustomProviderId", () => {
 	it("rejects reserved key 'custom'", () => {
 		expect(() => mintCustomProviderId("custom")).toThrow("reserved key");
 	});
+
+	it("rejects unsafe key '__proto__'", () => {
+		expect(() => mintCustomProviderId("__proto__")).toThrow("unsafe");
+	});
 });

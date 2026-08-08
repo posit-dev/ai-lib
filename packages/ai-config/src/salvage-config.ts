@@ -4,10 +4,10 @@
 
 import { configIssuePath } from "./config-issue.js";
 import type { ConfigIssue } from "./config-issue.js";
+import { customProviderNameIssues } from "./custom-provider-name.js";
 import {
 	builtinProviderBlockSchemas,
 	customProviderEntrySchema,
-	customProviderNameIssues,
 	defaultBlockSchema,
 	providersConfigSchema,
 } from "./schema.js";

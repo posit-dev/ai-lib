@@ -16,6 +16,7 @@
 
 import type * as z from "zod/v4";
 
+import { customProviderNameIssues } from "./custom-provider-name.js";
 import type {
 	builtinProviderBlockSchema,
 	customModelSchema,
@@ -28,7 +29,6 @@ import type {
 	providersConfigSchema,
 	providersMapSchema,
 } from "./schema.js";
-import { isBuiltinProviderId, RESERVED_PROVIDER_KEYS } from "./vocabulary.js";
 import type { BuiltinProviderId, ClientKind, Protocol } from "./vocabulary.js";
 
 // ---------------------------------------------------------------------------
@@ -103,11 +103,9 @@ export function mintCustomProviderId(id: string): CustomProviderId {
 	if (!id) {
 		throw new Error("Custom provider id must be a non-empty string.");
 	}
-	if (isBuiltinProviderId(id)) {
-		throw new Error(`Custom provider id "${id}" collides with a built-in provider id.`);
-	}
-	if ((RESERVED_PROVIDER_KEYS as readonly string[]).includes(id)) {
-		throw new Error(`Custom provider id "${id}" is a reserved key.`);
+	const issue = customProviderNameIssues(id)[0];
+	if (issue) {
+		throw new Error(issue.replace("Custom provider name", "Custom provider id"));
 	}
 	return id as CustomProviderId;
 }

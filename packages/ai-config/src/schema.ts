@@ -11,12 +11,11 @@
 
 import * as z from "zod/v4";
 
+import { customProviderNameIssues } from "./custom-provider-name.js";
 import {
 	BUILTIN_PROVIDER_IDS,
 	CLIENT_KIND_VALUES,
-	isBuiltinProviderId,
 	PROTOCOL_VALUES,
-	RESERVED_PROVIDER_KEYS,
 	SUPPORTED_CUSTOM_CLIENT_KIND_VALUES,
 } from "./vocabulary.js";
 import type { BuiltinProviderId, SupportedCustomClientKind } from "./vocabulary.js";
@@ -425,7 +424,22 @@ export const providersMapSchema = z
 	.object({
 		...builtinProviderKeys,
 		default: defaultBlockSchema.optional(),
-		custom: z.record(z.string(), customProviderEntrySchema).optional(),
+		custom: z
+			.preprocess(
+				(value, ctx) => {
+					if (typeof value !== "object" || value === null || Array.isArray(value)) {
+						return value;
+					}
+					for (const name of Object.keys(value)) {
+						for (const message of customProviderNameIssues(name)) {
+							ctx.addIssue({ code: "custom", message, path: [name] });
+						}
+					}
+					return value;
+				},
+				z.record(z.string(), customProviderEntrySchema),
+			)
+			.optional(),
 	})
 	.strict();
 
@@ -457,34 +471,7 @@ export const providersConfigSchema = z
 		version: z.literal(1).optional(),
 		providers: providersMapSchema.optional(),
 	})
-	.strict()
-	.superRefine((config, ctx) => {
-		const custom = config.providers?.custom;
-		if (!custom) {
-			return;
-		}
-		for (const name of Object.keys(custom)) {
-			for (const message of customProviderNameIssues(name)) {
-				ctx.addIssue({
-					code: "custom",
-					message,
-					path: ["providers", "custom", name],
-				});
-			}
-		}
-	});
-
-/** Shared custom-provider name policy for strict parsing and salvage. */
-export function customProviderNameIssues(name: string): readonly string[] {
-	const issues: string[] = [];
-	if (isBuiltinProviderId(name)) {
-		issues.push(`Custom provider name "${name}" collides with a built-in provider id.`);
-	}
-	if ((RESERVED_PROVIDER_KEYS as readonly string[]).includes(name)) {
-		issues.push(`Custom provider name "${name}" is a reserved key.`);
-	}
-	return issues;
-}
+	.strict();
 
 /**
  * Relaxed schema for partial config fragments — the shape every catalog

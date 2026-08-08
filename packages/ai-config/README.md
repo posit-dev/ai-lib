@@ -21,7 +21,7 @@ The three filesystem seams (`ai-config/node`):
 - **`loadProviderCatalogReport(opts)`** — canonical read entry point; returns `{ catalog, issues }`.
 - **`loadResolvedProviderCatalog(opts)`** — compatibility wrapper returning the report's bare catalog.
 - **`mutateProvidersConfig(mutator, opts)`** — cross-process-safe read-modify-write.
-- **`watchResolvedProviderCatalog(handler, opts)`** — emits typed `ProviderCatalogChange` events (`enabledChanged`, `connectionChanged`, `modelsChanged`).
+- **`watchResolvedProviderCatalog(handler, opts)`** — emits typed `ProviderCatalogChange` events (`enabledChanged`, `connectionChanged`, `modelsChanged`, `issuesChanged`).
 
 ## API Reference
 

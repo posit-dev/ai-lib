@@ -76,6 +76,7 @@ describe("salvageProvidersConfig", () => {
 	it.each([
 		["builtin collision", "anthropic", "collides with a built-in provider id"],
 		["reserved name", "default", "is a reserved key"],
+		["unsafe name", "__proto__", "is unsafe"],
 	] as const)("shares the strict custom-name policy for %s", (_name, customName, message) => {
 		const input = {
 			providers: { custom: { [customName]: { type: "openai-compatible" } } },
