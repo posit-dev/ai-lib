@@ -335,6 +335,21 @@ describe("portkey model fetcher", () => {
 		expect(models.map((m) => m.id)).toEqual(["@prod/claude-alias-1", "@prod/claude-alias-2"]);
 	});
 
+	it("deduplicates repeated ids within one page", async () => {
+		const duplicate = {
+			id: "@prod/claude-alias-1",
+			canonical_slug: "claude-haiku-4-5",
+		};
+		const { requests } = stubFetchPages([{ data: [duplicate, duplicate], total: 2 }]);
+
+		const registry = new ProviderRegistry(logger);
+		registerPortkeyProvider(registry, logger);
+		const models = await registry.getModelsForProvider("portkey", HOSTED_CREDENTIALS);
+
+		expect(requests).toHaveLength(1);
+		expect(models.map((m) => m.id)).toEqual(["@prod/claude-alias-1"]);
+	});
+
 	it("short-circuits OSS mode to no models without fetching", async () => {
 		const fetchMock = vi.fn();
 		vi.stubGlobal("fetch", fetchMock);

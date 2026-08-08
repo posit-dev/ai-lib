@@ -304,12 +304,15 @@ async function fetchPortkeyCatalog(
 		// that ignores `offset` and repeats a page) ends discovery — without
 		// this, repeated pages would duplicate models and keep requesting until
 		// the model bound.
-		const newEntries = page.entries.filter((entry) => !seenIds.has(entry.id));
+		const newEntries = page.entries.filter((entry) => {
+			if (seenIds.has(entry.id)) {
+				return false;
+			}
+			seenIds.add(entry.id);
+			return true;
+		});
 		if (newEntries.length === 0) {
 			break;
-		}
-		for (const entry of newEntries) {
-			seenIds.add(entry.id);
 		}
 
 		for (const entry of newEntries) {
