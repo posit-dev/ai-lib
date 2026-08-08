@@ -95,7 +95,7 @@ interface ResolvedProvider {
 
 #### `mintCustomProviderId(id: string): CustomProviderId`
 
-The one sanctioned producer of the branded `CustomProviderId`. Validates the id against built-in and reserved-key collisions; **throws** if the id is empty, collides with a built-in id, or is a reserved key (`default`, `custom`).
+The one sanctioned producer of the branded `CustomProviderId`. Validates the id against built-in, reserved-key, and unsafe-object-key collisions; **throws** if the id is empty, collides with a built-in id, is a reserved key (`default`, `custom`), or is the unsafe object key `__proto__`.
 
 #### `resolveProviderCatalogReport(opts): { catalog, issues }`
 

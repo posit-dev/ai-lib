@@ -15,18 +15,19 @@
  * ## Public API surface (narrow — deep module principle)
  *
  * ### Read seam
- * - `loadResolvedProviderCatalog(opts)` — the **single deep read seam**.
+ * - `loadProviderCatalogReport(opts)` — the **canonical deep read seam**.
  *   Folds enablement + connection + model policy + client kind into a
- *   uniform `ResolvedProvider[]` that consumers iterate instead of the
- *   static `PROVIDER_REGISTRY`.
+ *   uniform `ResolvedProvider[]` and returns the complete current issue
+ *   snapshot. `loadResolvedProviderCatalog(opts)` remains as the historical
+ *   bare-catalog compatibility wrapper.
  *
  * ### Write seam
  * - `mutateProvidersConfig(mutator)` — cross-process-safe mutation.
  *
  * ### Watch seam
  * - `watchResolvedProviderCatalog(handler, opts)` — the **single watch seam**.
- *   Emits typed change events (enabled / connection / models) over the
- *   resolved catalog.
+ *   Emits the resolved catalog and complete issue snapshot with typed change
+ *   flags (enabled / connection / models / issues).
  *
  * ### Model resolution
  * - `resolveModels(...)` — stays public because it genuinely needs
@@ -43,14 +44,14 @@ export * from "../index.js";
 // --- Paths -----------------------------------------------------------------
 export { AI_CONFIG_DIR, PROVIDERS_CONFIG_PATH } from "./paths.js";
 
-// --- Read seam (the single deep read seam) ---------------------------------
+// --- Read seam (canonical report + bare-catalog compatibility wrapper) -----
 export { loadProviderCatalogReport, loadResolvedProviderCatalog } from "./load-catalog.js";
 export type { LoadedProviderCatalogReport } from "./load-catalog.js";
 
-// --- Source assembly (file + env fragments → ProviderConfigSource[]) -------
-// The deep seam is `loadConfigSources` + `resolveProviderCatalog`; the raw
-// file/env readers stay internal so callers can't recreate source-assembly or
-// fallback policy outside ai-config.
+// --- Source-assembly compatibility seam (file + env → sources) -----------
+// Canonical host reads use `loadProviderCatalogReport`; `loadConfigSources`
+// retains the historical bare-source contract. Raw file/env readers stay
+// internal so callers can't recreate source-assembly or fallback policy.
 export { loadConfigSources } from "./load-config.js";
 export type { LoadConfigSourcesOptions } from "./load-config.js";
 
