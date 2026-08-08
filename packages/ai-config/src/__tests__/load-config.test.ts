@@ -54,6 +54,7 @@ describe("loadResolvedProviderCatalog", () => {
 
 	beforeEach(async () => {
 		tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-config-test-"));
+		vi.clearAllMocks();
 		vi.unstubAllEnvs();
 	});
 
@@ -66,6 +67,34 @@ describe("loadResolvedProviderCatalog", () => {
 	// ========================================================================
 
 	describe("basic loading", () => {
+		it("loads comments and trailing commas from providers.json", async () => {
+			const configPath = path.join(tempDir, "providers.json");
+			await fs.writeFile(
+				configPath,
+				`{
+					// Keep the staging endpoint explicit.
+					"providers": {
+						"positai": {
+							/* This value must survive JSONC parsing. */
+							"enabled": true,
+							"baseUrl": "https://staging.example.com",
+						},
+					},
+				}`,
+			);
+
+			const catalog = await loadResolvedProviderCatalog({
+				baseline: { defaultEnabled: false },
+				configPath,
+				logger: mockLogger,
+			});
+
+			expect(findProvider(catalog, "positai")?.enabled).toBe(true);
+			expect(findProvider(catalog, "positai")?.connection.baseUrl).toBe(
+				"https://staging.example.com",
+			);
+		});
+
 		it("should return all built-in providers when file is missing", async () => {
 			const catalog = await loadResolvedProviderCatalog({
 				baseline: STANDALONE_BASELINE,
@@ -727,9 +756,11 @@ describe("mutateProvidersConfig", () => {
 
 	beforeEach(async () => {
 		tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-config-mutate-"));
+		vi.clearAllMocks();
 	});
 
 	afterEach(async () => {
+		vi.restoreAllMocks();
 		await fs.rm(tempDir, { recursive: true, force: true });
 	});
 
@@ -772,6 +803,88 @@ describe("mutateProvidersConfig", () => {
 		const raw = JSON.parse(await fs.readFile(configPath, "utf-8"));
 		expect(raw.providers.anthropic.baseUrl).toBe("https://existing.example.com");
 		expect(raw.providers.openai.baseUrl).toBe("https://openai-custom.example.com");
+	});
+
+	it("preserves values when mutating a commented config", async () => {
+		const configPath = path.join(tempDir, "providers.json");
+		await fs.writeFile(
+			configPath,
+			`{
+				// Programmatic writes may strip this comment.
+				"providers": {
+					"anthropic": {
+						/* Existing values must survive. */
+						"baseUrl": "https://existing.example.com",
+					},
+				},
+			}`,
+		);
+
+		await mutateProvidersConfig(
+			(current) => ({
+				...current,
+				providers: {
+					...current.providers,
+					openai: { enabled: false },
+				},
+			}),
+			{ configPath, logger: mockLogger },
+		);
+
+		const written = await fs.readFile(configPath, "utf-8");
+		const parsed = JSON.parse(written);
+		expect(parsed.providers.anthropic.baseUrl).toBe("https://existing.example.com");
+		expect(parsed.providers.openai.enabled).toBe(false);
+		expect(written).not.toContain("Programmatic writes");
+		expect(written).not.toContain("Existing values");
+	});
+
+	it("aborts on syntax-invalid content without changing the file", async () => {
+		const configPath = path.join(tempDir, "providers.json");
+		const original = '{\n  // unfinished edit\n  "providers": {\n';
+		await fs.writeFile(configPath, original);
+		const mutator = vi.fn((current: ProvidersConfig) => current);
+
+		const mutation = mutateProvidersConfig(mutator, { configPath, logger: mockLogger });
+		await expect(mutation).rejects.toThrow(`Cannot mutate ${configPath}`);
+		await expect(mutation).rejects.toThrow("Mutation aborted until the file is fixed");
+
+		expect(mutator).not.toHaveBeenCalled();
+		expect(await fs.readFile(configPath, "utf-8")).toBe(original);
+	});
+
+	it("aborts on schema-invalid content without changing the file", async () => {
+		const configPath = path.join(tempDir, "providers.json");
+		const original = '{\n  "version": 99\n}\n';
+		await fs.writeFile(configPath, original);
+		const mutator = vi.fn((current: ProvidersConfig) => current);
+
+		const mutation = mutateProvidersConfig(mutator, { configPath, logger: mockLogger });
+		await expect(mutation).rejects.toThrow(`Cannot mutate ${configPath}`);
+		await expect(mutation).rejects.toThrow("Mutation aborted until the file is fixed");
+
+		expect(mutator).not.toHaveBeenCalled();
+		expect(await fs.readFile(configPath, "utf-8")).toBe(original);
+	});
+
+	it("aborts when the config cannot be read without changing the file", async () => {
+		const configPath = await writeConfig(tempDir, {
+			providers: { anthropic: { enabled: true } },
+		});
+		const original = await fs.readFile(configPath, "utf-8");
+		const readError = Object.assign(new Error("permission denied"), { code: "EACCES" });
+		const readSpy = vi.spyOn(fs, "readFile").mockRejectedValueOnce(readError);
+		const mutator = vi.fn((current: ProvidersConfig) => current);
+
+		await expect(
+			mutateProvidersConfig(mutator, { configPath, logger: mockLogger }),
+		).rejects.toThrow(
+			`[ai-config] Cannot mutate ${configPath}: permission denied. Mutation aborted until the file is fixed.`,
+		);
+
+		readSpy.mockRestore();
+		expect(mutator).not.toHaveBeenCalled();
+		expect(await fs.readFile(configPath, "utf-8")).toBe(original);
 	});
 
 	it("should reject invalid mutations", async () => {

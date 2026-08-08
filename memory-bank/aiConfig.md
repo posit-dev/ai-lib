@@ -8,8 +8,8 @@ package: ai-config
 
 ## Overview
 
-`ai-config` owns the full lifecycle of `~/.posit/ai/providers.json`: the
-schema, validation, defaults, the resolution pipeline that turns a raw file into
+`ai-config` owns the full lifecycle of `~/.posit/ai/providers.json`: its JSONC
+parsing, schema validation, defaults, the resolution pipeline that turns a raw file into
 an effective provider catalog, and the filesystem seams that load, watch, and
 mutate the file safely across processes.
 
@@ -27,11 +27,11 @@ enablement in Posit Assistant lives in the main monorepo's
 The package has two code entrypoints, splitting pure (browser/test-safe) logic
 from filesystem I/O:
 
-| Entrypoint                        | What it exports                                                                                                                                                                                                                                                                                            | External deps? |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
-| `ai-config`                       | Vocabulary, Zod schemas, inferred types, defaults, the pure resolution helpers (`resolveModels`, `mergeEnforced`), bare-host base URL correction (`normalizeBaseUrlForProvider` + host constants), the legacy Positron settings map/translator, and the model capability tables + `inferModelCapabilities` | No             |
-| `ai-config/node`                  | Re-exports the pure entry plus the three filesystem seams (`loadResolvedProviderCatalog`, `mutateProvidersConfig`, `watchResolvedProviderCatalog`) and path constants                                                                                                                                      | Node FS        |
-| `ai-config/providers.schema.json` | The generated JSON Schema, exported so editors can validate/autocomplete `providers.json`                                                                                                                                                                                                                  | No             |
+| Entrypoint                        | What it exports                                                                                                                                                                                                                                                                                            | External deps?          |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| `ai-config`                       | Vocabulary, Zod schemas, inferred types, defaults, the pure resolution helpers (`resolveModels`, `mergeEnforced`), bare-host base URL correction (`normalizeBaseUrlForProvider` + host constants), the legacy Positron settings map/translator, and the model capability tables + `inferModelCapabilities` | No                      |
+| `ai-config/node`                  | Re-exports the pure entry plus the three filesystem seams (`loadResolvedProviderCatalog`, `mutateProvidersConfig`, `watchResolvedProviderCatalog`) and path constants                                                                                                                                      | Node FS, `jsonc-parser` |
+| `ai-config/providers.schema.json` | The generated JSON Schema, exported so editors can validate/autocomplete `providers.json`                                                                                                                                                                                                                  | No                      |
 
 Legacy Positron settings reach the loader through two independent options —
 `legacyPositronSettings` (a two-method injected reader for the user-set
@@ -117,10 +117,11 @@ overlay that becomes invalid after merge.
 
 Config flows through three stages: **assemble sources → resolve → watch**. Precedence lives entirely inside the pure `resolveProviderCatalog({ sources })` seam (`src/resolve-catalog.ts`); the node entry only assembles sources.
 
-1. **Assemble sources** (`src/node/load-config.ts`): read the file (missing → `{}`,
-   validated against `providersConfigSchema`), the enforced fragment from
+1. **Assemble sources** (`src/node/load-config.ts`): read the user-editable file as JSONC
+   (comments and trailing commas accepted; missing → `{}`; validated against
+   `providersConfigSchema`), the enforced fragment from
    `POSIT_AI_PROVIDERS_ENFORCED`, and the defaults fragment from
-   `POSIT_AI_PROVIDERS_DEFAULT` (both validated against the relaxed
+   `POSIT_AI_PROVIDERS_DEFAULT` (both remain strict JSON and are validated against the relaxed
    `providersConfigFragmentSchema`), plus the legacy Positron layers the
    loader opted into (`legacyPositronSettings` → `legacy-positron`,
    `legacyPositronEnforcedSettings` → `legacy-positron-enforced`). Each
@@ -233,7 +234,7 @@ posit-dev/positron#14709).
 All three filesystem operations are deep modules — callers get safety guarantees
 without managing locking, atomicity, or watch lifecycle themselves.
 
-- **Load** degrades gracefully: missing file, parse errors, and validation
+- **Load** parses `providers.json` as JSONC and degrades gracefully: missing file, parse errors, and validation
   failures log a warning and fall back to `{}` (or the user config) rather than
   throwing.
 - **Watch** (`src/node/watch-catalog.ts`) debounces ~300ms to coalesce rapid
@@ -247,7 +248,18 @@ without managing locking, atomicity, or watch lifecycle themselves.
   serialization queue per config path, race-safe first-creation via the
   exclusive `wx` flag, atomic write (temp file + rename), seed-metadata
   injection (`$schema`, `version`) on first creation, and a best-effort copy of
-  `providers.schema.json` alongside the config for editor validation.
+  `providers.schema.json` alongside the config for editor validation. After
+  ensuring the file exists, every read, JSONC syntax, or schema-validation
+  failure aborts the mutation without rewriting the file. Successful writes
+  serialize the whole config with `JSON.stringify`, so values survive but JSONC
+  comments are stripped.
+
+The internal `src/node/parse-jsonc.ts` helper centralizes JSONC behavior through
+the dependency-free, browser-safe `jsonc-parser` package; `parse-providers-config.ts`
+adds strict `providersConfigSchema` validation and is shared by load and mutate.
+Neither helper is exported, and only node-side readers import them, so the pure
+`ai-config` entry's dependency and import graph remains unchanged. Machine-supplied
+environment fragments continue to use strict `JSON.parse`.
 
 ## Model Capability Inference (`src/model-capabilities/`)
 
@@ -386,6 +398,8 @@ the bridge's `ModelInfo` — compatible by contract, not by import.
 | `src/legacy-positron-settings/`       | PROVIDER-SETTINGS-MIGRATION: legacy settings map, translator, and internal source builders                          |
 | `src/build-catalog.ts`                | `buildCatalog()` — assemble `ResolvedProvider[]` from merged config + enablement layers + baseline (pure entry)     |
 | `src/node/load-config.ts`             | `loadConfigSources()` / `readFileConfig()` / `readEnvFragment()` — assemble the ordered `ProviderConfigSource` list |
+| `src/node/parse-jsonc.ts`             | Internal JSONC parser for user-editable ai-config files; comments + trailing commas, `SyntaxError` on invalid input |
+| `src/node/parse-providers-config.ts`  | Internal shared JSONC parse + strict `providersConfigSchema` validation seam                                        |
 | `src/node/load-catalog.ts`            | `loadResolvedProviderCatalog()` — public read seam (assemble sources → `resolveProviderCatalog`)                    |
 | `src/node/mutate-config.ts`           | `mutateProvidersConfig()` — locked, atomic, serialized mutation                                                     |
 | `src/node/watch-catalog.ts`           | `watchResolvedProviderCatalog()` — watch, reload, diff, emit typed changes                                          |
@@ -401,8 +415,10 @@ the bridge's `ModelInfo` — compatible by contract, not by import.
   Nothing imports `vscode` — hosts inject a `LegacySettingsReader` instead.
 - **No import edge to the bridge or credential store** — vocabulary
   compatibility is guaranteed by the shape guard instead.
-- **Graceful degradation everywhere on the read path** — a malformed or missing
+- **Graceful degradation on load/watch reads** — a malformed or missing
   file never throws; it logs and falls back.
+- **Mutations never rewrite unreadable input** — filesystem, JSONC syntax, and
+  schema-validation failures all reject before the mutator or writer runs.
 - **`CustomProviderId` is branded** and only mintable through
   `mintCustomProviderId()`, after collision checks.
 - **External builds** pass `external: true` to `buildCatalog()`, which skips

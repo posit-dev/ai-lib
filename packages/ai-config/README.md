@@ -1,6 +1,6 @@
 # ai-config
 
-Owns the full lifecycle of `~/.posit/ai/providers.json`: the schema, validation, defaults, the resolution pipeline that turns a raw file into an effective provider catalog, and the filesystem seams that load, watch, and mutate the file safely across processes.
+Owns the full lifecycle of `~/.posit/ai/providers.json`: JSONC parsing, schema validation, defaults, the resolution pipeline that turns a raw file into an effective provider catalog, and the filesystem seams that load, watch, and mutate the file safely across processes. The file accepts `//` and `/* ... */` comments plus trailing commas.
 
 This package is part of the [`ai-lib`](../../README.md) monorepo. It is a dependency-light leaf: it does **not** import `ai-provider-bridge` or `ai-credentials`. Compatibility with the bridge's vocabulary (provider IDs, protocols, client kinds) is enforced at compile time by a [shape guard](../../typechecks), not by an import edge.
 
@@ -179,7 +179,7 @@ import { AI_CONFIG_DIR, PROVIDERS_CONFIG_PATH } from "ai-config/node";
 
 #### `loadResolvedProviderCatalog(opts): Promise<readonly ResolvedProvider[]>`
 
-The single read seam. Assembles the config sources (the user file → `{}` if missing, the `POSIT_AI_PROVIDERS_ENFORCED` / `POSIT_AI_PROVIDERS_DEFAULT` env fragments, and the legacy Positron layers opted into via `legacyPositronSettings` / `legacyPositronEnforcedSettings`), delegates precedence to `resolveProviderCatalog`, applies the platform baseline, and returns the resolved catalog. The read path degrades gracefully — malformed/missing files log a warning and fall back rather than throwing.
+The single read seam. Assembles the config sources (the JSONC user file → `{}` if missing, the strict-JSON `POSIT_AI_PROVIDERS_ENFORCED` / `POSIT_AI_PROVIDERS_DEFAULT` env fragments, and the legacy Positron layers opted into via `legacyPositronSettings` / `legacyPositronEnforcedSettings`), delegates precedence to `resolveProviderCatalog`, applies the platform baseline, and returns the resolved catalog. The read path degrades gracefully — malformed/missing files log a warning and fall back rather than throwing.
 
 ```ts
 const catalog = await loadResolvedProviderCatalog({
@@ -202,7 +202,7 @@ const catalog = await loadResolvedProviderCatalog({
 
 #### `mutateProvidersConfig(mutator, opts?): Promise<void>`
 
-Cross-process-safe read-modify-write. The `mutator` receives the current validated config and returns the new one. Returning the same object is a valid no-op (the write still happens; it's idempotent). The seam owns all write safety: `proper-lockfile` locking with stale reclamation, an in-process serialization queue per path, race-safe first creation (`wx`), atomic temp-file-plus-rename writes, and seed-metadata (`$schema`, `version`) injection on first creation.
+Cross-process-safe read-modify-write. The `mutator` receives the current validated config and returns the new one. Returning the same object is a valid no-op (the write still happens; it's idempotent). The seam owns all write safety: `proper-lockfile` locking with stale reclamation, an in-process serialization queue per path, race-safe first creation (`wx`), atomic temp-file-plus-rename writes, and seed-metadata (`$schema`, `version`) injection on first creation. If the existing file cannot be read, parsed, or validated, the mutation rejects without writing; fix the file before retrying. Successful programmatic writes serialize the whole object with `JSON.stringify`, so they strip comments from existing JSONC.
 
 ```ts
 await mutateProvidersConfig((current) => ({
@@ -240,6 +240,12 @@ sub.dispose();
 `LoadCatalogOptions`, `MutateConfigOptions`, `WatchCatalogOptions`, `ProviderCatalogChange`, `Disposable`, `LoggerLike`.
 
 ## `providers.json` shape
+
+`providers.json` is JSONC: line comments, block comments, and trailing commas are supported. VS
+Code still associates the `.json` extension with strict JSON by default, so it may show comments
+as errors unless you map the file to JSONC, for example with
+`"files.associations": { "**/.posit/ai/providers.json": "jsonc" }`. The `$schema` hint provides
+validation and autocomplete whether the editor language mode is JSON or JSONC.
 
 ```jsonc
 {
@@ -279,11 +285,11 @@ Config flows through **assemble sources → resolve → watch**:
 2. **Resolve** (`resolveProviderCatalog`): rank the sources by kind (`enforced` > `legacy-positron-enforced` > connection env > `user` > `legacy-positron` > `default`), fold them low → high so the sealed `enforced` overlay can never be overwritten, apply the `PlatformBaseline` beneath, and build `ResolvedProvider[]` — objects deep-merge per leaf-key, `allow`/`deny` arrays wholesale-replace. Connection env vars are a resolver-owned source below `enforced`, not a post-resolution overlay. The resolver retains narrow semantic provenance for fields whose origin affects consumers.
 3. **Watch** (`watchResolvedProviderCatalog`): debounced (~300ms), ancestor-aware watch over **every** source (file via `fs.watch`; the legacy reader's `watch` signal; env sources are static) that re-resolves, diffs values and connection provenance against the previous catalog, and emits a typed change only when something actually changed.
 
-The read path **degrades gracefully**: malformed or missing files log a warning and fall back rather than throwing.
+The file read path parses JSONC and **degrades gracefully**: malformed or missing files log a warning and fall back rather than throwing. Serialized environment fragments remain strict JSON.
 
 ## File I/O guarantees
 
-`mutateProvidersConfig` owns cross-process write safety so callers just supply a mutator: a `proper-lockfile` lock (with retries and stale detection), an in-process serialization queue per path, race-safe first creation (exclusive `wx` flag), atomic write (temp file + rename), seed-metadata injection (`$schema`, `version`) on first creation, and a best-effort copy of `providers.schema.json` alongside the config.
+`mutateProvidersConfig` owns cross-process write safety so callers just supply a mutator: a `proper-lockfile` lock (with retries and stale detection), an in-process serialization queue per path, race-safe first creation (exclusive `wx` flag), atomic write (temp file + rename), seed-metadata injection (`$schema`, `version`) on first creation, and a best-effort copy of `providers.schema.json` alongside the config. It never treats unreadable, syntax-invalid, or schema-invalid existing content as empty: any such failure aborts the mutation and leaves the file byte-for-byte unchanged. Writes currently reserialize the entire config as strict JSON, which preserves values but strips JSONC comments.
 
 ## Development
 

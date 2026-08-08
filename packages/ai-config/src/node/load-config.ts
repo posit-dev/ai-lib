@@ -14,9 +14,12 @@
 
 import { promises as fs } from "fs";
 
+import { ZodError } from "zod";
+
 import type { ProviderConfigSource } from "../resolve-catalog.js";
-import { providersConfigFragmentSchema, providersConfigSchema } from "../schema.js";
+import { providersConfigFragmentSchema } from "../schema.js";
 import type { ProvidersConfigFragment, LoggerLike, ProvidersConfig } from "../types.js";
+import { parseProvidersConfig } from "./parse-providers-config.js";
 import { DEFAULT_ENV_VAR, ENFORCED_ENV_VAR, PROVIDERS_CONFIG_PATH } from "./paths.js";
 
 /** Options for assembling the default config sources. */
@@ -98,27 +101,24 @@ export async function readFileConfig(
 		return {};
 	}
 
-	// Parse JSON
-	let parsed: unknown;
 	try {
-		parsed = JSON.parse(raw);
+		return parseProvidersConfig(raw);
 	} catch (error) {
-		logger?.warn(
-			`[ai-config] Failed to parse ${configPath} as JSON: ${errorMessage(error)}. Using empty config.`,
-		);
+		if (error instanceof SyntaxError) {
+			logger?.warn(
+				`[ai-config] Failed to parse ${configPath} as JSONC: ${errorMessage(error)}. Using empty config.`,
+			);
+		} else if (error instanceof ZodError) {
+			logger?.warn(
+				`[ai-config] Validation errors in ${configPath}: ${formatZodErrors(error)}. Using empty config.`,
+			);
+		} else {
+			logger?.warn(
+				`[ai-config] Failed to load ${configPath}: ${errorMessage(error)}. Using empty config.`,
+			);
+		}
 		return {};
 	}
-
-	// Validate with Zod
-	const result = providersConfigSchema.safeParse(parsed);
-	if (!result.success) {
-		logger?.warn(
-			`[ai-config] Validation errors in ${configPath}: ${formatZodErrors(result.error)}. Using empty config.`,
-		);
-		return {};
-	}
-
-	return result.data;
 }
 
 /**
