@@ -16,6 +16,7 @@ import type { LanguageModelV3 } from "@ai-sdk/provider";
 import { streamText } from "ai";
 import { OAuth2Client } from "google-auth-library";
 
+import { sanitizeToolCallIdsForAnthropic } from "../tool-call-ids";
 import type { LMStreamPart, Protocol } from "../types";
 import { normalizeProtocol } from "../types";
 import { isThinkingEnabled } from "../utils";
@@ -107,11 +108,17 @@ export class GoogleVertexClient implements ModelClient {
 					}
 				: undefined;
 
+		// The Anthropic Messages wire validates tool_use.id against
+		// `^[a-zA-Z0-9_-]+$`; sanitize outbound IDs on that route only.
+		const messagesToSend = isAnthropic
+			? sanitizeToolCallIdsForAnthropic(params.messages)
+			: params.messages;
+
 		// Stream the response
 		const result = streamText({
 			allowSystemInMessages: params.allowSystemInMessages,
 			model,
-			messages: params.messages,
+			messages: messagesToSend,
 			system: params.systemPrompt,
 			maxOutputTokens: params.maxOutputTokens || 4096,
 			tools: params.tools,
