@@ -274,12 +274,13 @@ const BUILTIN_CONNECTION_SECTIONS = {
 	"ms-foundry": [],
 	deepseek: [],
 	databricks: ["databricks"],
+	litellm: [],
 } as const satisfies Record<BuiltinProviderId, readonly ConnectionSectionName[]>;
 
 /**
- * Which connection sub-sections each supported **custom** `type` carries. Of
- * the 9 supported kinds only `aws` / `google-vertex` / `snowflake` carry a
- * capability section; the other 6 are base-only. No custom variant carries
+ * Which connection sub-sections each supported **custom** `type` carries.
+ * Only `aws` / `google-vertex` / `snowflake` carry a capability section; all
+ * other supported kinds are base-only. No custom variant carries
  * `positaiLogin`.
  */
 const CUSTOM_CONNECTION_SECTIONS = {
@@ -292,6 +293,7 @@ const CUSTOM_CONNECTION_SECTIONS = {
 	deepseek: [],
 	openrouter: [],
 	"ms-foundry": [],
+	litellm: [],
 } as const satisfies Record<SupportedCustomClientKind, readonly ConnectionSectionName[]>;
 
 // ---------------------------------------------------------------------------
@@ -316,7 +318,7 @@ export const defaultBlockSchema = z
 /**
  * A custom provider entry — a genuine discriminated union keyed on `type` (the
  * client kind). Each variant carries only its relevant connection sub-sections.
- * Restricted to the supported 9 kinds (product-specific kinds assume built-in
+ * Restricted to the supported kinds (product-specific kinds assume built-in
  * registration and are excluded).
  */
 function customProviderVariantSchema<K extends SupportedCustomClientKind>(kind: K) {
@@ -339,6 +341,7 @@ export const customProviderEntrySchema = z.discriminatedUnion("type", [
 	customProviderVariantSchema("deepseek"),
 	customProviderVariantSchema("openrouter"),
 	customProviderVariantSchema("ms-foundry"),
+	customProviderVariantSchema("litellm"),
 ]);
 
 /**
@@ -372,7 +375,7 @@ type _AssertCustomVariantsExhaustive = AssertTrue<CustomVariantsMatchSupportedKi
  * be one — its connection sections stay a permissive superset. `type` is
  * optional so a fragment can set a single key (e.g. an admin enforcing
  * `providers.custom.my-gateway.enabled = false`) without repeating it; when
- * present it is still constrained to the supported 9 kinds. Full-schema
+ * present it is still constrained to the supported kinds. Full-schema
  * validation happens on the **merged** result, not on the fragment.
  */
 export const customProviderEntryFragmentSchema = z

@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProviderCatalogChange } from "../node/types.js";
 import { watchResolvedProviderCatalog } from "../node/watch-catalog.js";
 import type { PlatformBaseline, ProvidersConfig } from "../types.js";
+import { BUILTIN_PROVIDER_IDS } from "../vocabulary.js";
 
 const mockLogger = {
 	debug: vi.fn(),
@@ -307,7 +308,7 @@ describe("watchResolvedProviderCatalog", () => {
 
 		if (changes.length > 0) {
 			const lastChange = changes[changes.length - 1];
-			expect(lastChange.catalog.length).toBe(15); // all built-ins
+			expect(lastChange.catalog.length).toBe(BUILTIN_PROVIDER_IDS.length); // all built-ins
 		}
 	});
 });

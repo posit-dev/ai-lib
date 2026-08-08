@@ -3,10 +3,17 @@
  *--------------------------------------------------------------------------------------------*/
 
 import type { InferredModelCapabilities } from "../types.js";
+import type { Protocol } from "../vocabulary.js";
 import { getAnthropicModelCapabilities } from "./anthropic-helpers.js";
 import { getBedrockMantleModelCapabilities } from "./bedrock-mantle-helpers.js";
 import { getDeepSeekModelCapabilities } from "./deepseek-helpers.js";
 import { getGeminiModelCapabilities } from "./gemini-helpers.js";
+import {
+	classifyLitellmModel,
+	getLitellmModelCapabilities,
+	type LitellmModelClassificationInput,
+	type LitellmModelFamily,
+} from "./litellm-helpers.js";
 import { getOpenAIModelCapabilities, openaiMaxInputTokens } from "./openai-helpers.js";
 import { getPositAiModelCapabilities } from "./positai-helpers.js";
 import { getSnowflakeCortexModelCapabilities } from "./snowflake-cortex-helpers.js";
@@ -66,6 +73,10 @@ function familyDefaults(providerId: string, modelId: string): Partial<InferredMo
 				thinkingEffortLevels: caps.thinkingEffortLevels,
 			};
 		}
+		case "litellm":
+			// LiteLLM ids here are proxy aliases; a Claude-looking alias gets
+			// Anthropic capabilities, anything else stays conservative.
+			return getLitellmModelCapabilities(modelId) ?? {};
 		case "snowflake-cortex":
 			// Cortex serves a fixed catalog at its own token windows, which differ
 			// from the upstream vendor limits; the shared table owns them.
@@ -77,25 +88,119 @@ function familyDefaults(providerId: string, modelId: string): Partial<InferredMo
 	}
 }
 
+type CompleteInferredModelCapabilities = Omit<
+	InferredModelCapabilities,
+	"requiresChatTemplateKwargs"
+>;
+
 /**
- * Family inference plus a derivation the tables themselves omit: the
- * anthropic/gemini tables list image input MIME types but never set
- * `supportsImages`, so without this the baseline `false` would win for models
- * that plainly accept images. Explicit table values (e.g. gpt-3.5's
- * `supportsImages: false`) are never overridden.
+ * Apply the generic baseline plus a derivation the tables themselves omit:
+ * image MIME types imply image support unless the table explicitly says
+ * otherwise.
  */
-function inferProviderDefaults(
-	providerId: string,
-	modelId: string,
-): Partial<InferredModelCapabilities> {
-	const caps = familyDefaults(providerId, modelId);
-	if (
+function completeCapabilities(
+	caps: Partial<InferredModelCapabilities>,
+): CompleteInferredModelCapabilities {
+	const withDerivedImageSupport =
 		caps.supportsImages === undefined &&
 		caps.supportedInputMediaTypes?.some((mediaType) => mediaType.startsWith("image/"))
-	) {
-		return { ...caps, supportsImages: true };
-	}
-	return caps;
+			? { ...caps, supportsImages: true }
+			: caps;
+	const { requiresChatTemplateKwargs: _drop, ...inferred } = withDerivedImageSupport;
+	return {
+		...inferred,
+		maxContextLength: inferred.maxContextLength ?? GENERIC_BASELINE.maxContextLength,
+		maxInputTokens: inferred.maxInputTokens ?? GENERIC_BASELINE.maxInputTokens,
+		maxOutputTokens: inferred.maxOutputTokens ?? GENERIC_BASELINE.maxOutputTokens,
+		supportsTools: inferred.supportsTools ?? GENERIC_BASELINE.supportsTools,
+		supportsImages: inferred.supportsImages ?? GENERIC_BASELINE.supportsImages,
+		supportsToolResultImages:
+			inferred.supportsToolResultImages ?? GENERIC_BASELINE.supportsToolResultImages,
+		supportsWebSearch: inferred.supportsWebSearch ?? GENERIC_BASELINE.supportsWebSearch,
+	};
+}
+
+export interface LitellmModelProfileInput extends LitellmModelClassificationInput {
+	supportsReasoning?: boolean | null;
+	supportsMinimalReasoningEffort?: boolean | null;
+	supportsLowReasoningEffort?: boolean | null;
+	supportsXhighReasoningEffort?: boolean | null;
+	supportsMaxReasoningEffort?: boolean | null;
+	useOpenAIResponsesPath?: boolean | null;
+}
+
+export interface LitellmModelProfile {
+	family: LitellmModelFamily;
+	protocol: Protocol;
+	capabilities: CompleteInferredModelCapabilities;
+}
+
+function isOpenAIReasoningSeries(modelId: string): boolean {
+	const bare = modelId.slice(modelId.lastIndexOf("/") + 1).toLowerCase();
+	return /^o\d(?:$|[-.])/.test(bare);
+}
+
+function reasoningEffortLevels(
+	input: LitellmModelProfileInput,
+	knownLevels: string[] | undefined,
+): string[] {
+	const hasKnown = (level: string): boolean => knownLevels?.includes(level) === true;
+	const supportsOptionalLevel = (
+		signal: boolean | null | undefined,
+		level: string,
+		defaultWhenUnknown = false,
+	): boolean => signal === true || (signal == null && (hasKnown(level) || defaultWhenUnknown));
+	return [
+		"off",
+		...(supportsOptionalLevel(input.supportsMinimalReasoningEffort, "minimal") ? ["minimal"] : []),
+		...(supportsOptionalLevel(input.supportsLowReasoningEffort, "low", knownLevels === undefined)
+			? ["low"]
+			: []),
+		"medium",
+		"high",
+		...(supportsOptionalLevel(input.supportsXhighReasoningEffort, "xhigh") ? ["xhigh"] : []),
+		...(supportsOptionalLevel(input.supportsMaxReasoningEffort, "max") ? ["max"] : []),
+	];
+}
+
+/**
+ * Resolve a LiteLLM discovery entry in one operation. Family-gating the
+ * capability lookup here prevents non-OpenAI gateways with OpenAI-looking ids
+ * from inheriting OpenAI reasoning controls. Live LiteLLM metadata is the
+ * forward-compatible reasoning signal; the o-series namespace is a fallback
+ * for proxies that omit model metadata.
+ */
+export function inferLitellmModelProfile(input: LitellmModelProfileInput): LitellmModelProfile {
+	const classification = classifyLitellmModel(input);
+	const knownCapabilities =
+		classification.family === "other"
+			? undefined
+			: getLitellmModelCapabilities(classification.capabilityModelId);
+	const isReasoningModel =
+		classification.family === "openai" &&
+		(input.supportsReasoning === true ||
+			(input.supportsReasoning == null &&
+				(knownCapabilities?.thinkingEffortLevels !== undefined ||
+					isOpenAIReasoningSeries(classification.capabilityModelId))));
+	const protocol: Protocol =
+		classification.family === "claude"
+			? "anthropic-messages"
+			: classification.family === "openai" &&
+				  (isReasoningModel || input.useOpenAIResponsesPath === true)
+				? "openai-responses"
+				: "openai-chat";
+	const capabilities = isReasoningModel
+		? {
+				...knownCapabilities,
+				thinkingEffortLevels: reasoningEffortLevels(input, knownCapabilities?.thinkingEffortLevels),
+			}
+		: (knownCapabilities ?? {});
+
+	return {
+		family: classification.family,
+		protocol,
+		capabilities: completeCapabilities(capabilities),
+	};
 }
 
 /**
@@ -116,21 +221,5 @@ export function inferModelCapabilities(
 	providerId: string,
 	modelId: string,
 ): Omit<InferredModelCapabilities, "requiresChatTemplateKwargs"> {
-	const { requiresChatTemplateKwargs: _drop, ...inferred } = inferProviderDefaults(
-		providerId,
-		modelId,
-	);
-	// `??` per required field (not a bare spread) so a helper that explicitly
-	// sets a field to `undefined` cannot shadow the baseline.
-	return {
-		...inferred,
-		maxContextLength: inferred.maxContextLength ?? GENERIC_BASELINE.maxContextLength,
-		maxInputTokens: inferred.maxInputTokens ?? GENERIC_BASELINE.maxInputTokens,
-		maxOutputTokens: inferred.maxOutputTokens ?? GENERIC_BASELINE.maxOutputTokens,
-		supportsTools: inferred.supportsTools ?? GENERIC_BASELINE.supportsTools,
-		supportsImages: inferred.supportsImages ?? GENERIC_BASELINE.supportsImages,
-		supportsToolResultImages:
-			inferred.supportsToolResultImages ?? GENERIC_BASELINE.supportsToolResultImages,
-		supportsWebSearch: inferred.supportsWebSearch ?? GENERIC_BASELINE.supportsWebSearch,
-	};
+	return completeCapabilities(familyDefaults(providerId, modelId));
 }

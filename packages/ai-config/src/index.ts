@@ -77,6 +77,15 @@ export { getDeepSeekModelCapabilities } from "./model-capabilities/deepseek-help
 export { getGeminiModelCapabilities } from "./model-capabilities/gemini-helpers.js";
 export { getGemmaModelCapabilities } from "./model-capabilities/gemma-helpers.js";
 export {
+	classifyLitellmModel,
+	getLitellmModelCapabilities,
+} from "./model-capabilities/litellm-helpers.js";
+export type {
+	LitellmModelClassification,
+	LitellmModelClassificationInput,
+	LitellmModelFamily,
+} from "./model-capabilities/litellm-helpers.js";
+export {
 	getOpenAIModelCapabilities,
 	openaiMaxInputTokens,
 } from "./model-capabilities/openai-helpers.js";
@@ -89,7 +98,8 @@ export type {
 	SnowflakeCortexCatalogEntry,
 	SnowflakeCortexModelCapabilities,
 } from "./model-capabilities/snowflake-cortex-helpers.js";
-export { inferModelCapabilities } from "./model-capabilities/infer.js";
+export { inferLitellmModelProfile, inferModelCapabilities } from "./model-capabilities/infer.js";
+export type { LitellmModelProfile, LitellmModelProfileInput } from "./model-capabilities/infer.js";
 
 // --- Defaults --------------------------------------------------------------
 export {

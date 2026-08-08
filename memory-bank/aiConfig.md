@@ -87,7 +87,7 @@ compile error (exhaustiveness). Only four built-ins carry a section — `bedrock
 no custom variant carries it.
 
 **Supported custom kinds ⊂ client kinds.** `providers.custom` entries are
-restricted to `SUPPORTED_CUSTOM_CLIENT_KIND_VALUES` (9 kinds), a local mirror of
+restricted to `SUPPORTED_CUSTOM_CLIENT_KIND_VALUES`, a local mirror of
 `ai-credentials/types`' list (no import edge; kept equal by the shape guard).
 Product-specific kinds (`positai`, `anthropic`, `openai`, `gemini`, `copilot`)
 are **excluded** — a custom provider proxying those APIs uses
@@ -108,7 +108,7 @@ property. The inferred `ProvidersMap` built-in blocks and `ResolvedConnection`
 stay a permissive **superset** (all sub-sections optional), so reader/writer code
 (`resolveConnectionFromBlock`, `authentication-fragment.ts`) is union-agnostic.
 The **enforced** schemas stay loose too: built-in keys use the superset block and
-custom `type` is optional (though still constrained to the supported 9 when
+custom `type` is optional (though still constrained to the supported kinds when
 present) — a discriminated union requires its discriminator, so full validation
 runs on the **merged** result, and `recoverValidStack()` drops any relaxed
 overlay that becomes invalid after merge.
