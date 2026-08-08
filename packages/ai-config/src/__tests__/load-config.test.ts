@@ -311,6 +311,32 @@ describe("loadResolvedProviderCatalog", () => {
 			]);
 		});
 
+		it("ignores an env fragment containing an unsafe custom provider name", async () => {
+			const configPath = await writeConfig(tempDir, {
+				providers: { anthropic: { baseUrl: "https://user.example.com" } },
+			});
+			const report = await loadProviderCatalogReport({
+				baseline: STANDALONE_BASELINE,
+				configPath,
+				enforcedEnvVar: "TEST_ENFORCED",
+				envVars: {
+					TEST_ENFORCED:
+						'{"providers":{"anthropic":{"baseUrl":"https://admin.example.com"},"custom":{"__proto__":{"enabled":false}}}}',
+				},
+			});
+
+			expect(findProvider(report.catalog, "anthropic")?.connection.baseUrl).toBe(
+				"https://user.example.com",
+			);
+			expect(report.issues).toEqual([
+				expect.objectContaining({
+					source: { kind: "enforced", label: "TEST_ENFORCED" },
+					path: ["providers", "custom", "__proto__"],
+					message: expect.stringContaining('Custom provider name "__proto__" is unsafe.'),
+				}),
+			]);
+		});
+
 		it("enforced fragment can disable a custom provider without specifying type", async () => {
 			// An admin can enforce `providers.custom.my-gateway.enabled = false`
 			// without repeating the required `type` field, as long as the user

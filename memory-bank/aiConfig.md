@@ -120,15 +120,16 @@ overlay that becomes invalid after merge.
 Config flows through three stages: **assemble sources → resolve → watch**. Precedence lives entirely inside the pure `resolveProviderCatalog({ sources })` seam (`src/resolve-catalog.ts`); the node entry only assembles sources.
 
 1. **Assemble sources** (`src/node/load-config.ts`): read the user-editable file as JSONC
-   (comments and trailing commas accepted; missing → `{}`; validated against
-   `providersConfigSchema`), the enforced fragment from
+   (comments and trailing commas accepted; missing → `{}`; malformed blocks
+   salvaged tolerantly into a full-schema-valid source), the enforced fragment from
    `POSIT_AI_PROVIDERS_ENFORCED`, and the defaults fragment from
    `POSIT_AI_PROVIDERS_DEFAULT` (both remain strict JSON and are validated against the relaxed
    `providersConfigFragmentSchema`), plus the legacy Positron layers the
    loader opted into (`legacyPositronSettings` → `legacy-positron`,
    `legacyPositronEnforcedSettings` → `legacy-positron-enforced`). Each
-   becomes a `ProviderConfigSource` tagged with its `kind` (`enforced` /
-   `legacy-positron-enforced` / `user` / `legacy-positron` / `default`).
+   reader returns `{ source?, issues }`; present sources are tagged with their
+   `kind` (`enforced` / `legacy-positron-enforced` / `user` /
+   `legacy-positron` / `default`).
 2. **Resolve** (`src/resolve-catalog.ts`, `resolveProviderCatalog()`): rank the
    sources by kind (`enforced` > `legacy-positron-enforced` > `user` >
    `legacy-positron` > `default`), fold them low → high so the sealed `enforced`
@@ -403,35 +404,35 @@ the bridge's `ModelInfo` — compatible by contract, not by import.
 
 ## Code Layout
 
-| Location                              | What it does                                                                                                        |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `src/vocabulary.ts`                   | Provider-ID / protocol / client-kind / reserved-key value tuples + type guards                                      |
-| `src/schema.ts`                       | Zod schemas (full + enforced variants) for `providers.json`                                                         |
-| `src/types.ts`                        | Types inferred from Zod + resolution outputs + branded `CustomProviderId` / `mintCustomProviderId`                  |
-| `src/defaults.ts`                     | Built-in provider connection defaults; `PROVIDER_CONNECTION_DEFAULTS`                                               |
-| `src/enforce.ts`                      | `mergeEnforced()` deep-merge of enforced over user config                                                           |
-| `src/resolve-enabled.ts`              | `resolveEnabled()` enablement precedence ladder                                                                     |
-| `src/resolve-connection.ts`           | Internal baseUrl/endpoint resolution precedence                                                                     |
-| `src/resolve-models.ts`               | `resolveModels()` model selection + routing pipeline                                                                |
-| `src/model-capabilities/*-helpers.ts` | Per-provider capability tables (moved from the bridge, ai-lib#9)                                                    |
-| `src/model-capabilities/infer.ts`     | `inferModelCapabilities()` — baseline + provider-family merge, Snowflake protocol rule                              |
-| `src/index.ts`                        | Pure entrypoint exports                                                                                             |
-| `src/node/paths.ts`                   | `AI_CONFIG_DIR`, `PROVIDERS_CONFIG_PATH`, enforced env-var name, lockfile path                                      |
-| `src/node/types.ts`                   | Node seam option/result types (`LoadCatalogOptions`, `ProviderCatalogChange`, `Disposable`, …)                      |
-| `src/resolve-catalog.ts`              | `resolveProviderCatalog()` — pure deep resolver seam; owns the precedence stack + sealed-enforced invariant         |
-| `src/base-url.ts`                     | `normalizeBaseUrlForProvider()` + known host/version constants (the bridge imports them from here)                  |
-| `src/config-source.ts`                | `ProviderConfigSource` + internal `ProviderConfigSourceProvider` loader machinery                                   |
-| `src/legacy-positron-settings/`       | PROVIDER-SETTINGS-MIGRATION: legacy settings map, translator, and internal source builders                          |
-| `src/build-catalog.ts`                | `buildCatalog()` — assemble `ResolvedProvider[]` from merged config + enablement layers + baseline (pure entry)     |
-| `src/node/load-config.ts`             | `loadConfigSources()` / `readFileConfig()` / `readEnvFragment()` — assemble the ordered `ProviderConfigSource` list |
-| `src/node/parse-jsonc.ts`             | Internal JSONC parser for user-editable ai-config files; comments + trailing commas, `SyntaxError` on invalid input |
-| `src/node/parse-providers-config.ts`  | Internal shared JSONC parse + strict `providersConfigSchema` validation seam                                        |
-| `src/node/load-catalog.ts`            | `loadResolvedProviderCatalog()` — public read seam (assemble sources → `resolveProviderCatalog`)                    |
-| `src/node/mutate-config.ts`           | `mutateProvidersConfig()` — locked, atomic, serialized mutation                                                     |
-| `src/node/watch-catalog.ts`           | `watchResolvedProviderCatalog()` — watch, reload, diff, emit typed changes                                          |
-| `src/node/index.ts`                   | Node entrypoint; re-exports pure entry + filesystem seams                                                           |
-| `providers.schema.json`               | Generated JSON Schema, exported for editor validation                                                               |
-| `scripts/generate-schema.ts`          | Regenerates `providers.schema.json` from the Zod schemas                                                            |
+| Location                              | What it does                                                                                                                               |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src/vocabulary.ts`                   | Provider-ID / protocol / client-kind / reserved-key value tuples + type guards                                                             |
+| `src/schema.ts`                       | Zod schemas (full + enforced variants) for `providers.json`                                                                                |
+| `src/types.ts`                        | Types inferred from Zod + resolution outputs + branded `CustomProviderId` / `mintCustomProviderId`                                         |
+| `src/defaults.ts`                     | Built-in provider connection defaults; `PROVIDER_CONNECTION_DEFAULTS`                                                                      |
+| `src/enforce.ts`                      | `mergeEnforced()` deep-merge of enforced over user config                                                                                  |
+| `src/resolve-enabled.ts`              | `resolveEnabled()` enablement precedence ladder                                                                                            |
+| `src/resolve-connection.ts`           | Internal baseUrl/endpoint resolution precedence                                                                                            |
+| `src/resolve-models.ts`               | `resolveModels()` model selection + routing pipeline                                                                                       |
+| `src/model-capabilities/*-helpers.ts` | Per-provider capability tables (moved from the bridge, ai-lib#9)                                                                           |
+| `src/model-capabilities/infer.ts`     | `inferModelCapabilities()` — baseline + provider-family merge, Snowflake protocol rule                                                     |
+| `src/index.ts`                        | Pure entrypoint exports                                                                                                                    |
+| `src/node/paths.ts`                   | `AI_CONFIG_DIR`, `PROVIDERS_CONFIG_PATH`, enforced env-var name, lockfile path                                                             |
+| `src/node/types.ts`                   | Node seam option/result types (`LoadCatalogOptions`, `ProviderCatalogChange`, `Disposable`, …)                                             |
+| `src/resolve-catalog.ts`              | `resolveProviderCatalog()` — pure deep resolver seam; owns the precedence stack + sealed-enforced invariant                                |
+| `src/base-url.ts`                     | `normalizeBaseUrlForProvider()` + known host/version constants (the bridge imports them from here)                                         |
+| `src/config-source.ts`                | `ProviderConfigSource` + internal `ProviderConfigSourceProvider` loader machinery                                                          |
+| `src/legacy-positron-settings/`       | PROVIDER-SETTINGS-MIGRATION: legacy settings map, translator, and internal source builders                                                 |
+| `src/build-catalog.ts`                | `buildCatalog()` — assemble `ResolvedProvider[]` from merged config + enablement layers + baseline (pure entry)                            |
+| `src/node/load-config.ts`             | `loadConfigSourceReports()` / readers — silently assemble `{ source?, issues }` reports; compatibility wrapper renders and returns sources |
+| `src/node/parse-jsonc.ts`             | Internal JSONC parser for user-editable ai-config files; comments + trailing commas, `SyntaxError` on invalid input                        |
+| `src/node/parse-providers-config.ts`  | Internal shared JSONC parse + strict `providersConfigSchema` validation seam                                                               |
+| `src/node/load-catalog.ts`            | `loadResolvedProviderCatalog()` — public read seam (assemble sources → `resolveProviderCatalog`)                                           |
+| `src/node/mutate-config.ts`           | `mutateProvidersConfig()` — locked, atomic, serialized mutation                                                                            |
+| `src/node/watch-catalog.ts`           | `watchResolvedProviderCatalog()` — watch, reload, diff, emit typed changes                                                                 |
+| `src/node/index.ts`                   | Node entrypoint; re-exports pure entry + filesystem seams                                                                                  |
+| `providers.schema.json`               | Generated JSON Schema, exported for editor validation                                                                                      |
+| `scripts/generate-schema.ts`          | Regenerates `providers.schema.json` from the Zod schemas                                                                                   |
 
 ## Invariants & Design Decisions
 
@@ -442,7 +443,8 @@ the bridge's `ModelInfo` — compatible by contract, not by import.
 - **No import edge to the bridge or credential store** — vocabulary
   compatibility is guaranteed by the shape guard instead.
 - **Graceful degradation on load/watch reads** — a malformed or missing
-  file never throws; it logs and falls back.
+  file never throws; silent readers return recoverable sources plus structured
+  issues, and load/watch orchestrators own issue rendering.
 - **Mutations never rewrite unreadable input** — filesystem, JSONC syntax, and
   schema-validation failures all reject before the mutator or writer runs.
 - **`CustomProviderId` is branded** and only mintable through

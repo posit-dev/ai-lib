@@ -420,25 +420,24 @@ const builtinProviderKeys = Object.fromEntries(
 	BUILTIN_PROVIDER_IDS.map((id) => [id, optionalBuiltinBlock(id)]),
 ) as Record<BuiltinProviderId, z.ZodOptional<typeof builtinProviderBlockSchema>>;
 
+function validateCustomProviderNames(value: unknown, ctx: z.RefinementCtx): unknown {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return value;
+	}
+	for (const name of Object.keys(value)) {
+		for (const message of customProviderNameIssues(name)) {
+			ctx.addIssue({ code: "custom", message, path: [name] });
+		}
+	}
+	return value;
+}
+
 export const providersMapSchema = z
 	.object({
 		...builtinProviderKeys,
 		default: defaultBlockSchema.optional(),
 		custom: z
-			.preprocess(
-				(value, ctx) => {
-					if (typeof value !== "object" || value === null || Array.isArray(value)) {
-						return value;
-					}
-					for (const name of Object.keys(value)) {
-						for (const message of customProviderNameIssues(name)) {
-							ctx.addIssue({ code: "custom", message, path: [name] });
-						}
-					}
-					return value;
-				},
-				z.record(z.string(), customProviderEntrySchema),
-			)
+			.preprocess(validateCustomProviderNames, z.record(z.string(), customProviderEntrySchema))
 			.optional(),
 	})
 	.strict();
@@ -457,7 +456,12 @@ export const providersMapFragmentSchema = z
 	.object({
 		...fragmentBuiltinProviderKeys,
 		default: defaultBlockSchema.optional(),
-		custom: z.record(z.string(), customProviderEntryFragmentSchema).optional(),
+		custom: z
+			.preprocess(
+				validateCustomProviderNames,
+				z.record(z.string(), customProviderEntryFragmentSchema),
+			)
+			.optional(),
 	})
 	.strict();
 
