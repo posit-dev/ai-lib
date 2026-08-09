@@ -23,8 +23,7 @@
  *   change within a process).
  */
 
-import { sourceConfigIssue } from "../config-issue.js";
-import type { ConfigIssue } from "../config-issue.js";
+import { sourceConfigIssue, sourcedWholeSourceIssue } from "../config-issue.js";
 import type {
 	ProviderConfigSourceProvider,
 	ProviderConfigSourceReadReport,
@@ -153,6 +152,5 @@ function issueOnly(
 	identity: Pick<ProviderConfigSource, "kind" | "label">,
 	message: string,
 ): ProviderConfigSourceReadReport {
-	const issue: ConfigIssue = { severity: "error", path: [], message };
-	return { issues: [sourceConfigIssue(issue, identity)] };
+	return { issues: [sourcedWholeSourceIssue(identity, message)] };
 }

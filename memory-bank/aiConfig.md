@@ -266,9 +266,12 @@ without managing locking, atomicity, or watch lifecycle themselves.
   `loadProviderCatalogReport` renders the completed snapshot once. Severity policy: whole-source
   failures (user-file syntax/read errors, whole-file salvage degrades — non-object
   root/`providers` or unsupported `version` — env-fragment parse/validation failures, and
-  malformed legacy enforced settings) are error-severity with an **empty path** (the source was
+  malformed legacy enforced settings, resolver overlay drops from `recoverValidStack`) are
+  error-severity with an **empty path** (the source was
   discarded whole; offending key paths stay in the message prose); per-key salvage drops are
-  warnings with the dropped key's path. Hosts surface only error-severity
+  warnings with the dropped key's path. The whole-source shape is constructed only via
+  `wholeSourceIssue` / `sourcedWholeSourceIssue` (`src/config-issue.ts`), so producers cannot
+  recreate the invalid error-with-a-path combination locally. Hosts surface only error-severity
   issues in the UI; warning-severity drops are log-only because the file is shared across
   consumers with different provider vocabularies. `parseJsonc` reports syntax errors as
   1-based `line L, column C` (computed from the text, since `jsonc-parser` only carries offsets),

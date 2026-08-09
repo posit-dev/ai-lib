@@ -18,7 +18,7 @@
  */
 
 import { buildCatalog } from "./build-catalog.js";
-import { configIssuePath, configIssueSource, formatConfigIssue } from "./config-issue.js";
+import { formatConfigIssue, sourcedWholeSourceIssue } from "./config-issue.js";
 import type { SourcedConfigIssue } from "./config-issue.js";
 import { readEnvConnectionConfig } from "./connection-env.js";
 import { mergeConfigFragments } from "./enforce.js";
@@ -303,12 +303,12 @@ export function recoverValidStack(
 			break; // Defensive: user alone always validates.
 		}
 
-		const issue: SourcedConfigIssue = {
-			severity: "warning",
-			path: configIssuePath(resolved.error.issues[0]?.path ?? []),
-			message: `Config source ${describeSource(victim)} produces an invalid merged result: ${formatZodErrors(resolved.error)}. Ignoring this source.`,
-			source: configIssueSource(victim),
-		};
+		// The whole overlay is discarded, so the issue is source-wide; the
+		// offending key path stays in the message prose.
+		const issue = sourcedWholeSourceIssue(
+			victim,
+			`Config source ${describeSource(victim)} produces an invalid merged result: ${formatZodErrors(resolved.error)}. Ignoring this source.`,
+		);
 		issues.push(issue);
 		logger?.warn(formatConfigIssue(issue));
 		kept = without(kept, victim);

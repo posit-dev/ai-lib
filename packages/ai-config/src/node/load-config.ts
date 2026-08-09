@@ -6,8 +6,7 @@
 
 import { promises as fs } from "fs";
 
-import { formatConfigIssue, sourceConfigIssue } from "../config-issue.js";
-import type { ConfigIssue, SourcedConfigIssue } from "../config-issue.js";
+import { formatConfigIssue, sourceConfigIssue, sourcedWholeSourceIssue } from "../config-issue.js";
 import type { ProviderConfigSourceReadReport } from "../config-source.js";
 import type { ProviderConfigSource } from "../resolve-catalog.js";
 import { providersConfigFragmentSchema } from "../schema.js";
@@ -66,9 +65,9 @@ export async function readFileConfig(configPath: string): Promise<ProviderConfig
 		return {
 			source: { ...identity, config: {} },
 			issues: [
-				sourceConfigIssue(
-					errorIssue([], `Could not read the file: ${errorMessage(error)}. Using empty config.`),
+				sourcedWholeSourceIssue(
 					identity,
+					`Could not read the file: ${errorMessage(error)}. Using empty config.`,
 				),
 			],
 		};
@@ -86,14 +85,11 @@ export async function readFileConfig(configPath: string): Promise<ProviderConfig
 		return {
 			source: { ...identity, config: {} },
 			issues: [
-				sourceConfigIssue(
-					errorIssue(
-						[],
-						error instanceof SyntaxError
-							? `Invalid JSONC: ${errorMessage(error)}. Using empty config.`
-							: `Unexpected error: ${errorMessage(error)}. Using empty config.`,
-					),
+				sourcedWholeSourceIssue(
 					identity,
+					error instanceof SyntaxError
+						? `Invalid JSONC: ${errorMessage(error)}. Using empty config.`
+						: `Unexpected error: ${errorMessage(error)}. Using empty config.`,
 				),
 			],
 		};
@@ -118,9 +114,8 @@ export function readEnvFragment(
 	} catch (error) {
 		return {
 			issues: [
-				sourcedErrorIssue(
+				sourcedWholeSourceIssue(
 					identity,
-					[],
 					`Failed to parse ${envVarName} as JSON: ${errorMessage(error)}. Ignoring.`,
 				),
 			],
@@ -129,13 +124,12 @@ export function readEnvFragment(
 
 	const result = providersConfigFragmentSchema.safeParse(parsed);
 	if (!result.success) {
-		// The fragment is ignored whole, so the issue is source-wide (empty
-		// path); the offending key path stays in the message prose.
+		// The fragment is ignored whole, so the issue is source-wide; the
+		// offending key path stays in the message prose.
 		return {
 			issues: [
-				sourcedErrorIssue(
+				sourcedWholeSourceIssue(
 					identity,
-					[],
 					`Validation errors in ${envVarName}: ${formatZodErrors(result.error)}. Ignoring.`,
 				),
 			],
@@ -143,18 +137,6 @@ export function readEnvFragment(
 	}
 
 	return { source: { ...identity, config: result.data }, issues: [] };
-}
-
-function sourcedErrorIssue(
-	identity: Pick<ProviderConfigSource, "kind" | "label">,
-	path: readonly (string | number)[],
-	message: string,
-): SourcedConfigIssue {
-	return sourceConfigIssue(errorIssue(path, message), identity);
-}
-
-function errorIssue(path: readonly (string | number)[], message: string): ConfigIssue {
-	return { severity: "error", path, message };
 }
 
 function errorMessage(error: unknown): string {

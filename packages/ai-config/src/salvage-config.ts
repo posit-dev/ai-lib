@@ -2,7 +2,7 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { configIssuePath } from "./config-issue.js";
+import { configIssuePath, wholeSourceIssue } from "./config-issue.js";
 import type { ConfigIssue } from "./config-issue.js";
 import { customProviderNameIssues } from "./custom-provider-name.js";
 import {
@@ -33,7 +33,7 @@ export function salvageProvidersConfig(parsed: unknown): SalvagedProvidersConfig
 	}
 
 	if (!isPlainObject(parsed)) {
-		return degradedIssue([], "Expected providers.json to contain a JSON object.");
+		return degradedIssue("Expected providers.json to contain a JSON object.");
 	}
 
 	const issues: ConfigIssue[] = [];
@@ -57,7 +57,7 @@ export function salvageProvidersConfig(parsed: unknown): SalvagedProvidersConfig
 
 	if (parsed.version !== undefined) {
 		if (parsed.version !== 1) {
-			issues.push(error([], "Unsupported providers.json version; expected 1."));
+			issues.push(wholeSourceIssue("Unsupported providers.json version; expected 1."));
 			return { config: {}, issues };
 		}
 		reconstructed.version = 1;
@@ -65,7 +65,7 @@ export function salvageProvidersConfig(parsed: unknown): SalvagedProvidersConfig
 
 	if (parsed.providers !== undefined) {
 		if (!isPlainObject(parsed.providers)) {
-			issues.push(error([], '"providers" must be an object of provider blocks.'));
+			issues.push(wholeSourceIssue('"providers" must be an object of provider blocks.'));
 			return { config: {}, issues };
 		}
 		reconstructed.providers = salvageProvidersMap(parsed.providers, issues);
@@ -73,16 +73,18 @@ export function salvageProvidersConfig(parsed: unknown): SalvagedProvidersConfig
 
 	const sealed = providersConfigSchema.safeParse(reconstructed);
 	if (!sealed.success) {
+		// A salvage bug discarded the whole file: source-wide issue, with the
+		// failing path kept in the message prose for debugging.
 		const first = sealed.error.issues[0];
+		const firstPath = configIssuePath(first?.path ?? []);
+		const at = firstPath.length > 0 ? ` at ${firstPath.join(".")}` : "";
 		return {
 			config: {},
 			issues: [
 				...issues,
-				{
-					severity: "error",
-					path: configIssuePath(first?.path ?? []),
-					message: `Internal salvage validation failed: ${first?.message ?? "unknown validation error"}`,
-				},
+				wholeSourceIssue(
+					`Internal salvage validation failed${at}: ${first?.message ?? "unknown validation error"}`,
+				),
 			],
 		};
 	}
@@ -178,16 +180,8 @@ function warning(path: readonly (string | number)[], message: string): ConfigIss
 	return { severity: "warning", path, message };
 }
 
-/** Whole-file failures are errors with an empty path: the source was discarded whole. */
-function error(path: readonly (string | number)[], message: string): ConfigIssue {
-	return { severity: "error", path, message };
-}
-
-function degradedIssue(
-	path: readonly (string | number)[],
-	message: string,
-): SalvagedProvidersConfig {
-	return { config: {}, issues: [error(path, message)] };
+function degradedIssue(message: string): SalvagedProvidersConfig {
+	return { config: {}, issues: [wholeSourceIssue(message)] };
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
