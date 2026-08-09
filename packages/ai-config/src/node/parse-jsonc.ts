@@ -19,8 +19,23 @@ export function parseJsonc(text: string): unknown {
 
 	if (errors.length > 0) {
 		const first = errors[0];
-		throw new SyntaxError(`${printParseErrorCode(first.error)} at offset ${first.offset}`);
+		const { line, column } = lineColumnAt(text, first.offset);
+		throw new SyntaxError(`${printParseErrorCode(first.error)} at line ${line}, column ${column}`);
 	}
 
 	return tree === undefined ? undefined : getNodeValue(tree);
+}
+
+/** Convert a character offset into a 1-based line/column pair. */
+function lineColumnAt(text: string, offset: number): { line: number; column: number } {
+	let line = 1;
+	let lineStart = 0;
+	const end = Math.min(offset, text.length);
+	for (let i = 0; i < end; i++) {
+		if (text.charCodeAt(i) === 10) {
+			line++;
+			lineStart = i + 1;
+		}
+	}
+	return { line, column: offset - lineStart + 1 };
 }

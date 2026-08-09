@@ -263,7 +263,14 @@ without managing locking, atomicity, or watch lifecycle themselves.
 
 - **Load** splits syntax parsing from schema policy. `parseProvidersConfigTolerant` parses JSONC
   then salvages blocks; syntax/fs failures become sourced issues and `{}`. Readers are silent;
-  `loadProviderCatalogReport` renders the completed snapshot once.
+  `loadProviderCatalogReport` renders the completed snapshot once. Severity policy: whole-source
+  failures (user-file syntax/read errors, env-fragment parse/validation failures) are
+  error-severity; per-key salvage drops are warnings. Hosts surface only error-severity
+  issues in the UI; warning-severity drops are log-only because the file is shared across
+  consumers with different provider vocabularies. `parseJsonc` reports syntax errors as
+  1-based `line L, column C` (computed from the text, since `jsonc-parser` only carries offsets),
+  and whole-source failure messages are source-agnostic (`Invalid JSONC: …`) so hosts compose the
+  user-facing "Failed to load \<path\>" prefix from source identity.
 - **Watch** (`src/node/watch-catalog.ts`) debounces ~300ms to coalesce rapid
   edits, is ancestor-aware (watches the nearest existing parent dir until the
   config dir appears), reloads + diffs catalog and issues, and emits a typed

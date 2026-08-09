@@ -67,7 +67,7 @@ export async function readFileConfig(configPath: string): Promise<ProviderConfig
 			source: { ...identity, config: {} },
 			issues: [
 				sourceConfigIssue(
-					warning([], `Failed to read config: ${errorMessage(error)}. Using empty config.`),
+					errorIssue([], `Could not read the file: ${errorMessage(error)}. Using empty config.`),
 					identity,
 				),
 			],
@@ -87,11 +87,11 @@ export async function readFileConfig(configPath: string): Promise<ProviderConfig
 			source: { ...identity, config: {} },
 			issues: [
 				sourceConfigIssue(
-					warning(
+					errorIssue(
 						[],
 						error instanceof SyntaxError
-							? `Failed to parse as JSONC: ${errorMessage(error)}. Using empty config.`
-							: `Failed to load config: ${errorMessage(error)}. Using empty config.`,
+							? `Invalid JSONC: ${errorMessage(error)}. Using empty config.`
+							: `Unexpected error: ${errorMessage(error)}. Using empty config.`,
 					),
 					identity,
 				),
@@ -118,7 +118,7 @@ export function readEnvFragment(
 	} catch (error) {
 		return {
 			issues: [
-				sourcedWarning(
+				sourcedErrorIssue(
 					identity,
 					[],
 					`Failed to parse ${envVarName} as JSON: ${errorMessage(error)}. Ignoring.`,
@@ -131,7 +131,7 @@ export function readEnvFragment(
 	if (!result.success) {
 		return {
 			issues: [
-				sourcedWarning(
+				sourcedErrorIssue(
 					identity,
 					configIssuePath(result.error.issues[0]?.path ?? []),
 					`Validation errors in ${envVarName}: ${formatZodErrors(result.error)}. Ignoring.`,
@@ -143,16 +143,16 @@ export function readEnvFragment(
 	return { source: { ...identity, config: result.data }, issues: [] };
 }
 
-function sourcedWarning(
+function sourcedErrorIssue(
 	identity: Pick<ProviderConfigSource, "kind" | "label">,
 	path: readonly (string | number)[],
 	message: string,
 ): SourcedConfigIssue {
-	return sourceConfigIssue(warning(path, message), identity);
+	return sourceConfigIssue(errorIssue(path, message), identity);
 }
 
-function warning(path: readonly (string | number)[], message: string): ConfigIssue {
-	return { severity: "warning", path, message };
+function errorIssue(path: readonly (string | number)[], message: string): ConfigIssue {
+	return { severity: "error", path, message };
 }
 
 function errorMessage(error: unknown): string {

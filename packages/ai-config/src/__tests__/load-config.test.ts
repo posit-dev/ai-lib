@@ -156,6 +156,7 @@ describe("loadResolvedProviderCatalog", () => {
 			);
 			expect(report.issues).toEqual([
 				expect.objectContaining({
+					severity: "warning",
 					path: ["providers", "portkey"],
 					source: { kind: "user", label: configPath },
 					message: expect.stringContaining("portkey"),
@@ -371,6 +372,7 @@ describe("loadResolvedProviderCatalog", () => {
 			);
 			expect(report.issues).toEqual([
 				expect.objectContaining({
+					severity: "error",
 					source: { kind: "enforced", label: "TEST_ENFORCED" },
 					message: expect.stringContaining("portkey"),
 				}),
@@ -740,7 +742,7 @@ describe("loadResolvedProviderCatalog", () => {
 			});
 
 			expect(catalog.length).toBe(BUILTIN_PROVIDER_IDS.length); // defaults
-			expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining("Failed to parse"));
+			expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining("Invalid JSONC"));
 		});
 
 		it("should degrade gracefully on schema violation", async () => {
@@ -775,6 +777,90 @@ describe("loadResolvedProviderCatalog", () => {
 			expect(catalog.length).toBe(BUILTIN_PROVIDER_IDS.length); // defaults
 			expect(findProvider(catalog, "anthropic")?.connection.aws).toBeUndefined();
 			expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining("Validation errors"));
+		});
+	});
+
+	// ========================================================================
+	// Whole-source failure severity and error locations
+	// ========================================================================
+
+	describe("whole-source failures", () => {
+		it("reports a syntax error as an error-severity issue with line and column", async () => {
+			const configPath = path.join(tempDir, "providers.json");
+			// Missing comma after the `providers` block: the parser reports
+			// CommaExpected at the `"version"` token on line 3.
+			await fs.writeFile(configPath, '{\n  "providers": {}\n  "version": 1\n}\n');
+
+			const report = await loadProviderCatalogReport({
+				baseline: STANDALONE_BASELINE,
+				configPath,
+			});
+
+			expect(report.issues).toEqual([
+				expect.objectContaining({
+					severity: "error",
+					path: [],
+					source: { kind: "user", label: configPath },
+					message: expect.stringContaining("Invalid JSONC: CommaExpected at line 3, column 3"),
+				}),
+			]);
+		});
+
+		it("reports line 1 for a single-line syntax error", async () => {
+			const configPath = path.join(tempDir, "providers.json");
+			await fs.writeFile(configPath, "{ bad");
+
+			const report = await loadProviderCatalogReport({
+				baseline: STANDALONE_BASELINE,
+				configPath,
+			});
+
+			expect(report.issues).toEqual([
+				expect.objectContaining({
+					severity: "error",
+					message: expect.stringContaining("at line 1, column"),
+				}),
+			]);
+		});
+
+		it("reports an unreadable file as an error-severity issue", async () => {
+			const configPath = await writeConfig(tempDir, {});
+			const readError = Object.assign(new Error("permission denied"), { code: "EACCES" });
+			const readSpy = vi.spyOn(fs, "readFile").mockRejectedValueOnce(readError);
+
+			const report = await loadProviderCatalogReport({
+				baseline: STANDALONE_BASELINE,
+				configPath,
+			});
+
+			readSpy.mockRestore();
+			expect(report.issues).toEqual([
+				expect.objectContaining({
+					severity: "error",
+					path: [],
+					source: { kind: "user", label: configPath },
+					message: expect.stringContaining("Could not read the file: permission denied"),
+				}),
+			]);
+		});
+
+		it("reports an unparseable env fragment as an error-severity issue", async () => {
+			const configPath = await writeConfig(tempDir, {});
+
+			const report = await loadProviderCatalogReport({
+				baseline: STANDALONE_BASELINE,
+				configPath,
+				enforcedEnvVar: "TEST_ENFORCED",
+				envVars: { TEST_ENFORCED: "not valid json{{{" },
+			});
+
+			expect(report.issues).toEqual([
+				expect.objectContaining({
+					severity: "error",
+					source: { kind: "enforced", label: "TEST_ENFORCED" },
+					message: expect.stringContaining("Failed to parse TEST_ENFORCED as JSON"),
+				}),
+			]);
 		});
 	});
 
