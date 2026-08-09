@@ -57,7 +57,7 @@ export function salvageProvidersConfig(parsed: unknown): SalvagedProvidersConfig
 
 	if (parsed.version !== undefined) {
 		if (parsed.version !== 1) {
-			issues.push(warning(["version"], "Unsupported providers.json version; expected 1."));
+			issues.push(error([], "Unsupported providers.json version; expected 1."));
 			return { config: {}, issues };
 		}
 		reconstructed.version = 1;
@@ -65,7 +65,7 @@ export function salvageProvidersConfig(parsed: unknown): SalvagedProvidersConfig
 
 	if (parsed.providers !== undefined) {
 		if (!isPlainObject(parsed.providers)) {
-			issues.push(warning(["providers"], "Invalid input: expected an object of provider blocks."));
+			issues.push(error([], '"providers" must be an object of provider blocks.'));
 			return { config: {}, issues };
 		}
 		reconstructed.providers = salvageProvidersMap(parsed.providers, issues);
@@ -178,11 +178,16 @@ function warning(path: readonly (string | number)[], message: string): ConfigIss
 	return { severity: "warning", path, message };
 }
 
+/** Whole-file failures are errors with an empty path: the source was discarded whole. */
+function error(path: readonly (string | number)[], message: string): ConfigIssue {
+	return { severity: "error", path, message };
+}
+
 function degradedIssue(
 	path: readonly (string | number)[],
 	message: string,
 ): SalvagedProvidersConfig {
-	return { config: {}, issues: [warning(path, message)] };
+	return { config: {}, issues: [error(path, message)] };
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

@@ -6,7 +6,7 @@
 
 import { promises as fs } from "fs";
 
-import { configIssuePath, formatConfigIssue, sourceConfigIssue } from "../config-issue.js";
+import { formatConfigIssue, sourceConfigIssue } from "../config-issue.js";
 import type { ConfigIssue, SourcedConfigIssue } from "../config-issue.js";
 import type { ProviderConfigSourceReadReport } from "../config-source.js";
 import type { ProviderConfigSource } from "../resolve-catalog.js";
@@ -129,11 +129,13 @@ export function readEnvFragment(
 
 	const result = providersConfigFragmentSchema.safeParse(parsed);
 	if (!result.success) {
+		// The fragment is ignored whole, so the issue is source-wide (empty
+		// path); the offending key path stays in the message prose.
 		return {
 			issues: [
 				sourcedErrorIssue(
 					identity,
-					configIssuePath(result.error.issues[0]?.path ?? []),
+					[],
 					`Validation errors in ${envVarName}: ${formatZodErrors(result.error)}. Ignoring.`,
 				),
 			],

@@ -116,7 +116,9 @@ describe("salvageProvidersConfig", () => {
 	] as const)("degrades %s to an empty config with an issue", (_name, input) => {
 		const report = salvageProvidersConfig(input);
 		expect(report.config).toEqual({});
+		// Whole-file degrades are source-wide: error severity, empty path.
 		expect(report.issues.length).toBeGreaterThan(0);
+		expect(report.issues[0]).toMatchObject({ severity: "error", path: [] });
 	});
 
 	it("seals every reconstructed malformed fixture with the full schema", () => {

@@ -528,6 +528,8 @@ describe("createLegacyPositronSourceProviders — enforced envelope", () => {
 		const second = enforced.read();
 		expect(first.source).toBeUndefined();
 		expect(first.issues).toEqual(second.issues);
+		// The whole enforced layer is skipped: error severity, source-wide path.
+		expect(first.issues[0]).toMatchObject({ severity: "error", path: [] });
 		expect(first.issues[0].message).toContain("Failed to parse");
 		expect(logger.warn).not.toHaveBeenCalled();
 	});

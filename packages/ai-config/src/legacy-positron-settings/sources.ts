@@ -153,6 +153,6 @@ function issueOnly(
 	identity: Pick<ProviderConfigSource, "kind" | "label">,
 	message: string,
 ): ProviderConfigSourceReadReport {
-	const issue: ConfigIssue = { severity: "warning", path: [], message };
+	const issue: ConfigIssue = { severity: "error", path: [], message };
 	return { issues: [sourceConfigIssue(issue, identity)] };
 }

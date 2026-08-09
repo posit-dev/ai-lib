@@ -396,10 +396,13 @@ describe("loadResolvedProviderCatalog", () => {
 			expect(findProvider(report.catalog, "anthropic")?.connection.baseUrl).toBe(
 				"https://user.example.com",
 			);
+			// The fragment is ignored whole, so the issue is source-wide (empty
+			// path); the offending key path stays in the message prose.
 			expect(report.issues).toEqual([
 				expect.objectContaining({
+					severity: "error",
 					source: { kind: "enforced", label: "TEST_ENFORCED" },
-					path: ["providers", "custom", "__proto__"],
+					path: [],
 					message: expect.stringContaining('Custom provider name "__proto__" is unsafe.'),
 				}),
 			]);
@@ -819,6 +822,31 @@ describe("loadResolvedProviderCatalog", () => {
 				expect.objectContaining({
 					severity: "error",
 					message: expect.stringContaining("at line 1, column"),
+				}),
+			]);
+		});
+
+		it.each([
+			["CRLF", "\r\n"],
+			["CR-only", "\r"],
+		] as const)("reports the correct line and column with %s line endings", async (_name, eol) => {
+			const configPath = path.join(tempDir, "providers.json");
+			// Missing comma after the `providers` block: CommaExpected at the
+			// `"version"` token on line 3, regardless of line-ending style.
+			await fs.writeFile(
+				configPath,
+				["{", '  "providers": {}', '  "version": 1', "}", ""].join(eol),
+			);
+
+			const report = await loadProviderCatalogReport({
+				baseline: STANDALONE_BASELINE,
+				configPath,
+			});
+
+			expect(report.issues).toEqual([
+				expect.objectContaining({
+					severity: "error",
+					message: expect.stringContaining("at line 3, column 3"),
 				}),
 			]);
 		});

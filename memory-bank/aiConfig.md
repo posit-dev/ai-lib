@@ -264,8 +264,11 @@ without managing locking, atomicity, or watch lifecycle themselves.
 - **Load** splits syntax parsing from schema policy. `parseProvidersConfigTolerant` parses JSONC
   then salvages blocks; syntax/fs failures become sourced issues and `{}`. Readers are silent;
   `loadProviderCatalogReport` renders the completed snapshot once. Severity policy: whole-source
-  failures (user-file syntax/read errors, env-fragment parse/validation failures) are
-  error-severity; per-key salvage drops are warnings. Hosts surface only error-severity
+  failures (user-file syntax/read errors, whole-file salvage degrades — non-object
+  root/`providers` or unsupported `version` — env-fragment parse/validation failures, and
+  malformed legacy enforced settings) are error-severity with an **empty path** (the source was
+  discarded whole; offending key paths stay in the message prose); per-key salvage drops are
+  warnings with the dropped key's path. Hosts surface only error-severity
   issues in the UI; warning-severity drops are log-only because the file is shared across
   consumers with different provider vocabularies. `parseJsonc` reports syntax errors as
   1-based `line L, column C` (computed from the text, since `jsonc-parser` only carries offsets),

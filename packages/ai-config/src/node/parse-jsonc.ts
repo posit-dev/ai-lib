@@ -32,7 +32,10 @@ function lineColumnAt(text: string, offset: number): { line: number; column: num
 	let lineStart = 0;
 	const end = Math.min(offset, text.length);
 	for (let i = 0; i < end; i++) {
-		if (text.charCodeAt(i) === 10) {
+		const code = text.charCodeAt(i);
+		// jsonc-parser treats CR, LF, and CRLF as line breaks.
+		if (code === 10 || code === 13) {
+			if (code === 13 && text.charCodeAt(i + 1) === 10) i++; // CRLF is one break
 			line++;
 			lineStart = i + 1;
 		}
