@@ -8,8 +8,8 @@ package: ai-config
 
 ## Overview
 
-`ai-config` owns the full lifecycle of `~/.posit/ai/providers.json`: the
-schema, validation, defaults, the resolution pipeline that turns a raw file into
+`ai-config` owns the full lifecycle of `~/.posit/ai/providers.json`: its JSONC
+parsing, schema validation, defaults, the resolution pipeline that turns a raw file into
 an effective provider catalog, and the filesystem seams that load, watch, and
 mutate the file safely across processes.
 
@@ -27,11 +27,11 @@ enablement in Posit Assistant lives in the main monorepo's
 The package has two code entrypoints, splitting pure (browser/test-safe) logic
 from filesystem I/O:
 
-| Entrypoint                        | What it exports                                                                                                                                                                                                                                                                                            | External deps? |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
-| `ai-config`                       | Vocabulary, Zod schemas, inferred types, defaults, the pure resolution helpers (`resolveModels`, `mergeEnforced`), bare-host base URL correction (`normalizeBaseUrlForProvider` + host constants), the legacy Positron settings map/translator, and the model capability tables + `inferModelCapabilities` | No             |
-| `ai-config/node`                  | Re-exports the pure entry plus the three filesystem seams (`loadResolvedProviderCatalog`, `mutateProvidersConfig`, `watchResolvedProviderCatalog`) and path constants                                                                                                                                      | Node FS        |
-| `ai-config/providers.schema.json` | The generated JSON Schema, exported so editors can validate/autocomplete `providers.json`                                                                                                                                                                                                                  | No             |
+| Entrypoint                        | What it exports                                                                                                                                                                                                                                      | External deps?          |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| `ai-config`                       | Vocabulary, schemas/types/defaults, `salvageProvidersConfig`, structured config issues, the pure report resolver (`resolveProviderCatalogReport` plus compatibility wrapper), resolution helpers, legacy translation, and model capability inference | No                      |
+| `ai-config/node`                  | Re-exports the pure entry plus `loadProviderCatalogReport` / `loadResolvedProviderCatalog`, strict mutation, issue-aware watching, and path constants                                                                                                | Node FS, `jsonc-parser` |
+| `ai-config/providers.schema.json` | The generated JSON Schema, exported so editors can validate/autocomplete `providers.json`                                                                                                                                                            | No                      |
 
 Legacy Positron settings reach the loader through two independent options —
 `legacyPositronSettings` (a two-method injected reader for the user-set
@@ -47,6 +47,8 @@ the map/translator live inside ai-config (see [Legacy Positron settings](#legacy
 - **Defaults** (`src/defaults.ts`): per-provider connection defaults and the `PROVIDER_CONNECTION_DEFAULTS` map. **Bedrock deliberately carries no entry**: `BEDROCK_DEFAULTS` (`us-east-1`) is exported but absent from `PROVIDER_CONNECTION_DEFAULTS`, because layering it into the resolved connection made the baked-in default outrank a user's stored credential region downstream (posit-dev/assistant#2002). Consumers apply the fallback at credential-synthesis time instead; do not "fix" the omission by adding Bedrock to the defaults map.
 - **Resolution helpers**: `resolveModels()` and `mergeEnforced()` are pure and exported; `resolveEnabled()` / connection resolution are internal helpers used by the catalog builder.
 - **Config-source contracts** (`src/config-source.ts`): `ProviderConfigSource` (public — the resolver's input) and the internal `ProviderConfigSourceProvider` (loader machinery, not exported). `Disposable` stays public as the return type of `LegacySettingsReader.watch`.
+- **Structured diagnostics** (`src/config-issue.ts`): `ConfigIssue` is source-agnostic; `SourcedConfigIssue` adds a required normalized `{ kind, label }` identity. Its source kind reuses `ProviderConfigSourceKind` and widens only for the resolver-private `"env"` source.
+- **Tolerant validation** (`src/salvage-config.ts`): `salvageProvidersConfig()` takes the healthy full-schema fast path, otherwise drops malformed values at whole root/provider/custom-entry granularity and seals the reconstruction with `providersConfigSchema` before returning.
 - **Constant**: `PROVIDERS_CONFIG_VERSION = 1` — the on-disk format version.
 
 ### Node entry (`ai-config/node`)
@@ -54,7 +56,8 @@ the map/translator live inside ai-config (see [Legacy Positron settings](#legacy
 Re-exports the pure entry, plus:
 
 - **Paths**: `AI_CONFIG_DIR` (`~/.posit/ai`) and `PROVIDERS_CONFIG_PATH`.
-- **Read seam**: `loadResolvedProviderCatalog(opts)` — the single read entry point.
+- **Read seams**: `loadProviderCatalogReport(opts)` is the canonical report-first entry point;
+  `loadResolvedProviderCatalog(opts)` is its bare-catalog compatibility wrapper.
 - **Write seam**: `mutateProvidersConfig(mutator, opts)` — cross-process-safe mutation.
 - **Watch seam**: `watchResolvedProviderCatalog(handler, opts)` — emits typed `ProviderCatalogChange` events.
 - **Types**: `LoadCatalogOptions` (including the transitional `legacyPositronSettings` / `legacyPositronEnforcedSettings` options), `MutateConfigOptions`, `WatchCatalogOptions`, `ProviderCatalogChange`, `LoggerLike`, `Disposable`.
@@ -117,15 +120,17 @@ overlay that becomes invalid after merge.
 
 Config flows through three stages: **assemble sources → resolve → watch**. Precedence lives entirely inside the pure `resolveProviderCatalog({ sources })` seam (`src/resolve-catalog.ts`); the node entry only assembles sources.
 
-1. **Assemble sources** (`src/node/load-config.ts`): read the file (missing → `{}`,
-   validated against `providersConfigSchema`), the enforced fragment from
+1. **Assemble sources** (`src/node/load-config.ts`): read the user-editable file as JSONC
+   (comments and trailing commas accepted; missing → `{}`; malformed blocks
+   salvaged tolerantly into a full-schema-valid source), the enforced fragment from
    `POSIT_AI_PROVIDERS_ENFORCED`, and the defaults fragment from
-   `POSIT_AI_PROVIDERS_DEFAULT` (both validated against the relaxed
+   `POSIT_AI_PROVIDERS_DEFAULT` (both remain strict JSON and are validated against the relaxed
    `providersConfigFragmentSchema`), plus the legacy Positron layers the
    loader opted into (`legacyPositronSettings` → `legacy-positron`,
    `legacyPositronEnforcedSettings` → `legacy-positron-enforced`). Each
-   becomes a `ProviderConfigSource` tagged with its `kind` (`enforced` /
-   `legacy-positron-enforced` / `user` / `legacy-positron` / `default`).
+   reader returns `{ source?, issues }`; present sources are tagged with their
+   `kind` (`enforced` / `legacy-positron-enforced` / `user` /
+   `legacy-positron` / `default`).
 2. **Resolve** (`src/resolve-catalog.ts`, `resolveProviderCatalog()`): rank the
    sources by kind (`enforced` > `legacy-positron-enforced` > `user` >
    `legacy-positron` > `default`), fold them low → high so the sealed `enforced`
@@ -136,16 +141,38 @@ Config flows through three stages: **assemble sources → resolve → watch**. P
    `legacy-positron-enforced` but above `user`/`legacy-positron`/`default` — not
    a post-resolution overlay. The resolver also retains narrow semantic
    provenance for connection values whose source changes consumer behavior.
-   `loadResolvedProviderCatalog()`
-   (`src/node/load-catalog.ts`) is the public read seam that composes assembly +
-   resolve and returns `readonly ResolvedProvider[]`. (`mergeEnforced` — the
+   `loadProviderCatalogReport()` (`src/node/load-catalog.ts`) is the canonical
+   public read seam and returns `{ catalog, issues }`; `loadResolvedProviderCatalog()`
+   is its bare-catalog compatibility wrapper. (`mergeEnforced` — the
    two-layer merge — remains exported as a low-level primitive, but the layered
    resolver is the seam consumers should use.)
 3. **Watch** (`src/node/watch-catalog.ts`, `watchResolvedProviderCatalog()`):
    source-aware — watches the file via `fs.watch` and subscribes to the legacy
    reader's change signal; **any** source change re-resolves the catalog and
-   emits a typed `ProviderCatalogChange` when a resolved value or its retained
-   connection provenance actually changed.
+   emits a typed `ProviderCatalogChange` when a resolved value, retained
+   connection provenance, or complete issue snapshot changes. Issue snapshots
+   compare order-insensitively by source/path/severity/message, so issue-only
+   additions and empty clears emit while identical rebuilds remain quiet.
+
+### Read salvage and report invariant
+
+User-file reads are deliberately tolerant, while mutations are deliberately strict. The tolerant
+parser shares JSONC syntax parsing with the strict parser, then calls `salvageProvidersConfig`.
+Unknown root/provider keys, wrong-typed `$schema`, invalid built-in blocks, and invalid custom
+entries are dropped one whole block at a time with one issue; valid siblings survive. Non-object
+roots/providers and unsupported versions degrade to `{}` because their semantics are not safe to
+reconstruct. The final full-schema parse is a runtime seal: downstream recovery may rely on the
+user source being valid alone. A seal failure degrades to `{}` with an error issue rather than
+throwing.
+
+Every source reader returns the same `{ source?, issues }` report and never logs. Env fragments
+remain strict and all-or-nothing. Internal legacy Positron providers report their current invalid
+keys on every read (including recurrence after a fix); the exported
+`translateLegacyPositronSettings(reader, logger?, warnedKeys?)` compatibility function retains its
+historical warn-once behavior. `resolveProviderCatalogReport` is silent and carries overlay-drop
+issues; `resolveProviderCatalog` renders those issues for compatibility. The one-shot node load
+renders its complete report once, while the watcher renders only newly added/changed issues after
+snapshot comparison.
 
 ### Connection provenance
 
@@ -199,15 +226,15 @@ together when the legacy channels retire.
   key the map consumes (Positron's migration uses it as its
   something-to-migrate check).
 - **`translate.ts`** — `translateLegacyPositronSettings(reader, logger?,
-warnedKeys?)`: the pure translator from a `LegacySettingsReader` (`get` +
+warnedKeys?)`: the compatibility translator from a `LegacySettingsReader` (`get` +
   required `watch`) to `{ config, migrations }`. Omit-empty everywhere; per-key
   shape validation with warn-once drop; bare-host base URL correction applied
   internally via `normalizeBaseUrlForProvider`; model overrides synthesized
   into full custom models with `inferModelCapabilities` (user token limits
   win; `maxContextLength` floors at the user's `maxInputTokens`); `migrations`
   records `{ source, destination, value }` per written value with header
-  values redacted to names. Shared verbatim by the runtime layers and
-  Positron's one-shot migration.
+  values redacted to names. The internal report sibling applies the same map
+  silently and returns current per-key issues for source snapshots.
 - **`sources.ts`** — internal (never exported from the entries) builders for
   the two runtime layers, assembled by both the load and watch seams from the
   loader options — each layer is an independent opt-in: `legacy-positron`
@@ -216,7 +243,8 @@ warnedKeys?)`: the pure translator from a `LegacySettingsReader` (`get` +
   `POSITRON_ENFORCED_SETTINGS` env payload, payload-only reads, above `user`,
   below `enforced`) requires `legacyPositronEnforcedSettings: true`. Neither
   option means neither layer, even if the env var is set; the reader never
-  smuggles the enforced layer in.
+  smuggles the enforced layer in. Each `read()` returns `{ source?, issues }`
+  without logging or process-lifetime deduplication.
 
 The two layers split because Positron ≥ 2026.08 migrates legacy settings into
 providers.json without clearing them (old builds and settings sync still read
@@ -233,21 +261,49 @@ posit-dev/positron#14709).
 All three filesystem operations are deep modules — callers get safety guarantees
 without managing locking, atomicity, or watch lifecycle themselves.
 
-- **Load** degrades gracefully: missing file, parse errors, and validation
-  failures log a warning and fall back to `{}` (or the user config) rather than
-  throwing.
+- **Load** splits syntax parsing from schema policy. `parseProvidersConfigTolerant` parses JSONC
+  then salvages blocks; syntax/fs failures become sourced issues and `{}`. Readers are silent;
+  `loadProviderCatalogReport` renders the completed snapshot once. Severity policy: whole-source
+  failures (user-file syntax/read errors, whole-file salvage degrades — non-object
+  root/`providers` or unsupported `version` — env-fragment parse/validation failures, and
+  malformed legacy enforced settings, resolver overlay drops from `recoverValidStack`) are
+  error-severity with an **empty path** (the source was
+  discarded whole; offending key paths stay in the message prose); per-key salvage drops are
+  warnings with the dropped key's path. `ConfigIssue` is a discriminated union encoding this
+  contract (the error branch's path is `readonly []`), and the whole-source shape is
+  constructed only via `wholeSourceIssue` / `sourcedWholeSourceIssue` (`src/config-issue.ts`),
+  so the error-with-a-path combination is unrepresentable. Hosts surface only error-severity
+  issues in the UI; warning-severity drops are log-only because the file is shared across
+  consumers with different provider vocabularies. `parseJsonc` reports syntax errors as
+  1-based `line L, column C` (computed from the text, since `jsonc-parser` only carries offsets),
+  and whole-source failure messages are source-agnostic (`Invalid JSONC: …`) so hosts compose the
+  user-facing "Failed to load \<path\>" prefix from source identity.
 - **Watch** (`src/node/watch-catalog.ts`) debounces ~300ms to coalesce rapid
   edits, is ancestor-aware (watches the nearest existing parent dir until the
-  config dir appears), reloads + diffs on change, and emits a typed
-  `ProviderCatalogChange` (`enabledChanged`, `connectionChanged`,
-  `modelsChanged`) only when something actually changed. The initial load does
-  not emit (no previous catalog to diff against).
+  config dir appears), reloads + diffs catalog and issues, and emits a typed
+  `ProviderCatalogChange` with category flags plus `issues`/`issuesChanged`.
+  It logs only issue-set additions; clear-then-recur logs again. The initial load does not emit.
 - **Mutate** (`src/node/mutate-config.ts`) takes cross-process safety seriously:
   a `proper-lockfile` lock (with retries and stale detection), an in-process
   serialization queue per config path, race-safe first-creation via the
   exclusive `wx` flag, atomic write (temp file + rename), seed-metadata
   injection (`$schema`, `version`) on first creation, and a best-effort copy of
-  `providers.schema.json` alongside the config for editor validation.
+  `providers.schema.json` alongside the config for editor validation. After
+  ensuring the file exists, strict `parseProvidersConfig` makes every read,
+  JSONC syntax, unknown key, or schema-validation failure abort without
+  rewriting the file; validation errors name offending paths. Successful writes
+  serialize the whole config with `JSON.stringify`, so values survive but JSONC
+  comments are stripped.
+
+The internal `src/node/parse-jsonc.ts` helper centralizes JSONC behavior through
+the dependency-free, browser-safe `jsonc-parser` package. It materializes the parse tree
+with null-prototype objects so raw keys such as `__proto__` survive unchanged for schema
+validation rather than mutating an intermediate object's prototype. `parse-providers-config.ts`
+exposes named internal siblings: strict `parseProvidersConfig` for mutation and tolerant
+`parseProvidersConfigTolerant` for reads; both share `parseJsonc`, with no mode flag.
+Neither helper is exported, and only node-side readers import them, so the pure
+`ai-config` entry's dependency and import graph remains unchanged. Machine-supplied
+environment fragments continue to use strict `JSON.parse`.
 
 ## Model Capability Inference (`src/model-capabilities/`)
 
@@ -365,33 +421,35 @@ the bridge's `ModelInfo` — compatible by contract, not by import.
 
 ## Code Layout
 
-| Location                              | What it does                                                                                                        |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `src/vocabulary.ts`                   | Provider-ID / protocol / client-kind / reserved-key value tuples + type guards                                      |
-| `src/schema.ts`                       | Zod schemas (full + enforced variants) for `providers.json`                                                         |
-| `src/types.ts`                        | Types inferred from Zod + resolution outputs + branded `CustomProviderId` / `mintCustomProviderId`                  |
-| `src/defaults.ts`                     | Built-in provider connection defaults; `PROVIDER_CONNECTION_DEFAULTS`                                               |
-| `src/enforce.ts`                      | `mergeEnforced()` deep-merge of enforced over user config                                                           |
-| `src/resolve-enabled.ts`              | `resolveEnabled()` enablement precedence ladder                                                                     |
-| `src/resolve-connection.ts`           | Internal baseUrl/endpoint resolution precedence                                                                     |
-| `src/resolve-models.ts`               | `resolveModels()` model selection + routing pipeline                                                                |
-| `src/model-capabilities/*-helpers.ts` | Per-provider capability tables (moved from the bridge, ai-lib#9)                                                    |
-| `src/model-capabilities/infer.ts`     | `inferModelCapabilities()` — baseline + provider-family merge, Snowflake protocol rule                              |
-| `src/index.ts`                        | Pure entrypoint exports                                                                                             |
-| `src/node/paths.ts`                   | `AI_CONFIG_DIR`, `PROVIDERS_CONFIG_PATH`, enforced env-var name, lockfile path                                      |
-| `src/node/types.ts`                   | Node seam option/result types (`LoadCatalogOptions`, `ProviderCatalogChange`, `Disposable`, …)                      |
-| `src/resolve-catalog.ts`              | `resolveProviderCatalog()` — pure deep resolver seam; owns the precedence stack + sealed-enforced invariant         |
-| `src/base-url.ts`                     | `normalizeBaseUrlForProvider()` + known host/version constants (the bridge imports them from here)                  |
-| `src/config-source.ts`                | `ProviderConfigSource` + internal `ProviderConfigSourceProvider` loader machinery                                   |
-| `src/legacy-positron-settings/`       | PROVIDER-SETTINGS-MIGRATION: legacy settings map, translator, and internal source builders                          |
-| `src/build-catalog.ts`                | `buildCatalog()` — assemble `ResolvedProvider[]` from merged config + enablement layers + baseline (pure entry)     |
-| `src/node/load-config.ts`             | `loadConfigSources()` / `readFileConfig()` / `readEnvFragment()` — assemble the ordered `ProviderConfigSource` list |
-| `src/node/load-catalog.ts`            | `loadResolvedProviderCatalog()` — public read seam (assemble sources → `resolveProviderCatalog`)                    |
-| `src/node/mutate-config.ts`           | `mutateProvidersConfig()` — locked, atomic, serialized mutation                                                     |
-| `src/node/watch-catalog.ts`           | `watchResolvedProviderCatalog()` — watch, reload, diff, emit typed changes                                          |
-| `src/node/index.ts`                   | Node entrypoint; re-exports pure entry + filesystem seams                                                           |
-| `providers.schema.json`               | Generated JSON Schema, exported for editor validation                                                               |
-| `scripts/generate-schema.ts`          | Regenerates `providers.schema.json` from the Zod schemas                                                            |
+| Location                              | What it does                                                                                                                               |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src/vocabulary.ts`                   | Provider-ID / protocol / client-kind / reserved-key value tuples + type guards                                                             |
+| `src/schema.ts`                       | Zod schemas (full + enforced variants) for `providers.json`                                                                                |
+| `src/types.ts`                        | Types inferred from Zod + resolution outputs + branded `CustomProviderId` / `mintCustomProviderId`                                         |
+| `src/defaults.ts`                     | Built-in provider connection defaults; `PROVIDER_CONNECTION_DEFAULTS`                                                                      |
+| `src/enforce.ts`                      | `mergeEnforced()` deep-merge of enforced over user config                                                                                  |
+| `src/resolve-enabled.ts`              | `resolveEnabled()` enablement precedence ladder                                                                                            |
+| `src/resolve-connection.ts`           | Internal baseUrl/endpoint resolution precedence                                                                                            |
+| `src/resolve-models.ts`               | `resolveModels()` model selection + routing pipeline                                                                                       |
+| `src/model-capabilities/*-helpers.ts` | Per-provider capability tables (moved from the bridge, ai-lib#9)                                                                           |
+| `src/model-capabilities/infer.ts`     | `inferModelCapabilities()` — baseline + provider-family merge, Snowflake protocol rule                                                     |
+| `src/index.ts`                        | Pure entrypoint exports                                                                                                                    |
+| `src/node/paths.ts`                   | `AI_CONFIG_DIR`, `PROVIDERS_CONFIG_PATH`, enforced env-var name, lockfile path                                                             |
+| `src/node/types.ts`                   | Node seam option/result types (`LoadCatalogOptions`, `ProviderCatalogChange`, `Disposable`, …)                                             |
+| `src/resolve-catalog.ts`              | `resolveProviderCatalog()` — pure deep resolver seam; owns the precedence stack + sealed-enforced invariant                                |
+| `src/base-url.ts`                     | `normalizeBaseUrlForProvider()` + known host/version constants (the bridge imports them from here)                                         |
+| `src/config-source.ts`                | `ProviderConfigSource` + internal `ProviderConfigSourceProvider` loader machinery                                                          |
+| `src/legacy-positron-settings/`       | PROVIDER-SETTINGS-MIGRATION: legacy settings map, translator, and internal source builders                                                 |
+| `src/build-catalog.ts`                | `buildCatalog()` — assemble `ResolvedProvider[]` from merged config + enablement layers + baseline (pure entry)                            |
+| `src/node/load-config.ts`             | `loadConfigSourceReports()` / readers — silently assemble `{ source?, issues }` reports; compatibility wrapper renders and returns sources |
+| `src/node/parse-jsonc.ts`             | Internal JSONC parser; comments/trailing commas, null-prototype object materialization, `SyntaxError` on invalid input                     |
+| `src/node/parse-providers-config.ts`  | Internal strict `parseProvidersConfig()` mutation seam + tolerant `parseProvidersConfigTolerant()` read seam                               |
+| `src/node/load-catalog.ts`            | Canonical `loadProviderCatalogReport()` seam + bare-catalog `loadResolvedProviderCatalog()` compatibility wrapper                          |
+| `src/node/mutate-config.ts`           | `mutateProvidersConfig()` — locked, atomic, serialized mutation                                                                            |
+| `src/node/watch-catalog.ts`           | `watchResolvedProviderCatalog()` — watch, reload, diff, emit typed changes                                                                 |
+| `src/node/index.ts`                   | Node entrypoint; re-exports pure entry + filesystem seams                                                                                  |
+| `providers.schema.json`               | Generated JSON Schema, exported for editor validation                                                                                      |
+| `scripts/generate-schema.ts`          | Regenerates `providers.schema.json` from the Zod schemas                                                                                   |
 
 ## Invariants & Design Decisions
 
@@ -401,8 +459,11 @@ the bridge's `ModelInfo` — compatible by contract, not by import.
   Nothing imports `vscode` — hosts inject a `LegacySettingsReader` instead.
 - **No import edge to the bridge or credential store** — vocabulary
   compatibility is guaranteed by the shape guard instead.
-- **Graceful degradation everywhere on the read path** — a malformed or missing
-  file never throws; it logs and falls back.
+- **Graceful degradation on load/watch reads** — a malformed or missing
+  file never throws; silent readers return recoverable sources plus structured
+  issues, and load/watch orchestrators own issue rendering.
+- **Mutations never rewrite unreadable input** — filesystem, JSONC syntax, and
+  schema-validation failures all reject before the mutator or writer runs.
 - **`CustomProviderId` is branded** and only mintable through
   `mintCustomProviderId()`, after collision checks.
 - **External builds** pass `external: true` to `buildCatalog()`, which skips

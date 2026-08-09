@@ -8,7 +8,7 @@ import * as path from "path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { loadResolvedProviderCatalog } from "../node/load-catalog.js";
+import { loadProviderCatalogReport, loadResolvedProviderCatalog } from "../node/load-catalog.js";
 import { mutateProvidersConfig } from "../node/mutate-config.js";
 import type { ProvidersConfig, ResolvedProvider } from "../types.js";
 import type { PlatformBaseline } from "../types.js";
@@ -54,6 +54,7 @@ describe("loadResolvedProviderCatalog", () => {
 
 	beforeEach(async () => {
 		tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-config-test-"));
+		vi.clearAllMocks();
 		vi.unstubAllEnvs();
 	});
 
@@ -66,6 +67,132 @@ describe("loadResolvedProviderCatalog", () => {
 	// ========================================================================
 
 	describe("basic loading", () => {
+		it.each([
+			[
+				"root",
+				'{"__proto__":{},"providers":{"openai":{"baseUrl":"https://openai.example.com"}}}',
+				["__proto__"],
+			],
+			[
+				"providers map",
+				'{"providers":{"__proto__":{},"openai":{"baseUrl":"https://openai.example.com"}}}',
+				["providers", "__proto__"],
+			],
+			[
+				"built-in provider block",
+				'{"providers":{"anthropic":{"baseUrl":"https://discarded.example.com","__proto__":{}},"openai":{"baseUrl":"https://openai.example.com"}}}',
+				["providers", "anthropic"],
+			],
+			[
+				"custom provider entry",
+				'{"providers":{"custom":{"gateway":{"type":"openai-compatible","__proto__":{}}},"openai":{"baseUrl":"https://openai.example.com"}}}',
+				["providers", "custom", "gateway"],
+			],
+		] as const)("reports a raw unsafe key at the %s", async (_name, raw, issuePath) => {
+			const configPath = path.join(tempDir, "providers.json");
+			await fs.writeFile(configPath, raw);
+
+			const report = await loadProviderCatalogReport({
+				baseline: STANDALONE_BASELINE,
+				configPath,
+			});
+
+			expect(findProvider(report.catalog, "openai")?.connection.baseUrl).toBe(
+				"https://openai.example.com",
+			);
+			expect(report.issues).toEqual([
+				expect.objectContaining({
+					path: issuePath,
+					message: expect.stringContaining("__proto__"),
+				}),
+			]);
+		});
+
+		it("reports a raw unsafe custom-provider key without losing valid siblings", async () => {
+			const configPath = path.join(tempDir, "providers.json");
+			await fs.writeFile(
+				configPath,
+				'{"providers":{"anthropic":{"baseUrl":"https://anthropic.example.com"},"custom":{"__proto__":{"type":"openai-compatible"}}}}',
+			);
+
+			const report = await loadProviderCatalogReport({
+				baseline: STANDALONE_BASELINE,
+				configPath,
+				logger: mockLogger,
+			});
+
+			expect(findProvider(report.catalog, "anthropic")?.connection.baseUrl).toBe(
+				"https://anthropic.example.com",
+			);
+			expect(report.issues).toEqual([
+				expect.objectContaining({
+					path: ["providers", "custom", "__proto__"],
+					source: { kind: "user", label: configPath },
+					message: expect.stringContaining("unsafe"),
+				}),
+			]);
+		});
+
+		it("keeps valid provider blocks when an unknown provider key is present", async () => {
+			const configPath = path.join(tempDir, "providers.json");
+			await fs.writeFile(
+				configPath,
+				JSON.stringify({
+					providers: {
+						anthropic: { baseUrl: "https://anthropic.example.com" },
+						portkey: { baseUrl: "https://portkey.example.com" },
+					},
+				}),
+			);
+
+			const report = await loadProviderCatalogReport({
+				baseline: STANDALONE_BASELINE,
+				configPath,
+				logger: mockLogger,
+			});
+
+			expect(findProvider(report.catalog, "anthropic")?.connection.baseUrl).toBe(
+				"https://anthropic.example.com",
+			);
+			expect(report.issues).toEqual([
+				expect.objectContaining({
+					severity: "warning",
+					path: ["providers", "portkey"],
+					source: { kind: "user", label: configPath },
+					message: expect.stringContaining("portkey"),
+				}),
+			]);
+			expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining("portkey"));
+		});
+
+		it("loads comments and trailing commas from providers.json", async () => {
+			const configPath = path.join(tempDir, "providers.json");
+			await fs.writeFile(
+				configPath,
+				`{
+					// Keep the staging endpoint explicit.
+					"providers": {
+						"positai": {
+							/* This value must survive JSONC parsing. */
+							"enabled": true,
+							"baseUrl": "https://staging.example.com",
+						},
+					},
+				}`,
+			);
+
+			const catalog = await loadResolvedProviderCatalog({
+				baseline: { defaultEnabled: false },
+				configPath,
+				logger: mockLogger,
+			});
+
+			expect(findProvider(catalog, "positai")?.enabled).toBe(true);
+			expect(findProvider(catalog, "positai")?.connection.baseUrl).toBe(
+				"https://staging.example.com",
+			);
+		});
+
 		it("should return all built-in providers when file is missing", async () => {
 			const catalog = await loadResolvedProviderCatalog({
 				baseline: STANDALONE_BASELINE,
@@ -220,6 +347,65 @@ describe("loadResolvedProviderCatalog", () => {
 			expect(mockLogger.warn).toHaveBeenCalledWith(
 				expect.stringContaining("Failed to parse TEST_ENFORCED"),
 			);
+		});
+
+		it("keeps an invalid env fragment all-or-nothing and reports its source", async () => {
+			const configPath = await writeConfig(tempDir, {
+				providers: { anthropic: { baseUrl: "https://user.example.com" } },
+			});
+			const report = await loadProviderCatalogReport({
+				baseline: STANDALONE_BASELINE,
+				configPath,
+				enforcedEnvVar: "TEST_ENFORCED",
+				envVars: {
+					TEST_ENFORCED: JSON.stringify({
+						providers: {
+							anthropic: { baseUrl: "https://admin.example.com" },
+							portkey: {},
+						},
+					}),
+				},
+			});
+
+			expect(findProvider(report.catalog, "anthropic")?.connection.baseUrl).toBe(
+				"https://user.example.com",
+			);
+			expect(report.issues).toEqual([
+				expect.objectContaining({
+					severity: "error",
+					source: { kind: "enforced", label: "TEST_ENFORCED" },
+					message: expect.stringContaining("portkey"),
+				}),
+			]);
+		});
+
+		it("ignores an env fragment containing an unsafe custom provider name", async () => {
+			const configPath = await writeConfig(tempDir, {
+				providers: { anthropic: { baseUrl: "https://user.example.com" } },
+			});
+			const report = await loadProviderCatalogReport({
+				baseline: STANDALONE_BASELINE,
+				configPath,
+				enforcedEnvVar: "TEST_ENFORCED",
+				envVars: {
+					TEST_ENFORCED:
+						'{"providers":{"anthropic":{"baseUrl":"https://admin.example.com"},"custom":{"__proto__":{"enabled":false}}}}',
+				},
+			});
+
+			expect(findProvider(report.catalog, "anthropic")?.connection.baseUrl).toBe(
+				"https://user.example.com",
+			);
+			// The fragment is ignored whole, so the issue is source-wide (empty
+			// path); the offending key path stays in the message prose.
+			expect(report.issues).toEqual([
+				expect.objectContaining({
+					severity: "error",
+					source: { kind: "enforced", label: "TEST_ENFORCED" },
+					path: [],
+					message: expect.stringContaining('Custom provider name "__proto__" is unsafe.'),
+				}),
+			]);
 		});
 
 		it("enforced fragment can disable a custom provider without specifying type", async () => {
@@ -559,7 +745,7 @@ describe("loadResolvedProviderCatalog", () => {
 			});
 
 			expect(catalog.length).toBe(BUILTIN_PROVIDER_IDS.length); // defaults
-			expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining("Failed to parse"));
+			expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining("Invalid JSONC"));
 		});
 
 		it("should degrade gracefully on schema violation", async () => {
@@ -594,6 +780,115 @@ describe("loadResolvedProviderCatalog", () => {
 			expect(catalog.length).toBe(BUILTIN_PROVIDER_IDS.length); // defaults
 			expect(findProvider(catalog, "anthropic")?.connection.aws).toBeUndefined();
 			expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining("Validation errors"));
+		});
+	});
+
+	// ========================================================================
+	// Whole-source failure severity and error locations
+	// ========================================================================
+
+	describe("whole-source failures", () => {
+		it("reports a syntax error as an error-severity issue with line and column", async () => {
+			const configPath = path.join(tempDir, "providers.json");
+			// Missing comma after the `providers` block: the parser reports
+			// CommaExpected at the `"version"` token on line 3.
+			await fs.writeFile(configPath, '{\n  "providers": {}\n  "version": 1\n}\n');
+
+			const report = await loadProviderCatalogReport({
+				baseline: STANDALONE_BASELINE,
+				configPath,
+			});
+
+			expect(report.issues).toEqual([
+				expect.objectContaining({
+					severity: "error",
+					path: [],
+					source: { kind: "user", label: configPath },
+					message: expect.stringContaining("Invalid JSONC: CommaExpected at line 3, column 3"),
+				}),
+			]);
+		});
+
+		it("reports line 1 for a single-line syntax error", async () => {
+			const configPath = path.join(tempDir, "providers.json");
+			await fs.writeFile(configPath, "{ bad");
+
+			const report = await loadProviderCatalogReport({
+				baseline: STANDALONE_BASELINE,
+				configPath,
+			});
+
+			expect(report.issues).toEqual([
+				expect.objectContaining({
+					severity: "error",
+					message: expect.stringContaining("at line 1, column"),
+				}),
+			]);
+		});
+
+		it.each([
+			["CRLF", "\r\n"],
+			["CR-only", "\r"],
+		] as const)("reports the correct line and column with %s line endings", async (_name, eol) => {
+			const configPath = path.join(tempDir, "providers.json");
+			// Missing comma after the `providers` block: CommaExpected at the
+			// `"version"` token on line 3, regardless of line-ending style.
+			await fs.writeFile(
+				configPath,
+				["{", '  "providers": {}', '  "version": 1', "}", ""].join(eol),
+			);
+
+			const report = await loadProviderCatalogReport({
+				baseline: STANDALONE_BASELINE,
+				configPath,
+			});
+
+			expect(report.issues).toEqual([
+				expect.objectContaining({
+					severity: "error",
+					message: expect.stringContaining("at line 3, column 3"),
+				}),
+			]);
+		});
+
+		it("reports an unreadable file as an error-severity issue", async () => {
+			const configPath = await writeConfig(tempDir, {});
+			const readError = Object.assign(new Error("permission denied"), { code: "EACCES" });
+			const readSpy = vi.spyOn(fs, "readFile").mockRejectedValueOnce(readError);
+
+			const report = await loadProviderCatalogReport({
+				baseline: STANDALONE_BASELINE,
+				configPath,
+			});
+
+			readSpy.mockRestore();
+			expect(report.issues).toEqual([
+				expect.objectContaining({
+					severity: "error",
+					path: [],
+					source: { kind: "user", label: configPath },
+					message: expect.stringContaining("Could not read the file: permission denied"),
+				}),
+			]);
+		});
+
+		it("reports an unparseable env fragment as an error-severity issue", async () => {
+			const configPath = await writeConfig(tempDir, {});
+
+			const report = await loadProviderCatalogReport({
+				baseline: STANDALONE_BASELINE,
+				configPath,
+				enforcedEnvVar: "TEST_ENFORCED",
+				envVars: { TEST_ENFORCED: "not valid json{{{" },
+			});
+
+			expect(report.issues).toEqual([
+				expect.objectContaining({
+					severity: "error",
+					source: { kind: "enforced", label: "TEST_ENFORCED" },
+					message: expect.stringContaining("Failed to parse TEST_ENFORCED as JSON"),
+				}),
+			]);
 		});
 	});
 
@@ -715,6 +1010,33 @@ describe("loadResolvedProviderCatalog", () => {
 			expect(catalog.length).toBe(BUILTIN_PROVIDER_IDS.length);
 			expect(findProvider(catalog, "anthropic")?.connection.baseUrl).toBeUndefined();
 		});
+
+		it("returns recurring legacy issues on every read until the setting is fixed", async () => {
+			const configPath = await writeConfig(tempDir, {});
+			let values: Record<string, unknown> = { "authentication.anthropic.baseUrl": 42 };
+			const reader = {
+				get: (key: string) => values[key],
+				watch: () => ({ dispose: () => {} }),
+			};
+			const opts = {
+				baseline: STANDALONE_BASELINE,
+				configPath,
+				legacyPositronSettings: reader,
+			};
+
+			const first = await loadProviderCatalogReport(opts);
+			const second = await loadProviderCatalogReport(opts);
+			expect(first.issues).toEqual(second.issues);
+			expect(first.issues).toEqual([
+				expect.objectContaining({
+					source: { kind: "legacy-positron", label: "legacy Positron settings" },
+					message: expect.stringContaining("expected a string"),
+				}),
+			]);
+
+			values = {};
+			expect((await loadProviderCatalogReport(opts)).issues).toEqual([]);
+		});
 	});
 });
 
@@ -727,9 +1049,11 @@ describe("mutateProvidersConfig", () => {
 
 	beforeEach(async () => {
 		tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-config-mutate-"));
+		vi.clearAllMocks();
 	});
 
 	afterEach(async () => {
+		vi.restoreAllMocks();
 		await fs.rm(tempDir, { recursive: true, force: true });
 	});
 
@@ -772,6 +1096,111 @@ describe("mutateProvidersConfig", () => {
 		const raw = JSON.parse(await fs.readFile(configPath, "utf-8"));
 		expect(raw.providers.anthropic.baseUrl).toBe("https://existing.example.com");
 		expect(raw.providers.openai.baseUrl).toBe("https://openai-custom.example.com");
+	});
+
+	it("preserves values when mutating a commented config", async () => {
+		const configPath = path.join(tempDir, "providers.json");
+		await fs.writeFile(
+			configPath,
+			`{
+				// Programmatic writes may strip this comment.
+				"providers": {
+					"anthropic": {
+						/* Existing values must survive. */
+						"baseUrl": "https://existing.example.com",
+					},
+				},
+			}`,
+		);
+
+		await mutateProvidersConfig(
+			(current) => ({
+				...current,
+				providers: {
+					...current.providers,
+					openai: { enabled: false },
+				},
+			}),
+			{ configPath, logger: mockLogger },
+		);
+
+		const written = await fs.readFile(configPath, "utf-8");
+		const parsed = JSON.parse(written);
+		expect(parsed.providers.anthropic.baseUrl).toBe("https://existing.example.com");
+		expect(parsed.providers.openai.enabled).toBe(false);
+		expect(written).not.toContain("Programmatic writes");
+		expect(written).not.toContain("Existing values");
+	});
+
+	it("aborts on syntax-invalid content without changing the file", async () => {
+		const configPath = path.join(tempDir, "providers.json");
+		const original = '{\n  // unfinished edit\n  "providers": {\n';
+		await fs.writeFile(configPath, original);
+		const mutator = vi.fn((current: ProvidersConfig) => current);
+
+		const mutation = mutateProvidersConfig(mutator, { configPath, logger: mockLogger });
+		await expect(mutation).rejects.toThrow(`Cannot mutate ${configPath}`);
+		await expect(mutation).rejects.toThrow("Mutation aborted until the file is fixed");
+
+		expect(mutator).not.toHaveBeenCalled();
+		expect(await fs.readFile(configPath, "utf-8")).toBe(original);
+	});
+
+	it("aborts on schema-invalid content without changing the file", async () => {
+		const configPath = path.join(tempDir, "providers.json");
+		const original = '{\n  "version": 99\n}\n';
+		await fs.writeFile(configPath, original);
+		const mutator = vi.fn((current: ProvidersConfig) => current);
+
+		const mutation = mutateProvidersConfig(mutator, { configPath, logger: mockLogger });
+		await expect(mutation).rejects.toThrow(`Cannot mutate ${configPath}`);
+		await expect(mutation).rejects.toThrow("Mutation aborted until the file is fixed");
+
+		expect(mutator).not.toHaveBeenCalled();
+		expect(await fs.readFile(configPath, "utf-8")).toBe(original);
+	});
+
+	it("names an unknown provider key and leaves the file byte-for-byte untouched", async () => {
+		const configPath = path.join(tempDir, "providers.json");
+		const bytes = `{"providers":{"anthropic":{"enabled":true},"portkey":{}}}\n`;
+		await fs.writeFile(configPath, bytes);
+
+		await expect(mutateProvidersConfig((current) => current, { configPath })).rejects.toThrow(
+			/portkey/,
+		);
+		expect(await fs.readFile(configPath, "utf-8")).toBe(bytes);
+	});
+
+	it("rejects a raw unsafe custom-provider key without changing the file", async () => {
+		const configPath = path.join(tempDir, "providers.json");
+		const bytes =
+			'{\n  "providers": {\n    "custom": {\n      "__proto__": { "type": "openai-compatible" }\n    }\n  }\n}\n';
+		await fs.writeFile(configPath, bytes);
+		const mutator = vi.fn((current: ProvidersConfig) => current);
+
+		await expect(mutateProvidersConfig(mutator, { configPath })).rejects.toThrow(/__proto__/);
+		expect(mutator).not.toHaveBeenCalled();
+		expect(await fs.readFile(configPath, "utf-8")).toBe(bytes);
+	});
+
+	it("aborts when the config cannot be read without changing the file", async () => {
+		const configPath = await writeConfig(tempDir, {
+			providers: { anthropic: { enabled: true } },
+		});
+		const original = await fs.readFile(configPath, "utf-8");
+		const readError = Object.assign(new Error("permission denied"), { code: "EACCES" });
+		const readSpy = vi.spyOn(fs, "readFile").mockRejectedValueOnce(readError);
+		const mutator = vi.fn((current: ProvidersConfig) => current);
+
+		await expect(
+			mutateProvidersConfig(mutator, { configPath, logger: mockLogger }),
+		).rejects.toThrow(
+			`[ai-config] Cannot mutate ${configPath}: permission denied. Mutation aborted until the file is fixed.`,
+		);
+
+		readSpy.mockRestore();
+		expect(mutator).not.toHaveBeenCalled();
+		expect(await fs.readFile(configPath, "utf-8")).toBe(original);
 	});
 
 	it("should reject invalid mutations", async () => {

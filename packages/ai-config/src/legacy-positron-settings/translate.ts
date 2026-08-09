@@ -12,14 +12,16 @@
  * `legacy-positron` / `legacy-positron-enforced` catalog layers and Positron's
  * one-shot settings migration, so the two can never diverge.
  *
- * Per-key shape validation with warn-once drop: a wrong-shaped value drops
- * that key only, never the whole translation. Empty strings and empty header
- * maps are omitted, so a fragment can only contribute values it actually has.
+ * A wrong-shaped value drops that key only, never the whole translation. The
+ * public compatibility function renders warn-once diagnostics; the internal
+ * report sibling returns current issues without logging. Empty strings and
+ * empty header maps are omitted.
  */
 
 import * as z from "zod/v4";
 
 import { normalizeBaseUrlForProvider } from "../base-url.js";
+import type { ConfigIssue } from "../config-issue.js";
 import type { Disposable } from "../config-source.js";
 import { inferModelCapabilities } from "../model-capabilities/infer.js";
 import type {
@@ -80,6 +82,11 @@ export interface TranslatedLegacySettings {
 	readonly migrations: readonly SettingMigration[];
 }
 
+/** Silent internal translation report used by catalog source readers. */
+export interface TranslatedLegacySettingsReport extends TranslatedLegacySettings {
+	readonly issues: ConfigIssue[];
+}
+
 // ---------------------------------------------------------------------------
 // Per-key value schemas
 // ---------------------------------------------------------------------------
@@ -120,6 +127,35 @@ export function translateLegacyPositronSettings(
 	logger?: LoggerLike,
 	warnedKeys: Set<string> = new Set(),
 ): TranslatedLegacySettings {
+	return translateLegacyPositronSettingsInternal(reader, (key, message) => {
+		if (warnedKeys.has(key)) {
+			return;
+		}
+		warnedKeys.add(key);
+		logger?.warn(message);
+	});
+}
+
+/** Translate legacy settings into a repeatable issue snapshot without logging. */
+export function translateLegacyPositronSettingsReport(
+	reader: Pick<LegacySettingsReader, "get">,
+): TranslatedLegacySettingsReport {
+	const issues: ConfigIssue[] = [];
+	const reportedKeys = new Set<string>();
+	const translated = translateLegacyPositronSettingsInternal(reader, (key, message) => {
+		if (reportedKeys.has(key)) {
+			return;
+		}
+		reportedKeys.add(key);
+		issues.push({ severity: "warning", path: [key], message: stripLogPrefix(message) });
+	});
+	return { ...translated, issues };
+}
+
+function translateLegacyPositronSettingsInternal(
+	reader: Pick<LegacySettingsReader, "get">,
+	reportDropped: (key: string, message: string) => void,
+): TranslatedLegacySettings {
 	const providers: Record<string, BuiltinProviderBlock> = {};
 	const migrations: SettingMigration[] = [];
 
@@ -131,11 +167,10 @@ export function translateLegacyPositronSettings(
 	};
 
 	const warnDropped = (key: string, expected: string) => {
-		if (warnedKeys.has(key)) {
-			return;
-		}
-		warnedKeys.add(key);
-		logger?.warn(`[ai-config] Ignoring legacy Positron setting "${key}" — expected ${expected}.`);
+		reportDropped(
+			key,
+			`[ai-config] Ignoring legacy Positron setting "${key}" — expected ${expected}.`,
+		);
 	};
 
 	const readString = (key: string): string | undefined => {
@@ -342,11 +377,11 @@ export function translateLegacyPositronSettings(
 		}
 		const parsed = raw.map((entry) => legacyModelOverrideSchema.safeParse(entry));
 		const entries = parsed.filter((result) => result.success).map((result) => result.data);
-		if (entries.length < parsed.length && !warnedKeys.has(key)) {
+		if (entries.length < parsed.length) {
 			// Not warnDropped: valid sibling entries are kept, so "Ignoring the
 			// setting" would overstate. Model names and payloads stay out of the log.
-			warnedKeys.add(key);
-			logger?.warn(
+			reportDropped(
+				key,
 				`[ai-config] Dropped ${parsed.length - entries.length} of ${parsed.length} entries in legacy Positron setting "${key}": each entry needs a non-empty name and identifier and positive token limits.`,
 			);
 		}
@@ -418,4 +453,8 @@ function headerNames(headers: Record<string, string>): string {
 
 function hasKeys(obj: object): boolean {
 	return Object.keys(obj).length > 0;
+}
+
+function stripLogPrefix(message: string): string {
+	return message.startsWith("[ai-config] ") ? message.slice("[ai-config] ".length) : message;
 }

@@ -22,6 +22,7 @@ import lockfile from "proper-lockfile";
 import { PROVIDERS_CONFIG_VERSION } from "../index.js";
 import { providersConfigSchema } from "../schema.js";
 import type { ProvidersConfig } from "../types.js";
+import { parseProvidersConfig } from "./parse-providers-config.js";
 import { PROVIDERS_CONFIG_PATH } from "./paths.js";
 import type { LoggerLike, MutateConfigOptions } from "./types.js";
 
@@ -105,7 +106,7 @@ async function performLockedMutation(
 		logger?.debug("[ai-config] Acquired config lock for mutation");
 
 		// Re-read current state under lock
-		const current = await readCurrentConfig(configPath, logger);
+		const current = await readCurrentConfig(configPath);
 
 		// Apply mutation
 		let updated = await mutator(current);
@@ -143,34 +144,19 @@ async function performLockedMutation(
 }
 
 /**
- * Read and parse the current config file. Returns `{}` on missing or invalid.
+ * Read and validate the current config file. Any failure aborts the mutation:
+ * after race-safe creation, an unreadable or missing file is anomalous, and
+ * treating invalid content as `{}` would silently discard user configuration.
  */
-async function readCurrentConfig(
-	configPath: string,
-	logger: LoggerLike | undefined,
-): Promise<ProvidersConfig> {
-	let raw: string;
+async function readCurrentConfig(configPath: string): Promise<ProvidersConfig> {
 	try {
-		raw = await fs.readFile(configPath, "utf-8");
+		const raw = await fs.readFile(configPath, "utf-8");
+		return parseProvidersConfig(raw);
 	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-			return {};
-		}
-		logger?.warn(`[ai-config] Failed to read ${configPath}: ${errorMessage(error)}`);
-		return {};
-	}
-
-	try {
-		const parsed = JSON.parse(raw);
-		const result = providersConfigSchema.safeParse(parsed);
-		if (!result.success) {
-			logger?.warn(`[ai-config] Current config invalid, treating as empty: ${configPath}`);
-			return {};
-		}
-		return result.data;
-	} catch (error) {
-		logger?.warn(`[ai-config] Failed to parse ${configPath}: ${errorMessage(error)}`);
-		return {};
+		throw new Error(
+			`[ai-config] Cannot mutate ${configPath}: ${errorMessage(error)}. Mutation aborted until the file is fixed.`,
+			{ cause: error },
+		);
 	}
 }
 

@@ -199,6 +199,14 @@ The `/positron` entrypoint is the only place where `vscode` may be imported. All
 - Strict typing is very important. Never cast types `as` unless absolutely necessary.
 - Use creative solutions to achieve strict typing rather than escaping with casts.
 
+### JSONC configuration files
+
+- User-editable config files read by `ai-config` are JSONC. Route every such file read through
+  the shared internal `src/node/parse-jsonc.ts` helper so comments and trailing commas behave
+  consistently.
+- Keep `JSON.parse` for serialized environment payloads such as provider config fragments and
+  legacy enforced settings; those machine-supplied values remain strict JSON.
+
 ### Tests: Scaffolding vs. Regression
 
 While developing, it's fine to write temporary "scaffolding" tests (reproducing a bug, probing intermediate behavior, verifying an assumption about a dependency). Before finishing, do a cleanup pass:

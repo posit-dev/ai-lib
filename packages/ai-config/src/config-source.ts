@@ -12,6 +12,7 @@
  * stays public (it is the return type of `LegacySettingsReader.watch`).
  */
 
+import type { SourcedConfigIssue } from "./config-issue.js";
 import type { ProviderConfigSource } from "./resolve-catalog.js";
 
 /**
@@ -21,18 +22,26 @@ export interface Disposable {
 	dispose(): void;
 }
 
+/** Complete result of reading one config source at a point in time. */
+export interface ProviderConfigSourceReadReport {
+	/** Absent when the layer currently contributes no config. */
+	readonly source?: ProviderConfigSource;
+	/** Current issues for this source, including an empty recovered snapshot. */
+	readonly issues: SourcedConfigIssue[];
+}
+
 /**
  * A watchable config source contributed to the source-aware catalog watch.
  *
- * `read()` produces the source's current fragment (or `undefined` when the
- * source has nothing to contribute — e.g. an unset env var or missing file).
+ * `read()` produces a complete current report. Its `source` is absent when
+ * the layer has nothing to contribute; issues remain present independently.
  * `watch()` subscribes to change signals; omit it for static sources (env
  * vars don't change at runtime). Any `onChange` callback triggers a debounced
  * rebuild of the whole catalog.
  */
 export interface ProviderConfigSourceProvider {
 	/** Read (or re-read) the current fragment for this source. */
-	read(): ProviderConfigSource | undefined | Promise<ProviderConfigSource | undefined>;
+	read(): ProviderConfigSourceReadReport | Promise<ProviderConfigSourceReadReport>;
 	/** Subscribe to change signals. Returns a disposable. Optional for static sources. */
 	watch?(onChange: () => void): Disposable;
 }

@@ -6,6 +6,7 @@
  * Types specific to the node (filesystem) entry of ai-config.
  */
 
+import type { SourcedConfigIssue } from "../config-issue.js";
 import type { LegacySettingsReader } from "../legacy-positron-settings/translate.js";
 import type { LoggerLike, PlatformBaseline, ResolvedProvider } from "../types.js";
 
@@ -122,11 +123,16 @@ export type WatchCatalogOptions = LoadCatalogOptions;
  *
  * Consumers can check these flags to decide which subsystems need updating
  * (e.g. `enabledChanged` → re-register providers, `connectionChanged` →
- * invalidate model caches, `modelsChanged` → refresh model lists).
+ * invalidate model caches, `modelsChanged` → refresh model lists,
+ * `issuesChanged` → replace displayed configuration diagnostics). Each
+ * event also carries the complete current catalog and issue snapshots.
  */
 export interface ProviderCatalogChange {
 	/** The full new catalog. */
 	readonly catalog: readonly ResolvedProvider[];
+
+	/** The complete current issue snapshot, including an empty recovery. */
+	readonly issues: readonly SourcedConfigIssue[];
 
 	/** Whether any provider's `enabled` state changed. */
 	readonly enabledChanged: boolean;
@@ -136,4 +142,7 @@ export interface ProviderCatalogChange {
 
 	/** Whether any provider's model policy/custom declarations changed. */
 	readonly modelsChanged: boolean;
+
+	/** Whether the issue snapshot changed structurally. */
+	readonly issuesChanged: boolean;
 }

@@ -18,6 +18,8 @@
  */
 
 import { buildCatalog } from "./build-catalog.js";
+import { formatConfigIssue, sourcedWholeSourceIssue } from "./config-issue.js";
+import type { SourcedConfigIssue } from "./config-issue.js";
 import { readEnvConnectionConfig } from "./connection-env.js";
 import { mergeConfigFragments } from "./enforce.js";
 import type { EnablementLayer } from "./resolve-enabled.js";
@@ -151,6 +153,12 @@ export interface ResolveProviderCatalogOptions {
 	readonly logger?: LoggerLike;
 }
 
+/** Canonical resolver result, including every overlay dropped during recovery. */
+export interface ProviderCatalogReport {
+	readonly catalog: readonly ResolvedProvider[];
+	readonly issues: readonly SourcedConfigIssue[];
+}
+
 // ---------------------------------------------------------------------------
 // Resolver
 // ---------------------------------------------------------------------------
@@ -176,7 +184,18 @@ export interface ResolveProviderCatalogOptions {
 export function resolveProviderCatalog(
 	opts: ResolveProviderCatalogOptions,
 ): readonly ResolvedProvider[] {
-	const { sources, baseline, envVars, logger } = opts;
+	const report = resolveProviderCatalogReport(opts);
+	for (const issue of report.issues) {
+		opts.logger?.warn(formatConfigIssue(issue));
+	}
+	return report.catalog;
+}
+
+/** Resolve the catalog silently and return a complete issue snapshot. */
+export function resolveProviderCatalogReport(
+	opts: ResolveProviderCatalogOptions,
+): ProviderCatalogReport {
+	const { sources, baseline, envVars } = opts;
 
 	// Synthesize the private env source from envVars. Skipped when the
 	// fragment is empty so an inert source never enters the stack.
@@ -190,7 +209,7 @@ export function resolveProviderCatalog(
 	// is stable, so same-kind sources keep their array order (earlier wins).
 	const highestFirst = ranked.sort((a, b) => RANK[a.kind] - RANK[b.kind]);
 
-	const { kept, config } = recoverValidStack(highestFirst, logger);
+	const { kept, config, issues } = recoverValidStack(highestFirst);
 
 	// Derive enablement layers excluding the env source — it carries only
 	// connection fields, so it must never influence enablement resolution.
@@ -198,7 +217,10 @@ export function resolveProviderCatalog(
 		.filter((s): s is ProviderConfigSource => s.kind !== "env")
 		.map<EnablementLayer>((s) => s.config.providers);
 	const connectionProvenance = resolveConnectionProvenance(kept, config);
-	return buildCatalog(config, enabledLayers, baseline, connectionProvenance);
+	return {
+		catalog: buildCatalog(config, enabledLayers, baseline, connectionProvenance),
+		issues,
+	};
 }
 
 /**
@@ -247,6 +269,8 @@ export interface RecoveredStack {
 	readonly kept: readonly RankedConfigSource[];
 	/** The validated merged config for the kept sources. */
 	readonly config: ProvidersConfig;
+	/** Complete diagnostics for overlays dropped from this stack. */
+	readonly issues: readonly SourcedConfigIssue[];
 }
 
 /**
@@ -271,6 +295,7 @@ export function recoverValidStack(
 ): RecoveredStack {
 	let kept = highestFirst;
 	let resolved = mergeAndValidate(kept);
+	const issues: SourcedConfigIssue[] = [];
 
 	while (!resolved.success) {
 		const victim = chooseDroppedSource(kept);
@@ -278,14 +303,19 @@ export function recoverValidStack(
 			break; // Defensive: user alone always validates.
 		}
 
-		logger?.warn(
-			`[ai-config] Config source ${describeSource(victim)} produces an invalid merged result: ${formatZodErrors(resolved.error)}. Ignoring this source.`,
+		// The whole overlay is discarded, so the issue is source-wide; the
+		// offending key path stays in the message prose.
+		const issue = sourcedWholeSourceIssue(
+			victim,
+			`Config source ${describeSource(victim)} produces an invalid merged result: ${formatZodErrors(resolved.error)}. Ignoring this source.`,
 		);
+		issues.push(issue);
+		logger?.warn(formatConfigIssue(issue));
 		kept = without(kept, victim);
 		resolved = mergeAndValidate(kept);
 	}
 
-	return { kept, config: resolved.success ? resolved.data : {} };
+	return { kept, config: resolved.success ? resolved.data : {}, issues };
 }
 
 /**

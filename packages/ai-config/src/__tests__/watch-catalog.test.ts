@@ -25,11 +25,17 @@ async function writeConfig(configPath: string, config: ProvidersConfig): Promise
 	await fs.writeFile(configPath, JSON.stringify(config, null, 2));
 }
 
+/** Allow the watcher's asynchronous initial snapshot to settle under full-suite load. */
+async function waitForInitialSnapshot(): Promise<void> {
+	await new Promise((resolve) => setTimeout(resolve, 900));
+}
+
 describe("watchResolvedProviderCatalog", () => {
 	let tempDir: string;
 
 	beforeEach(async () => {
 		tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-config-watch-"));
+		vi.clearAllMocks();
 	});
 
 	afterEach(async () => {
@@ -50,7 +56,7 @@ describe("watchResolvedProviderCatalog", () => {
 		});
 
 		// Wait for initial load
-		await new Promise((resolve) => setTimeout(resolve, 500));
+		await waitForInitialSnapshot();
 
 		// Change enablement
 		await writeConfig(configPath, {
@@ -80,7 +86,7 @@ describe("watchResolvedProviderCatalog", () => {
 			logger: mockLogger,
 		});
 
-		await new Promise((resolve) => setTimeout(resolve, 500));
+		await waitForInitialSnapshot();
 
 		await writeConfig(configPath, {
 			providers: { anthropic: { baseUrl: "https://b.example.com" } },
@@ -107,7 +113,7 @@ describe("watchResolvedProviderCatalog", () => {
 			logger: mockLogger,
 		});
 
-		await new Promise((resolve) => setTimeout(resolve, 500));
+		await waitForInitialSnapshot();
 
 		await writeConfig(configPath, {
 			providers: { bedrock: { aws: { region: "us-west-2" } } },
@@ -135,7 +141,7 @@ describe("watchResolvedProviderCatalog", () => {
 			logger: mockLogger,
 		});
 
-		await new Promise((resolve) => setTimeout(resolve, 500));
+		await waitForInitialSnapshot();
 
 		watcher.dispose();
 		const countAfterDispose = changes.length;
@@ -171,7 +177,7 @@ describe("watchResolvedProviderCatalog", () => {
 			logger: mockLogger,
 		});
 
-		await new Promise((resolve) => setTimeout(resolve, 500));
+		await waitForInitialSnapshot();
 
 		// Change the client kind (type) of the custom provider
 		await writeConfig(configPath, {
@@ -225,7 +231,7 @@ describe("watchResolvedProviderCatalog", () => {
 		});
 
 		// Wait for the initial load.
-		await new Promise((resolve) => setTimeout(resolve, 500));
+		await waitForInitialSnapshot();
 
 		// Change the legacy settings and signal a change. The first emitted
 		// catalog after this watch-triggered rebuild must carry the new value —
@@ -263,7 +269,7 @@ describe("watchResolvedProviderCatalog", () => {
 		});
 
 		// Wait for the initial load.
-		await new Promise((resolve) => setTimeout(resolve, 500));
+		await waitForInitialSnapshot();
 
 		// Trigger a rebuild through an unrelated provider so an event fires;
 		// the emitted catalog must still carry the enforced anthropic value —
@@ -294,7 +300,7 @@ describe("watchResolvedProviderCatalog", () => {
 			logger: mockLogger,
 		});
 
-		await new Promise((resolve) => setTimeout(resolve, 500));
+		await waitForInitialSnapshot();
 
 		// Trigger a change
 		await writeConfig(configPath, {
@@ -309,5 +315,55 @@ describe("watchResolvedProviderCatalog", () => {
 			const lastChange = changes[changes.length - 1];
 			expect(lastChange.catalog.length).toBe(15); // all built-ins
 		}
+	});
+
+	it("emits and logs issue-only add, repeat, clear, and recurrence transitions", async () => {
+		const configPath = path.join(tempDir, "providers.json");
+		const valid = { providers: { anthropic: { enabled: true } } };
+		const invalid = {
+			providers: { anthropic: { enabled: true }, portkey: { enabled: true } },
+		};
+		await fs.writeFile(configPath, JSON.stringify(valid));
+
+		const changes: ProviderCatalogChange[] = [];
+		const watcher = watchResolvedProviderCatalog((change) => changes.push(change), {
+			baseline: STANDALONE_BASELINE,
+			configPath,
+			logger: mockLogger,
+		});
+		await waitForInitialSnapshot();
+
+		await fs.writeFile(configPath, JSON.stringify(invalid));
+		await new Promise((resolve) => setTimeout(resolve, 600));
+		expect(changes).toHaveLength(1);
+		expect(changes[0]).toMatchObject({
+			enabledChanged: false,
+			connectionChanged: false,
+			modelsChanged: false,
+			issuesChanged: true,
+		});
+		expect(changes[0].issues).toEqual([
+			expect.objectContaining({ path: ["providers", "portkey"] }),
+		]);
+		const warningsAfterAdd = mockLogger.warn.mock.calls.length;
+
+		await fs.writeFile(configPath, JSON.stringify(invalid, null, 2));
+		await new Promise((resolve) => setTimeout(resolve, 600));
+		expect(changes).toHaveLength(1);
+		expect(mockLogger.warn).toHaveBeenCalledTimes(warningsAfterAdd);
+
+		await fs.writeFile(configPath, JSON.stringify(valid));
+		await new Promise((resolve) => setTimeout(resolve, 600));
+		expect(changes).toHaveLength(2);
+		expect(changes[1].issuesChanged).toBe(true);
+		expect(changes[1].issues).toEqual([]);
+
+		await fs.writeFile(configPath, JSON.stringify(invalid));
+		await new Promise((resolve) => setTimeout(resolve, 600));
+		watcher.dispose();
+
+		expect(changes).toHaveLength(3);
+		expect(changes[2].issuesChanged).toBe(true);
+		expect(mockLogger.warn).toHaveBeenCalledTimes(warningsAfterAdd + 1);
 	});
 });

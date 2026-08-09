@@ -16,6 +16,7 @@
 
 import type * as z from "zod/v4";
 
+import { customProviderNameIssues } from "./custom-provider-name.js";
 import type {
 	builtinProviderBlockSchema,
 	customModelSchema,
@@ -28,7 +29,6 @@ import type {
 	providersConfigSchema,
 	providersMapSchema,
 } from "./schema.js";
-import { isBuiltinProviderId, RESERVED_PROVIDER_KEYS } from "./vocabulary.js";
 import type { BuiltinProviderId, ClientKind, Protocol } from "./vocabulary.js";
 
 // ---------------------------------------------------------------------------
@@ -83,7 +83,7 @@ declare const __customProviderId: unique symbol;
 /**
  * A custom provider id — a string branded to prevent collapse to `string`
  * when unioned with `BuiltinProviderId`. Produced only by
- * `mintCustomProviderId()` after catalog-membership validation.
+ * `mintCustomProviderId()` after custom-name policy validation.
  */
 export type CustomProviderId = string & { readonly [__customProviderId]: true };
 
@@ -97,17 +97,16 @@ export type ResolvedProviderId = BuiltinProviderId | CustomProviderId;
 /**
  * Mint a `CustomProviderId` from a string. This is the **one** sanctioned
  * place that produces the branded type. Validates the id against built-in
- * and reserved-key collision rules; throws if the id is invalid.
+ * and reserved-key collision rules and rejects the unsafe object key
+ * `__proto__`; throws if the id is invalid.
  */
 export function mintCustomProviderId(id: string): CustomProviderId {
 	if (!id) {
 		throw new Error("Custom provider id must be a non-empty string.");
 	}
-	if (isBuiltinProviderId(id)) {
-		throw new Error(`Custom provider id "${id}" collides with a built-in provider id.`);
-	}
-	if ((RESERVED_PROVIDER_KEYS as readonly string[]).includes(id)) {
-		throw new Error(`Custom provider id "${id}" is a reserved key.`);
+	const issue = customProviderNameIssues(id)[0];
+	if (issue) {
+		throw new Error(issue.replace("Custom provider name", "Custom provider id"));
 	}
 	return id as CustomProviderId;
 }

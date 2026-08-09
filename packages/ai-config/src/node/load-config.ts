@@ -2,170 +2,153 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-/**
- * Read providers.json + env fragments into an ordered stack of
- * `ProviderConfigSource`s.
- *
- * Internal building block of `loadResolvedProviderCatalog()` and
- * `watchResolvedProviderCatalog()`. Precedence is NOT applied here — the pure
- * `resolveProviderCatalog()` seam owns the merge/precedence. This module only
- * turns bytes on disk / env vars into validated source fragments.
- */
+/** Read providers.json and env fragments into structured source reports. */
 
 import { promises as fs } from "fs";
 
+import { formatConfigIssue, sourceConfigIssue, sourcedWholeSourceIssue } from "../config-issue.js";
+import type { ProviderConfigSourceReadReport } from "../config-source.js";
 import type { ProviderConfigSource } from "../resolve-catalog.js";
-import { providersConfigFragmentSchema, providersConfigSchema } from "../schema.js";
-import type { ProvidersConfigFragment, LoggerLike, ProvidersConfig } from "../types.js";
+import { providersConfigFragmentSchema } from "../schema.js";
+import type { LoggerLike } from "../types.js";
+import { parseProvidersConfigTolerant } from "./parse-providers-config.js";
 import { DEFAULT_ENV_VAR, ENFORCED_ENV_VAR, PROVIDERS_CONFIG_PATH } from "./paths.js";
 
-/** Options for assembling the default config sources. */
 export interface LoadConfigSourcesOptions {
-	/** Override the config file path (defaults to ~/.posit/ai/providers.json). */
-	configPath?: string;
-	/** Override the enforced env-var name (defaults to POSIT_AI_PROVIDERS_ENFORCED). */
-	enforcedEnvVar?: string;
-	/** Override the default env-var name (defaults to POSIT_AI_PROVIDERS_DEFAULT). */
-	defaultEnvVar?: string;
-	/** Environment variables to read fragments from (defaults to process.env). */
-	env?: Record<string, string | undefined>;
-	/** Optional logger for diagnostics and validation warnings. */
-	logger?: LoggerLike;
+	readonly configPath?: string;
+	readonly enforcedEnvVar?: string;
+	readonly defaultEnvVar?: string;
+	readonly env?: Record<string, string | undefined>;
+	readonly logger?: LoggerLike;
 }
 
-/**
- * Assemble the default config sources: the user's `providers.json` file, the
- * enforced env overlay, and the default env layer.
- *
- * The returned array is unordered with respect to precedence — each source
- * carries its `kind`, and the resolver ranks them. Env sources are omitted
- * when their env var is unset or fails to parse/validate (with a warning).
- * The user (file) source is **always** present so it can serve as the
- * validated fallback if merged overlays are invalid.
- */
-export async function loadConfigSources(
+/** Assemble complete read reports without rendering diagnostics. */
+export async function loadConfigSourceReports(
 	opts?: LoadConfigSourcesOptions,
-): Promise<ProviderConfigSource[]> {
+): Promise<ProviderConfigSourceReadReport[]> {
 	const configPath = opts?.configPath ?? PROVIDERS_CONFIG_PATH;
 	const enforcedEnvVar = opts?.enforcedEnvVar ?? ENFORCED_ENV_VAR;
 	const defaultEnvVar = opts?.defaultEnvVar ?? DEFAULT_ENV_VAR;
 	const env = opts?.env ?? process.env;
-	const logger = opts?.logger;
 
-	const sources: ProviderConfigSource[] = [];
-
-	// user — the validated providers.json (empty config if missing/invalid).
-	const userConfig = await readFileConfig(configPath, logger);
-	sources.push({ kind: "user", label: configPath, config: userConfig });
-
-	// enforced — the sealed admin overlay.
-	const enforced = readEnvFragment(enforcedEnvVar, env, logger);
-	if (enforced) {
-		sources.push({ kind: "enforced", label: enforcedEnvVar, config: enforced });
-	}
-
-	// default — Workbench admin defaults (below user/legacy-positron).
-	const defaults = readEnvFragment(defaultEnvVar, env, logger);
-	if (defaults) {
-		sources.push({ kind: "default", label: defaultEnvVar, config: defaults });
-	}
-
-	return sources;
+	return [
+		await readFileConfig(configPath),
+		readEnvFragment("enforced", enforcedEnvVar, env),
+		readEnvFragment("default", defaultEnvVar, env),
+	];
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+/** Compatibility wrapper retaining the historical bare-source signature. */
+export async function loadConfigSources(
+	opts?: LoadConfigSourcesOptions,
+): Promise<ProviderConfigSource[]> {
+	const reports = await loadConfigSourceReports(opts);
+	for (const issue of reports.flatMap((report) => report.issues)) {
+		opts?.logger?.warn(formatConfigIssue(issue));
+	}
+	return reports.flatMap((report) => (report.source ? [report.source] : []));
+}
 
-/**
- * Read and validate the config file. Returns `{}` on missing or invalid file
- * (a missing file is equivalent to an empty config — consumers are never
- * stranded).
- */
-export async function readFileConfig(
-	configPath: string,
-	logger: LoggerLike | undefined,
-): Promise<ProvidersConfig> {
+/** Read the user file tolerantly. Missing is a healthy empty user source. */
+export async function readFileConfig(configPath: string): Promise<ProviderConfigSourceReadReport> {
+	const identity = { kind: "user", label: configPath } satisfies Pick<
+		ProviderConfigSource,
+		"kind" | "label"
+	>;
 	let raw: string;
 	try {
 		raw = await fs.readFile(configPath, "utf-8");
 	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-			// File doesn't exist — valid, equivalent to empty config
-			return {};
+		if (isErrnoCode(error, "ENOENT")) {
+			return { source: { ...identity, config: {} }, issues: [] };
 		}
-		logger?.warn(`[ai-config] Failed to read ${configPath}: ${errorMessage(error)}`);
-		return {};
+		return {
+			source: { ...identity, config: {} },
+			issues: [
+				sourcedWholeSourceIssue(
+					identity,
+					`Could not read the file: ${errorMessage(error)}. Using empty config.`,
+				),
+			],
+		};
 	}
 
-	// Parse JSON
-	let parsed: unknown;
 	try {
-		parsed = JSON.parse(raw);
+		const { config, issues } = parseProvidersConfigTolerant(raw);
+		return {
+			source: { ...identity, config },
+			issues: issues.map((issue) =>
+				sourceConfigIssue({ ...issue, message: `Validation errors: ${issue.message}` }, identity),
+			),
+		};
 	} catch (error) {
-		logger?.warn(
-			`[ai-config] Failed to parse ${configPath} as JSON: ${errorMessage(error)}. Using empty config.`,
-		);
-		return {};
+		return {
+			source: { ...identity, config: {} },
+			issues: [
+				sourcedWholeSourceIssue(
+					identity,
+					error instanceof SyntaxError
+						? `Invalid JSONC: ${errorMessage(error)}. Using empty config.`
+						: `Unexpected error: ${errorMessage(error)}. Using empty config.`,
+				),
+			],
+		};
 	}
-
-	// Validate with Zod
-	const result = providersConfigSchema.safeParse(parsed);
-	if (!result.success) {
-		logger?.warn(
-			`[ai-config] Validation errors in ${configPath}: ${formatZodErrors(result.error)}. Using empty config.`,
-		);
-		return {};
-	}
-
-	return result.data;
 }
 
-/**
- * Read a config fragment from an environment variable.
- * Returns `undefined` if the variable is not set or contains invalid
- * JSON/schema (with a warning).
- *
- * Uses `providersConfigFragmentSchema` which relaxes the custom entry `type`
- * field to optional, so an admin can enforce/default a single key on a custom
- * provider without repeating `type`. The merged result is re-validated with
- * the full schema by the resolver.
- */
+/** Read an admin fragment strictly and all-or-nothing. */
 export function readEnvFragment(
+	kind: "enforced" | "default",
 	envVarName: string,
 	env: Record<string, string | undefined>,
-	logger: LoggerLike | undefined,
-): ProvidersConfigFragment | undefined {
+): ProviderConfigSourceReadReport {
+	const identity = { kind, label: envVarName };
 	const envValue = env[envVarName];
 	if (!envValue) {
-		return undefined;
+		return { issues: [] };
 	}
 
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(envValue);
 	} catch (error) {
-		logger?.warn(
-			`[ai-config] Failed to parse ${envVarName} as JSON: ${errorMessage(error)}. Ignoring.`,
-		);
-		return undefined;
+		return {
+			issues: [
+				sourcedWholeSourceIssue(
+					identity,
+					`Failed to parse ${envVarName} as JSON: ${errorMessage(error)}. Ignoring.`,
+				),
+			],
+		};
 	}
 
 	const result = providersConfigFragmentSchema.safeParse(parsed);
 	if (!result.success) {
-		logger?.warn(
-			`[ai-config] Validation errors in ${envVarName}: ${formatZodErrors(result.error)}. Ignoring.`,
-		);
-		return undefined;
+		// The fragment is ignored whole, so the issue is source-wide; the
+		// offending key path stays in the message prose.
+		return {
+			issues: [
+				sourcedWholeSourceIssue(
+					identity,
+					`Validation errors in ${envVarName}: ${formatZodErrors(result.error)}. Ignoring.`,
+				),
+			],
+		};
 	}
 
-	return result.data;
+	return { source: { ...identity, config: result.data }, issues: [] };
 }
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
-function formatZodErrors(error: { issues: Array<{ message: string; path?: unknown[] }> }): string {
-	return error.issues.map((i) => `${i.path?.join(".") ?? ""}: ${i.message}`).join("; ");
+function isErrnoCode(error: unknown, code: string): boolean {
+	return error instanceof Error && "code" in error && error.code === code;
+}
+
+function formatZodErrors(error: {
+	issues: readonly { message: string; path?: readonly PropertyKey[] }[];
+}): string {
+	return error.issues.map((issue) => `${issue.path?.join(".") ?? ""}: ${issue.message}`).join("; ");
 }
