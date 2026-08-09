@@ -4,20 +4,33 @@
 
 import type { ProviderConfigSource, ProviderConfigSourceKind } from "./resolve-catalog.js";
 
-/** A structured problem found while reading or resolving provider config. */
-export interface ConfigIssue {
-	readonly severity: "warning" | "error";
-	readonly path: readonly (string | number)[];
-	readonly message: string;
-}
+/**
+ * A structured problem found while reading or resolving provider config.
+ *
+ * The severity/scope contract is encoded in the type: a **warning** is a
+ * per-key salvage drop (one entry ignored, the rest of the source survives);
+ * an **error** is a whole-source failure (the source was discarded whole), so
+ * its path is always empty and offending key paths live in the message prose.
+ */
+export type ConfigIssue =
+	| {
+			readonly severity: "warning";
+			readonly path: readonly (string | number)[];
+			readonly message: string;
+	  }
+	| {
+			readonly severity: "error";
+			readonly path: readonly [];
+			readonly message: string;
+	  };
 
 /** A config issue with the identity of the source that produced it. */
-export interface SourcedConfigIssue extends ConfigIssue {
+export type SourcedConfigIssue = ConfigIssue & {
 	readonly source: {
 		readonly kind: ProviderConfigSourceKind | "env";
 		readonly label: string;
 	};
-}
+};
 
 /** Normalize an optional source label before exposing it in an issue. */
 export function configIssueSource(
