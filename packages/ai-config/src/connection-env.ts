@@ -81,6 +81,7 @@ const CONNECTION_ENV_MAPPINGS: Partial<Record<BuiltinProviderId, ConnectionEnvMa
 	// section (NOT baseUrl): the workspace host is not a chat base URL — the
 	// bridge derives the serving-endpoints / AI Gateway URL from it.
 	databricks: { databricks: { host: "DATABRICKS_HOST" } },
+	litellm: { baseUrl: "LITELLM_BASE_URL" },
 };
 
 // ---------------------------------------------------------------------------

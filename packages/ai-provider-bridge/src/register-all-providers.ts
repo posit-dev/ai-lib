@@ -23,6 +23,7 @@ import { registerDeepSeekProvider } from "./providers/deepseek-provider";
 import { registerFoundryProvider } from "./providers/foundry-provider";
 import { registerGeminiProvider } from "./providers/gemini-provider";
 import { registerGoogleVertexProvider } from "./providers/google-vertex-provider";
+import { registerLitellmProvider } from "./providers/litellm-provider";
 import { registerLMStudioProvider } from "./providers/lmstudio-provider";
 import { registerOllamaProvider } from "./providers/ollama-provider";
 import { registerOpenAICompatibleProvider } from "./providers/openai-compatible-provider";
@@ -88,6 +89,7 @@ export const PROVIDER_REGISTRARS: readonly [ProviderId, ProviderRegistrar][] = [
 	],
 	["deepseek", registerDeepSeekProvider],
 	["databricks", registerDatabricksProvider],
+	["litellm", registerLitellmProvider],
 ];
 
 /**

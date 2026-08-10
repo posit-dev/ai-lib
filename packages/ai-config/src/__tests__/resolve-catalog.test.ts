@@ -11,6 +11,7 @@ import {
 	resolveProviderCatalogReport,
 } from "../resolve-catalog.js";
 import type { PlatformBaseline, ResolvedProvider } from "../types.js";
+import { BUILTIN_PROVIDER_IDS } from "../vocabulary.js";
 
 const STANDALONE: PlatformBaseline = { defaultEnabled: true };
 
@@ -142,8 +143,8 @@ describe("resolveProviderCatalog — invalid merge tolerance", () => {
 			logger,
 		});
 
-		// 15 built-ins, no custom provider leaked in.
-		expect(catalog.length).toBe(15);
+		// All built-ins, no custom provider leaked in.
+		expect(catalog.length).toBe(BUILTIN_PROVIDER_IDS.length);
 		expect(find(catalog, "ghost-gw")).toBeUndefined();
 		expect(find(catalog, "anthropic")?.enabled).toBe(true);
 		expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("invalid merged result"));
@@ -190,7 +191,7 @@ describe("resolveProviderCatalog — tightened-schema recovery", () => {
 		});
 
 		// The valid user source still resolves; the forbidden overlay is gone.
-		expect(catalog.length).toBe(15);
+		expect(catalog.length).toBe(BUILTIN_PROVIDER_IDS.length);
 		expect(find(catalog, "openai")?.enabled).toBe(true);
 		expect(find(catalog, "anthropic")?.connection.aws).toBeUndefined();
 		expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("invalid merged result"));

@@ -80,4 +80,7 @@ export const PROVIDER_ENV_MAPPINGS: Record<string, ProviderEnvMapping> = {
 	databricks: {
 		apiKey: "DATABRICKS_TOKEN",
 	},
+	litellm: {
+		apiKey: "LITELLM_API_KEY",
+	},
 };

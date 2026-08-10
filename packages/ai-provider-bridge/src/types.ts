@@ -55,6 +55,7 @@ export const PROVIDER_IDS = [
 	"ms-foundry",
 	"deepseek",
 	"databricks",
+	"litellm",
 ] as const;
 
 /**
