@@ -308,15 +308,16 @@ without managing locking, atomicity, or watch lifecycle themselves.
   user-authored text exists to preserve. The edited bytes are reparsed, schema-validated, and
   compared with the same normalized intended shape before the atomic rename.
 
-The internal `src/node/parse-jsonc.ts` helper centralizes JSONC behavior through
+The internal `src/node/parse-jsonc.ts` helper centralizes Node-side JSONC parsing through
 the dependency-free, browser-safe `jsonc-parser` package. It materializes the parse tree
 with null-prototype objects so raw keys such as `__proto__` survive unchanged for schema
 validation rather than mutating an intermediate object's prototype. `parse-providers-config.ts`
 exposes named internal siblings: strict `parseProvidersConfig` for mutation and tolerant
 `parseProvidersConfigTolerant` for reads; both share `parseJsonc`, with no mode flag.
-Neither helper is exported, and only node-side readers import them, so the pure
-`ai-config` entry's dependency and import graph remains unchanged. Machine-supplied
-environment fragments continue to use strict `JSON.parse`.
+Both helpers are internal to `src/node/` and are not exported from either entrypoint. The
+pure `ai-config` entry separately exports `editJsonc`, whose implementation also imports
+`jsonc-parser` while remaining browser-safe and free of filesystem imports.
+Machine-supplied environment fragments continue to use strict `JSON.parse`.
 
 ## Model Capability Inference (`src/model-capabilities/`)
 

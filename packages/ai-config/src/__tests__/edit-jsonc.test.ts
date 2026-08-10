@@ -36,6 +36,18 @@ describe("editJsonc", () => {
 		expect(edited).not.toContain("removeTwo");
 	});
 
+	it("preserves the next sibling's leading comment when deleting the first property", () => {
+		const original = `{
+  "remove": true, // explain keep
+  "keep": true
+}`;
+
+		const edited = editJsonc(original, { keep: true });
+
+		expect(parse(edited)).toEqual({ keep: true });
+		expect(edited).toContain("// explain keep");
+	});
+
 	it("replaces arrays as one changed subtree", () => {
 		const original = `{
   "models": [

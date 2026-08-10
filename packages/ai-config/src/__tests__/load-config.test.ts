@@ -1147,6 +1147,36 @@ describe("mutateProvidersConfig", () => {
 		expect(written).toContain("Keep this value comment");
 	});
 
+	it("preserves the next provider's leading comment when deleting the first provider", async () => {
+		const configPath = path.join(tempDir, "providers.json");
+		await fs.writeFile(
+			configPath,
+			`{
+  "providers": {
+    "openai": { "enabled": true }, // keep the Anthropic explanation
+    "anthropic": { "enabled": true }
+  }
+}`,
+		);
+
+		await mutateProvidersConfig(
+			(current) => ({
+				...current,
+				providers: {
+					...current.providers,
+					openai: undefined,
+				},
+			}),
+			{ configPath, logger: mockLogger },
+		);
+
+		const written = await fs.readFile(configPath, "utf-8");
+		expect(parseJsonc(written)).toEqual({
+			providers: { anthropic: { enabled: true } },
+		});
+		expect(written).toContain("// keep the Anthropic explanation");
+	});
+
 	it("does not write for a value-identical mutation", async () => {
 		const configPath = path.join(tempDir, "providers.json");
 		const original = '{\n  // unchanged\n  "providers": { "anthropic": { "enabled": true } }\n}\n';

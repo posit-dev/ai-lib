@@ -12,6 +12,8 @@
 
 import {
 	applyEdits,
+	createScanner,
+	findNodeAtLocation,
 	getNodeValue,
 	modify,
 	parseTree,
@@ -20,11 +22,18 @@ import {
 	type JSONPath,
 	type Node,
 	type ParseError,
+	SyntaxKind,
 } from "jsonc-parser";
 
 interface JsoncChange {
 	path: JSONPath;
 	value: unknown;
+}
+
+interface NextSiblingLeadingTrivia {
+	parentPath: JSONPath;
+	siblingKey: string;
+	text: string;
 }
 
 /**
@@ -58,8 +67,15 @@ export function editJsonc(originalText: string, intendedValue: unknown): string 
 	const formattingOptions = inferFormattingOptions(originalText, root);
 	let editedText = originalText;
 	for (const change of changes) {
+		const nextSiblingTrivia =
+			change.value === undefined
+				? captureNextSiblingLeadingTrivia(editedText, parseJsoncTree(editedText).root, change.path)
+				: undefined;
 		const edits = modify(editedText, change.path, change.value, { formattingOptions });
 		editedText = applyEdits(editedText, edits);
+		if (nextSiblingTrivia !== undefined) {
+			editedText = restoreNextSiblingLeadingTrivia(editedText, nextSiblingTrivia);
+		}
 	}
 
 	const editedValue = parseJsoncTree(editedText).value;
@@ -68,6 +84,82 @@ export function editJsonc(originalText: string, intendedValue: unknown): string 
 	}
 
 	return editedText;
+}
+
+/**
+ * jsonc-parser removes through the next property's offset when deleting the
+ * first property in an object. Preserve the trivia after the separating comma:
+ * it leads the unchanged next sibling rather than belonging to the deletion.
+ */
+function captureNextSiblingLeadingTrivia(
+	text: string,
+	root: Node | undefined,
+	path: JSONPath,
+): NextSiblingLeadingTrivia | undefined {
+	const propertyKey = path[path.length - 1];
+	if (root === undefined || typeof propertyKey !== "string") {
+		return undefined;
+	}
+
+	const parentPath = path.slice(0, -1);
+	const parent = findNodeAtLocation(root, parentPath);
+	if (parent?.type !== "object" || parent.children === undefined) {
+		return undefined;
+	}
+
+	const property = parent.children[0];
+	const nextSibling = parent.children[1];
+	if (
+		property === undefined ||
+		nextSibling === undefined ||
+		property.children?.[0]?.value !== propertyKey ||
+		typeof nextSibling.children?.[0]?.value !== "string"
+	) {
+		return undefined;
+	}
+
+	const scanner = createScanner(text, false);
+	scanner.setPosition(property.offset + property.length);
+	for (let token = scanner.scan(); token !== SyntaxKind.EOF; token = scanner.scan()) {
+		const tokenOffset = scanner.getTokenOffset();
+		if (tokenOffset >= nextSibling.offset) {
+			return undefined;
+		}
+		if (token === SyntaxKind.CommaToken) {
+			const triviaStart = tokenOffset + scanner.getTokenLength();
+			return {
+				parentPath,
+				siblingKey: nextSibling.children[0].value,
+				text: text.slice(triviaStart, nextSibling.offset),
+			};
+		}
+	}
+
+	return undefined;
+}
+
+function restoreNextSiblingLeadingTrivia(
+	text: string,
+	preserved: NextSiblingLeadingTrivia,
+): string {
+	const { root } = parseJsoncTree(text);
+	const parent = root === undefined ? undefined : findNodeAtLocation(root, preserved.parentPath);
+	if (parent?.type !== "object") {
+		throw new Error("JSONC deletion did not retain the expected parent object");
+	}
+	const nextSibling = parent.children?.[0];
+	if (nextSibling?.children?.[0]?.value !== preserved.siblingKey) {
+		throw new Error("JSONC deletion did not retain the expected next sibling");
+	}
+
+	const triviaStart = parent.offset + 1;
+	return applyEdits(text, [
+		{
+			offset: triviaStart,
+			length: nextSibling.offset - triviaStart,
+			content: preserved.text,
+		},
+	]);
 }
 
 /** Normalize a value through the same serialization round trip used by JSON writers. */
