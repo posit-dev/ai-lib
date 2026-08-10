@@ -248,6 +248,7 @@ describe("portkey model fetcher", () => {
 
 		expect(models).toHaveLength(1);
 		expect(models[0].providerId).toBe("acme-portkey");
+		expect(models[0].maxOutputTokens).toBe(64_000);
 	});
 
 	it("registers the kind-keyed client factory without the built-in registrar", () => {

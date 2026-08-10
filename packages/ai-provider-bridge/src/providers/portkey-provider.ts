@@ -348,7 +348,7 @@ async function fetchPortkeyCatalog(
 				providerId,
 				vendor: "anthropic",
 				protocol: decision.protocol,
-				...inferModelCapabilities(providerId, decision.capabilityModelId),
+				...inferModelCapabilities("portkey", decision.capabilityModelId),
 			});
 		}
 
