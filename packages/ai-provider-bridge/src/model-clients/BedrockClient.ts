@@ -17,11 +17,12 @@ import type { LanguageModelV3 } from "@ai-sdk/provider";
 import { streamText } from "ai";
 
 import { createAwsCredentialProvider } from "../aws-credentials";
+import { sanitizeToolCallIdsForAnthropic } from "../tool-call-ids";
 import {
 	hasImagesInToolResults,
 	transformToolResultImagesForCompletions,
 } from "../tool-result-images";
-import type { LMStreamPart, Protocol } from "../types";
+import type { LMStreamPart, Logger, Protocol } from "../types";
 import { normalizeProtocol } from "../types";
 import { isThinkingEnabled, rejectsEagerInputStreaming } from "../utils";
 import {
@@ -56,9 +57,11 @@ export interface BedrockClientConfig {
 
 export class BedrockClient implements ModelClient {
 	private readonly config: BedrockClientConfig;
+	private readonly logger?: Logger;
 
-	constructor(config: BedrockClientConfig) {
+	constructor(config: BedrockClientConfig, logger?: Logger) {
 		this.config = config;
+		this.logger = logger;
 	}
 
 	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {
@@ -168,6 +171,12 @@ export class BedrockClient implements ModelClient {
 						},
 					}
 				: anthropicProviderOptions;
+
+		// The Anthropic Messages wire validates tool_use.id against
+		// `^[a-zA-Z0-9_-]+$`; sanitize outbound IDs on that route only.
+		if (isAnthropic) {
+			messagesToSend = sanitizeToolCallIdsForAnthropic(messagesToSend, this.logger);
+		}
 
 		// Stream the response
 		const result = streamText({

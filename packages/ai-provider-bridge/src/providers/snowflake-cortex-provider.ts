@@ -80,6 +80,7 @@ export function registerSnowflakeCortexProvider(
 			session ? "session" : "bearer",
 			credentials.customHeaders,
 			sessionRefresh,
+			logger,
 		);
 	});
 }

@@ -402,10 +402,13 @@ export function registerGoogleVertexProvider(
 			);
 		}
 
-		return new GoogleVertexClient({
-			project: credentials.project,
-			location: credentials.location,
-			accessToken: credentials.accessToken,
-		});
+		return new GoogleVertexClient(
+			{
+				project: credentials.project,
+				location: credentials.location,
+				accessToken: credentials.accessToken,
+			},
+			logger,
+		);
 	});
 }

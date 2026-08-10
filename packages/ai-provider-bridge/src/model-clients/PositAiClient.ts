@@ -17,6 +17,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { streamText } from "ai";
 
+import { streamTextAnthropicWire } from "../tool-call-ids";
 import {
 	hasImagesInToolResults,
 	transformToolResultImagesForCompletions,
@@ -218,19 +219,22 @@ export class PositAiClient implements ModelClient {
 				tools = { ...tools, web_search: webSearchTool };
 			}
 
-			const result = streamText({
-				allowSystemInMessages: params.allowSystemInMessages,
-				model,
-				messages: params.messages,
-				system: params.systemPrompt,
-				maxOutputTokens: params.maxOutputTokens,
-				tools,
-				toolChoice: tools ? "auto" : undefined,
-				abortSignal: abortController.signal,
-				providerOptions,
-				// Capture raw JSON on each step finish
-				onStepFinish: createStepLogger(params.stepLoggers || [], "positai", params.model),
-			});
+			const result = streamTextAnthropicWire(
+				{
+					allowSystemInMessages: params.allowSystemInMessages,
+					model,
+					messages: params.messages,
+					system: params.systemPrompt,
+					maxOutputTokens: params.maxOutputTokens,
+					tools,
+					toolChoice: tools ? "auto" : undefined,
+					abortSignal: abortController.signal,
+					providerOptions,
+					// Capture raw JSON on each step finish
+					onStepFinish: createStepLogger(params.stepLoggers || [], "positai", params.model),
+				},
+				this.logger,
+			);
 
 			return convertAiSdkStreamToPlatform(result.fullStream, cleanup);
 		} else if (normalizedProtocol === "openai-chat") {
