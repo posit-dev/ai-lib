@@ -25,7 +25,10 @@ export {
 } from "./providers/litellm-provider";
 export { registerLMStudioProvider } from "./providers/lmstudio-provider";
 export { registerOllamaProvider } from "./providers/ollama-provider";
-export { registerOpenAICompatibleProvider } from "./providers/openai-compatible-provider";
+export {
+	registerCustomOpenAICompatibleProvider,
+	registerOpenAICompatibleProvider,
+} from "./providers/openai-compatible-provider";
 export { registerOpenAIProvider } from "./providers/openai-provider";
 export { registerOpenRouterProvider } from "./providers/openrouter-provider";
 export {

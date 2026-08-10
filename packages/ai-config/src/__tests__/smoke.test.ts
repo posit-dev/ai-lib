@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from "vitest";
 
-import { mintCustomProviderId } from "../types.js";
+import { customProviderEntrySchema, mintCustomProviderId } from "../index.js";
 
 describe("ai-config", () => {
 	it("pure entry module loads", async () => {
@@ -15,6 +15,15 @@ describe("ai-config", () => {
 	it("node entry module loads", async () => {
 		const mod = await import("../node/index.js");
 		expect(mod).toBeDefined();
+	});
+
+	it("exports the pure custom-provider entry schema", () => {
+		expect(
+			customProviderEntrySchema.safeParse({
+				type: "openai-compatible",
+				baseUrl: "https://gateway.example/v1",
+			}).success,
+		).toBe(true);
 	});
 });
 

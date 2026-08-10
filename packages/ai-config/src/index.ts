@@ -36,6 +36,7 @@ export type {
 // --- Schema ----------------------------------------------------------------
 export {
 	customModelSchema,
+	customProviderEntrySchema,
 	providersConfigFragmentSchema,
 	providersConfigSchema,
 } from "./schema.js";
