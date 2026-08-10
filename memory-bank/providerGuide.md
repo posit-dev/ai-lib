@@ -103,9 +103,10 @@ capability rule rather than assuming the listing path is callable.
 
 ### Custom-provider registrars (kind-keyed factory)
 
-When a provider kind can also back `providers.custom` entries (LiteLLM is the
-reference: `registerCustomLitellmProvider(registry, providerId, logger)`), the
-module exports a second registrar that consumers call once per custom entry:
+When a provider kind can also back `providers.custom` entries (LiteLLM and
+Portkey expose `registerCustomLitellmProvider` and
+`registerCustomPortkeyProvider`), the module exports a second registrar that
+consumers call once per custom entry:
 
 - The **model fetcher** is registered under the custom provider id, with its
   own `createCachedModelFetcher` instance (independent per-gateway cache) and
@@ -121,6 +122,13 @@ module exports a second registrar that consumers call once per custom entry:
 
 All wire knowledge (URL normalization, discovery parsing, header schemes)
 stays inside the provider module; callers supply only an id.
+
+A kind-keyed factory does **not** mean every custom kind discovers models.
+LiteLLM's registrar fetches `/v1/model/info`. Ordinary self-hosted custom
+Portkey resolves its shared connection policy and deliberately returns no
+fetched models; the consuming catalog merges bare-ID `models.custom`
+declarations later. Portkey's canonical hosted fetcher remains shared for a
+securely stored key, but is not the keyless custom v1 contract.
 
 ### Protocol-dispatching clients (gateway providers)
 

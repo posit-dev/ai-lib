@@ -150,6 +150,22 @@ describe("providersConfigSchema", () => {
 		expect(result.success).toBe(true);
 	});
 
+	it("accepts a base-only custom type:'portkey' entry", () => {
+		const result = providersConfigSchema.safeParse({
+			providers: {
+				custom: {
+					"acme-portkey": {
+						type: "portkey",
+						baseUrl: "https://ai-gateway.acme.com",
+						customHeaders: { "x-portkey-provider": "openai" },
+						protocol: "openai-chat",
+					},
+				},
+			},
+		});
+		expect(result.success).toBe(true);
+	});
+
 	// --- Per-key / discriminated-union strictness ---
 
 	it("rejects a foreign connection section on a built-in provider (anthropic + aws)", () => {
@@ -192,6 +208,20 @@ describe("providersConfigSchema", () => {
 		const result = providersConfigSchema.safeParse({
 			providers: {
 				custom: { gw: { type: "openai-compatible", aws: { region: "us-east-1" } } },
+			},
+		});
+		expect(result.success).toBe(false);
+	});
+
+	it("rejects provider-specific sections on a custom type:'portkey' entry", () => {
+		const result = providersConfigSchema.safeParse({
+			providers: {
+				custom: {
+					"acme-portkey": {
+						type: "portkey",
+						aws: { region: "us-east-1" },
+					},
+				},
 			},
 		});
 		expect(result.success).toBe(false);

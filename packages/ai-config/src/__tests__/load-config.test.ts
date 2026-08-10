@@ -140,7 +140,7 @@ describe("loadResolvedProviderCatalog", () => {
 				JSON.stringify({
 					providers: {
 						anthropic: { baseUrl: "https://anthropic.example.com" },
-						portkey: { baseUrl: "https://portkey.example.com" },
+						"mystery-provider": { baseUrl: "https://unknown.example.com" },
 					},
 				}),
 			);
@@ -157,12 +157,12 @@ describe("loadResolvedProviderCatalog", () => {
 			expect(report.issues).toEqual([
 				expect.objectContaining({
 					severity: "warning",
-					path: ["providers", "portkey"],
+					path: ["providers", "mystery-provider"],
 					source: { kind: "user", label: configPath },
-					message: expect.stringContaining("portkey"),
+					message: expect.stringContaining("mystery-provider"),
 				}),
 			]);
-			expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining("portkey"));
+			expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining("mystery-provider"));
 		});
 
 		it("loads comments and trailing commas from providers.json", async () => {
@@ -361,7 +361,7 @@ describe("loadResolvedProviderCatalog", () => {
 					TEST_ENFORCED: JSON.stringify({
 						providers: {
 							anthropic: { baseUrl: "https://admin.example.com" },
-							portkey: {},
+							"mystery-provider": {},
 						},
 					}),
 				},
@@ -374,7 +374,7 @@ describe("loadResolvedProviderCatalog", () => {
 				expect.objectContaining({
 					severity: "error",
 					source: { kind: "enforced", label: "TEST_ENFORCED" },
-					message: expect.stringContaining("portkey"),
+					message: expect.stringContaining("mystery-provider"),
 				}),
 			]);
 		});
@@ -1162,11 +1162,11 @@ describe("mutateProvidersConfig", () => {
 
 	it("names an unknown provider key and leaves the file byte-for-byte untouched", async () => {
 		const configPath = path.join(tempDir, "providers.json");
-		const bytes = `{"providers":{"anthropic":{"enabled":true},"portkey":{}}}\n`;
+		const bytes = `{"providers":{"anthropic":{"enabled":true},"mystery-provider":{}}}\n`;
 		await fs.writeFile(configPath, bytes);
 
 		await expect(mutateProvidersConfig((current) => current, { configPath })).rejects.toThrow(
-			/portkey/,
+			/mystery-provider/,
 		);
 		expect(await fs.readFile(configPath, "utf-8")).toBe(bytes);
 	});

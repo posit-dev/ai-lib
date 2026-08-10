@@ -30,6 +30,7 @@ export { registerOpenAIProvider } from "./providers/openai-provider";
 export { registerOpenRouterProvider } from "./providers/openrouter-provider";
 export {
 	normalizePortkeyGatewayUrl,
+	registerCustomPortkeyProvider,
 	registerPortkeyProvider,
 	resolvePortkeyConnection,
 } from "./providers/portkey-provider";

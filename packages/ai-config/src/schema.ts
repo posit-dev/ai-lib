@@ -295,6 +295,7 @@ const CUSTOM_CONNECTION_SECTIONS = {
 	openrouter: [],
 	"ms-foundry": [],
 	litellm: [],
+	portkey: [],
 } as const satisfies Record<SupportedCustomClientKind, readonly ConnectionSectionName[]>;
 
 // ---------------------------------------------------------------------------
@@ -343,6 +344,7 @@ export const customProviderEntrySchema = z.discriminatedUnion("type", [
 	customProviderVariantSchema("openrouter"),
 	customProviderVariantSchema("ms-foundry"),
 	customProviderVariantSchema("litellm"),
+	customProviderVariantSchema("portkey"),
 ]);
 
 /**

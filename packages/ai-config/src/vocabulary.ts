@@ -125,6 +125,7 @@ export const SUPPORTED_CUSTOM_CLIENT_KIND_VALUES = [
 	"openrouter",
 	"ms-foundry",
 	"litellm",
+	"portkey",
 ] as const;
 
 export type SupportedCustomClientKind = (typeof SUPPORTED_CUSTOM_CLIENT_KIND_VALUES)[number];

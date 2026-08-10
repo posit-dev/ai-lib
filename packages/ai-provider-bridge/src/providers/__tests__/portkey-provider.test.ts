@@ -8,6 +8,7 @@ import type { ModelClientChatParams } from "../../model-clients/ModelClient";
 import type { ApiKeyCredentials, CancellationToken, Logger } from "../../types";
 import {
 	normalizePortkeyGatewayUrl,
+	registerCustomPortkeyProvider,
 	registerPortkeyProvider,
 	resolvePortkeyConnection,
 } from "../portkey-provider";
@@ -105,6 +106,25 @@ describe("resolvePortkeyConnection — URL classification", () => {
 		expect(() =>
 			resolvePortkeyConnection({ type: "apikey", apiKey: "pk", baseUrl: "not a url" }),
 		).toThrow(/Invalid Portkey base URL/);
+	});
+
+	it.each(["", "   "])("rejects an empty hosted API key locally (%j)", (apiKey) => {
+		expect(() =>
+			resolvePortkeyConnection({
+				type: "apikey",
+				apiKey,
+				baseUrl: "https://api.portkey.ai/v1",
+			}),
+		).toThrow(/hosted Portkey[\s\S]*non-empty API key/i);
+	});
+
+	it("accepts an empty API key for an OSS credential-injecting proxy", () => {
+		const connection = resolvePortkeyConnection({
+			type: "apikey",
+			apiKey: "",
+			baseUrl: "http://localhost:8787",
+		});
+		expect(connection.mode).toBe("oss");
 	});
 });
 
@@ -214,6 +234,70 @@ function stubFetchPages(pages: unknown[]): { requests: CapturedRequest[] } {
 }
 
 describe("portkey model fetcher", () => {
+	it("registers a custom-id fetcher that stamps discovered hosted models", async () => {
+		stubFetchPages([
+			{
+				data: [{ id: "@anthropic-prod/claude-haiku-4-5" }],
+				total: 1,
+			},
+		]);
+		const registry = new ProviderRegistry(logger);
+		registerCustomPortkeyProvider(registry, "acme-portkey", logger);
+
+		const models = await registry.getModelsForProvider("acme-portkey", HOSTED_CREDENTIALS);
+
+		expect(models).toHaveLength(1);
+		expect(models[0].providerId).toBe("acme-portkey");
+	});
+
+	it("registers the kind-keyed client factory without the built-in registrar", () => {
+		const registry = new ProviderRegistry(logger);
+		registerCustomPortkeyProvider(registry, "acme-portkey", logger);
+
+		expect(
+			registry.getClientForProviderOrKind(
+				"acme-portkey",
+				{ type: "apikey", apiKey: "", baseUrl: "http://localhost:8787" },
+				"portkey",
+			),
+		).not.toBeNull();
+	});
+
+	it("returns no discovered models for a base-URL-only OSS custom entry without HTTP", async () => {
+		const fetchMock = vi.fn();
+		vi.stubGlobal("fetch", fetchMock);
+		const registry = new ProviderRegistry(logger);
+		registerCustomPortkeyProvider(registry, "acme-portkey", logger);
+
+		const models = await registry.getModelsForProvider("acme-portkey", {
+			type: "apikey",
+			apiKey: "",
+			baseUrl: "http://localhost:8787",
+		});
+
+		expect(models).toEqual([]);
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("logs and yields no models for a hosted custom entry with an empty key", async () => {
+		const fetchMock = vi.fn();
+		vi.stubGlobal("fetch", fetchMock);
+		const registry = new ProviderRegistry(logger);
+		registerCustomPortkeyProvider(registry, "acme-portkey", logger);
+
+		const models = await registry.getModelsForProvider("acme-portkey", {
+			type: "apikey",
+			apiKey: "  ",
+			baseUrl: "https://api.portkey.ai/v1",
+		});
+
+		expect(models).toEqual([]);
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(logger.warn).toHaveBeenCalledWith(
+			expect.stringContaining("Hosted Portkey requires a non-empty API key"),
+		);
+	});
+
 	it("fetches the hosted catalog from the exact /v1/models URL (never /v1/v1) with the key header only", async () => {
 		const { requests } = stubFetchPages([
 			{
@@ -551,6 +635,22 @@ describe("portkey client factory", () => {
 		expect(() =>
 			registry.getClientForProvider("portkey", { type: "apikey", apiKey: "pk-test" }),
 		).toThrow(/PORTKEY_BASE_URL[\s\S]*configure form/);
+	});
+
+	it("rejects an empty hosted key locally before chat makes a request", () => {
+		const fetchMock = vi.fn();
+		vi.stubGlobal("fetch", fetchMock);
+		const registry = new ProviderRegistry(logger);
+		registerCustomPortkeyProvider(registry, "acme-portkey", logger);
+
+		expect(() =>
+			registry.getClientForProviderOrKind(
+				"acme-portkey",
+				{ type: "apikey", apiKey: "", baseUrl: "https://api.portkey.ai/v1" },
+				"portkey",
+			),
+		).toThrow(/hosted Portkey[\s\S]*non-empty API key/i);
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
 	it("validates model-id shape per mode: hosted requires @slug/ ids, OSS requires bare ids", async () => {

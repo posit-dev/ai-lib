@@ -98,6 +98,13 @@ const MISSING_BASE_URL_MESSAGE =
 
 const CANONICAL_PORTKEY_HOSTNAME = new URL(PORTKEY_HOST).hostname;
 
+interface PortkeyRegistrationPolicy {
+	/** Registry key and provider id stamped onto discovered models. */
+	readonly providerId: ResolvedProviderId;
+	/** Whether a base URL alone is enough to attempt connection resolution. */
+	readonly apiKeyOptional: boolean;
+}
+
 /**
  * Normalize a Portkey gateway URL to its `/v1` API root
  * (`http://localhost:8787` → `http://localhost:8787/v1`), tolerating trailing
@@ -186,6 +193,12 @@ export function resolvePortkeyConnection(credentials: ApiKeyCredentials): Portke
 	);
 
 	if (url.origin === PORTKEY_HOST) {
+		if (!credentials.apiKey.trim()) {
+			throw new Error(
+				"Hosted Portkey requires a non-empty API key. Keyless connections are supported only " +
+					"for self-hosted gateways or credential-injecting proxies.",
+			);
+		}
 		// TODO(phase0-gate): auth-matrix probe — hosted auth is provisionally the
 		// `x-portkey-api-key` header on every endpoint.
 		const authHeaders = { "x-portkey-api-key": credentials.apiKey };
@@ -355,14 +368,21 @@ async function fetchPortkeyCatalog(
 	return models.length > MAX_DISCOVERED_MODELS ? models.slice(0, MAX_DISCOVERED_MODELS) : models;
 }
 
-function createPortkeyModelFetcher(logger: Logger): ClearableModelFetcher {
+function createPortkeyModelFetcher(
+	policy: PortkeyRegistrationPolicy,
+	logger: Logger,
+): ClearableModelFetcher {
 	return createCachedModelFetcher<ApiKeyCredentials>({
-		providerId: "portkey",
-		// Key only: the required-URL check lives inside fetchFresh, which throws
-		// the instructive missing-URL error before any fetch — the wrapper
-		// catches, warns, and yields no models.
-		hasCredentials: (credentials) => Boolean(credentials.apiKey),
-		fetchFresh: (credentials) => fetchPortkeyCatalog(credentials, "portkey", logger),
+		providerId: policy.providerId,
+		// Built-in Portkey remains key-required. A custom registration may enter
+		// connection resolution with only a base URL so keyless OSS/front-proxy
+		// entries work. Mode validity remains wholly owned by
+		// resolvePortkeyConnection: canonical hosted still rejects an empty key.
+		hasCredentials: (credentials) =>
+			policy.apiKeyOptional
+				? Boolean(credentials.baseUrl?.trim())
+				: Boolean(credentials.apiKey.trim()),
+		fetchFresh: (credentials) => fetchPortkeyCatalog(credentials, policy.providerId, logger),
 		fallbackModels: [],
 		logger,
 	});
@@ -512,6 +532,32 @@ const portkeyClientFactory: ClientFactory = (credentials) => {
 
 /** Register the built-in `portkey` provider. */
 export function registerPortkeyProvider(registry: ProviderRegistry, logger: Logger): void {
-	registry.registerModelFetcher("portkey", createPortkeyModelFetcher(logger));
+	registry.registerModelFetcher(
+		"portkey",
+		createPortkeyModelFetcher({ providerId: "portkey", apiKeyOptional: false }, logger),
+	);
+	registry.registerClientFactory("portkey", portkeyClientFactory);
+}
+
+/**
+ * Register a `providers.custom` entry with `type: "portkey"`.
+ *
+ * The fetcher is custom-id keyed for independent cache state and model
+ * stamping. The factory is kind-keyed so live type changes resolve through
+ * the catalog's current `clientKind`. Ordinary self-hosted Portkey performs
+ * no runtime discovery; declared models are merged later by the catalog
+ * consumer. Hosted discovery remains reachable only when the existing secure
+ * credential backend supplies a non-empty key and is not a v1 product promise
+ * for custom entries.
+ */
+export function registerCustomPortkeyProvider(
+	registry: ProviderRegistry,
+	providerId: ResolvedProviderId,
+	logger: Logger,
+): void {
+	registry.registerModelFetcher(
+		providerId,
+		createPortkeyModelFetcher({ providerId, apiKeyOptional: true }, logger),
+	);
 	registry.registerClientFactory("portkey", portkeyClientFactory);
 }
