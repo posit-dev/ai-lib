@@ -17,7 +17,7 @@ import { streamText } from "ai";
 import { OAuth2Client } from "google-auth-library";
 
 import { sanitizeToolCallIdsForAnthropic } from "../tool-call-ids";
-import type { LMStreamPart, Protocol } from "../types";
+import type { LMStreamPart, Logger, Protocol } from "../types";
 import { normalizeProtocol } from "../types";
 import { isThinkingEnabled } from "../utils";
 import {
@@ -58,9 +58,11 @@ export interface GoogleVertexClientConfig {
 
 export class GoogleVertexClient implements ModelClient {
 	private readonly config: GoogleVertexClientConfig;
+	private readonly logger?: Logger;
 
-	constructor(config: GoogleVertexClientConfig) {
+	constructor(config: GoogleVertexClientConfig, logger?: Logger) {
 		this.config = config;
+		this.logger = logger;
 	}
 
 	private googleAuthOptions(): { authClient: OAuth2Client } | undefined {
@@ -111,7 +113,7 @@ export class GoogleVertexClient implements ModelClient {
 		// The Anthropic Messages wire validates tool_use.id against
 		// `^[a-zA-Z0-9_-]+$`; sanitize outbound IDs on that route only.
 		const messagesToSend = isAnthropic
-			? sanitizeToolCallIdsForAnthropic(params.messages)
+			? sanitizeToolCallIdsForAnthropic(params.messages, this.logger)
 			: params.messages;
 
 		// Stream the response

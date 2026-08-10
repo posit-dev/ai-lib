@@ -17,7 +17,7 @@ import { streamText } from "ai";
 
 import { safeSdkCustomHeaders } from "../custom-headers";
 import { streamTextAnthropicWire } from "../tool-call-ids";
-import type { LMStreamPart } from "../types";
+import type { LMStreamPart, Logger } from "../types";
 import { normalizeProtocol } from "../types";
 import { isClaudeModel, isThinkingEnabled, rejectsEagerInputStreaming } from "../utils";
 import {
@@ -168,6 +168,7 @@ export class SnowflakeClient implements ModelClient {
 	private readonly authScheme: SnowflakeAuthScheme;
 	private readonly customHeaders?: Record<string, string>;
 	private readonly sessionRefresh?: SnowflakeSessionRefresh;
+	private readonly logger?: Logger;
 
 	constructor(
 		token: string,
@@ -175,12 +176,14 @@ export class SnowflakeClient implements ModelClient {
 		authScheme: SnowflakeAuthScheme,
 		customHeaders?: Record<string, string>,
 		sessionRefresh?: SnowflakeSessionRefresh,
+		logger?: Logger,
 	) {
 		this.token = token;
 		this.baseUrl = baseUrl;
 		this.authScheme = authScheme;
 		this.customHeaders = customHeaders;
 		this.sessionRefresh = sessionRefresh;
+		this.logger = logger;
 	}
 
 	/** True when the token is a session token needing the `Snowflake Token=` scheme. */
@@ -261,18 +264,21 @@ export class SnowflakeClient implements ModelClient {
 					}
 				: undefined;
 
-		const result = streamTextAnthropicWire({
-			allowSystemInMessages: params.allowSystemInMessages,
-			model,
-			messages: params.messages,
-			system: params.systemPrompt,
-			maxOutputTokens: params.maxOutputTokens,
-			tools: params.tools,
-			toolChoice: params.tools ? "auto" : undefined,
-			abortSignal: abortController.signal,
-			providerOptions,
-			onStepFinish: createStepLogger(params.stepLoggers || [], "snowflake-cortex", params.model),
-		});
+		const result = streamTextAnthropicWire(
+			{
+				allowSystemInMessages: params.allowSystemInMessages,
+				model,
+				messages: params.messages,
+				system: params.systemPrompt,
+				maxOutputTokens: params.maxOutputTokens,
+				tools: params.tools,
+				toolChoice: params.tools ? "auto" : undefined,
+				abortSignal: abortController.signal,
+				providerOptions,
+				onStepFinish: createStepLogger(params.stepLoggers || [], "snowflake-cortex", params.model),
+			},
+			this.logger,
+		);
 
 		return convertAiSdkStreamToPlatform(result.fullStream, cleanup);
 	}

@@ -12,7 +12,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 
 import { safeSdkCustomHeaders } from "../custom-headers";
 import { streamTextAnthropicWire } from "../tool-call-ids";
-import type { LMStreamPart } from "../types";
+import type { LMStreamPart, Logger } from "../types";
 import { isThinkingEnabled } from "../utils";
 import {
 	convertAiSdkStreamToPlatform,
@@ -28,11 +28,18 @@ export class AnthropicClient implements ModelClient {
 	private readonly apiKey: string;
 	private readonly baseURL?: string;
 	private readonly customHeaders?: Record<string, string>;
+	private readonly logger?: Logger;
 
-	constructor(apiKey: string, baseURL?: string, customHeaders?: Record<string, string>) {
+	constructor(
+		apiKey: string,
+		baseURL?: string,
+		customHeaders?: Record<string, string>,
+		logger?: Logger,
+	) {
 		this.apiKey = apiKey;
 		this.baseURL = baseURL;
 		this.customHeaders = customHeaders;
+		this.logger = logger;
 	}
 
 	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {
@@ -74,19 +81,22 @@ export class AnthropicClient implements ModelClient {
 			: undefined;
 
 		// Stream the response
-		const result = streamTextAnthropicWire({
-			allowSystemInMessages: params.allowSystemInMessages,
-			model,
-			messages: params.messages,
-			system: params.systemPrompt,
-			maxOutputTokens: params.maxOutputTokens, // Respect caller's value
-			tools,
-			toolChoice: tools ? "auto" : undefined,
-			abortSignal: abortController.signal,
-			providerOptions,
-			// Capture raw JSON on each step finish
-			onStepFinish: createStepLogger(params.stepLoggers || [], "anthropic", params.model),
-		});
+		const result = streamTextAnthropicWire(
+			{
+				allowSystemInMessages: params.allowSystemInMessages,
+				model,
+				messages: params.messages,
+				system: params.systemPrompt,
+				maxOutputTokens: params.maxOutputTokens, // Respect caller's value
+				tools,
+				toolChoice: tools ? "auto" : undefined,
+				abortSignal: abortController.signal,
+				providerOptions,
+				// Capture raw JSON on each step finish
+				onStepFinish: createStepLogger(params.stepLoggers || [], "anthropic", params.model),
+			},
+			this.logger,
+		);
 
 		// Convert to platform-agnostic format with cleanup on completion
 		return convertAiSdkStreamToPlatform(result.fullStream, cleanup);

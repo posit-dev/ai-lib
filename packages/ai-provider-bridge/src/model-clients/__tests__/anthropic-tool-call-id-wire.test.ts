@@ -13,6 +13,8 @@
 import type { ModelMessage } from "ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { registerAnthropicProvider } from "../../providers/anthropic-provider";
+import { ProviderRegistry } from "../../providers/ProviderRegistry";
 import type { CancellationToken, Logger } from "../../types";
 import { PositAiClient } from "../PositAiClient";
 
@@ -132,5 +134,48 @@ describe("PositAiClient Anthropic-wire tool-call ID sanitization", () => {
 
 		// ...and each result still pairs with its call.
 		expect(resultIds).toEqual(useIds);
+	});
+});
+
+describe("registered AnthropicClient sanitizer observability", () => {
+	it("routes sanitizer warnings through the provider logger", async () => {
+		const warningLogger: Logger & { warn: ReturnType<typeof vi.fn> } = {
+			...logger,
+			warn: vi.fn(),
+		};
+		const registry = new ProviderRegistry(warningLogger);
+		registerAnthropicProvider(registry, warningLogger);
+		const client = registry.getClientForProvider("anthropic", {
+			type: "apikey",
+			apiKey: "token",
+			baseUrl: "https://api.anthropic.com/v1",
+		});
+		if (!client) throw new Error("expected registered Anthropic client");
+
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response("", {
+						status: 200,
+						headers: { "content-type": "text/event-stream" },
+					}),
+			),
+		);
+
+		try {
+			const stream = await client.chat({
+				model: "claude-haiku-4-5",
+				messages: kimiHistory(),
+				cancellationToken,
+			});
+			for await (const _part of stream) {
+				// Drain the (empty) mocked event stream.
+			}
+		} catch {
+			// The mocked stream is minimal; stream errors are unrelated to warning routing.
+		}
+
+		expect(warningLogger.warn.mock.calls.flat().join(" ")).toContain("ls:0");
 	});
 });

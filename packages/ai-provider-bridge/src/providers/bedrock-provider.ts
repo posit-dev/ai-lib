@@ -468,12 +468,15 @@ export function registerBedrockProvider(
 			throw new Error(`Bedrock provider requires AWS credentials, got: ${credentials.type}`);
 		}
 
-		return new BedrockClient({
-			region: credentials.region,
-			profile: credentials.profile,
-			accessKeyId: credentials.accessKeyId,
-			secretAccessKey: credentials.secretAccessKey,
-			sessionToken: credentials.sessionToken,
-		});
+		return new BedrockClient(
+			{
+				region: credentials.region,
+				profile: credentials.profile,
+				accessKeyId: credentials.accessKeyId,
+				secretAccessKey: credentials.secretAccessKey,
+				sessionToken: credentials.sessionToken,
+			},
+			logger,
+		);
 	});
 }

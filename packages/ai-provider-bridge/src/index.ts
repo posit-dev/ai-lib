@@ -92,9 +92,6 @@ export {
 	transformToolResultImagesForCompletions,
 } from "./tool-result-images";
 
-// Tool-call ID sanitization for Anthropic Messages API compatibility
-export { sanitizeToolCallIdsForAnthropic, streamTextAnthropicWire } from "./tool-call-ids";
-
 // Local provider management
 export { isLocalProviderId, LOCAL_PROVIDER_IDS, LocalProviderManager } from "./local-providers";
 export type { LocalProviderId, LocalProviderManagerOptions } from "./local-providers";
