@@ -29,6 +29,14 @@ The three filesystem seams (`ai-config/node`):
 
 No filesystem access — safe in browsers, tests, and any JS runtime.
 
+#### JSONC editing
+
+`editJsonc(originalText, intendedValue)` is a validation-policy-free transformer that preserves
+comments and formatting outside changed paths. It normalizes the intended value through
+`JSON.stringify`/`JSON.parse`, applies maximal changed subtrees sequentially, and rejects writes
+that touch duplicate-key paths. `normalizeJsonValue(value)` exposes the same serialization
+normalization for domain-specific post-write verification.
+
 #### Vocabulary
 
 ```ts
@@ -209,7 +217,7 @@ const { catalog, issues } = await loadProviderCatalogReport({
 
 #### `mutateProvidersConfig(mutator, opts?): Promise<void>`
 
-Cross-process-safe read-modify-write. Unlike tolerant reads, mutation parses the entire file strictly: unknown or invalid keys abort with the offending path named, and the original bytes remain untouched. The `mutator` receives the current validated config and returns the new one. The seam owns locking, serialization, race-safe creation, atomic writes, and seed metadata.
+Cross-process-safe read-modify-write. Unlike tolerant reads, mutation parses the entire file strictly: unknown or invalid keys abort with the offending path named, and the original bytes remain untouched. The `mutator` receives the current validated config and returns the new one. Existing comments and formatting outside changed paths are preserved. A same-object or value-identical result performs no write, avoiding spurious watch events. A mutation that touches an ambiguously duplicated JSON key is rejected without a whole-file fallback. The seam owns locking, serialization, race-safe creation, atomic writes, and seed metadata.
 
 ```ts
 await mutateProvidersConfig((current) => ({
@@ -301,7 +309,7 @@ schema failures salvage valid siblings. Serialized environment fragments remain 
 
 ## File I/O guarantees
 
-`mutateProvidersConfig` owns cross-process write safety so callers just supply a mutator: a `proper-lockfile` lock (with retries and stale detection), an in-process serialization queue per path, race-safe first creation (exclusive `wx` flag), atomic write (temp file + rename), seed-metadata injection (`$schema`, `version`) on first creation, and a best-effort copy of `providers.schema.json` alongside the config. It never treats unreadable, syntax-invalid, unknown-key, or schema-invalid existing content as empty: any such failure names the offending path, aborts the mutation, and leaves the file byte-for-byte unchanged.
+`mutateProvidersConfig` owns cross-process write safety so callers just supply a mutator: a `proper-lockfile` lock (with retries and stale detection), an in-process serialization queue per path, race-safe first creation (exclusive `wx` flag), atomic write (temp file + rename), seed-metadata injection (`$schema`, `version`) on first creation, and a best-effort copy of `providers.schema.json` alongside the config. Existing files are updated with the pure `editJsonc(originalText, intendedValue)` transformer, which round-trip-normalizes intended values with `JSON.stringify` semantics, applies sequential path edits, and preserves unrelated source text. First creation remains a whole-file serialization because no user-authored text exists yet. It never treats unreadable, syntax-invalid, unknown-key, schema-invalid, or ambiguously duplicated touched content as empty: any such failure names the offending path, aborts the mutation, and leaves the file byte-for-byte unchanged. Value-identical mutations also leave the file untouched.
 
 ## Development
 

@@ -504,6 +504,12 @@ function buildOptions(outdir: string): BuildOptions {
 	return {
 		entryPoints,
 		absWorkingDir: packageDir,
+		// ai-config's pure JSONC editor uses jsonc-parser. Its supported package
+		// entry is UMD (needed by native/CJS consumers), but inlining that entry in
+		// this ESM bundle leaves dynamic require calls behind. Bundle the package's
+		// published ESM implementation here without changing ai-config's runtime
+		// import contract.
+		alias: { "jsonc-parser": "jsonc-parser/lib/esm/main.js" },
 		bundle: true,
 		format: "esm",
 		outdir,

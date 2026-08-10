@@ -27,11 +27,11 @@ enablement in Posit Assistant lives in the main monorepo's
 The package has two code entrypoints, splitting pure (browser/test-safe) logic
 from filesystem I/O:
 
-| Entrypoint                        | What it exports                                                                                                                                                                                                                                      | External deps?          |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
-| `ai-config`                       | Vocabulary, schemas/types/defaults, `salvageProvidersConfig`, structured config issues, the pure report resolver (`resolveProviderCatalogReport` plus compatibility wrapper), resolution helpers, legacy translation, and model capability inference | No                      |
-| `ai-config/node`                  | Re-exports the pure entry plus `loadProviderCatalogReport` / `loadResolvedProviderCatalog`, strict mutation, issue-aware watching, and path constants                                                                                                | Node FS, `jsonc-parser` |
-| `ai-config/providers.schema.json` | The generated JSON Schema, exported so editors can validate/autocomplete `providers.json`                                                                                                                                                            | No                      |
+| Entrypoint                        | What it exports                                                                                                                                                                                                                                                          | External deps?          |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------- |
+| `ai-config`                       | Vocabulary, schemas/types/defaults, `salvageProvidersConfig`, structured config issues, pure JSONC editing, the pure report resolver (`resolveProviderCatalogReport` plus compatibility wrapper), resolution helpers, legacy translation, and model capability inference | `jsonc-parser` only     |
+| `ai-config/node`                  | Re-exports the pure entry plus `loadProviderCatalogReport` / `loadResolvedProviderCatalog`, strict mutation, issue-aware watching, and path constants                                                                                                                    | Node FS, `jsonc-parser` |
+| `ai-config/providers.schema.json` | The generated JSON Schema, exported so editors can validate/autocomplete `providers.json`                                                                                                                                                                                | No                      |
 
 Legacy Positron settings reach the loader through two independent options —
 `legacyPositronSettings` (a two-method injected reader for the user-set
@@ -50,6 +50,12 @@ the map/translator live inside ai-config (see [Legacy Positron settings](#legacy
 - **Structured diagnostics** (`src/config-issue.ts`): `ConfigIssue` is source-agnostic; `SourcedConfigIssue` adds a required normalized `{ kind, label }` identity. Its source kind reuses `ProviderConfigSourceKind` and widens only for the resolver-private `"env"` source.
 - **Tolerant validation** (`src/salvage-config.ts`): `salvageProvidersConfig()` takes the healthy full-schema fast path, otherwise drops malformed values at whole root/provider/custom-entry granularity and seals the reconstruction with `providersConfigSchema` before returning.
 - **Constant**: `PROVIDERS_CONFIG_VERSION = 1` — the on-disk format version.
+- **JSONC transformer** (`src/edit-jsonc.ts`): `editJsonc(originalText, intendedValue)` is a pure,
+  validation-policy-free diff-to-edits seam shared by provider and application settings writers.
+  It normalizes the intended value through a JSON serialization round trip, rejects touched
+  duplicate-key paths, applies maximal changed subtrees sequentially, and preserves unrelated
+  comments and formatting. `normalizeJsonValue()` exposes the exact normalization step to callers
+  that must verify a domain-validated persisted shape.
 
 ### Node entry (`ai-config/node`)
 
@@ -293,9 +299,14 @@ without managing locking, atomicity, or watch lifecycle themselves.
   `providers.schema.json` alongside the config for editor validation. After
   ensuring the file exists, strict `parseProvidersConfig` makes every read,
   JSONC syntax, unknown key, or schema-validation failure abort without
-  rewriting the file; validation errors name offending paths. Successful writes
-  serialize the whole config with `JSON.stringify`, so values survive but JSONC
-  comments are stripped.
+  rewriting the file; validation errors name offending paths. Existing files are transformed by
+  `editJsonc`: intended values first inherit the previous whole-file writer's exact
+  `JSON.stringify` semantics, then only maximal changed paths are edited sequentially against the
+  evolving text. Unrelated comments, indentation, and line endings survive. A write touching an
+  ambiguous duplicate-key path rejects without fallback, and a same-object or value-identical
+  mutator result performs no write. First creation remains a whole-file serialization because no
+  user-authored text exists to preserve. The edited bytes are reparsed, schema-validated, and
+  compared with the same normalized intended shape before the atomic rename.
 
 The internal `src/node/parse-jsonc.ts` helper centralizes JSONC behavior through
 the dependency-free, browser-safe `jsonc-parser` package. It materializes the parse tree
@@ -440,6 +451,7 @@ the bridge's `ModelInfo` — compatible by contract, not by import.
 | `src/node/types.ts`                   | Node seam option/result types (`LoadCatalogOptions`, `ProviderCatalogChange`, `Disposable`, …)                                             |
 | `src/resolve-catalog.ts`              | `resolveProviderCatalog()` — pure deep resolver seam; owns the precedence stack + sealed-enforced invariant                                |
 | `src/base-url.ts`                     | `normalizeBaseUrlForProvider()` + known host/version constants (the bridge imports them from here)                                         |
+| `src/edit-jsonc.ts`                   | Pure validation-free JSONC diff-to-edits transformer + JSON serialization normalization                                                    |
 | `src/config-source.ts`                | `ProviderConfigSource` + internal `ProviderConfigSourceProvider` loader machinery                                                          |
 | `src/legacy-positron-settings/`       | PROVIDER-SETTINGS-MIGRATION: legacy settings map, translator, and internal source builders                                                 |
 | `src/build-catalog.ts`                | `buildCatalog()` — assemble `ResolvedProvider[]` from merged config + enablement layers + baseline (pure entry)                            |
@@ -466,6 +478,8 @@ the bridge's `ModelInfo` — compatible by contract, not by import.
   issues, and load/watch orchestrators own issue rendering.
 - **Mutations never rewrite unreadable input** — filesystem, JSONC syntax, and
   schema-validation failures all reject before the mutator or writer runs.
+- **Mutations preserve unrelated JSONC text** — path-local edits retain comments and formatting;
+  touched duplicate keys reject, and value-identical results do not write.
 - **`CustomProviderId` is branded** and only mintable through
   `mintCustomProviderId()`, after collision checks.
 - **External builds** pass `external: true` to `buildCatalog()`, which skips

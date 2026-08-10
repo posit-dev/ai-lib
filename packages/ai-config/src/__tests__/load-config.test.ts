@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { loadProviderCatalogReport, loadResolvedProviderCatalog } from "../node/load-catalog.js";
 import { mutateProvidersConfig } from "../node/mutate-config.js";
+import { parseJsonc } from "../node/parse-jsonc.js";
 import type { ProvidersConfig, ResolvedProvider } from "../types.js";
 import type { PlatformBaseline } from "../types.js";
 import { BUILTIN_PROVIDER_IDS } from "../vocabulary.js";
@@ -1098,17 +1099,19 @@ describe("mutateProvidersConfig", () => {
 		expect(raw.providers.openai.baseUrl).toBe("https://openai-custom.example.com");
 	});
 
-	it("preserves values when mutating a commented config", async () => {
+	it("preserves comments and formatting outside changed paths", async () => {
 		const configPath = path.join(tempDir, "providers.json");
 		await fs.writeFile(
 			configPath,
 			`{
-				// Programmatic writes may strip this comment.
+				// Keep this provider comment.
 				"providers": {
 					"anthropic": {
-						/* Existing values must survive. */
+						/* Keep this value comment. */
 						"baseUrl": "https://existing.example.com",
 					},
+					"openai": { "enabled": true },
+					"gemini": { "enabled": true },
 				},
 			}`,
 		);
@@ -1118,18 +1121,90 @@ describe("mutateProvidersConfig", () => {
 				...current,
 				providers: {
 					...current.providers,
-					openai: { enabled: false },
+					anthropic: {
+						...current.providers?.anthropic,
+						baseUrl: "https://changed.example.com",
+						models: { allow: ["claude-new"] },
+					},
+					openai: undefined,
+					gemini: undefined,
+					deepseek: { enabled: false },
+					bedrock: { enabled: false },
 				},
 			}),
 			{ configPath, logger: mockLogger },
 		);
 
 		const written = await fs.readFile(configPath, "utf-8");
-		const parsed = JSON.parse(written);
-		expect(parsed.providers.anthropic.baseUrl).toBe("https://existing.example.com");
-		expect(parsed.providers.openai.enabled).toBe(false);
-		expect(written).not.toContain("Programmatic writes");
-		expect(written).not.toContain("Existing values");
+		const parsed = parseJsonc(written) as ProvidersConfig;
+		expect(parsed.providers?.anthropic?.baseUrl).toBe("https://changed.example.com");
+		expect(parsed.providers?.anthropic?.models?.allow).toEqual(["claude-new"]);
+		expect(parsed.providers?.openai).toBeUndefined();
+		expect(parsed.providers?.gemini).toBeUndefined();
+		expect(parsed.providers?.deepseek?.enabled).toBe(false);
+		expect(parsed.providers?.bedrock?.enabled).toBe(false);
+		expect(written).toContain("Keep this provider comment");
+		expect(written).toContain("Keep this value comment");
+	});
+
+	it("does not write for a value-identical mutation", async () => {
+		const configPath = path.join(tempDir, "providers.json");
+		const original = '{\n  // unchanged\n  "providers": { "anthropic": { "enabled": true } }\n}\n';
+		await fs.writeFile(configPath, original);
+		const rename = vi.spyOn(fs, "rename");
+
+		await mutateProvidersConfig((current) => ({ ...current }), { configPath, logger: mockLogger });
+
+		expect(rename).not.toHaveBeenCalled();
+		expect(await fs.readFile(configPath, "utf-8")).toBe(original);
+	});
+
+	it("detects an in-place same-reference mutation", async () => {
+		const configPath = path.join(tempDir, "providers.json");
+		await fs.writeFile(
+			configPath,
+			'{\n  // retained\n  "providers": { "anthropic": { "enabled": true } }\n}\n',
+		);
+
+		await mutateProvidersConfig(
+			(current) => {
+				current.providers ??= {};
+				current.providers.anthropic = { enabled: false };
+				return current;
+			},
+			{ configPath, logger: mockLogger },
+		);
+
+		const written = await fs.readFile(configPath, "utf-8");
+		expect(parseJsonc(written)).toMatchObject({ providers: { anthropic: { enabled: false } } });
+		expect(written).toContain("// retained");
+	});
+
+	it("rejects edits to a duplicate-key path without changing the file", async () => {
+		const configPath = path.join(tempDir, "providers.json");
+		const original = `{
+  "providers": {
+    "anthropic": {
+      "enabled": true,
+      "enabled": false
+    }
+  }
+}`;
+		await fs.writeFile(configPath, original);
+
+		await expect(
+			mutateProvidersConfig(
+				(current) => ({
+					...current,
+					providers: {
+						...current.providers,
+						anthropic: { ...current.providers?.anthropic, enabled: true },
+					},
+				}),
+				{ configPath, logger: mockLogger },
+			),
+		).rejects.toThrow(/duplicate key path providers\.anthropic\.enabled is ambiguous/);
+		expect(await fs.readFile(configPath, "utf-8")).toBe(original);
 	});
 
 	it("aborts on syntax-invalid content without changing the file", async () => {
