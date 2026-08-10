@@ -103,9 +103,10 @@ capability rule rather than assuming the listing path is callable.
 
 ### Custom-provider registrars (kind-keyed factory)
 
-When a provider kind can also back `providers.custom` entries (LiteLLM is the
-reference: `registerCustomLitellmProvider(registry, providerId, logger)`), the
-module exports a second registrar that consumers call once per custom entry:
+When a provider kind can also back `providers.custom` entries (LiteLLM and
+Portkey expose `registerCustomLitellmProvider` and
+`registerCustomPortkeyProvider`), the module exports a second registrar that
+consumers call once per custom entry:
 
 - The **model fetcher** is registered under the custom provider id, with its
   own `createCachedModelFetcher` instance (independent per-gateway cache) and
@@ -121,6 +122,13 @@ module exports a second registrar that consumers call once per custom entry:
 
 All wire knowledge (URL normalization, discovery parsing, header schemes)
 stays inside the provider module; callers supply only an id.
+
+A kind-keyed factory does **not** mean every custom kind discovers models.
+LiteLLM's registrar fetches `/v1/model/info`. Ordinary self-hosted custom
+Portkey resolves its shared connection policy and deliberately returns no
+fetched models; the consuming catalog merges bare-ID `models.custom`
+declarations later. Portkey's canonical hosted fetcher remains shared for a
+securely stored key, but is not the keyless custom v1 contract.
 
 ### Protocol-dispatching clients (gateway providers)
 
@@ -144,6 +152,28 @@ call on `normalizeProtocol(params.protocol)`:
 - Both delegates get the same normalized base URL and credentials
   (`customHeaders` must flow to every delegate — gateway tenancy headers are
   route-independent; auth headers stay delegate-owned).
+
+**Portkey is the second dispatcher, deliberately mirrored — not extracted**
+(2026-08-08; decision comment in `portkey-provider.ts`). Its wrinkle is
+per-mode credential wiring: LiteLLM sends the same key in each delegate's
+native scheme, while hosted Portkey sends `x-portkey-api-key` on both
+delegates with dummy native credentials, and OSS Portkey sends the upstream's
+key. The standing judgment: extract a shared
+`createProtocolDispatchingClient` only when a **third** gateway provider
+arrives and the credential parameterization proves clean across all three;
+until then, mirror with the convention documented here rather than forcing a
+shallow abstraction.
+
+**Template for future gateway providers** (from the Portkey plan,
+`plans/2026-08-08-1001-portkey-multiprotocol-provider.md` in the consuming
+monorepo): gate implementation on **empirical probes** of the real gateway
+(auth matrix per endpoint, tools + streaming per upstream family, Responses
+stateless reasoning continuity, discovery/pagination shape, error/edge
+shapes), define an **outcome matrix** up front so each probe failure maps to
+a defined narrower ship (e.g. exclude that family from discovery) instead of
+blocking, and pin fixes with **repro-first tests** (the repro must fail on
+the unfixed code before the fix lands). Families whose probes never ran ship
+excluded-with-reason, and widening later is additive.
 
 ## Step 6: Export from Package
 

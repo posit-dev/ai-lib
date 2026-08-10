@@ -29,6 +29,7 @@ import { registerOllamaProvider } from "./providers/ollama-provider";
 import { registerOpenAICompatibleProvider } from "./providers/openai-compatible-provider";
 import { registerOpenAIProvider } from "./providers/openai-provider";
 import { registerOpenRouterProvider } from "./providers/openrouter-provider";
+import { registerPortkeyProvider } from "./providers/portkey-provider";
 import { registerPositAiProvider } from "./providers/positai-provider";
 import type { ProviderRegistry } from "./providers/ProviderRegistry";
 import { registerSnowflakeCortexProvider } from "./providers/snowflake-cortex-provider";
@@ -90,6 +91,7 @@ export const PROVIDER_REGISTRARS: readonly [ProviderId, ProviderRegistrar][] = [
 	["deepseek", registerDeepSeekProvider],
 	["databricks", registerDatabricksProvider],
 	["litellm", registerLitellmProvider],
+	["portkey", registerPortkeyProvider],
 ];
 
 /**

@@ -95,7 +95,9 @@ restricted to `SUPPORTED_CUSTOM_CLIENT_KIND_VALUES`, a local mirror of
 Product-specific kinds (`positai`, `anthropic`, `openai`, `gemini`, `copilot`)
 are **excluded** — a custom provider proxying those APIs uses
 `openai-compatible`. An unsupported `type` is now an upfront schema error rather
-than a silent catalog-time drop.
+than a silent catalog-time drop. `portkey` is a supported base-only variant: it
+accepts the shared connection/model fields but none of the provider-specific
+`aws`, `googleCloud`, `snowflake`, `databricks`, or `positaiLogin` sections.
 
 **`positaiLogin` (formerly `oauth`).** The Posit-login connection sub-section
 was renamed from `oauth` to `positaiLogin` — it is Posit-login-specific config

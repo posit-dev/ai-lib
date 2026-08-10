@@ -82,6 +82,10 @@ const CONNECTION_ENV_MAPPINGS: Partial<Record<BuiltinProviderId, ConnectionEnvMa
 	// bridge derives the serving-endpoints / AI Gateway URL from it.
 	databricks: { databricks: { host: "DATABRICKS_HOST" } },
 	litellm: { baseUrl: "LITELLM_BASE_URL" },
+	// Required for Portkey (no default): the base URL selects hosted vs OSS
+	// mode, which determines what the stored key *is* — see base-url.ts's
+	// PORTKEY_HOSTED_BASE_URL and the bridge's resolvePortkeyConnection.
+	portkey: { baseUrl: "PORTKEY_BASE_URL" },
 };
 
 // ---------------------------------------------------------------------------

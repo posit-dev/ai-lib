@@ -12,9 +12,55 @@
 import { randomUUID } from "crypto";
 
 import type { LanguageModelUsage, TextStreamPart } from "ai";
+import { APICallError, RetryError } from "ai";
 
 import type { StepLogger } from "../StepLogger";
 import type { AiToolWithJsonSchema, CancellationToken, LMStreamPart } from "../types";
+
+/** Cap the response body excerpt included in synthesized error messages. */
+const MAX_ERROR_BODY_CHARS = 500;
+
+function apiCallFailureMessage(error: APICallError): string {
+	const status = error.statusCode !== undefined ? ` status ${error.statusCode}` : "";
+	const body = error.responseBody?.trim();
+	const bodyExcerpt = body ? `: ${body.slice(0, MAX_ERROR_BODY_CHARS)}` : "";
+	return `Request to ${error.url} failed with${status}${bodyExcerpt}`;
+}
+
+/**
+ * Give blank failed-request errors a usable message, in place.
+ *
+ * The AI SDK's per-provider error parsers fall back to the HTTP `statusText`
+ * when a response's error body doesn't match the provider's error schema —
+ * and gateways can produce both conditions at once (e.g. Portkey's OSS
+ * gateway returns `{"html-message": "..."}` on upstream 401s and
+ * `{"status":"failure","message":"..."}` for gateway-level failures, and
+ * HTTP/2 responses carry no reason phrase). The result is an `APICallError`
+ * — or a `RetryError` wrapping one — whose message is empty, which consumers
+ * would surface verbatim. Synthesize a message from the status code and a
+ * best-effort body excerpt instead.
+ *
+ * Mutates `message` on the existing error objects (never replaces them) so
+ * error identity and structured fields (`statusCode`, `responseBody`, …)
+ * that consumers key on are preserved. Errors that already carry a message
+ * are left untouched. Exported for tests.
+ */
+export function clarifyBlankRequestError(error: unknown): void {
+	if (APICallError.isInstance(error) && error.message.trim().length === 0) {
+		error.message = apiCallFailureMessage(error);
+		return;
+	}
+	if (
+		RetryError.isInstance(error) &&
+		APICallError.isInstance(error.lastError) &&
+		error.lastError.message.trim().length === 0
+	) {
+		error.lastError.message = apiCallFailureMessage(error.lastError);
+		// The RetryError composed its own message from the then-blank last
+		// error ("Failed after N attempts. Last error: ") — re-append.
+		error.message = `${error.message}${error.lastError.message}`;
+	}
+}
 
 /**
  * Convert AI SDK stream to platform-agnostic LMStreamPart format.
@@ -29,6 +75,11 @@ export async function* convertAiSdkStreamToPlatform(
 	// format, so we will just yield the chunks as-is.
 	try {
 		for await (const chunk of stream) {
+			// Chunks pass through as-is, including null/non-object values some
+			// upstream mocks and tolerant streams produce — guard before probing.
+			if (chunk !== null && typeof chunk === "object" && chunk.type === "error") {
+				clarifyBlankRequestError(chunk.error);
+			}
 			yield chunk;
 		}
 	} finally {

@@ -29,6 +29,7 @@ vi.mock("../providers/snowflake-cortex-provider", () => ({
 vi.mock("../providers/deepseek-provider", () => ({ registerDeepSeekProvider: vi.fn() }));
 vi.mock("../providers/databricks-provider", () => ({ registerDatabricksProvider: vi.fn() }));
 vi.mock("../providers/litellm-provider", () => ({ registerLitellmProvider: vi.fn() }));
+vi.mock("../providers/portkey-provider", () => ({ registerPortkeyProvider: vi.fn() }));
 
 import { registerAnthropicProvider } from "../providers/anthropic-provider";
 import { registerBedrockProvider } from "../providers/bedrock-provider";
@@ -44,6 +45,7 @@ import { registerOllamaProvider } from "../providers/ollama-provider";
 import { registerOpenAICompatibleProvider } from "../providers/openai-compatible-provider";
 import { registerOpenAIProvider } from "../providers/openai-provider";
 import { registerOpenRouterProvider } from "../providers/openrouter-provider";
+import { registerPortkeyProvider } from "../providers/portkey-provider";
 import { registerPositAiProvider } from "../providers/positai-provider";
 import { registerSnowflakeCortexProvider } from "../providers/snowflake-cortex-provider";
 import { PROVIDER_REGISTRARS, registerAllProviders } from "../register-all-providers";
@@ -76,6 +78,7 @@ const allRegisterFns = [
 	registerDeepSeekProvider,
 	registerDatabricksProvider,
 	registerLitellmProvider,
+	registerPortkeyProvider,
 ];
 
 describe("registerAllProviders (internal)", () => {

@@ -322,7 +322,7 @@ describe("watchResolvedProviderCatalog", () => {
 		const configPath = path.join(tempDir, "providers.json");
 		const valid = { providers: { anthropic: { enabled: true } } };
 		const invalid = {
-			providers: { anthropic: { enabled: true }, portkey: { enabled: true } },
+			providers: { anthropic: { enabled: true }, "mystery-provider": { enabled: true } },
 		};
 		await fs.writeFile(configPath, JSON.stringify(valid));
 
@@ -344,7 +344,7 @@ describe("watchResolvedProviderCatalog", () => {
 			issuesChanged: true,
 		});
 		expect(changes[0].issues).toEqual([
-			expect.objectContaining({ path: ["providers", "portkey"] }),
+			expect.objectContaining({ path: ["providers", "mystery-provider"] }),
 		]);
 		const warningsAfterAdd = mockLogger.warn.mock.calls.length;
 

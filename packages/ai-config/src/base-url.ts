@@ -36,6 +36,27 @@ export const GEMINI_HOST = "https://generativelanguage.googleapis.com";
 export const GEMINI_API_VERSION = "v1beta";
 
 /**
+ * Hosted Portkey canonical HTTPS origin. Hosted-vs-OSS classification in the
+ * bridge's `resolvePortkeyConnection` is **exact-origin** against this value:
+ * only `https://api.portkey.ai` (default port) classifies as hosted — the
+ * canonical hostname under any other scheme or port is a local error, and
+ * lookalike hosts classify as OSS.
+ */
+export const PORTKEY_HOST = "https://api.portkey.ai";
+/** Version segment of Portkey's hosted API root. */
+export const PORTKEY_API_VERSION = "v1";
+/**
+ * The hosted Portkey base URL. This is a provider-boundary constant, NOT a
+ * `PROVIDER_CONNECTION_DEFAULTS` entry: Portkey's base URL is **required**
+ * (it determines what the stored key is — a Portkey API key for hosted, an
+ * upstream's key for a self-hosted gateway), so a silent default would
+ * reinterpret the secret. UI configure forms prefill and explicitly save this
+ * value; env-only configs set `PORTKEY_BASE_URL`. Exported from the pure
+ * (browser-safe) entry so hosts can re-export it to their UI layers.
+ */
+export const PORTKEY_HOSTED_BASE_URL = `${PORTKEY_HOST}/${PORTKEY_API_VERSION}`;
+
+/**
  * LM Studio default local server host. Configured endpoints include the `/v1`
  * segment (OpenAI-compatible convention); the bare default host is corrected
  * at the config read seam (`LocalProviderManager.getEndpoint`) for backward

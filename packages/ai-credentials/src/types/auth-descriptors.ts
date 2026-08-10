@@ -56,6 +56,7 @@ export const SUPPORTED_CUSTOM_CLIENT_KIND_VALUES = [
 	"openrouter",
 	"ms-foundry",
 	"litellm",
+	"portkey",
 ] as const;
 
 /** Union of supported custom client kind string literals. */
@@ -79,6 +80,7 @@ const CUSTOM_CLIENT_KIND_AUTH_DESCRIPTORS = {
 	openrouter: { authMethodId: "apikey", apiKeyOptional: false },
 	"ms-foundry": { authMethodId: "apikey", apiKeyOptional: false },
 	litellm: { authMethodId: "apikey", apiKeyOptional: true },
+	portkey: { authMethodId: "apikey", apiKeyOptional: true },
 } as const satisfies Record<SupportedCustomClientKind, CustomAuthMapping>;
 
 /**

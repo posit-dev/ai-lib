@@ -42,4 +42,35 @@ describe("buildCatalog custom providers", () => {
 		expect(customEntry).toBeDefined();
 		expect(customEntry!.clientKind).toBe("openai-compatible");
 	});
+
+	it("preserves a custom Portkey display id and base connection fields", () => {
+		const config: ProvidersConfig = {
+			$schema: "",
+			version: 1,
+			providers: {
+				custom: {
+					"acme-portkey": {
+						type: "portkey",
+						baseUrl: "https://ai-gateway.acme.com",
+						customHeaders: { "x-portkey-provider": "openai" },
+						protocol: "openai-chat",
+					},
+				},
+			},
+		};
+
+		const entry = buildCatalog(config, layersOf(config), BASELINE, new Map()).find(
+			(provider) => provider.id === "acme-portkey",
+		);
+
+		expect(entry).toMatchObject({
+			id: "acme-portkey",
+			clientKind: "portkey",
+			connection: {
+				baseUrl: "https://ai-gateway.acme.com",
+				customHeaders: { "x-portkey-provider": "openai" },
+				protocol: "openai-chat",
+			},
+		});
+	});
 });

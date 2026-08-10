@@ -42,9 +42,9 @@ describe("salvageProvidersConfig", () => {
 		},
 		{
 			name: "unknown provider key",
-			input: { providers: { portkey: {}, anthropic: { enabled: true } } },
+			input: { providers: { "mystery-provider": {}, anthropic: { enabled: true } } },
 			kept: ["anthropic"],
-			path: ["providers", "portkey"],
+			path: ["providers", "mystery-provider"],
 		},
 		{
 			name: "unknown root key",
@@ -127,7 +127,7 @@ describe("salvageProvidersConfig", () => {
 			{ providers: { custom: { bad: null, good: { type: "ollama" } } } },
 			{ extra: true, providers: { anthropic: {} } },
 			{ $schema: false, version: 1, providers: { default: { enabled: true } } },
-			{ providers: { portkey: {}, bedrock: { aws: { region: "us-east-2" } } } },
+			{ providers: { "mystery-provider": {}, bedrock: { aws: { region: "us-east-2" } } } },
 		];
 		for (const fixture of fixtures) {
 			expect(providersConfigSchema.safeParse(salvageProvidersConfig(fixture).config).success).toBe(
