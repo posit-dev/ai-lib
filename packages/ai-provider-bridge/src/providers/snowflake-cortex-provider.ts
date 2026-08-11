@@ -106,7 +106,11 @@ export function registerCustomSnowflakeProvider(
 	registry: ProviderRegistry,
 	providerId: ResolvedProviderId,
 	logger: Logger,
+	callbacks?: SnowflakeProviderCallbacks,
 ): void {
 	registry.registerModelFetcher(providerId, createSnowflakeModelFetcher(providerId, logger));
-	registry.registerClientFactory("snowflake-cortex", createSnowflakeClientFactory(logger));
+	registry.registerClientFactory(
+		"snowflake-cortex",
+		createSnowflakeClientFactory(logger, callbacks),
+	);
 }

@@ -4,13 +4,20 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { listMantleModels, listFoundationModels, listInferenceProfiles } = vi.hoisted(() => ({
+const {
+	createAwsCredentialProvider,
+	listMantleModels,
+	listFoundationModels,
+	listInferenceProfiles,
+} = vi.hoisted(() => ({
+	createAwsCredentialProvider: vi.fn(),
 	listMantleModels: vi.fn(),
 	listFoundationModels: vi.fn(),
 	listInferenceProfiles: vi.fn(),
 }));
 
 vi.mock("../bedrock-mantle-models", () => ({ listMantleModels }));
+vi.mock("../../aws-credentials", () => ({ createAwsCredentialProvider }));
 vi.mock("@aws-sdk/client-bedrock", () => ({
 	BedrockClient: vi.fn(function () {
 		return {
@@ -68,6 +75,10 @@ function credentialsFor(region: string) {
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	createAwsCredentialProvider.mockReturnValue(async () => ({
+		accessKeyId: "key",
+		secretAccessKey: "secret",
+	}));
 	listMantleModels.mockResolvedValue([
 		{ id: "openai.gpt-oss-120b" },
 		{ id: "openai.gpt-5.6-terra" },
@@ -107,6 +118,27 @@ describe("Bedrock provider Mantle aggregation", () => {
 		expect(models).not.toHaveLength(0);
 		expect(models.every((model) => model.providerId === providerId)).toBe(true);
 		expect(registry.getClientForProviderOrKind(providerId, credentials, "aws")).not.toBeNull();
+	});
+
+	it("attributes custom AWS credential failures to the custom provider", async () => {
+		createAwsCredentialProvider.mockReturnValueOnce(async () => {
+			throw new Error("credentials unavailable");
+		});
+		const registry = new ProviderRegistry(logger());
+		const providerId = mintCustomProviderId("custom-bedrock");
+		const onProviderStatusChange = vi.fn(async () => {});
+		registerCustomBedrockProvider(registry, providerId, logger(), { onProviderStatusChange });
+
+		await registry.getModelsForProvider(providerId, {
+			type: "aws-credentials",
+			region: "us-east-2",
+			accessKeyId: "expired",
+			secretAccessKey: "expired",
+		});
+
+		expect(onProviderStatusChange).toHaveBeenCalledWith(
+			expect.objectContaining({ providerId, status: "auth_error" }),
+		);
 	});
 
 	it("maps supported Mantle families, filters duplicates, and caches sources independently", async () => {

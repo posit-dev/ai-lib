@@ -139,12 +139,13 @@ function isAuthError(error: unknown): boolean {
 }
 
 async function notifyBedrockAuthError(
+	providerId: ResolvedProviderId,
 	callbacks: BedrockProviderCallbacks | undefined,
 	code: "sso_expired" | "auth_error",
 	message: string,
 ): Promise<void> {
 	await callbacks?.onProviderStatusChange?.({
-		providerId: BEDROCK_PROVIDER_ID,
+		providerId,
 		authMethodId: BEDROCK_AUTH_METHOD_ID,
 		status: "auth_error",
 		error: {
@@ -159,6 +160,7 @@ async function notifyBedrockAuthError(
 }
 
 async function reportCredentialResolutionFailure(
+	providerId: ResolvedProviderId,
 	credentials: AwsCredentials,
 	callbacks: BedrockProviderCallbacks | undefined,
 	logger: Logger,
@@ -172,6 +174,7 @@ async function reportCredentialResolutionFailure(
 			`[Bedrock] AWS credentials could not be resolved (SSO profile detected). Run 'aws sso login' to authenticate. Error: ${errorMsg}`,
 		);
 		await notifyBedrockAuthError(
+			providerId,
 			callbacks,
 			"sso_expired",
 			"AWS Bedrock credentials expired. Please run 'aws sso login' to refresh your session, then click Refresh Models. You may need additional options, like 'aws sso login --profile <profile-name>'.",
@@ -181,6 +184,7 @@ async function reportCredentialResolutionFailure(
 
 	logger.error(`[Bedrock] AWS credentials could not be resolved. Error: ${errorMsg}`);
 	await notifyBedrockAuthError(
+		providerId,
 		callbacks,
 		"auth_error",
 		"AWS Bedrock credentials are invalid or unavailable. Update your AWS credentials, then click Refresh Models.",
@@ -188,6 +192,7 @@ async function reportCredentialResolutionFailure(
 }
 
 async function createBedrockListClient(
+	providerId: ResolvedProviderId,
 	credentials: AwsCredentials,
 	callbacks: BedrockProviderCallbacks | undefined,
 	logger: Logger,
@@ -199,7 +204,7 @@ async function createBedrockListClient(
 			credentials: resolvedCreds,
 		});
 	} catch (credError) {
-		await reportCredentialResolutionFailure(credentials, callbacks, logger, credError);
+		await reportCredentialResolutionFailure(providerId, credentials, callbacks, logger, credError);
 		return null;
 	}
 }
@@ -274,7 +279,7 @@ function createBedrockModelFetcher(
 			// to detect expired/missing credentials before making the API call.
 			// This avoids unnecessary network requests and intrusive SSO login
 			// prompts on every startup.
-			const listClient = await createBedrockListClient(credentials, callbacks, logger);
+			const listClient = await createBedrockListClient(providerId, credentials, callbacks, logger);
 			if (!listClient) {
 				cachedModels = null;
 				lastFetch = 0;
@@ -396,6 +401,7 @@ function createBedrockModelFetcher(
 					logger.error(`[Bedrock] AWS Bedrock API rejected credentials. Error: ${errorMsg}`);
 
 					await notifyBedrockAuthError(
+						providerId,
 						callbacks,
 						"auth_error",
 						"AWS Bedrock credentials were rejected by the API. Check your IAM permissions, then click Refresh Models.",
@@ -411,7 +417,7 @@ function createBedrockModelFetcher(
 				logger.warn(`[Bedrock] API fetch failed: ${errorMsg}, using fallback`);
 
 				await callbacks?.onProviderStatusChange?.({
-					providerId: BEDROCK_PROVIDER_ID,
+					providerId,
 					authMethodId: BEDROCK_AUTH_METHOD_ID,
 					status: "network_error",
 					error: {
@@ -495,7 +501,11 @@ export function registerCustomBedrockProvider(
 	registry: ProviderRegistry,
 	providerId: ResolvedProviderId,
 	logger: Logger,
+	callbacks?: BedrockProviderCallbacks,
 ): void {
-	registry.registerModelFetcher(providerId, createBedrockModelFetcher(providerId, logger));
+	registry.registerModelFetcher(
+		providerId,
+		createBedrockModelFetcher(providerId, logger, callbacks),
+	);
 	registry.registerClientFactory(BEDROCK_PROVIDER_ID, createBedrockClientFactory(logger));
 }

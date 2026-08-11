@@ -103,4 +103,25 @@ describe("registerGoogleVertexProvider", () => {
 		expect(models).toHaveLength(2);
 		expect(models.every((model) => model.providerId === providerId)).toBe(true);
 	});
+
+	it("attributes custom Vertex authentication failures to the custom provider", async () => {
+		const onProviderStatusChange = vi.fn().mockResolvedValue(undefined);
+		const registry = new ProviderRegistry(mockLogger);
+		const providerId = mintCustomProviderId("custom-vertex");
+		registerCustomGoogleVertexProvider(registry, providerId, mockLogger, {
+			onProviderStatusChange,
+		});
+
+		const models = await registry.getModelsForProvider(providerId, {
+			type: "google-cloud",
+			project: "my-project",
+			location: "us-central1",
+			accessToken: "expired-token",
+		});
+
+		expect(models).toEqual([]);
+		expect(onProviderStatusChange).toHaveBeenCalledWith(
+			expect.objectContaining({ providerId, status: "auth_error" }),
+		);
+	});
 });

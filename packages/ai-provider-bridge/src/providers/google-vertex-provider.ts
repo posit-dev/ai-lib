@@ -427,7 +427,11 @@ export function registerCustomGoogleVertexProvider(
 	registry: ProviderRegistry,
 	providerId: ResolvedProviderId,
 	logger: Logger,
+	callbacks?: GoogleVertexProviderCallbacks,
 ): void {
-	registry.registerModelFetcher(providerId, createGoogleVertexModelFetcher(providerId, logger));
+	registry.registerModelFetcher(
+		providerId,
+		createGoogleVertexModelFetcher(providerId, logger, callbacks),
+	);
 	registry.registerClientFactory("google-vertex", createGoogleVertexClientFactory(logger));
 }

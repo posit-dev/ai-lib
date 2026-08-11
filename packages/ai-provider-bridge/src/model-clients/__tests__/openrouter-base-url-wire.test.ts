@@ -23,8 +23,9 @@ vi.mock("../ai-sdk-helpers", () => ({
 	createStepLogger: vi.fn(() => undefined),
 }));
 
-import type { CancellationToken } from "../../types";
-import { OpenRouterClient } from "../OpenRouterClient";
+import { registerCustomOpenRouterProvider } from "../../providers/openrouter-provider";
+import { ProviderRegistry } from "../../providers/ProviderRegistry";
+import type { CancellationToken, Logger } from "../../types";
 
 const cancellationToken: CancellationToken = {
 	isCancellationRequested: false,
@@ -34,10 +35,27 @@ const cancellationToken: CancellationToken = {
 describe("OpenRouterClient base URL routing", () => {
 	beforeEach(() => vi.clearAllMocks());
 
-	it("passes a custom canonical API root to the SDK", async () => {
-		const client = new OpenRouterClient("sk-or-test", "https://router.example.com/api/v1", {
-			"x-tenant": "acme",
-		});
+	it("routes custom chat through the kind factory to the custom canonical API root", async () => {
+		const logger: Logger = {
+			info: vi.fn(),
+			warn: vi.fn(),
+			error: vi.fn(),
+			debug: vi.fn(),
+			trace: vi.fn(),
+		};
+		const registry = new ProviderRegistry(logger);
+		registerCustomOpenRouterProvider(registry, "acme-router", logger);
+		const client = registry.getClientForProviderOrKind(
+			"acme-router",
+			{
+				type: "apikey",
+				apiKey: "sk-or-test",
+				baseUrl: "https://router.example.com",
+				customHeaders: { "x-tenant": "acme" },
+			},
+			"openrouter",
+		);
+		if (!client) throw new Error("expected the custom OpenRouter kind factory");
 		await client.chat({
 			model: "anthropic/claude-sonnet-4.6",
 			messages: [{ role: "user", content: "hello" }],
