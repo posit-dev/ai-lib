@@ -47,9 +47,16 @@
  * 6. Empty tool `type` `""` → `"function"` in tool call chunks
  *    Spec requires `type` to be `"function"`. Some providers send `""`.
  *
+ * 7. Block-array `content` → string in delta chunks
+ *    Spec requires `delta.content` to be a string. The Databricks Unity AI
+ *    Gateway sends an array of content blocks when a model emits reasoning
+ *    (Bedrock-hosted Anthropic and gpt-oss both do), which fails the SDK's
+ *    Zod validation and kills the whole stream. Text blocks are kept and
+ *    reasoning blocks dropped — the chat chunk schema cannot carry reasoning.
+ *
  * ## Auth
  *
- * 7. Strip `Authorization` header when `apiKey === ""`
+ * 8. Strip `Authorization` header when `apiKey === ""`
  *    For unauthenticated endpoints (e.g., local servers with no auth).
  *    Only matches empty string — `undefined` means the caller manages
  *    auth separately (e.g. Foundry injects its own token).
@@ -87,12 +94,24 @@ interface MalformedToolCall {
 }
 
 /**
+ * One entry of a block-array `delta.content`. Only `text` blocks carry
+ * assistant output; `reasoning` blocks carry the model's thinking, either as
+ * visible `summary[].text` (gpt-oss) or an empty string plus an encrypted
+ * signature (Bedrock-hosted Anthropic).
+ */
+interface MalformedContentBlock {
+	type?: string;
+	text?: string;
+}
+
+/**
  * A delta where `role` may be empty string instead of `"assistant"`,
- * and `tool_calls` may contain malformed entries.
+ * `content` may be an array of content blocks instead of a string, and
+ * `tool_calls` may contain malformed entries.
  */
 interface MalformedDelta {
 	role?: "assistant" | ""; // may be "" instead of "assistant"
-	content?: string | null;
+	content?: string | null | MalformedContentBlock[]; // may be blocks instead of a string
 	tool_calls?: MalformedToolCall[];
 }
 
@@ -308,6 +327,23 @@ function transformSSELine(line: string, noArgTools: string[]): string {
 }
 
 /**
+ * Collapse a block-array `delta.content` into the string the spec requires.
+ *
+ * Only `text` blocks contribute; every other block type (notably `reasoning`)
+ * is dropped. An array carrying no text collapses to `""`, which is spec-valid
+ * and which the SDK treats as an empty delta.
+ */
+function collapseContentBlocks(blocks: MalformedContentBlock[]): string {
+	let text = "";
+	for (const block of blocks) {
+		if (block?.type === "text" && typeof block.text === "string") {
+			text += block.text;
+		}
+	}
+	return text;
+}
+
+/**
  * Fix a possibly-malformed ChatCompletionChunk in place.
  *
  * See the {@link MalformedChatCompletionChunk} type for the specific
@@ -326,6 +362,26 @@ function fixMalformedChunk(chunk: MalformedChatCompletionChunk, noArgTools: stri
 		// Impact: AI SDK Zod validation throws AI_TypeValidationError.
 		if (delta.role === "") {
 			delta.role = "assistant";
+		}
+
+		// Transform 7: Content block array → string.
+		// Spec: delta.content is a string.
+		// Broken: the Databricks Unity AI Gateway streams reasoning as an array
+		// of content blocks (`[{"type":"reasoning","summary":[...]}]`) for
+		// models that think — Bedrock-hosted Anthropic and gpt-oss both do.
+		// Impact: AI SDK Zod validation throws AI_TypeValidationError and the
+		// whole stream fails, so chat is unusable on those models.
+		// Reasoning blocks are dropped rather than surfaced: the OpenAI chat
+		// chunk schema has no field to carry them, and Databricks deliberately
+		// offers no thinking controls (see model-capabilities/databricks-helpers.ts).
+		// On the streaming path the observed arrays hold only reasoning blocks and
+		// answer text arrives as plain strings, but the same gateway returns
+		// `[reasoning, text]` on its non-streaming path, so `text` blocks are
+		// preserved. Only `delta` is handled here: a non-streaming body puts
+		// content at `choices[].message.content` and never reaches this stream
+		// transform. The assistant always streams (`streamText`).
+		if (Array.isArray(delta.content)) {
+			delta.content = collapseContentBlocks(delta.content);
 		}
 
 		if (!Array.isArray(delta.tool_calls)) continue;
