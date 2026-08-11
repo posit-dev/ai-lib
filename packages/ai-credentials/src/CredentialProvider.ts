@@ -62,6 +62,18 @@ export type CredentialMutation =
 						sessionToken?: string;
 				  };
 	  }
+	| {
+			kind: "update-aws-keys";
+			keys:
+				| { kind: "preserve" }
+				| { kind: "clear" }
+				| {
+						kind: "replace";
+						accessKeyId: string;
+						secretAccessKey: string;
+						sessionToken?: string;
+				  };
+	  }
 	| { kind: "clear" };
 
 export interface CredentialStatus {

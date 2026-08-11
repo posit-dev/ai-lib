@@ -2,6 +2,7 @@
  *  Copyright (C) 2025-2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
+import type { ResolvedProviderId } from "ai-config";
 import { ANTHROPIC_API_VERSION, ANTHROPIC_HOST, getAnthropicModelCapabilities } from "ai-config";
 
 import { AnthropicClient } from "../model-clients/AnthropicClient";
@@ -9,7 +10,7 @@ import type { Logger, ModelInfo } from "../types";
 import type { ApiKeyCredentials } from "../types";
 import { normalizeProviderBaseUrl } from "../utils";
 import { createCachedModelFetcher } from "./cached-model-fetcher";
-import type { ProviderRegistry } from "./ProviderRegistry";
+import type { ClientFactory, ProviderRegistry } from "./ProviderRegistry";
 
 /**
  * Models that are documented and usable but not yet returned by Anthropic's
@@ -23,12 +24,12 @@ const SUPPLEMENTAL_MODELS: ReadonlyArray<{ id: string; name: string }> = [
 ];
 
 /** Build a `ModelInfo` for an Anthropic model, enriched with inferred capabilities. */
-function buildAnthropicModel(id: string, name: string): ModelInfo {
+function buildAnthropicModel(providerId: ResolvedProviderId, id: string, name: string): ModelInfo {
 	const capabilities = getAnthropicModelCapabilities(id);
 	return {
 		id,
 		name,
-		providerId: "anthropic",
+		providerId,
 		vendor: "anthropic",
 		family: undefined,
 		maxInputTokens: 200000,
@@ -51,45 +52,43 @@ function buildAnthropicModel(id: string, name: string): ModelInfo {
 	};
 }
 
-export function registerAnthropicProvider(registry: ProviderRegistry, logger: Logger): void {
-	// Register model fetcher using cached utility
-	registry.registerModelFetcher(
-		"anthropic",
-		createCachedModelFetcher<ApiKeyCredentials>({
-			providerId: "anthropic",
-			resolveUrl: (credentials) => {
-				const base = normalizeProviderBaseUrl(
-					credentials.baseUrl,
-					ANTHROPIC_HOST,
-					ANTHROPIC_API_VERSION,
-				);
-				return `${base}/models`;
-			},
-			hasCredentials: (credentials) => Boolean(credentials.apiKey),
-			createHeaders: (credentials) => ({
-				"x-api-key": credentials.apiKey,
-				"anthropic-version": "2023-06-01",
-			}),
-			parseResponse: (data: unknown) => {
-				const typedData = data as { data: Array<{ id: string; display_name: string }> };
-				const models = typedData.data.map((model) =>
-					buildAnthropicModel(model.id, model.display_name),
-				);
-				// Append documented models the endpoint doesn't return yet, skipping
-				// any that the live list already includes.
-				for (const supplemental of SUPPLEMENTAL_MODELS) {
-					if (!models.some((model) => model.id === supplemental.id)) {
-						models.push(buildAnthropicModel(supplemental.id, supplemental.name));
-					}
-				}
-				return models;
-			},
-			fallbackModels: [],
-			logger,
+function createAnthropicModelFetcher(providerId: ResolvedProviderId, logger: Logger) {
+	return createCachedModelFetcher<ApiKeyCredentials>({
+		providerId,
+		resolveUrl: (credentials) => {
+			const base = normalizeProviderBaseUrl(
+				credentials.baseUrl,
+				ANTHROPIC_HOST,
+				ANTHROPIC_API_VERSION,
+			);
+			return `${base}/models`;
+		},
+		hasCredentials: (credentials) => Boolean(credentials.apiKey),
+		createHeaders: (credentials) => ({
+			"x-api-key": credentials.apiKey,
+			"anthropic-version": "2023-06-01",
 		}),
-	);
+		parseResponse: (data: unknown) => {
+			const typedData = data as { data: Array<{ id: string; display_name: string }> };
+			const models = typedData.data.map((model) =>
+				buildAnthropicModel(providerId, model.id, model.display_name),
+			);
+			// Append documented models the endpoint doesn't return yet, skipping
+			// any that the live list already includes.
+			for (const supplemental of SUPPLEMENTAL_MODELS) {
+				if (!models.some((model) => model.id === supplemental.id)) {
+					models.push(buildAnthropicModel(providerId, supplemental.id, supplemental.name));
+				}
+			}
+			return models;
+		},
+		fallbackModels: [],
+		logger,
+	});
+}
 
-	registry.registerClientFactory("anthropic", (credentials) => {
+function createAnthropicClientFactory(logger: Logger): ClientFactory {
+	return (credentials) => {
 		if (credentials.type !== "apikey") {
 			throw new Error(`Anthropic provider requires API key credentials, got: ${credentials.type}`);
 		}
@@ -99,5 +98,19 @@ export function registerAnthropicProvider(registry: ProviderRegistry, logger: Lo
 			credentials.customHeaders,
 			logger,
 		);
-	});
+	};
+}
+
+export function registerAnthropicProvider(registry: ProviderRegistry, logger: Logger): void {
+	registry.registerModelFetcher("anthropic", createAnthropicModelFetcher("anthropic", logger));
+	registry.registerClientFactory("anthropic", createAnthropicClientFactory(logger));
+}
+
+export function registerCustomAnthropicProvider(
+	registry: ProviderRegistry,
+	providerId: ResolvedProviderId,
+	logger: Logger,
+): void {
+	registry.registerModelFetcher(providerId, createAnthropicModelFetcher(providerId, logger));
+	registry.registerClientFactory("anthropic", createAnthropicClientFactory(logger));
 }

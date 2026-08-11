@@ -6,6 +6,7 @@ import {
 	BedrockClient as BedrockListClient,
 	ListFoundationModelsCommand,
 } from "@aws-sdk/client-bedrock";
+import type { ResolvedProviderId } from "ai-config";
 import { getAnthropicModelCapabilities, getBedrockMantleModelCapabilities } from "ai-config";
 
 import { createAwsCredentialProvider } from "../aws-credentials";
@@ -16,7 +17,7 @@ import { listInferenceProfileIds } from "./bedrock-inference-profiles";
 import { listMantleModels } from "./bedrock-mantle-models";
 import { isAwsSsoProfileConfigured } from "./bedrock-sso";
 import { getOpenAIModelName } from "./openai-model-names";
-import type { ProviderRegistry } from "./ProviderRegistry";
+import type { ClientFactory, ProviderRegistry } from "./ProviderRegistry";
 
 const BEDROCK_PROVIDER_ID = "bedrock";
 const BEDROCK_AUTH_METHOD_ID = "aws-credentials";
@@ -203,267 +204,264 @@ async function createBedrockListClient(
 	}
 }
 
-export function registerBedrockProvider(
-	registry: ProviderRegistry,
+function createBedrockModelFetcher(
+	providerId: ResolvedProviderId,
 	logger: Logger,
 	callbacks?: BedrockProviderCallbacks,
-): void {
-	// Register model fetcher with closure-based caching (Phase 2)
-	registry.registerModelFetcher(
-		BEDROCK_PROVIDER_ID,
-		(() => {
-			// Closure variables for caching
-			const TTL = MODEL_CACHE_TTL;
-			let lastFetch = 0;
-			let cachedModels: ModelInfo[] | null = null;
-			let mantleLastFetch = 0;
-			let cachedMantleModels: ModelInfo[] | null = null;
+) {
+	return (() => {
+		// Closure variables for caching
+		const TTL = MODEL_CACHE_TTL;
+		let lastFetch = 0;
+		let cachedModels: ModelInfo[] | null = null;
+		let mantleLastFetch = 0;
+		let cachedMantleModels: ModelInfo[] | null = null;
 
-			const getMantleModels = async (
-				credentials: AwsCredentials,
-				now: number,
-			): Promise<ModelInfo[]> => {
-				if (cachedMantleModels !== null && now - mantleLastFetch < TTL) {
-					return cachedMantleModels;
+		const getMantleModels = async (
+			credentials: AwsCredentials,
+			now: number,
+		): Promise<ModelInfo[]> => {
+			if (cachedMantleModels !== null && now - mantleLastFetch < TTL) {
+				return cachedMantleModels;
+			}
+
+			const mantleListings = await listMantleModels(credentials, logger);
+			const mantleModels: ModelInfo[] = mantleListings.flatMap(({ id }) => {
+				const capabilities = getBedrockMantleModelCapabilities(id);
+				if (!capabilities) {
+					logger.debug(`[Bedrock Mantle] Skipping unsupported model ${id}`);
+					return [];
 				}
 
-				const mantleListings = await listMantleModels(credentials, logger);
-				const mantleModels: ModelInfo[] = mantleListings.flatMap(({ id }) => {
-					const capabilities = getBedrockMantleModelCapabilities(id);
-					if (!capabilities) {
-						logger.debug(`[Bedrock Mantle] Skipping unsupported model ${id}`);
-						return [];
-					}
+				// Listing is centralized at /v1/models. Inference routes are
+				// family-specific and therefore assigned from capabilities,
+				// not from the catalog path.
+				const path = capabilities.protocol === "openai-responses" ? "/openai/v1" : "/v1";
+				return [
+					{
+						id,
+						// Mantle IDs are vendor-prefixed OpenAI IDs ("openai.gpt-5.6-sol"), so
+						// the curated OpenAI display names apply once the prefix is stripped.
+						// Unknown IDs fall back to the bare ID, as before.
+						name: getOpenAIModelName(id.replace(/^openai\./, "")),
+						providerId,
+						vendor: "openai",
+						baseUrl: `https://bedrock-mantle.${credentials.region}.api.aws${path}`,
+						...capabilities,
+					},
+				];
+			});
+			cachedMantleModels = mantleModels;
+			mantleLastFetch = Date.now();
+			return mantleModels;
+		};
 
-					// Listing is centralized at /v1/models. Inference routes are
-					// family-specific and therefore assigned from capabilities,
-					// not from the catalog path.
-					const path = capabilities.protocol === "openai-responses" ? "/openai/v1" : "/v1";
-					return [
-						{
-							id,
-							// Mantle IDs are vendor-prefixed OpenAI IDs ("openai.gpt-5.6-sol"), so
-							// the curated OpenAI display names apply once the prefix is stripped.
-							// Unknown IDs fall back to the bare ID, as before.
-							name: getOpenAIModelName(id.replace(/^openai\./, "")),
-							providerId: BEDROCK_PROVIDER_ID,
-							vendor: "openai",
-							baseUrl: `https://bedrock-mantle.${credentials.region}.api.aws${path}`,
-							...capabilities,
-						},
-					];
+		const getConverseModels = async (
+			credentials: AwsCredentials,
+			now: number,
+		): Promise<ModelInfo[]> => {
+			const cacheAge = cachedModels ? now - lastFetch : null;
+			const cacheStatus = cachedModels ? "EXISTS" : "NULL";
+
+			logger.debug(`[Bedrock] Cache check: status=${cacheStatus}, age=${cacheAge}s, TTL=${TTL}s`);
+
+			if (cachedModels !== null && now - lastFetch < TTL) {
+				logger.debug(`[Bedrock] Using cached models (age: ${cacheAge}s, TTL: ${TTL}s)`);
+				return cachedModels;
+			}
+
+			// For chain-based credentials (SSO, env, shared config), pre-resolve
+			// to detect expired/missing credentials before making the API call.
+			// This avoids unnecessary network requests and intrusive SSO login
+			// prompts on every startup.
+			const listClient = await createBedrockListClient(credentials, callbacks, logger);
+			if (!listClient) {
+				cachedModels = null;
+				lastFetch = 0;
+				return [];
+			}
+
+			try {
+				logger.debug("[Bedrock] Fetching models from ListFoundationModels API");
+
+				// List foundation models with cross-region inference profiles. This will find newer
+				// Anthropic models, along with models from other vendors.
+				//
+				// Note: INFERENCE_PROFILE parameter is not yet in @aws-sdk/client-bedrock TypeScript
+				// types but is a valid and documented AWS Bedrock feature.
+				// @ts-expect-error INFERENCE_PROFILE is valid but not in SDK types yet
+				const command = new ListFoundationModelsCommand({
+					// byProvider: "Anthropic", // Only Anthropic Claude models
+					byInferenceType: "INFERENCE_PROFILE",
+					byOutputModality: "TEXT", // Only text output models
 				});
-				cachedMantleModels = mantleModels;
-				mantleLastFetch = Date.now();
-				return mantleModels;
-			};
 
-			const getConverseModels = async (
-				credentials: AwsCredentials,
-				now: number,
-			): Promise<ModelInfo[]> => {
-				const cacheAge = cachedModels ? now - lastFetch : null;
-				const cacheStatus = cachedModels ? "EXISTS" : "NULL";
+				// Run the foundation-model list and inference-profile discovery in
+				// parallel — discovery is a second listing off the same client, not a
+				// serialized round trip.
+				const regionPrefix = getInferenceProfilePrefix(credentials.region);
+				const [response, profileMap] = await Promise.all([
+					listClient.send(command),
+					listInferenceProfileIds(listClient, regionPrefix, logger),
+				]);
 
-				logger.debug(`[Bedrock] Cache check: status=${cacheStatus}, age=${cacheAge}s, TTL=${TTL}s`);
+				// Debug logging
+				logger.debug(
+					`[Bedrock] API returned ${response.modelSummaries?.length || 0} Anthropic models`,
+				);
 
-				if (cachedModels !== null && now - lastFetch < TTL) {
-					logger.debug(`[Bedrock] Using cached models (age: ${cacheAge}s, TTL: ${TTL}s)`);
-					return cachedModels;
+				if (profileMap === null && regionPrefix === null) {
+					logger.info(
+						`[Bedrock] Inference profile discovery is unavailable and region ${credentials.region} has no known legacy profile prefix; bedrock:ListInferenceProfiles is required to list models in this region.`,
+					);
 				}
 
-				// For chain-based credentials (SSO, env, shared config), pre-resolve
-				// to detect expired/missing credentials before making the API call.
-				// This avoids unnecessary network requests and intrusive SSO login
-				// prompts on every startup.
-				const listClient = await createBedrockListClient(credentials, callbacks, logger);
-				if (!listClient) {
+				// Parse response - resolve invokable inference profile IDs.
+				// A successful discovery is authoritative for the region: models
+				// absent from the map are skipped rather than prefix-guessed (a
+				// fabricated ID would fail at invoke time). Prefix construction is
+				// only the fallback for when discovery is unavailable.
+				const freshModels: ModelInfo[] =
+					response.modelSummaries?.flatMap((model) => {
+						const modelId = model.modelId;
+						if (!modelId || modelId.startsWith("openai.")) {
+							return [];
+						}
+						const inferenceProfileId =
+							profileMap !== null
+								? profileMap.get(modelId)
+								: regionPrefix !== null
+									? `${regionPrefix}.${modelId}`
+									: undefined;
+						if (!inferenceProfileId) {
+							logger.debug(
+								`[Bedrock] Skipping ${modelId}: no inference profile available in ${credentials.region}`,
+							);
+							return [];
+						}
+						// Extract vendor from model ID (e.g., "anthropic.claude-..." → "anthropic")
+						const vendor = modelId.split(".")[0] || "aws";
+
+						// Determine capabilities based on model metadata
+						const supportsTools = Boolean(
+							model.responseStreamingSupported && (vendor === "anthropic" || vendor === "amazon"),
+						);
+						const supportsImages = vendor === "anthropic" || vendor === "amazon";
+
+						// Infer capabilities for Anthropic models
+						const capabilities = getAnthropicModelCapabilities(modelId);
+
+						return [
+							{
+								id: inferenceProfileId,
+								name: model.modelName || modelId,
+								providerId,
+								vendor,
+								family: undefined,
+								maxInputTokens: undefined,
+								maxOutputTokens: undefined,
+								supportsTools,
+								supportsImages,
+								supportsToolResultImages: supportsImages,
+								supportedInputMediaTypes: supportsImages
+									? ["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"]
+									: undefined,
+								maxContextLength: 200000,
+								// Spread Anthropic capabilities (token limits, family, thinking effort)
+								...capabilities,
+								supportsWebSearch: false,
+							},
+						];
+					}) || [];
+
+				// Update cache
+				lastFetch = Date.now();
+				cachedModels = freshModels;
+				logger.info(`[Bedrock] Fetched ${freshModels.length} models from API`);
+
+				// Clear any previous auth errors since fetch succeeded
+				await callbacks?.onProviderStatusChange?.({
+					providerId,
+					authMethodId: BEDROCK_AUTH_METHOD_ID,
+					status: "ok",
+				});
+
+				return freshModels;
+			} catch (error) {
+				// Credential resolution errors for chain-based auth are handled above.
+				// Errors reaching here are from the ListFoundationModels API call itself
+				// (e.g. IAM permission denied, expired temporary credentials, network issues).
+				if (isAuthError(error)) {
+					const errorMsg = error instanceof Error ? error.message : String(error);
+					logger.error(`[Bedrock] AWS Bedrock API rejected credentials. Error: ${errorMsg}`);
+
+					await notifyBedrockAuthError(
+						callbacks,
+						"auth_error",
+						"AWS Bedrock credentials were rejected by the API. Check your IAM permissions, then click Refresh Models.",
+					);
+
 					cachedModels = null;
 					lastFetch = 0;
 					return [];
 				}
 
-				try {
-					logger.debug("[Bedrock] Fetching models from ListFoundationModels API");
+				// For non-auth errors (network, service issues), use fallback gracefully
+				const errorMsg = error instanceof Error ? error.message : String(error);
+				logger.warn(`[Bedrock] API fetch failed: ${errorMsg}, using fallback`);
 
-					// List foundation models with cross-region inference profiles. This will find newer
-					// Anthropic models, along with models from other vendors.
-					//
-					// Note: INFERENCE_PROFILE parameter is not yet in @aws-sdk/client-bedrock TypeScript
-					// types but is a valid and documented AWS Bedrock feature.
-					// @ts-expect-error INFERENCE_PROFILE is valid but not in SDK types yet
-					const command = new ListFoundationModelsCommand({
-						// byProvider: "Anthropic", // Only Anthropic Claude models
-						byInferenceType: "INFERENCE_PROFILE",
-						byOutputModality: "TEXT", // Only text output models
-					});
+				await callbacks?.onProviderStatusChange?.({
+					providerId: BEDROCK_PROVIDER_ID,
+					authMethodId: BEDROCK_AUTH_METHOD_ID,
+					status: "network_error",
+					error: {
+						code: "network_error",
+						message: errorMsg,
+					},
+				});
 
-					// Run the foundation-model list and inference-profile discovery in
-					// parallel — discovery is a second listing off the same client, not a
-					// serialized round trip.
-					const regionPrefix = getInferenceProfilePrefix(credentials.region);
-					const [response, profileMap] = await Promise.all([
-						listClient.send(command),
-						listInferenceProfileIds(listClient, regionPrefix, logger),
-					]);
-
-					// Debug logging
-					logger.debug(
-						`[Bedrock] API returned ${response.modelSummaries?.length || 0} Anthropic models`,
-					);
-
-					if (profileMap === null && regionPrefix === null) {
-						logger.info(
-							`[Bedrock] Inference profile discovery is unavailable and region ${credentials.region} has no known legacy profile prefix; bedrock:ListInferenceProfiles is required to list models in this region.`,
-						);
-					}
-
-					// Parse response - resolve invokable inference profile IDs.
-					// A successful discovery is authoritative for the region: models
-					// absent from the map are skipped rather than prefix-guessed (a
-					// fabricated ID would fail at invoke time). Prefix construction is
-					// only the fallback for when discovery is unavailable.
-					const freshModels: ModelInfo[] =
-						response.modelSummaries?.flatMap((model) => {
-							const modelId = model.modelId;
-							if (!modelId || modelId.startsWith("openai.")) {
-								return [];
-							}
-							const inferenceProfileId =
-								profileMap !== null
-									? profileMap.get(modelId)
-									: regionPrefix !== null
-										? `${regionPrefix}.${modelId}`
-										: undefined;
-							if (!inferenceProfileId) {
-								logger.debug(
-									`[Bedrock] Skipping ${modelId}: no inference profile available in ${credentials.region}`,
-								);
-								return [];
-							}
-							// Extract vendor from model ID (e.g., "anthropic.claude-..." → "anthropic")
-							const vendor = modelId.split(".")[0] || "aws";
-
-							// Determine capabilities based on model metadata
-							const supportsTools = Boolean(
-								model.responseStreamingSupported && (vendor === "anthropic" || vendor === "amazon"),
-							);
-							const supportsImages = vendor === "anthropic" || vendor === "amazon";
-
-							// Infer capabilities for Anthropic models
-							const capabilities = getAnthropicModelCapabilities(modelId);
-
-							return [
-								{
-									id: inferenceProfileId,
-									name: model.modelName || modelId,
-									providerId: BEDROCK_PROVIDER_ID,
-									vendor,
-									family: undefined,
-									maxInputTokens: undefined,
-									maxOutputTokens: undefined,
-									supportsTools,
-									supportsImages,
-									supportsToolResultImages: supportsImages,
-									supportedInputMediaTypes: supportsImages
-										? ["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"]
-										: undefined,
-									maxContextLength: 200000,
-									// Spread Anthropic capabilities (token limits, family, thinking effort)
-									...capabilities,
-									supportsWebSearch: false,
-								},
-							];
-						}) || [];
-
-					// Update cache
-					lastFetch = Date.now();
-					cachedModels = freshModels;
-					logger.info(`[Bedrock] Fetched ${freshModels.length} models from API`);
-
-					// Clear any previous auth errors since fetch succeeded
-					await callbacks?.onProviderStatusChange?.({
-						providerId: BEDROCK_PROVIDER_ID,
-						authMethodId: BEDROCK_AUTH_METHOD_ID,
-						status: "ok",
-					});
-
-					return freshModels;
-				} catch (error) {
-					// Credential resolution errors for chain-based auth are handled above.
-					// Errors reaching here are from the ListFoundationModels API call itself
-					// (e.g. IAM permission denied, expired temporary credentials, network issues).
-					if (isAuthError(error)) {
-						const errorMsg = error instanceof Error ? error.message : String(error);
-						logger.error(`[Bedrock] AWS Bedrock API rejected credentials. Error: ${errorMsg}`);
-
-						await notifyBedrockAuthError(
-							callbacks,
-							"auth_error",
-							"AWS Bedrock credentials were rejected by the API. Check your IAM permissions, then click Refresh Models.",
-						);
-
-						cachedModels = null;
-						lastFetch = 0;
-						return [];
-					}
-
-					// For non-auth errors (network, service issues), use fallback gracefully
-					const errorMsg = error instanceof Error ? error.message : String(error);
-					logger.warn(`[Bedrock] API fetch failed: ${errorMsg}, using fallback`);
-
-					await callbacks?.onProviderStatusChange?.({
-						providerId: BEDROCK_PROVIDER_ID,
-						authMethodId: BEDROCK_AUTH_METHOD_ID,
-						status: "network_error",
-						error: {
-							code: "network_error",
-							message: errorMsg,
-						},
-					});
-
-					if (cachedModels) {
-						logger.debug("[Bedrock] Returning stale cached models");
-						return cachedModels;
-					}
-
-					return [];
-				}
-			};
-
-			const fetcher = async (credentials: ProviderCredentials): Promise<ModelInfo[]> => {
-				if (credentials.type !== BEDROCK_AUTH_METHOD_ID) {
-					logger.debug("[Bedrock] Wrong credential type, using fallback models");
-					return [];
-				}
-				if (!credentials.region) {
-					logger.debug("[Bedrock] No region configured, using fallback models");
-					return [];
+				if (cachedModels) {
+					logger.debug("[Bedrock] Returning stale cached models");
+					return cachedModels;
 				}
 
-				const now = Date.now();
-				// Each source owns its cache and error boundary. Start stale sources
-				// together so Mantle cannot add a serialized network round trip.
-				const [converseModels, mantleModels] = await Promise.all([
-					getConverseModels(credentials, now),
-					getMantleModels(credentials, now),
-				]);
-				return [...converseModels, ...mantleModels];
-			};
+				return [];
+			}
+		};
 
-			fetcher.clearCache = () => {
-				cachedModels = null;
-				lastFetch = 0;
-				cachedMantleModels = null;
-				mantleLastFetch = 0;
-			};
+		const fetcher = async (credentials: ProviderCredentials): Promise<ModelInfo[]> => {
+			if (credentials.type !== BEDROCK_AUTH_METHOD_ID) {
+				logger.debug("[Bedrock] Wrong credential type, using fallback models");
+				return [];
+			}
+			if (!credentials.region) {
+				logger.debug("[Bedrock] No region configured, using fallback models");
+				return [];
+			}
 
-			return fetcher;
-		})(),
-	);
+			const now = Date.now();
+			// Each source owns its cache and error boundary. Start stale sources
+			// together so Mantle cannot add a serialized network round trip.
+			const [converseModels, mantleModels] = await Promise.all([
+				getConverseModels(credentials, now),
+				getMantleModels(credentials, now),
+			]);
+			return [...converseModels, ...mantleModels];
+		};
 
-	// Register client factory
-	registry.registerClientFactory(BEDROCK_PROVIDER_ID, (credentials) => {
+		fetcher.clearCache = () => {
+			cachedModels = null;
+			lastFetch = 0;
+			cachedMantleModels = null;
+			mantleLastFetch = 0;
+		};
+
+		return fetcher;
+	})();
+}
+
+function createBedrockClientFactory(logger: Logger): ClientFactory {
+	return (credentials) => {
 		if (credentials.type !== BEDROCK_AUTH_METHOD_ID) {
 			throw new Error(`Bedrock provider requires AWS credentials, got: ${credentials.type}`);
 		}
@@ -478,5 +476,26 @@ export function registerBedrockProvider(
 			},
 			logger,
 		);
-	});
+	};
+}
+
+export function registerBedrockProvider(
+	registry: ProviderRegistry,
+	logger: Logger,
+	callbacks?: BedrockProviderCallbacks,
+): void {
+	registry.registerModelFetcher(
+		BEDROCK_PROVIDER_ID,
+		createBedrockModelFetcher(BEDROCK_PROVIDER_ID, logger, callbacks),
+	);
+	registry.registerClientFactory(BEDROCK_PROVIDER_ID, createBedrockClientFactory(logger));
+}
+
+export function registerCustomBedrockProvider(
+	registry: ProviderRegistry,
+	providerId: ResolvedProviderId,
+	logger: Logger,
+): void {
+	registry.registerModelFetcher(providerId, createBedrockModelFetcher(providerId, logger));
+	registry.registerClientFactory(BEDROCK_PROVIDER_ID, createBedrockClientFactory(logger));
 }

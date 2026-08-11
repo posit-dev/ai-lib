@@ -165,8 +165,9 @@ resolve without any host-application import:
   `{ authMethodId, apiKeyOptional }`. The map is keyed by plain strings (not
   `ai-config`'s `ClientKind` type) to preserve the no-import-edge boundary; a
   compile-time shape guard in `typechecks/` asserts
-  `SUPPORTED_CUSTOM_CLIENT_KIND_VALUES ⊆ CLIENT_KIND_VALUES` (a strict subset —
-  product kinds like `positai`/`anthropic` are excluded by design).
+  `SUPPORTED_CUSTOM_CLIENT_KIND_VALUES ⊆ CLIENT_KIND_VALUES`. Custom
+  `anthropic`, `openai`, and `gemini` map to required `apikey` auth;
+  product-bound `positai`, `copilot`, and `databricks` remain excluded.
 
 ## On-disk format — `StoredProviderCredentials`
 
@@ -178,9 +179,20 @@ two evolve independently, and the backend converts between them.
 
 **v1 compatibility:** no stored version field. The schema parses **tolerantly**
 (all fields optional), so existing records parse unchanged and `data.json`
-stays **byte-compatible** — no new keys, no envelope, no migration.
+needs no envelope or migration. Optional credential groups may be added
+without rewriting legacy records.
 Structurally invalid records (e.g. an `apiKeyAuth` missing its required
 `apiKey`) are dropped rather than flowing out as credentials.
+
+Custom AWS providers persist manual secrets in `awsKeys`
+(`accessKeyId`, `secretAccessKey`, optional `sessionToken`) without duplicating
+catalog-owned region/profile. `createStoreBackend` receives the host callback
+`awsConnectionForProvider(providerId)` and combines those two sources only when
+a region is available, preserving the backend's complete-runtime-credentials
+contract. Existing complete `awsAuth` records remain unchanged and win if a
+hand-edited record contains both groups. AWS mutations keep the groups mutually
+exclusive; clearing a keys-only record deletes it so host catalog synthesis can
+resume. The built-in Bedrock `update-aws` path remains the complete-record path.
 
 - The generic `SingleFileStore` is **untouched** — a reserved top-level key
   would leak into every `keys()` enumeration, so no version marker is stored

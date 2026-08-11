@@ -47,6 +47,11 @@ and silently erase stored keys. `preserve` fails closed when the current record
 does not contain a complete access-key/secret-key pair; callers must explicitly
 choose `clear` to switch to the AWS credential chain.
 
+Custom AWS entries use the sibling `update-aws-keys` mutation. It persists only
+the manual keypair/session token; the store backend combines it with
+host-injected catalog region/profile at read time. Clearing this keys-only form
+deletes the record so catalog credential-chain synthesis is not shadowed.
+
 ### `/types` — Browser-safe credential types and shaping
 
 The types entrypoint is the canonical home for credential type definitions and

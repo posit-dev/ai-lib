@@ -56,6 +56,18 @@ export const PORTKEY_API_VERSION = "v1";
  */
 export const PORTKEY_HOSTED_BASE_URL = `${PORTKEY_HOST}/${PORTKEY_API_VERSION}`;
 
+/** Canonical OpenRouter API root used by both model discovery and chat. */
+export const OPENROUTER_DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
+
+/**
+ * Normalize an OpenRouter host or API-root URL to the SDK's `/api/v1` base.
+ * Other paths are preserved after ordinary whitespace/trailing-slash cleanup.
+ */
+export function normalizeOpenRouterBaseUrl(url?: string): string {
+	const candidate = (url?.trim() || OPENROUTER_DEFAULT_BASE_URL).replace(/\/+$/, "");
+	return candidate.endsWith("/api/v1") ? candidate : `${candidate}/api/v1`;
+}
+
 /**
  * LM Studio default local server host. Configured endpoints include the `/v1`
  * segment (OpenAI-compatible convention); the bare default host is corrected

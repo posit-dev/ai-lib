@@ -36,10 +36,12 @@ export function openRouterReasoningSettings(
 
 export class OpenRouterClient implements ModelClient {
 	private readonly apiKey: string;
+	private readonly baseURL: string;
 	private readonly customHeaders?: Record<string, string>;
 
-	constructor(apiKey: string, customHeaders?: Record<string, string>) {
+	constructor(apiKey: string, baseURL: string, customHeaders?: Record<string, string>) {
 		this.apiKey = apiKey;
+		this.baseURL = baseURL;
 		this.customHeaders = customHeaders;
 	}
 
@@ -47,6 +49,7 @@ export class OpenRouterClient implements ModelClient {
 		const headers = safeSdkCustomHeaders(this.customHeaders);
 		const provider = createOpenRouter({
 			apiKey: this.apiKey,
+			baseURL: this.baseURL,
 			appName: "Posit Assistant",
 			appUrl: "https://posit.co",
 			...(headers && { headers }),

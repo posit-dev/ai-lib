@@ -37,9 +37,9 @@ export interface CustomAuthMapping {
  * Client kinds supported as custom provider `type` values.
  *
  * Only these client kinds are valid for `providers.custom` entries. Product-
- * specific kinds (positai, anthropic, openai, gemini, copilot) assume built-in
- * registration and specific auth flows; custom providers wanting to proxy
- * those APIs should use `openai-compatible`.
+ * Product-bound kinds (positai, copilot, databricks) remain excluded because
+ * their authentication cannot be represented by the generic custom-provider
+ * flow.
  *
  * Declared as a const tuple so a compile-time shape guard in
  * `ai-lib/typechecks/` can assert the values are a subset of ai-config's
@@ -47,6 +47,9 @@ export interface CustomAuthMapping {
  */
 export const SUPPORTED_CUSTOM_CLIENT_KIND_VALUES = [
 	"openai-compatible",
+	"anthropic",
+	"openai",
+	"gemini",
 	"aws",
 	"snowflake",
 	"google-vertex",
@@ -71,6 +74,9 @@ type SupportedCustomClientKind = (typeof SUPPORTED_CUSTOM_CLIENT_KIND_VALUES)[nu
  */
 const CUSTOM_CLIENT_KIND_AUTH_DESCRIPTORS = {
 	"openai-compatible": { authMethodId: "apikey", apiKeyOptional: true },
+	anthropic: { authMethodId: "apikey", apiKeyOptional: false },
+	openai: { authMethodId: "apikey", apiKeyOptional: false },
+	gemini: { authMethodId: "apikey", apiKeyOptional: false },
 	aws: { authMethodId: "aws-credentials", apiKeyOptional: false },
 	snowflake: { authMethodId: "apikey", apiKeyOptional: false },
 	"google-vertex": { authMethodId: "google-cloud", apiKeyOptional: false },

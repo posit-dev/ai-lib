@@ -109,13 +109,15 @@ export type ClientKind = (typeof CLIENT_KIND_VALUES)[number];
  * a compile-time shape guard in `ai-lib/typechecks/` asserts the two lists are
  * **equal**.
  *
- * This is a strict subset of {@link CLIENT_KIND_VALUES}: product-specific kinds
- * (`positai`, `anthropic`, `openai`, `gemini`, `copilot`) assume built-in
- * registration and are excluded — a custom provider proxying those APIs uses
- * `openai-compatible`.
+ * This is a strict subset of {@link CLIENT_KIND_VALUES}. Product-bound kinds
+ * (`positai`, `copilot`, `databricks`) remain excluded because their auth flows
+ * are not generic custom-provider flows.
  */
 export const SUPPORTED_CUSTOM_CLIENT_KIND_VALUES = [
 	"openai-compatible",
+	"anthropic",
+	"openai",
+	"gemini",
 	"aws",
 	"snowflake",
 	"google-vertex",

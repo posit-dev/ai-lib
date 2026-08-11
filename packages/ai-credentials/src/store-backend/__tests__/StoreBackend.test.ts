@@ -503,8 +503,13 @@ describe("createStoreBackend", () => {
 		// descriptors come from the resolved catalog at runtime, not a fixed map.
 		// The backend must resolve them exactly like built-ins.
 		const CUSTOM_ID = "my-gateway";
+		const CUSTOM_AWS_ID = "my-bedrock";
 		const resolveCustom = (id: string): AuthMethodDescriptor | undefined =>
-			id === CUSTOM_ID ? { authMethodId: "apikey", apiKeyOptional: true } : undefined;
+			id === CUSTOM_ID
+				? { authMethodId: "apikey", apiKeyOptional: true }
+				: id === CUSTOM_AWS_ID
+					? { authMethodId: "aws-credentials" }
+					: undefined;
 
 		it("resolves stored api-key credentials for a custom provider id", async () => {
 			await store.set<StoredProviderCredentials>(storageKeyFor(CUSTOM_ID, "apikey"), {
@@ -536,6 +541,89 @@ describe("createStoreBackend", () => {
 		it("returns null for a custom id with no catalog descriptor", async () => {
 			const backend = createStoreBackend({ store, resolveAuthMethod: resolveCustom, env: {} });
 			expect(await backend.getCredentials("unregistered-custom")).toBeNull();
+		});
+
+		it("combines stored custom AWS keys with catalog-owned connection fields", async () => {
+			await store.set<StoredProviderCredentials>(storageKeyFor(CUSTOM_AWS_ID, "aws-credentials"), {
+				awsKeys: {
+					accessKeyId: "AKIA_CUSTOM",
+					secretAccessKey: "secret",
+					sessionToken: "session",
+				},
+			});
+			const backend = createStoreBackend({
+				store,
+				resolveAuthMethod: resolveCustom,
+				awsConnectionForProvider: (id) =>
+					id === CUSTOM_AWS_ID ? { region: "eu-west-1", profile: "catalog-profile" } : undefined,
+				env: {},
+			});
+
+			expect(await backend.getCredentials(CUSTOM_AWS_ID)).toEqual({
+				type: "aws-credentials",
+				region: "eu-west-1",
+				profile: "catalog-profile",
+				accessKeyId: "AKIA_CUSTOM",
+				secretAccessKey: "secret",
+				sessionToken: "session",
+			});
+		});
+
+		it("leaves custom AWS keys unready when the catalog has no region", async () => {
+			await store.set<StoredProviderCredentials>(storageKeyFor(CUSTOM_AWS_ID, "aws-credentials"), {
+				awsKeys: { accessKeyId: "AKIA_CUSTOM", secretAccessKey: "secret" },
+			});
+			const backend = createStoreBackend({
+				store,
+				resolveAuthMethod: resolveCustom,
+				awsConnectionForProvider: () => ({ profile: "missing-region" }),
+				env: {},
+			});
+
+			expect(await backend.getCredentials(CUSTOM_AWS_ID)).toBeNull();
+			expect(await backend.getCredentialStatus(CUSTOM_AWS_ID)).toMatchObject({
+				configured: false,
+				authenticated: false,
+				readiness: "unauthenticated",
+			});
+		});
+
+		it("prefers a legacy complete awsAuth record when both AWS groups are present", async () => {
+			await store.set<StoredProviderCredentials>(storageKeyFor(CUSTOM_AWS_ID, "aws-credentials"), {
+				awsAuth: { region: "us-west-2", accessKeyId: "LEGACY", secretAccessKey: "legacy" },
+				awsKeys: { accessKeyId: "CUSTOM", secretAccessKey: "custom" },
+			});
+			const backend = createStoreBackend({
+				store,
+				resolveAuthMethod: resolveCustom,
+				awsConnectionForProvider: () => ({ region: "eu-west-1" }),
+				env: {},
+			});
+
+			expect(await backend.getCredentials(CUSTOM_AWS_ID)).toMatchObject({
+				region: "us-west-2",
+				accessKeyId: "LEGACY",
+			});
+		});
+
+		it("writes mutually-exclusive AWS groups and deletes keys-only records on clear", async () => {
+			const key = storageKeyFor(CUSTOM_AWS_ID, "aws-credentials");
+			const backend = createStoreBackend({
+				store,
+				resolveAuthMethod: resolveCustom,
+				awsConnectionForProvider: () => ({ region: "eu-west-1" }),
+				env: {},
+			});
+			await backend.mutateCredentials(CUSTOM_AWS_ID, {
+				kind: "update-aws-keys",
+				keys: { kind: "replace", accessKeyId: "CUSTOM", secretAccessKey: "custom" },
+			});
+			expect(await store.get<StoredProviderCredentials>(key)).toMatchObject({
+				awsKeys: { accessKeyId: "CUSTOM", secretAccessKey: "custom" },
+			});
+
+			await backend.mutateCredentials(CUSTOM_AWS_ID, { kind: "clear" });
+			expect(await store.get(key)).toBeUndefined();
 		});
 	});
 });

@@ -28,8 +28,10 @@ vi.mock("@aws-sdk/client-bedrock", () => ({
 	}),
 }));
 
+import { mintCustomProviderId } from "ai-config";
+
 import type { Logger } from "../../types";
-import { registerBedrockProvider } from "../bedrock-provider";
+import { registerBedrockProvider, registerCustomBedrockProvider } from "../bedrock-provider";
 import { ProviderRegistry } from "../ProviderRegistry";
 
 function logger(): Logger {
@@ -95,6 +97,18 @@ beforeEach(() => {
 });
 
 describe("Bedrock provider Mantle aggregation", () => {
+	it("registers custom AWS discovery under the custom ID and routes chat via bedrock", async () => {
+		const registry = new ProviderRegistry(logger());
+		const providerId = mintCustomProviderId("custom-bedrock");
+		registerCustomBedrockProvider(registry, providerId, logger());
+		const credentials = credentialsFor("us-east-2");
+
+		const models = await registry.getModelsForProvider(providerId, credentials);
+		expect(models).not.toHaveLength(0);
+		expect(models.every((model) => model.providerId === providerId)).toBe(true);
+		expect(registry.getClientForProviderOrKind(providerId, credentials, "aws")).not.toBeNull();
+	});
+
 	it("maps supported Mantle families, filters duplicates, and caches sources independently", async () => {
 		const registry = new ProviderRegistry(logger());
 		registerBedrockProvider(registry, logger());

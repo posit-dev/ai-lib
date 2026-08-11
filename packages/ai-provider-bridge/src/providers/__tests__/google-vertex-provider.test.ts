@@ -2,10 +2,14 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
+import { mintCustomProviderId } from "ai-config";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Logger } from "../../types";
-import { registerGoogleVertexProvider } from "../google-vertex-provider";
+import {
+	registerCustomGoogleVertexProvider,
+	registerGoogleVertexProvider,
+} from "../google-vertex-provider";
 import { ProviderRegistry } from "../ProviderRegistry";
 
 const mockLogger: Logger = {
@@ -64,5 +68,39 @@ describe("registerGoogleVertexProvider", () => {
 		expect(mockLogger.error).toHaveBeenCalledWith(
 			expect.stringContaining("Reconnect Google Cloud auth in Positron"),
 		);
+	});
+
+	it("discovers models under a custom Vertex provider ID", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: string | URL | Request) => {
+				const url = String(input);
+				const publisherModels = url.includes("/google/")
+					? [{ name: "publishers/google/models/gemini-2.5-pro", displayName: "Gemini 2.5 Pro" }]
+					: [
+							{
+								name: "publishers/anthropic/models/claude-sonnet-4-6",
+								displayName: "Claude Sonnet 4.6",
+							},
+						];
+				return new Response(JSON.stringify({ publisherModels }), {
+					status: 200,
+					headers: { "content-type": "application/json" },
+				});
+			}),
+		);
+		const registry = new ProviderRegistry(mockLogger);
+		const providerId = mintCustomProviderId("custom-vertex");
+		registerCustomGoogleVertexProvider(registry, providerId, mockLogger);
+
+		const models = await registry.getModelsForProvider(providerId, {
+			type: "google-cloud",
+			project: "my-project",
+			location: "us-central1",
+			accessToken: "brokered-token",
+		});
+
+		expect(models).toHaveLength(2);
+		expect(models.every((model) => model.providerId === providerId)).toBe(true);
 	});
 });

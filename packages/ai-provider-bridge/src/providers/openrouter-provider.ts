@@ -2,13 +2,14 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { getAnthropicModelCapabilities } from "ai-config";
+import type { ResolvedProviderId } from "ai-config";
+import { getAnthropicModelCapabilities, normalizeOpenRouterBaseUrl } from "ai-config";
 
 import { OpenRouterClient } from "../model-clients/OpenRouterClient";
 import type { Logger, ModelInfo } from "../types";
 import type { ApiKeyCredentials } from "../types";
 import { createCachedModelFetcher } from "./cached-model-fetcher";
-import type { ProviderRegistry } from "./ProviderRegistry";
+import type { ClientFactory, ProviderRegistry } from "./ProviderRegistry";
 
 // OpenRouter API response types
 interface OpenRouterModel {
@@ -54,7 +55,10 @@ const supportsVision = (model: OpenRouterModel): boolean => {
 const OPENROUTER_FALLBACK: ModelInfo[] = [];
 
 /** Exported for testing. */
-export function parseOpenRouterModels(data: unknown): ModelInfo[] {
+function parseOpenRouterModelsForProvider(
+	providerId: ResolvedProviderId,
+	data: unknown,
+): ModelInfo[] {
 	const typedData = data as OpenRouterModelsResponse;
 
 	// Filter to models that support text generation (exclude embedding-only models)
@@ -79,7 +83,7 @@ export function parseOpenRouterModels(data: unknown): ModelInfo[] {
 		return {
 			id: model.id,
 			name: model.name,
-			providerId: "openrouter",
+			providerId,
 			vendor,
 			family: anthropicCaps?.family,
 			supportsTools: params.includes("tools"),
@@ -97,29 +101,46 @@ export function parseOpenRouterModels(data: unknown): ModelInfo[] {
 	});
 }
 
-export function registerOpenRouterProvider(registry: ProviderRegistry, logger: Logger): void {
-	// Register model fetcher using cached utility
-	registry.registerModelFetcher(
-		"openrouter",
-		createCachedModelFetcher<ApiKeyCredentials>({
-			providerId: "openrouter",
-			apiUrl: "https://openrouter.ai/api/v1/models",
-			hasCredentials: (credentials) => Boolean(credentials.apiKey),
-			createHeaders: (credentials) => ({
-				Authorization: `Bearer ${credentials.apiKey}`,
-			}),
-			parseResponse: parseOpenRouterModels,
-			fallbackModels: OPENROUTER_FALLBACK,
-			logger,
-			ttl: 30 * 60 * 1000, // 30 minutes - OpenRouter model list changes occasionally
-		}),
-	);
+export function parseOpenRouterModels(data: unknown): ModelInfo[] {
+	return parseOpenRouterModelsForProvider("openrouter", data);
+}
 
-	// Register client factory
-	registry.registerClientFactory("openrouter", (credentials) => {
-		if (credentials.type !== "apikey") {
-			throw new Error(`OpenRouter provider requires API key credentials, got: ${credentials.type}`);
-		}
-		return new OpenRouterClient(credentials.apiKey, credentials.customHeaders);
+function createOpenRouterModelFetcher(providerId: ResolvedProviderId, logger: Logger) {
+	return createCachedModelFetcher<ApiKeyCredentials>({
+		providerId,
+		resolveUrl: (credentials) => `${normalizeOpenRouterBaseUrl(credentials.baseUrl)}/models`,
+		hasCredentials: (credentials) => Boolean(credentials.apiKey),
+		createHeaders: (credentials) => ({
+			Authorization: `Bearer ${credentials.apiKey}`,
+		}),
+		parseResponse: (data) => parseOpenRouterModelsForProvider(providerId, data),
+		fallbackModels: OPENROUTER_FALLBACK,
+		logger,
+		ttl: 30 * 60 * 1000, // 30 minutes - OpenRouter model list changes occasionally
 	});
+}
+
+const openRouterClientFactory: ClientFactory = (credentials) => {
+	if (credentials.type !== "apikey") {
+		throw new Error(`OpenRouter provider requires API key credentials, got: ${credentials.type}`);
+	}
+	return new OpenRouterClient(
+		credentials.apiKey,
+		normalizeOpenRouterBaseUrl(credentials.baseUrl),
+		credentials.customHeaders,
+	);
+};
+
+export function registerOpenRouterProvider(registry: ProviderRegistry, logger: Logger): void {
+	registry.registerModelFetcher("openrouter", createOpenRouterModelFetcher("openrouter", logger));
+	registry.registerClientFactory("openrouter", openRouterClientFactory);
+}
+
+export function registerCustomOpenRouterProvider(
+	registry: ProviderRegistry,
+	providerId: ResolvedProviderId,
+	logger: Logger,
+): void {
+	registry.registerModelFetcher(providerId, createOpenRouterModelFetcher(providerId, logger));
+	registry.registerClientFactory("openrouter", openRouterClientFactory);
 }
