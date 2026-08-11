@@ -20,7 +20,8 @@ import { isDeepStrictEqual } from "util";
 
 import lockfile from "proper-lockfile";
 
-import { editJsonc, normalizeJsonValue, PROVIDERS_CONFIG_VERSION } from "../index.js";
+import { editJsonc, normalizeJsonValue } from "../edit-jsonc.js";
+import { PROVIDERS_CONFIG_VERSION } from "../index.js";
 import { providersConfigSchema } from "../schema.js";
 import type { ProvidersConfig } from "../types.js";
 import { parseProvidersConfig } from "./parse-providers-config.js";

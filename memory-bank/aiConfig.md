@@ -24,14 +24,15 @@ enablement in Posit Assistant lives in the main monorepo's
 
 ## Entrypoints
 
-The package has two code entrypoints, splitting pure (browser/test-safe) logic
-from filesystem I/O:
+The package has three code entrypoints, splitting pure (browser/test-safe) logic,
+JSONC transformation, and filesystem I/O:
 
-| Entrypoint                        | What it exports                                                                                                                                                                                                                                                          | External deps?          |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------- |
-| `ai-config`                       | Vocabulary, schemas/types/defaults, `salvageProvidersConfig`, structured config issues, pure JSONC editing, the pure report resolver (`resolveProviderCatalogReport` plus compatibility wrapper), resolution helpers, legacy translation, and model capability inference | `jsonc-parser` only     |
-| `ai-config/node`                  | Re-exports the pure entry plus `loadProviderCatalogReport` / `loadResolvedProviderCatalog`, strict mutation, issue-aware watching, and path constants                                                                                                                    | Node FS, `jsonc-parser` |
-| `ai-config/providers.schema.json` | The generated JSON Schema, exported so editors can validate/autocomplete `providers.json`                                                                                                                                                                                | No                      |
+| Entrypoint                        | What it exports                                                                                                                                                                                                                                      | External deps?         |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| `ai-config`                       | Vocabulary, schemas/types/defaults, `salvageProvidersConfig`, structured config issues, the pure report resolver (`resolveProviderCatalogReport` plus compatibility wrapper), resolution helpers, legacy translation, and model capability inference | `zod`                  |
+| `ai-config/jsonc`                 | Pure validation-free JSONC diff-to-edits transformation and JSON serialization normalization                                                                                                                                                         | `jsonc-parser`         |
+| `ai-config/node`                  | Re-exports the pure entry plus `loadProviderCatalogReport` / `loadResolvedProviderCatalog`, strict mutation, issue-aware watching, and path constants                                                                                                | Node FS + package deps |
+| `ai-config/providers.schema.json` | The generated JSON Schema, exported so editors can validate/autocomplete `providers.json`                                                                                                                                                            | No                     |
 
 Legacy Positron settings reach the loader through two independent options —
 `legacyPositronSettings` (a two-method injected reader for the user-set
@@ -50,12 +51,16 @@ the map/translator live inside ai-config (see [Legacy Positron settings](#legacy
 - **Structured diagnostics** (`src/config-issue.ts`): `ConfigIssue` is source-agnostic; `SourcedConfigIssue` adds a required normalized `{ kind, label }` identity. Its source kind reuses `ProviderConfigSourceKind` and widens only for the resolver-private `"env"` source.
 - **Tolerant validation** (`src/salvage-config.ts`): `salvageProvidersConfig()` takes the healthy full-schema fast path, otherwise drops malformed values at whole root/provider/custom-entry granularity and seals the reconstruction with `providersConfigSchema` before returning.
 - **Constant**: `PROVIDERS_CONFIG_VERSION = 1` — the on-disk format version.
+
+### JSONC entry (`ai-config/jsonc`)
+
 - **JSONC transformer** (`src/edit-jsonc.ts`): `editJsonc(originalText, intendedValue)` is a pure,
   validation-policy-free diff-to-edits seam shared by provider and application settings writers.
   It normalizes the intended value through a JSON serialization round trip, rejects touched
   duplicate-key paths, applies maximal changed subtrees sequentially, and preserves unrelated
   comments and formatting. `normalizeJsonValue()` exposes the exact normalization step to callers
-  that must verify a domain-validated persisted shape.
+  that must verify a domain-validated persisted shape. Keeping this dependency behind a focused
+  subpath prevents unrelated `ai-config` consumers from bundling `jsonc-parser`.
 
 ### Node entry (`ai-config/node`)
 
@@ -315,8 +320,8 @@ validation rather than mutating an intermediate object's prototype. `parse-provi
 exposes named internal siblings: strict `parseProvidersConfig` for mutation and tolerant
 `parseProvidersConfigTolerant` for reads; both share `parseJsonc`, with no mode flag.
 Both helpers are internal to `src/node/` and are not exported from either entrypoint. The
-pure `ai-config` entry separately exports `editJsonc`, whose implementation also imports
-`jsonc-parser` while remaining browser-safe and free of filesystem imports.
+browser-safe `ai-config/jsonc` entry separately exports `editJsonc` and `normalizeJsonValue`
+without adding filesystem imports or a JSONC runtime dependency to the main pure entry.
 Machine-supplied environment fragments continue to use strict `JSON.parse`.
 
 ## Model Capability Inference (`src/model-capabilities/`)

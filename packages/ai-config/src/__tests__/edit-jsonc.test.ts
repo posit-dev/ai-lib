@@ -48,6 +48,55 @@ describe("editJsonc", () => {
 		expect(edited).toContain("// explain keep");
 	});
 
+	it("preserves an object header comment when deleting the first property", () => {
+		const original = `{
+  // provider settings
+  "remove": true,
+  "keep": true
+}`;
+
+		const edited = editJsonc(original, { keep: true });
+
+		expect(parse(edited)).toEqual({ keep: true });
+		expect(edited).toContain("// provider settings");
+		expect(edited.indexOf("// provider settings")).toBeLessThan(edited.indexOf('"keep"'));
+	});
+
+	it("keeps a trailing sibling comment before an appended property", () => {
+		const original = '{\r\n   "existing": true // explains existing\r\n}\r\n';
+
+		const edited = editJsonc(original, { existing: true, added: { nested: 1 } });
+
+		expect(parse(edited)).toEqual({ existing: true, added: { nested: 1 } });
+		expect(edited.indexOf("// explains existing")).toBeLessThan(edited.indexOf('"added"'));
+		expect(edited).toContain('"existing": true, // explains existing');
+		expect(edited).toContain('\r\n   "added": {\r\n      "nested": 1\r\n   }');
+		expect(edited.replaceAll("\r\n", "")).not.toContain("\n");
+	});
+
+	it("preserves a trailing comma while keeping its comment before an appended property", () => {
+		const original = `{
+  "existing": true, // explains existing
+}`;
+
+		const edited = editJsonc(original, { existing: true, added: 1 });
+
+		expect(parse(edited)).toEqual({ existing: true, added: 1 });
+		expect(edited).toContain('"existing": true, // explains existing');
+		expect(edited).toContain('"added": 1,');
+	});
+
+	it("keeps an empty object's header comment before its first property", () => {
+		const original = `{
+  // settings added below
+}`;
+
+		const edited = editJsonc(original, { added: true });
+
+		expect(parse(edited)).toEqual({ added: true });
+		expect(edited.indexOf("// settings added below")).toBeLessThan(edited.indexOf('"added"'));
+	});
+
 	it("replaces arrays as one changed subtree", () => {
 		const original = `{
   "models": [

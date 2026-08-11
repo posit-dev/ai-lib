@@ -16,9 +16,6 @@
 /** On-disk config file version. */
 export const PROVIDERS_CONFIG_VERSION = 1;
 
-// --- JSONC editing ---------------------------------------------------------
-export { editJsonc, normalizeJsonValue } from "./edit-jsonc.js";
-
 // --- Vocabulary ------------------------------------------------------------
 export {
 	BUILTIN_PROVIDER_IDS,

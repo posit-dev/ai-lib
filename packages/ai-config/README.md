@@ -11,6 +11,7 @@ The package splits pure (browser/test-safe) logic from filesystem I/O:
 | Entrypoint                        | What it provides                                                                                                                                                                                                                                                                                                             | Node FS dep? |
 | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
 | `ai-config`                       | Vocabulary (`BUILTIN_PROVIDER_IDS`, `PROTOCOL_VALUES`, `CLIENT_KIND_VALUES`, …), Zod schemas, inferred types, defaults, the `resolveProviderCatalog({ sources })` seam, pure helpers, bare-host base URL correction, the legacy Positron settings map/translator, and the model capability tables + `inferModelCapabilities` | No           |
+| `ai-config/jsonc`                 | Pure comment-preserving JSONC editing and JSON serialization normalization                                                                                                                                                                                                                                                   | No           |
 | `ai-config/node`                  | The pure entry plus the three filesystem seams and path constants                                                                                                                                                                                                                                                            | Yes          |
 | `ai-config/providers.schema.json` | The generated JSON Schema, for editor validation/autocomplete of `providers.json`                                                                                                                                                                                                                                            | No           |
 
@@ -25,17 +26,19 @@ The three filesystem seams (`ai-config/node`):
 
 ## API Reference
 
-### Pure entry (`ai-config`)
+### JSONC entry (`ai-config/jsonc`)
 
 No filesystem access — safe in browsers, tests, and any JS runtime.
-
-#### JSONC editing
 
 `editJsonc(originalText, intendedValue)` is a validation-policy-free transformer that preserves
 comments and formatting outside changed paths. It normalizes the intended value through
 `JSON.stringify`/`JSON.parse`, applies maximal changed subtrees sequentially, and rejects writes
 that touch duplicate-key paths. `normalizeJsonValue(value)` exposes the same serialization
 normalization for domain-specific post-write verification.
+
+### Pure entry (`ai-config`)
+
+No filesystem access — safe in browsers, tests, and any JS runtime.
 
 #### Vocabulary
 

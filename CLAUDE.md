@@ -69,6 +69,7 @@ packages/ai-provider-bridge/src/
 | Entrypoint                        | What it provides                                                                                                                                                                                              | Node FS dep? |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
 | `ai-config`                       | Vocabulary, Zod schemas, inferred types, defaults, pure resolution helpers, bare-host base URL correction, the legacy Positron settings map/translator, model capability tables, and `inferModelCapabilities` | No           |
+| `ai-config/jsonc`                 | Pure comment-preserving JSONC editing and JSON serialization normalization                                                                                                                                    | No           |
 | `ai-config/node`                  | The pure entry plus filesystem seams: `loadResolvedProviderCatalog`, `mutateProvidersConfig`, `watchResolvedProviderCatalog`, path constants                                                                  | Yes          |
 | `ai-config/providers.schema.json` | Generated JSON Schema for editor validation/autocomplete of `providers.json`                                                                                                                                  | No           |
 
@@ -91,7 +92,7 @@ opted into (PROVIDER-SETTINGS-MIGRATION).
 
 - `ai-provider-bridge` root entrypoint must NOT import `vscode` -- only `/positron` may.
 - No package may depend on a consumer (host) package -- the dependency arrow is one-way inward.
-- `ai-config` splits pure logic (`ai-config`) from filesystem I/O (`ai-config/node`); the pure entry must stay free of Node FS APIs, and no entry may import `vscode`.
+- `ai-config` splits pure logic (`ai-config`), JSONC transformation (`ai-config/jsonc`), and filesystem I/O (`ai-config/node`); both browser-safe entries must stay free of Node FS APIs, and no entry may import `vscode`.
 - `ai-config` must never import `ai-provider-bridge` (or any sibling); the bridge imports `ai-config` freely (types, capability helpers). The vocabulary constants remain duplicated on each side — never imported across — so a bridge type change cannot silently alter the disk format; the shape guard in `typechecks/` keeps them in sync.
 - `ai-credentials`: `/types` stays browser-safe (no `vscode`/SDK/Node-builtins); `/store` imports no sibling; the root never imports `/store` (backends are injected); `/store-backend` never imports `@assistant/*`. `/store-backend` and `/positron` are the platform-bound (fs/vscode) entries.
 - `ai-credentials`'s `providerEnvMappings.ts` has a `-external` variant (empty map — positai has no secret env vars), redirected by the consuming app's build config.

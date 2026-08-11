@@ -33,4 +33,10 @@ describe("ai-config CJS consumability", () => {
 		const mod = cjsRequire("ai-config/node");
 		expect(typeof mod.loadResolvedProviderCatalog).toBe("function");
 	});
+
+	it("the JSONC entry is require()-able", () => {
+		const mod = cjsRequire("ai-config/jsonc");
+		expect(typeof mod.editJsonc).toBe("function");
+		expect(typeof mod.normalizeJsonValue).toBe("function");
+	});
 });
