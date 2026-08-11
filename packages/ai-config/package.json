@@ -14,6 +14,11 @@
       "import": "./dist/index.js",
       "require": "./dist/index.js"
     },
+    "./jsonc": {
+      "types": "./dist/edit-jsonc.d.ts",
+      "import": "./dist/edit-jsonc.js",
+      "require": "./dist/edit-jsonc.js"
+    },
     "./node": {
       "types": "./dist/node/index.d.ts",
       "import": "./dist/node/index.js",

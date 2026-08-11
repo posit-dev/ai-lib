@@ -16,9 +16,11 @@
 import { promises as fs } from "fs";
 import { createRequire } from "module";
 import * as path from "path";
+import { isDeepStrictEqual } from "util";
 
 import lockfile from "proper-lockfile";
 
+import { editJsonc, normalizeJsonValue } from "../edit-jsonc.js";
 import { PROVIDERS_CONFIG_VERSION } from "../index.js";
 import { providersConfigSchema } from "../schema.js";
 import type { ProvidersConfig } from "../types.js";
@@ -61,8 +63,8 @@ function enqueue(configPath: string, fn: () => Promise<void>): Promise<void> {
  * Apply a mutation to providers.json in a cross-process-safe manner.
  *
  * The `mutator` receives the current validated config and returns the new
- * config to write. The mutator may return the same object to indicate
- * no change — the write is still performed (idempotent).
+ * config to write. A same-object or value-identical result performs no write.
+ * Existing JSONC comments and formatting outside changed paths are preserved.
  *
  * @param mutator - A function that transforms the current config.
  * @param opts - Optional path override and logger.
@@ -106,7 +108,7 @@ async function performLockedMutation(
 		logger?.debug("[ai-config] Acquired config lock for mutation");
 
 		// Re-read current state under lock
-		const current = await readCurrentConfig(configPath);
+		const { raw, config: current } = await readCurrentConfig(configPath);
 
 		// Apply mutation
 		let updated = await mutator(current);
@@ -131,8 +133,23 @@ async function performLockedMutation(
 			throw new Error(`[ai-config] Mutated config is invalid: ${errors}`);
 		}
 
+		const normalized = normalizeJsonValue(result.data);
+		const output = fileCreated ? JSON.stringify(normalized, null, 2) : editJsonc(raw, result.data);
+
+		if (output === raw) {
+			logger?.debug("[ai-config] Config mutation made no changes");
+			return;
+		}
+
+		// Reparse and revalidate the exact bytes that will be persisted. Compare
+		// against the same round-trip-normalized value used by the editor.
+		const reparsed = parseProvidersConfig(output);
+		if (!isDeepStrictEqual(normalizeJsonValue(reparsed), normalized)) {
+			throw new Error("[ai-config] Edited config does not match the validated mutation result");
+		}
+
 		// Atomic write
-		await atomicWrite(configPath, result.data);
+		await atomicWrite(configPath, output);
 
 		logger?.debug("[ai-config] Config mutation written successfully");
 	} finally {
@@ -148,10 +165,12 @@ async function performLockedMutation(
  * after race-safe creation, an unreadable or missing file is anomalous, and
  * treating invalid content as `{}` would silently discard user configuration.
  */
-async function readCurrentConfig(configPath: string): Promise<ProvidersConfig> {
+async function readCurrentConfig(
+	configPath: string,
+): Promise<{ raw: string; config: ProvidersConfig }> {
 	try {
 		const raw = await fs.readFile(configPath, "utf-8");
-		return parseProvidersConfig(raw);
+		return { raw, config: parseProvidersConfig(raw) };
 	} catch (error) {
 		throw new Error(
 			`[ai-config] Cannot mutate ${configPath}: ${errorMessage(error)}. Mutation aborted until the file is fixed.`,
@@ -163,14 +182,14 @@ async function readCurrentConfig(configPath: string): Promise<ProvidersConfig> {
 /**
  * Atomic write: temp file + rename.
  */
-async function atomicWrite(configPath: string, data: ProvidersConfig): Promise<void> {
+async function atomicWrite(configPath: string, text: string): Promise<void> {
 	const dir = path.dirname(configPath);
 	const tempPath = `${configPath}.tmp.${process.pid}`;
 
 	await fs.mkdir(dir, { recursive: true });
 
 	try {
-		await fs.writeFile(tempPath, JSON.stringify(data, null, 2), {
+		await fs.writeFile(tempPath, text, {
 			encoding: "utf-8",
 			mode: 0o644,
 		});
