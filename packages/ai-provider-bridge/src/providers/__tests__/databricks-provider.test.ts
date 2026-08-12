@@ -606,6 +606,77 @@ describe("registerDatabricksProvider surface pinning", () => {
 		expect(models.map((m) => m.id)).toContain("databricks-claude-opus-4-8");
 		expect(workspace.probeCount()).toBe(1);
 	});
+
+	// clearCache() must also invalidate work that is already awaiting the
+	// network: a probe or list request issued under since-replaced credentials
+	// may resolve after the clear and must not commit its result.
+	it("ignores a probe that resolves after the cache was cleared", async () => {
+		const probeResolvers: Array<(response: Response) => void> = [];
+		const fetchMock = vi.fn(async (input: string | URL | Request) => {
+			const url = typeof input === "string" || input instanceof URL ? input.toString() : input.url;
+			if (url === PROBE_URL) {
+				return new Promise<Response>((resolve) => probeResolvers.push(resolve));
+			}
+			if (url === SERVING_LIST_URL) {
+				return jsonResponse(SERVING_ENDPOINTS_FIXTURE);
+			}
+			if (url === FOUNDATION_LIST_URL) {
+				return jsonResponse(FOUNDATION_MODELS_FIXTURE);
+			}
+			return jsonResponse({ message: `unexpected URL: ${url}` }, 500);
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		// Discovery under the old credential: its probe hangs.
+		const stale = registry.getModelsForProvider("databricks", CREDENTIALS);
+		await vi.waitFor(() => expect(probeResolvers).toHaveLength(1));
+
+		// Credential change: the caches are cleared and fresh work pins gateway.
+		registry.clearModelCache("databricks");
+		const fresh = registry.getModelsForProvider("databricks", CREDENTIALS);
+		await vi.waitFor(() => expect(probeResolvers).toHaveLength(2));
+		probeResolvers[1]?.(jsonResponse({ endpoints: [] }, 200));
+		expect((await fresh).map((m) => m.id)).toContain("databricks-claude-opus-4-8");
+
+		// The stale probe resolves last, reporting serving. It still answers its
+		// own caller, but it must not re-pin the surface or clobber the cache.
+		probeResolvers[0]?.(jsonResponse({ endpoints: [] }, 403));
+		await stale;
+
+		const after = await registry.getModelsForProvider("databricks", CREDENTIALS);
+		expect(after.map((m) => m.id)).toContain("databricks-claude-opus-4-8");
+		expect(fetchMock.mock.calls.filter((call) => String(call[0]) === PROBE_URL)).toHaveLength(2);
+	});
+
+	it("does not repopulate the model cache from a list fetch spanning clearCache", async () => {
+		const listResolvers: Array<(response: Response) => void> = [];
+		const fetchMock = vi.fn(async (input: string | URL | Request) => {
+			const url = typeof input === "string" || input instanceof URL ? input.toString() : input.url;
+			if (url === PROBE_URL) {
+				return jsonResponse({ endpoints: [] }, 404);
+			}
+			if (url === SERVING_LIST_URL) {
+				return new Promise<Response>((resolve) => listResolvers.push(resolve));
+			}
+			return jsonResponse({ message: `unexpected URL: ${url}` }, 500);
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		// The old-credential fetch pins serving, then hangs on the list request.
+		const stale = registry.getModelsForProvider("databricks", CREDENTIALS);
+		await vi.waitFor(() => expect(listResolvers).toHaveLength(1));
+
+		registry.clearModelCache("databricks");
+		listResolvers[0]?.(jsonResponse(SERVING_ENDPOINTS_FIXTURE));
+		await stale;
+
+		// The next fetch must go back to the network instead of being served the
+		// stale list for the rest of the cache TTL.
+		const fresh = registry.getModelsForProvider("databricks", CREDENTIALS);
+		await vi.waitFor(() => expect(listResolvers).toHaveLength(2));
+		listResolvers[1]?.(jsonResponse(SERVING_ENDPOINTS_FIXTURE));
+		expect((await fresh).map((m) => m.id)).toContain("databricks-claude-sonnet-4-5");
+	});
 });
 
 describe("registerDatabricksProvider route seam", () => {

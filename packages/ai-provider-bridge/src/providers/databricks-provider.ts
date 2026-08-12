@@ -16,8 +16,10 @@
  * Besides the universal OpenAI-compatible chat surface, both expose **native
  * passthrough APIs** per vendor (Anthropic Messages, OpenAI Responses, Gemini
  * generateContent). Native routes recover what chat completions loses —
- * thinking controls, PDF input, Claude cache breakpoints and thinking-block
- * round-trips — so each discovered endpoint is stamped with the protocol it
+ * thinking controls, Claude cache breakpoints and thinking-block round-trips
+ * (input media types stay masked to images on every route: Databricks
+ * documents native passthrough inputs as text/image only) — so each
+ * discovered endpoint is stamped with the protocol it
  * will be routed over (`inferDatabricksModelProfile` in ai-config is the single
  * source of truth for routing eligibility *and* the capabilities that protocol
  * offers). The catalog pipeline carries the stamp into each chat request as
@@ -121,6 +123,11 @@ async function probeSurface(
 
 /** Create the per-registration, per-host pinned surface state. */
 function createSurfaceState(logger: Logger): SurfaceState {
+	// Generation guard: a probe that was already in flight when clear() ran
+	// (e.g. issued under since-replaced credentials) must not commit its result
+	// afterwards — it could re-pin a stale surface or evict a newer in-flight
+	// probe. Results are committed only when the generation is unchanged.
+	let generation = 0;
 	const pinned = new Map<string, DatabricksSurface>();
 	const inFlight = new Map<string, Promise<DatabricksSurface>>();
 
@@ -134,15 +141,19 @@ function createSurfaceState(logger: Logger): SurfaceState {
 			if (existing !== undefined) {
 				return existing;
 			}
+			const startedIn = generation;
 			const probe = probeSurface(host, headers, logger).then((surface) => {
-				pinned.set(host, surface);
-				inFlight.delete(host);
+				if (generation === startedIn) {
+					pinned.set(host, surface);
+					inFlight.delete(host);
+				}
 				return surface;
 			});
 			inFlight.set(host, probe);
 			return probe;
 		},
 		clear() {
+			generation += 1;
 			pinned.clear();
 			inFlight.clear();
 		},
@@ -307,6 +318,9 @@ function createDatabricksModelFetcher(
 ): ClearableModelFetcher {
 	let lastFetch = 0;
 	let cachedModels: ModelInfo[] | null = null;
+	// Same generation guard as the surface state: a fetch spanning clearCache()
+	// may still answer its own caller, but must not repopulate the cache.
+	let generation = 0;
 
 	const fetcher: ClearableModelFetcher = async (
 		credentials: ProviderCredentials,
@@ -330,6 +344,7 @@ function createDatabricksModelFetcher(
 		);
 
 		try {
+			const startedIn = generation;
 			const surface = await surfaceState.ensureSurface(host, headers);
 			const models =
 				surface === "gateway"
@@ -340,8 +355,10 @@ function createDatabricksModelFetcher(
 							await fetchModelList(`${host}/api/2.0/serving-endpoints`, headers),
 						);
 
-			lastFetch = now;
-			cachedModels = models;
+			if (generation === startedIn) {
+				lastFetch = now;
+				cachedModels = models;
+			}
 			logger.info(
 				`[databricks] Fetched ${models.length} chat models via ${surface === "gateway" ? "Unity AI Gateway" : "model serving"}`,
 			);
@@ -354,6 +371,7 @@ function createDatabricksModelFetcher(
 	};
 
 	fetcher.clearCache = () => {
+		generation += 1;
 		cachedModels = null;
 		lastFetch = 0;
 		// The surface pin and the model cache are released together: stamps and
