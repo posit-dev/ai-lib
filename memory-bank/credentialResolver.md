@@ -190,9 +190,13 @@ catalog-owned region/profile. `createStoreBackend` receives the host callback
 `awsConnectionForProvider(providerId)` and combines those two sources only when
 a region is available, preserving the backend's complete-runtime-credentials
 contract. Existing complete `awsAuth` records remain unchanged and win if a
-hand-edited record contains both groups. AWS mutations keep the groups mutually
-exclusive; clearing a keys-only record deletes it so host catalog synthesis can
-resume. The built-in Bedrock `update-aws` path remains the complete-record path.
+hand-edited record contains both groups until the next keys-only mutation. AWS
+mutations keep the groups mutually exclusive: `update-aws-keys` preservation
+converts complete legacy manual keys to `awsKeys`, and clearing writes an
+unauthenticated tombstone. The tombstone lets host catalog credential-chain
+synthesis resume without leaving a missing key that a host's legacy-store
+migration could repopulate. The built-in Bedrock `update-aws` path remains the
+complete-record path.
 
 - The generic `SingleFileStore` is **untouched** — a reserved top-level key
   would leak into every `keys()` enumeration, so no version marker is stored

@@ -66,7 +66,11 @@ function buildGeminiModel(
 	};
 }
 
-function createGeminiModelFetcher(providerId: ResolvedProviderId, logger: Logger) {
+function createGeminiModelFetcher(
+	providerId: ResolvedProviderId,
+	includeHostedModels: boolean,
+	logger: Logger,
+) {
 	return createCachedModelFetcher<ApiKeyCredentials>({
 		providerId,
 		// Google requires API key in query string, not header
@@ -110,9 +114,11 @@ function createGeminiModelFetcher(providerId: ResolvedProviderId, logger: Logger
 					)
 			);
 		},
-		fallbackModels: GEMINI_FALLBACK_ROWS.filter(({ id }) => isInteractionsEligible(id)).map(
-			({ id, name }) => buildGeminiModel(providerId, id, name),
-		),
+		fallbackModels: includeHostedModels
+			? GEMINI_FALLBACK_ROWS.filter(({ id }) => isInteractionsEligible(id)).map(({ id, name }) =>
+					buildGeminiModel(providerId, id, name),
+				)
+			: [],
 		logger,
 		ttl: 60 * 60 * 1000, // 1 hour (models don't change frequently)
 	});
@@ -133,7 +139,7 @@ function createGeminiClientFactory(logger: Logger): ClientFactory {
 }
 
 export function registerGeminiProvider(registry: ProviderRegistry, logger: Logger): void {
-	registry.registerModelFetcher("gemini", createGeminiModelFetcher("gemini", logger));
+	registry.registerModelFetcher("gemini", createGeminiModelFetcher("gemini", true, logger));
 	registry.registerClientFactory("gemini", createGeminiClientFactory(logger));
 }
 
@@ -142,6 +148,6 @@ export function registerCustomGeminiProvider(
 	providerId: ResolvedProviderId,
 	logger: Logger,
 ): void {
-	registry.registerModelFetcher(providerId, createGeminiModelFetcher(providerId, logger));
+	registry.registerModelFetcher(providerId, createGeminiModelFetcher(providerId, false, logger));
 	registry.registerClientFactory("gemini", createGeminiClientFactory(logger));
 }

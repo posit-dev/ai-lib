@@ -31,7 +31,7 @@ JSONC transformation, and filesystem I/O:
 | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
 | `ai-config`                       | Vocabulary, schemas/types/defaults, `salvageProvidersConfig`, structured config issues, the pure report resolver (`resolveProviderCatalogReport` plus compatibility wrapper), resolution helpers, legacy translation, and model capability inference | `zod`                  |
 | `ai-config/jsonc`                 | Pure validation-free JSONC diff-to-edits transformation and JSON serialization normalization                                                                                                                                                         | `jsonc-parser`         |
-| `ai-config/node`                  | Re-exports the pure entry plus `loadProviderCatalogReport` / `loadResolvedProviderCatalog`, strict mutation, issue-aware watching, and path constants                                                                                                | Node FS + package deps |
+| `ai-config/node`                  | Re-exports the pure entry plus `loadProviderCatalogReport` / `loadResolvedProviderCatalog`, the strict raw user custom-entry reader, strict mutation, issue-aware watching, and path constants                                                       | Node FS + package deps |
 | `ai-config/providers.schema.json` | The generated JSON Schema, exported so editors can validate/autocomplete `providers.json`                                                                                                                                                            | No                     |
 
 Legacy Positron settings reach the loader through two independent options —
@@ -69,6 +69,12 @@ Re-exports the pure entry, plus:
 - **Paths**: `AI_CONFIG_DIR` (`~/.posit/ai`) and `PROVIDERS_CONFIG_PATH`.
 - **Read seams**: `loadProviderCatalogReport(opts)` is the canonical report-first entry point;
   `loadResolvedProviderCatalog(opts)` is its bare-catalog compatibility wrapper.
+  `readUserCustomProviderEntry(providerId, opts)` is the intentionally narrow edit seam: it
+  returns one full custom entry exactly as authored in the user file, before overlays or
+  derivation. A missing file/entry returns `undefined`; a non-custom id raises
+  `NonCustomProviderIdError`; a present invalid or unreadable file rejects under strict mutation
+  discipline rather than being salvaged. It stays on the Node entry because the full raw entry
+  may include advanced fields that must be preserved server-side and never projected to a browser.
 - **Write seam**: `mutateProvidersConfig(mutator, opts)` — cross-process-safe mutation.
 - **Watch seam**: `watchResolvedProviderCatalog(handler, opts)` — emits typed `ProviderCatalogChange` events.
 - **Types**: `LoadCatalogOptions` (including the transitional `legacyPositronSettings` / `legacyPositronEnforcedSettings` options), `MutateConfigOptions`, `WatchCatalogOptions`, `ProviderCatalogChange`, `LoggerLike`, `Disposable`.

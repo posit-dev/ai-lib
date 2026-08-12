@@ -111,6 +111,10 @@ consumers call once per custom entry:
 - The **model fetcher** is registered under the custom provider id, with its
   own `createCachedModelFetcher` instance (independent per-gateway cache) and
   the custom id stamped into each discovered `ModelInfo`.
+- Custom endpoint discovery is authoritative. Hosted-only supplemental or
+  fallback model lists must be an explicit built-in fetcher policy, not shared
+  with the custom registrar; users declare non-discoverable custom models in
+  configuration.
 - The **client factory** is registered under the kind key only (e.g.
   `"litellm"`), never under the custom id. Chat resolution reaches it through
   `getClientForProviderOrKind`'s `clientKind` fallback, which reads the

@@ -126,8 +126,8 @@ const openRouterClientFactory: ClientFactory = (credentials) => {
 	}
 	return new OpenRouterClient(
 		credentials.apiKey,
-		normalizeOpenRouterBaseUrl(credentials.baseUrl),
 		credentials.customHeaders,
+		normalizeOpenRouterBaseUrl(credentials.baseUrl),
 	);
 };
 

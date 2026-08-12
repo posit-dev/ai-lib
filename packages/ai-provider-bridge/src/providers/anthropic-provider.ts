@@ -52,7 +52,11 @@ function buildAnthropicModel(providerId: ResolvedProviderId, id: string, name: s
 	};
 }
 
-function createAnthropicModelFetcher(providerId: ResolvedProviderId, logger: Logger) {
+function createAnthropicModelFetcher(
+	providerId: ResolvedProviderId,
+	includeHostedModels: boolean,
+	logger: Logger,
+) {
 	return createCachedModelFetcher<ApiKeyCredentials>({
 		providerId,
 		resolveUrl: (credentials) => {
@@ -75,9 +79,11 @@ function createAnthropicModelFetcher(providerId: ResolvedProviderId, logger: Log
 			);
 			// Append documented models the endpoint doesn't return yet, skipping
 			// any that the live list already includes.
-			for (const supplemental of SUPPLEMENTAL_MODELS) {
-				if (!models.some((model) => model.id === supplemental.id)) {
-					models.push(buildAnthropicModel(providerId, supplemental.id, supplemental.name));
+			if (includeHostedModels) {
+				for (const supplemental of SUPPLEMENTAL_MODELS) {
+					if (!models.some((model) => model.id === supplemental.id)) {
+						models.push(buildAnthropicModel(providerId, supplemental.id, supplemental.name));
+					}
 				}
 			}
 			return models;
@@ -102,7 +108,10 @@ function createAnthropicClientFactory(logger: Logger): ClientFactory {
 }
 
 export function registerAnthropicProvider(registry: ProviderRegistry, logger: Logger): void {
-	registry.registerModelFetcher("anthropic", createAnthropicModelFetcher("anthropic", logger));
+	registry.registerModelFetcher(
+		"anthropic",
+		createAnthropicModelFetcher("anthropic", true, logger),
+	);
 	registry.registerClientFactory("anthropic", createAnthropicClientFactory(logger));
 }
 
@@ -111,6 +120,6 @@ export function registerCustomAnthropicProvider(
 	providerId: ResolvedProviderId,
 	logger: Logger,
 ): void {
-	registry.registerModelFetcher(providerId, createAnthropicModelFetcher(providerId, logger));
+	registry.registerModelFetcher(providerId, createAnthropicModelFetcher(providerId, false, logger));
 	registry.registerClientFactory("anthropic", createAnthropicClientFactory(logger));
 }
