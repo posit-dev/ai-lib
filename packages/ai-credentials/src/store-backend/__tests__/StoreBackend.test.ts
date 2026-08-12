@@ -606,7 +606,7 @@ describe("createStoreBackend", () => {
 			});
 		});
 
-		it("writes mutually-exclusive AWS groups and deletes keys-only records on clear", async () => {
+		it("writes mutually-exclusive AWS groups and tombstones keys-only records on clear", async () => {
 			const key = storageKeyFor(CUSTOM_AWS_ID, "aws-credentials");
 			const backend = createStoreBackend({
 				store,
@@ -623,7 +623,72 @@ describe("createStoreBackend", () => {
 			});
 
 			await backend.mutateCredentials(CUSTOM_AWS_ID, { kind: "clear" });
-			expect(await store.get(key)).toBeUndefined();
+			expect(await store.get<StoredProviderCredentials>(key)).toMatchObject({
+				readiness: "unauthenticated",
+				configured: false,
+				authenticated: false,
+			});
+		});
+
+		it("tombstones a keys-only record when credential-chain mode clears manual keys", async () => {
+			const key = storageKeyFor(CUSTOM_AWS_ID, "aws-credentials");
+			await store.set<StoredProviderCredentials>(key, {
+				awsKeys: { accessKeyId: "CUSTOM", secretAccessKey: "custom" },
+			});
+			const backend = createStoreBackend({
+				store,
+				resolveAuthMethod: resolveCustom,
+				awsConnectionForProvider: () => ({ region: "eu-west-1" }),
+				env: {},
+			});
+
+			await backend.mutateCredentials(CUSTOM_AWS_ID, {
+				kind: "update-aws-keys",
+				keys: { kind: "clear" },
+			});
+
+			expect(await store.get<StoredProviderCredentials>(key)).toMatchObject({
+				readiness: "unauthenticated",
+				configured: false,
+				authenticated: false,
+			});
+		});
+
+		it("converts complete legacy awsAuth keys when preserving custom AWS credentials", async () => {
+			const key = storageKeyFor(CUSTOM_AWS_ID, "aws-credentials");
+			await store.set<StoredProviderCredentials>(key, {
+				awsAuth: {
+					region: "us-west-2",
+					profile: "legacy-profile",
+					accessKeyId: "LEGACY",
+					secretAccessKey: "legacy",
+					sessionToken: "legacy-session",
+				},
+			});
+			const backend = createStoreBackend({
+				store,
+				resolveAuthMethod: resolveCustom,
+				awsConnectionForProvider: () => ({ region: "eu-west-1" }),
+				env: {},
+			});
+
+			await backend.mutateCredentials(CUSTOM_AWS_ID, {
+				kind: "update-aws-keys",
+				keys: { kind: "preserve" },
+			});
+
+			const stored = await store.get<StoredProviderCredentials>(key);
+			expect(stored?.awsAuth).toBeUndefined();
+			expect(stored).toMatchObject({
+				readiness: "ready",
+				configured: true,
+				authenticated: true,
+				awsKeys: {
+					accessKeyId: "LEGACY",
+					secretAccessKey: "legacy",
+					sessionToken: "legacy-session",
+				},
+			});
 		});
 	});
 });

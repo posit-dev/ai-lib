@@ -346,10 +346,6 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 			const current = await readRecord(providerId);
 			const generation = generationFactory();
 			if (mutation.kind === "clear") {
-				if (current?.awsKeys) {
-					await store.delete(key);
-					return;
-				}
 				await store.set(key, {
 					generation,
 					readiness: "unauthenticated",
@@ -397,14 +393,32 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 			}
 			if (mutation.kind === "update-aws-keys") {
 				if (mutation.keys.kind === "clear") {
-					await store.delete(key);
+					await store.set(key, {
+						generation,
+						readiness: "unauthenticated",
+						configured: false,
+						authenticated: false,
+					} satisfies StoredProviderCredentials);
 					return;
 				}
 				if (mutation.keys.kind === "preserve") {
-					if (!current?.awsKeys) {
-						throw new Error("No stored manual AWS keys are available to preserve");
+					const legacy = current?.awsAuth;
+					if (legacy?.accessKeyId && legacy.secretAccessKey) {
+						await store.set(key, {
+							generation,
+							readiness: "ready",
+							configured: true,
+							authenticated: true,
+							awsKeys: {
+								accessKeyId: legacy.accessKeyId,
+								secretAccessKey: legacy.secretAccessKey,
+								...(legacy.sessionToken ? { sessionToken: legacy.sessionToken } : {}),
+							},
+						} satisfies StoredProviderCredentials);
+						return;
 					}
-					return;
+					if (current?.awsKeys) return;
+					throw new Error("No stored manual AWS keys are available to preserve");
 				}
 				await store.set(key, {
 					generation,
