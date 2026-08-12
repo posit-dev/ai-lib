@@ -51,6 +51,7 @@ const externalDeps = [
 	"@ai-sdk/openai-compatible",
 	"@aws-sdk/client-bedrock",
 	"@aws-sdk/credential-providers",
+	"@smithy/core",
 	"@github/copilot-sdk",
 	"@openrouter/ai-sdk-provider",
 	"ai",
