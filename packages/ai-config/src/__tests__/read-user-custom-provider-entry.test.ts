@@ -78,6 +78,18 @@ describe("readUserCustomProviderEntry", () => {
 		).resolves.toBe(undefined);
 	});
 
+	it("returns undefined for an absent prototype-named entry", async () => {
+		const configPath = await temporaryConfigPath();
+		await writeFile(
+			configPath,
+			'{ "version": 1, "providers": { "custom": { "unrelated": { "type": "ollama" } } } }',
+		);
+
+		await expect(readUserCustomProviderEntry("constructor", { configPath })).resolves.toBe(
+			undefined,
+		);
+	});
+
 	it.each(["anthropic", "default", "__proto__"])(
 		"rejects non-custom provider id %s with a typed error",
 		async (providerId) => {

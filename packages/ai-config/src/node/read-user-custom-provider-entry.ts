@@ -65,7 +65,11 @@ export async function readUserCustomProviderEntry(
 	}
 
 	try {
-		return parseProvidersConfig(raw).providers?.custom?.[providerId];
+		const customProviders = parseProvidersConfig(raw).providers?.custom;
+		if (!customProviders || !Object.prototype.hasOwnProperty.call(customProviders, providerId)) {
+			return undefined;
+		}
+		return customProviders[providerId];
 	} catch (error) {
 		throw new Error(
 			`[ai-config] Cannot read ${configPath}: ${errorMessage(error)}. Fix the file before editing custom providers.`,
