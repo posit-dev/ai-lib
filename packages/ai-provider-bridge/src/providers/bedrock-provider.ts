@@ -16,6 +16,7 @@ import { NOTIFICATION_ACTIONS } from "../types";
 import { listInferenceProfileIds } from "./bedrock-inference-profiles";
 import { listMantleModels } from "./bedrock-mantle-models";
 import { isAwsSsoProfileConfigured } from "./bedrock-sso";
+import { resolveBedrockTransport, type BedrockTransport } from "./bedrock-transport";
 import { getOpenAIModelName } from "./openai-model-names";
 import type { ClientFactory, ProviderRegistry } from "./ProviderRegistry";
 
@@ -194,6 +195,7 @@ async function reportCredentialResolutionFailure(
 async function createBedrockListClient(
 	providerId: ResolvedProviderId,
 	credentials: AwsCredentials,
+	transport: BedrockTransport,
 	callbacks: BedrockProviderCallbacks | undefined,
 	logger: Logger,
 ): Promise<BedrockListClient | null> {
@@ -202,6 +204,7 @@ async function createBedrockListClient(
 		return new BedrockListClient({
 			region: credentials.region,
 			credentials: resolvedCreds,
+			useFipsEndpoint: transport.useFipsEndpoint,
 		});
 	} catch (credError) {
 		await reportCredentialResolutionFailure(providerId, credentials, callbacks, logger, credError);
@@ -263,6 +266,7 @@ function createBedrockModelFetcher(
 
 		const getConverseModels = async (
 			credentials: AwsCredentials,
+			transport: BedrockTransport,
 			now: number,
 		): Promise<ModelInfo[]> => {
 			const cacheAge = cachedModels ? now - lastFetch : null;
@@ -279,7 +283,13 @@ function createBedrockModelFetcher(
 			// to detect expired/missing credentials before making the API call.
 			// This avoids unnecessary network requests and intrusive SSO login
 			// prompts on every startup.
-			const listClient = await createBedrockListClient(providerId, credentials, callbacks, logger);
+			const listClient = await createBedrockListClient(
+				providerId,
+				credentials,
+				transport,
+				callbacks,
+				logger,
+			);
 			if (!listClient) {
 				cachedModels = null;
 				lastFetch = 0;
@@ -446,11 +456,16 @@ function createBedrockModelFetcher(
 			}
 
 			const now = Date.now();
+			const transport = await resolveBedrockTransport({
+				region: credentials.region,
+				profile: credentials.profile,
+				logger,
+			});
 			// Each source owns its cache and error boundary. Start stale sources
 			// together so Mantle cannot add a serialized network round trip.
 			const [converseModels, mantleModels] = await Promise.all([
-				getConverseModels(credentials, now),
-				getMantleModels(credentials, now),
+				getConverseModels(credentials, transport, now),
+				transport.mantleEnabled ? getMantleModels(credentials, now) : Promise.resolve([]),
 			]);
 			return [...converseModels, ...mantleModels];
 		};

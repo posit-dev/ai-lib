@@ -113,6 +113,17 @@ Bedrock's manual-key and `fromNodeProviderChain` branches converge in
 inference, and both discovery clients consume the same provider-function
 shape, keeping credential precedence identical across protocols.
 
+Bedrock endpoint selection is owned by the async internal
+`resolveBedrockTransport()` seam. It resolves once per operation (never in a
+process-global memo, so edits to the AWS shared config remain observable) and
+returns the runtime base URL, the control-plane SDK's FIPS decision, and
+whether Mantle is usable. `AWS_USE_FIPS_ENDPOINT` takes precedence over the
+selected profile's `use_fips_endpoint`, including an explicit environment
+value of `false`. Chat passes the resolved standard or FIPS runtime URL to both
+the Converse and Anthropic factories; model discovery passes the same
+`useFipsEndpoint` decision to the Bedrock listing client. The resolver logs the
+runtime, listing, and Mantle host decision at debug level for endpoint audits.
+
 ### Bedrock's three protocols
 
 The Bedrock client routes Anthropic model IDs through Anthropic Messages,
@@ -121,6 +132,12 @@ Mantle has one independently cached discovery source,
 `GET https://bedrock-mantle.{region}.api.aws/v1/models`, signed for the
 `bedrock-mantle` service. A Mantle discovery failure never clears or replaces
 the Converse cache.
+
+AWS publishes no FIPS endpoint for Mantle. When the standard AWS FIPS setting
+is enabled, the shared transport policy suppresses Mantle discovery and the
+client rejects both Mantle protocols rather than sending non-FIPS traffic.
+Mantle availability otherwise remains probe-discovered per region; there is no
+hard-coded partition or region availability table.
 
 gpt-oss uses Mantle Chat Completions at `/v1`; GPT-5.x uses Responses at
 `/openai/v1`. Responses requests set `store: false`, force the AI SDK's
@@ -242,7 +259,7 @@ Positron's VS Code base includes it.
 
 ## Dependencies
 
-The bridge owns its provider SDKs: all of them are regular `dependencies`, so a consumer installs them transitively and only needs to declare `ai-provider-bridge` in its own `package.json`. The `ai` types in the public API (e.g. `ModelMessage` on `ModelClient.chat`) are re-exported from the root entrypoint for the same reason, so consumers do not import `ai` directly either. The SDKs are marked `external` in `esbuild.config.ts` so they resolve from `node_modules` rather than being inlined -- several (`@aws-sdk/*`, `google-auth-library`) bundle poorly. `vscode` is the only optional peer dependency (host-provided; imported solely by `/positron`).
+The bridge owns its provider SDKs: all of them are regular `dependencies`, so a consumer installs them transitively and only needs to declare `ai-provider-bridge` in its own `package.json`. The `ai` types in the public API (e.g. `ModelMessage` on `ModelClient.chat`) are re-exported from the root entrypoint for the same reason, so consumers do not import `ai` directly either. The build coordinator marks the SDKs as external so they resolve from `node_modules` rather than being inlined -- several (`@aws-sdk/*`, `google-auth-library`) bundle poorly. `vscode` is the only optional peer dependency (host-provided; imported solely by `/positron`).
 
 ## Guidance for New Code
 

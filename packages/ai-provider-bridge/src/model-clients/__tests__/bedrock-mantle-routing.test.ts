@@ -4,22 +4,28 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { streamText, createAmazonBedrock, createBedrockAnthropic, createBedrockMantle } = vi.hoisted(
-	() => ({
-		streamText: vi.fn(() => ({ fullStream: {} })),
-		createAmazonBedrock: vi.fn(() => vi.fn(() => ({ route: "converse" }))),
-		createBedrockAnthropic: vi.fn(() => vi.fn(() => ({ route: "anthropic" }))),
-		createBedrockMantle: vi.fn(() => ({
-			chat: vi.fn(() => ({ route: "mantle-chat" })),
-			responses: vi.fn(() => ({ route: "mantle-responses" })),
-		})),
-	}),
-);
+const {
+	streamText,
+	createAmazonBedrock,
+	createBedrockAnthropic,
+	createBedrockMantle,
+	resolveBedrockTransport,
+} = vi.hoisted(() => ({
+	streamText: vi.fn(() => ({ fullStream: {} })),
+	createAmazonBedrock: vi.fn(() => vi.fn(() => ({ route: "converse" }))),
+	createBedrockAnthropic: vi.fn(() => vi.fn(() => ({ route: "anthropic" }))),
+	createBedrockMantle: vi.fn(() => ({
+		chat: vi.fn(() => ({ route: "mantle-chat" })),
+		responses: vi.fn(() => ({ route: "mantle-responses" })),
+	})),
+	resolveBedrockTransport: vi.fn(),
+}));
 
 vi.mock("ai", () => ({ streamText }));
 vi.mock("@ai-sdk/amazon-bedrock", () => ({ createAmazonBedrock }));
 vi.mock("@ai-sdk/amazon-bedrock/anthropic", () => ({ createBedrockAnthropic }));
 vi.mock("@ai-sdk/amazon-bedrock/mantle", () => ({ createBedrockMantle }));
+vi.mock("../../providers/bedrock-transport", () => ({ resolveBedrockTransport }));
 vi.mock("@aws-sdk/credential-providers", () => ({
 	fromNodeProviderChain: vi.fn(() => vi.fn()),
 }));
@@ -52,6 +58,11 @@ function params(overrides: Partial<ModelClientChatParams>): ModelClientChatParam
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	resolveBedrockTransport.mockResolvedValue({
+		useFipsEndpoint: false,
+		runtimeBaseUrl: "https://bedrock-runtime.us-east-2.amazonaws.com",
+		mantleEnabled: true,
+	});
 });
 
 describe("Bedrock Mantle protocol routing", () => {
@@ -127,6 +138,48 @@ describe("Bedrock Mantle protocol routing", () => {
 			params({ model: "anthropic.claude-sonnet-4-6", protocol: "anthropic-messages" }),
 		);
 		expect(createBedrockAnthropic).toHaveBeenCalled();
+		expect(createBedrockMantle).not.toHaveBeenCalled();
+	});
+
+	it("routes both runtime factories through the resolved FIPS host", async () => {
+		resolveBedrockTransport.mockResolvedValue({
+			useFipsEndpoint: true,
+			runtimeBaseUrl: "https://bedrock-runtime-fips.us-gov-west-1.amazonaws.com",
+			mantleEnabled: false,
+		});
+		const fipsClient = new BedrockClient({
+			region: "us-gov-west-1",
+			accessKeyId: "key",
+			secretAccessKey: "secret",
+		});
+
+		await fipsClient.chat(params({ model: "amazon.nova-pro", protocol: "bedrock-converse" }));
+		await fipsClient.chat(
+			params({ model: "anthropic.claude-sonnet-4-6", protocol: "anthropic-messages" }),
+		);
+
+		expect(createAmazonBedrock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				baseURL: "https://bedrock-runtime-fips.us-gov-west-1.amazonaws.com",
+			}),
+		);
+		expect(createBedrockAnthropic).toHaveBeenCalledWith(
+			expect.objectContaining({
+				baseURL: "https://bedrock-runtime-fips.us-gov-west-1.amazonaws.com",
+			}),
+		);
+	});
+
+	it("rejects Mantle protocols when FIPS endpoints are enabled", async () => {
+		resolveBedrockTransport.mockResolvedValue({
+			useFipsEndpoint: true,
+			runtimeBaseUrl: "https://bedrock-runtime-fips.us-east-2.amazonaws.com",
+			mantleEnabled: false,
+		});
+
+		await expect(
+			client.chat(params({ model: "openai.gpt-5.5", protocol: "openai-responses" })),
+		).rejects.toThrow(/openai-responses.*FIPS/);
 		expect(createBedrockMantle).not.toHaveBeenCalled();
 	});
 });

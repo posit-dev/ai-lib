@@ -17,6 +17,7 @@ import type { LanguageModelV3 } from "@ai-sdk/provider";
 import { streamText } from "ai";
 
 import { createAwsCredentialProvider } from "../aws-credentials";
+import { resolveBedrockTransport, type BedrockTransport } from "../providers/bedrock-transport";
 import { sanitizeToolCallIdsForAnthropic } from "../tool-call-ids";
 import {
 	hasImagesInToolResults,
@@ -77,7 +78,12 @@ export class BedrockClient implements ModelClient {
 			throw new Error(`Unsupported protocol for Bedrock: ${normalizedProtocol}`);
 		}
 
-		const model = this.createModel(params.model, normalizedProtocol, params.baseUrl);
+		const transport = await resolveBedrockTransport({
+			region: this.config.region,
+			profile: this.config.profile,
+			logger: this.logger,
+		});
+		const model = this.createModel(params.model, transport, normalizedProtocol, params.baseUrl);
 
 		// Create abort controller with cleanup to prevent EventEmitter memory leaks
 		const { abortController, cleanup } = createAbortControllerFromToken(params.cancellationToken);
@@ -216,10 +222,20 @@ export class BedrockClient implements ModelClient {
 	 * When an explicit `protocol` is provided, it takes precedence over the
 	 * model-ID heuristic.
 	 */
-	private createModel(modelId: string, protocol?: Protocol, baseUrl?: string): LanguageModelV3 {
+	private createModel(
+		modelId: string,
+		transport: BedrockTransport,
+		protocol?: Protocol,
+		baseUrl?: string,
+	): LanguageModelV3 {
 		const credentialProvider = createAwsCredentialProvider(this.config);
 
 		if (protocol === "openai-chat" || protocol === "openai-responses") {
+			if (!transport.mantleEnabled) {
+				throw new Error(
+					`Bedrock protocol ${protocol} is unavailable when AWS FIPS endpoints are enabled`,
+				);
+			}
 			const mantle = createBedrockMantle({
 				region: this.config.region,
 				baseURL: baseUrl,
@@ -238,12 +254,14 @@ export class BedrockClient implements ModelClient {
 		if (useAnthropicApi) {
 			return createBedrockAnthropic({
 				region: this.config.region,
+				baseURL: transport.runtimeBaseUrl,
 				credentialProvider,
 			})(modelId);
 		}
 
 		return createAmazonBedrock({
 			region: this.config.region,
+			baseURL: transport.runtimeBaseUrl,
 			credentialProvider,
 		})(modelId);
 	}
