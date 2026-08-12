@@ -259,7 +259,7 @@ Positron's VS Code base includes it.
 
 ## Dependencies
 
-The bridge owns its provider SDKs: all of them are regular `dependencies`, so a consumer installs them transitively and only needs to declare `ai-provider-bridge` in its own `package.json`. The `ai` types in the public API (e.g. `ModelMessage` on `ModelClient.chat`) are re-exported from the root entrypoint for the same reason, so consumers do not import `ai` directly either. The SDKs are marked `external` in `esbuild.config.ts` so they resolve from `node_modules` rather than being inlined -- several (`@aws-sdk/*`, `google-auth-library`) bundle poorly. `vscode` is the only optional peer dependency (host-provided; imported solely by `/positron`).
+The bridge owns its provider SDKs: all of them are regular `dependencies`, so a consumer installs them transitively and only needs to declare `ai-provider-bridge` in its own `package.json`. The `ai` types in the public API (e.g. `ModelMessage` on `ModelClient.chat`) are re-exported from the root entrypoint for the same reason, so consumers do not import `ai` directly either. The build coordinator marks the SDKs as external so they resolve from `node_modules` rather than being inlined -- several (`@aws-sdk/*`, `google-auth-library`) bundle poorly. `vscode` is the only optional peer dependency (host-provided; imported solely by `/positron`).
 
 ## Guidance for New Code
 

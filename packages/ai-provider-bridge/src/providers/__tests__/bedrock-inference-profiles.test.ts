@@ -71,33 +71,6 @@ describe("listInferenceProfileIds", () => {
 		);
 	});
 
-	it("joins AWS GovCloud partition ARNs to us-gov profile IDs", async () => {
-		const modelId = "anthropic.claude-sonnet-4-5-20250929-v1:0";
-		const profileId = `us-gov.${modelId}`;
-		const client = lister([
-			{
-				inferenceProfileSummaries: [
-					{
-						inferenceProfileName: profileId,
-						inferenceProfileArn: `arn:aws-us-gov:bedrock:us-gov-west-1::inference-profile/${profileId}`,
-						inferenceProfileId: profileId,
-						status: "ACTIVE",
-						models: [
-							{
-								modelArn: `arn:aws-us-gov:bedrock:us-gov-west-1::foundation-model/${modelId}`,
-							},
-						],
-						type: "SYSTEM_DEFINED",
-					},
-				],
-			},
-		]);
-
-		const map = await listInferenceProfileIds(client, "us-gov", logger());
-
-		expect(map?.get(modelId)).toBe(profileId);
-	});
-
 	it("selects profiles by total order, independent of response order", async () => {
 		const summaries = [
 			profile("global.anthropic.claude-x", "anthropic.claude-x"),

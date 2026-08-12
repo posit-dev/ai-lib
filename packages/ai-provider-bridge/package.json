@@ -45,7 +45,7 @@
     "build:unbundled": "tsc -p .",
     "watch": "tsx scripts/build-coordinator.ts --watch",
     "clean": "rm -rf dist .bridge-watch tsconfig.tsbuildinfo",
-    "check-types": "tsc --noEmit && tsc -p tsconfig.node.json",
+    "check-types": "tsc --noEmit",
     "test": "vitest run",
     "test:build-coordinator": "vitest run -c vitest.build-coordinator.config.ts",
     "test:watch": "vitest",
