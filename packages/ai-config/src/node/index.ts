@@ -20,6 +20,8 @@
  *   uniform `ResolvedProvider[]` and returns the complete current issue
  *   snapshot. `loadResolvedProviderCatalog(opts)` remains as the historical
  *   bare-catalog compatibility wrapper.
+ * - `readUserCustomProviderEntry(providerId, opts)` — strict raw user-layer
+ *   read for the custom-provider edit transaction.
  *
  * ### Write seam
  * - `mutateProvidersConfig(mutator)` — cross-process-safe mutation.
@@ -47,6 +49,11 @@ export { AI_CONFIG_DIR, PROVIDERS_CONFIG_PATH } from "./paths.js";
 // --- Read seam (canonical report + bare-catalog compatibility wrapper) -----
 export { loadProviderCatalogReport, loadResolvedProviderCatalog } from "./load-catalog.js";
 export type { LoadedProviderCatalogReport } from "./load-catalog.js";
+export {
+	NonCustomProviderIdError,
+	readUserCustomProviderEntry,
+} from "./read-user-custom-provider-entry.js";
+export type { ReadUserCustomProviderEntryOptions } from "./read-user-custom-provider-entry.js";
 
 // --- Source-assembly compatibility seam (file + env → sources) -----------
 // Canonical host reads use `loadProviderCatalogReport`; `loadConfigSources`
