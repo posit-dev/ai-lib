@@ -2,16 +2,25 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
+/**
+ * Databricks provider: discovery stamping, the pinned surface decision, and the
+ * route seam / client multiplexer.
+ *
+ * Classification rules themselves live in ai-config
+ * (`inferDatabricksModelProfile`) and are covered by its own mechanism tests;
+ * what is tested here is this module's *wiring* of them — which endpoints get
+ * listed, which protocol each stamp routes to, and the exact request each
+ * surface × protocol pair produces.
+ */
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { OpenAIClient } from "../../model-clients/OpenAIClient";
-import type { Logger } from "../../types";
+import type { ModelClient } from "../../model-clients/ModelClient";
+import type { CancellationToken, Logger, Protocol } from "../../types";
 import {
-	clearDatabricksGatewayModeCache,
 	parseFoundationModelsResponse,
 	parseServingEndpointsResponse,
 	registerDatabricksProvider,
-	rewriteServingUrlToGateway,
 } from "../databricks-provider";
 import { ProviderRegistry } from "../ProviderRegistry";
 
@@ -21,6 +30,11 @@ const mockLogger: Logger = {
 	error: vi.fn(),
 	debug: vi.fn(),
 	trace: vi.fn(),
+};
+
+const cancellationToken: CancellationToken = {
+	isCancellationRequested: false,
+	onCancellationRequested: () => ({ dispose() {} }),
 };
 
 const HOST = "https://adb-123.4.azuredatabricks.net";
@@ -34,10 +48,10 @@ const CREDENTIALS = {
 	baseUrl: HOST,
 };
 
-/** Serving-endpoints list fixture covering every filter branch. */
+/** Serving-endpoints list fixture covering every filter and stamp branch. */
 const SERVING_ENDPOINTS_FIXTURE = {
 	endpoints: [
-		// FMAPI pay-per-token chat endpoint (foundation model)
+		// FMAPI pay-per-token chat endpoint (foundation model) — native Anthropic
 		{
 			name: "databricks-claude-sonnet-4-5",
 			task: "llm/v1/chat",
@@ -53,12 +67,40 @@ const SERVING_ENDPOINTS_FIXTURE = {
 				],
 			},
 		},
+		// Hosted Gemini pay-per-token endpoint — native generateContent (the
+		// variant is reconstructable from the endpoint name)
+		{
+			name: "databricks-gemini-2-5-pro",
+			task: "llm/v1/chat",
+			state: { ready: "READY" },
+			config: {
+				served_entities: [
+					{
+						foundation_model: { name: "databricks-gemini-2-5-pro", display_name: "Gemini 2.5 Pro" },
+					},
+				],
+			},
+		},
 		// External-model chat endpoint (task on the served entity, not top level)
+		// with a Responses-compatible identity — native OpenAI Responses
 		{
 			name: "my-gpt-4o-gateway",
 			state: { ready: "READY" },
 			config: {
 				served_entities: [
+					{ external_model: { provider: "openai", name: "gpt-4o", task: "llm/v1/chat" } },
+				],
+			},
+		},
+		// Traffic-split endpoint whose entities resolve to different native
+		// protocols — no unanimous native route, so the chat fallback is stamped
+		{
+			name: "mixed-vendor-split",
+			task: "llm/v1/chat",
+			state: { ready: "READY" },
+			config: {
+				served_entities: [
+					{ foundation_model: { name: "databricks-claude-sonnet-4-5" } },
 					{ external_model: { provider: "openai", name: "gpt-4o", task: "llm/v1/chat" } },
 				],
 			},
@@ -103,10 +145,10 @@ const SERVING_ENDPOINTS_FIXTURE = {
 	],
 };
 
-/** Foundation-models list fixture (gateway discovery) covering the api_types filter. */
+/** Foundation-models list fixture (gateway discovery). */
 const FOUNDATION_MODELS_FIXTURE = {
 	endpoints: [
-		// Chat-capable foundation model with gateway v2 support
+		// Advertises the native Anthropic Messages API alongside gateway chat
 		{
 			name: "databricks-claude-opus-4-8",
 			config: {
@@ -126,7 +168,7 @@ const FOUNDATION_MODELS_FIXTURE = {
 				],
 			},
 		},
-		// Chat-capable open model
+		// Gateway chat only — the chat fallback
 		{
 			name: "databricks-llama-4-maverick",
 			config: {
@@ -142,7 +184,7 @@ const FOUNDATION_MODELS_FIXTURE = {
 				],
 			},
 		},
-		// Embeddings model — excluded (no chat api_type)
+		// Embeddings model — excluded (never advertises the chat api_type)
 		{
 			name: "databricks-gte-large-en",
 			config: {
@@ -197,37 +239,78 @@ function jsonResponse(body: unknown, status = 200): Response {
 	});
 }
 
+interface CapturedChatRequest {
+	url: string;
+	headers: Headers;
+}
+
 /**
- * Stub global fetch with a URL router. `probeStatus` controls the gateway
- * availability probe; list URLs serve their fixtures.
+ * Stub global fetch with a workspace router: the gateway probe and the two
+ * discovery lists serve fixtures (statuses are mutable so a sequence can be
+ * scripted), and every other request is treated as a chat request — captured
+ * and answered with a minimal event stream.
  */
-function stubRoutedFetch(options: {
+function stubWorkspaceFetch(initial: {
 	probeStatus: number;
 	servingStatus?: number;
 	foundationStatus?: number;
-}): ReturnType<typeof vi.fn> {
-	const fetchMock = vi.fn(async (input: string | URL | Request) => {
+}) {
+	const status = { ...initial };
+	const chatRequests: CapturedChatRequest[] = [];
+
+	const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
 		const url = typeof input === "string" || input instanceof URL ? input.toString() : input.url;
 		if (url === PROBE_URL) {
-			return jsonResponse({ endpoints: [] }, options.probeStatus);
+			return jsonResponse({ endpoints: [] }, status.probeStatus);
 		}
 		if (url === SERVING_LIST_URL) {
-			return jsonResponse(SERVING_ENDPOINTS_FIXTURE, options.servingStatus ?? 200);
+			return jsonResponse(SERVING_ENDPOINTS_FIXTURE, status.servingStatus ?? 200);
 		}
 		if (url === FOUNDATION_LIST_URL) {
-			return jsonResponse(FOUNDATION_MODELS_FIXTURE, options.foundationStatus ?? 200);
+			return jsonResponse(FOUNDATION_MODELS_FIXTURE, status.foundationStatus ?? 200);
 		}
-		return jsonResponse({ message: `unexpected URL: ${url}` }, 500);
+		chatRequests.push({
+			url,
+			headers: input instanceof Request ? new Headers(input.headers) : new Headers(init?.headers),
+		});
+		return new Response("", { status: 200, headers: { "content-type": "text/event-stream" } });
 	});
 	vi.stubGlobal("fetch", fetchMock);
-	return fetchMock;
+
+	return {
+		fetchMock,
+		status,
+		chatRequests,
+		urlsCalled: (): string[] =>
+			fetchMock.mock.calls.map((call) => {
+				const input = call[0];
+				return typeof input === "string" || input instanceof URL ? input.toString() : input.url;
+			}),
+		probeCount: (): number =>
+			fetchMock.mock.calls.filter((call) => String(call[0]) === PROBE_URL).length,
+	};
 }
 
-function listUrlsCalled(fetchMock: ReturnType<typeof vi.fn>): string[] {
-	return fetchMock.mock.calls.map((call) => {
-		const input = call[0] as string | URL | Request;
-		return typeof input === "string" || input instanceof URL ? input.toString() : input.url;
-	});
+/** Drive one chat request through the multiplexer, ignoring stream errors. */
+async function runChat(
+	client: ModelClient,
+	params: { model: string; protocol?: Protocol; baseUrl?: string },
+): Promise<void> {
+	try {
+		const stream = await client.chat({
+			model: params.model,
+			messages: [{ role: "user", content: "hello" }],
+			protocol: params.protocol,
+			baseUrl: params.baseUrl,
+			cancellationToken,
+		});
+		for await (const _part of stream) {
+			// Drain the (empty) mocked event stream.
+		}
+	} catch {
+		// The mocked stream is minimal; stream errors are irrelevant — these tests
+		// assert on the captured request.
+	}
 }
 
 describe("parseServingEndpointsResponse", () => {
@@ -236,61 +319,65 @@ describe("parseServingEndpointsResponse", () => {
 
 		expect(models.map((m) => m.id)).toEqual([
 			"databricks-claude-sonnet-4-5",
+			"databricks-gemini-2-5-pro",
 			"my-gpt-4o-gateway",
+			"mixed-vendor-split",
 			"my-custom-chat-model",
 		]);
 	});
 
+	it("stamps each endpoint with the protocol it will be routed over", () => {
+		const models = parseServingEndpointsResponse(SERVING_ENDPOINTS_FIXTURE);
+		const protocols = Object.fromEntries(models.map((m) => [m.id, m.protocol]));
+
+		expect(protocols).toEqual({
+			"databricks-claude-sonnet-4-5": "anthropic-messages",
+			"databricks-gemini-2-5-pro": "google-generative",
+			"my-gpt-4o-gateway": "openai-responses",
+			// Entities disagree on the native protocol — explicit chat fallback.
+			"mixed-vendor-split": "openai-chat",
+			// Unrecognized model — explicit chat fallback, never an absent protocol.
+			"my-custom-chat-model": "openai-chat",
+		});
+	});
+
 	it("maps endpoint name to model id and foundation display name to model name", () => {
 		const models = parseServingEndpointsResponse(SERVING_ENDPOINTS_FIXTURE);
-		const claude = models.find((m) => m.id === "databricks-claude-sonnet-4-5");
 
-		expect(claude).toMatchObject({
+		expect(models.find((m) => m.id === "databricks-claude-sonnet-4-5")).toMatchObject({
 			id: "databricks-claude-sonnet-4-5",
 			name: "Claude Sonnet 4.5",
 			providerId: "databricks",
+			vendor: "anthropic",
+		});
+		expect(models.find((m) => m.id === "my-custom-chat-model")).toMatchObject({
+			name: "my-custom-chat-model",
 			vendor: "databricks",
-			protocol: "openai",
 		});
 	});
 
-	it("infers Claude capabilities from the foundation model name", () => {
+	it("gives natively-routed models their vendor capabilities and degrades the chat fallback", () => {
 		const models = parseServingEndpointsResponse(SERVING_ENDPOINTS_FIXTURE);
-		const claude = models.find((m) => m.id === "databricks-claude-sonnet-4-5");
+		const byId = (id: string) => models.find((m) => m.id === id);
 
-		expect(claude).toMatchObject({
+		// The native `/v1/messages` route keeps the Anthropic table verbatim,
+		// including PDF input, which the chat-completions surface cannot take.
+		expect(byId("databricks-claude-sonnet-4-5")).toMatchObject({
 			family: "claude-4.5",
 			maxContextLength: 200_000,
 			supportsImages: true,
-			supportsToolResultImages: true,
 		});
-		// Thinking controls are not offered for Databricks in v1.
-		expect(claude?.thinkingEffortLevels).toBeUndefined();
-	});
+		expect(byId("databricks-claude-sonnet-4-5")?.supportedInputMediaTypes).toContain(
+			"application/pdf",
+		);
+		// Thinking controls come back on the native Gemini route.
+		expect(byId("databricks-gemini-2-5-pro")?.thinkingEffortLevels).toContain("high");
 
-	it("infers OpenAI capabilities from the external model name", () => {
-		const models = parseServingEndpointsResponse(SERVING_ENDPOINTS_FIXTURE);
-		const gpt = models.find((m) => m.id === "my-gpt-4o-gateway");
-
-		expect(gpt).toMatchObject({
-			family: "gpt-4o",
-			maxContextLength: 128_000,
-			supportsImages: true,
-		});
-		expect(gpt?.thinkingEffortLevels).toBeUndefined();
-	});
-
-	it("applies conservative defaults for unrecognized models", () => {
-		const models = parseServingEndpointsResponse(SERVING_ENDPOINTS_FIXTURE);
-		const custom = models.find((m) => m.id === "my-custom-chat-model");
-
-		expect(custom).toMatchObject({
-			name: "my-custom-chat-model",
-			supportsTools: true,
-			supportsImages: false,
-			maxContextLength: 128_000,
-			maxOutputTokens: 16_384,
-		});
+		// Chat-fallback endpoints stay on the degraded profile: no thinking
+		// controls, and no PDF even for a Claude entity.
+		expect(byId("mixed-vendor-split")?.thinkingEffortLevels).toBeUndefined();
+		expect(byId("mixed-vendor-split")?.supportedInputMediaTypes).not.toContain("application/pdf");
+		expect(byId("my-custom-chat-model")?.thinkingEffortLevels).toBeUndefined();
 	});
 
 	it("returns an empty list for a malformed response", () => {
@@ -300,12 +387,12 @@ describe("parseServingEndpointsResponse", () => {
 });
 
 describe("parseFoundationModelsResponse", () => {
-	it("keeps only gateway-v2 chat-capable models", () => {
+	it("lists only endpoints the gateway can actually route, stamped per advertised api_types", () => {
 		const models = parseFoundationModelsResponse(FOUNDATION_MODELS_FIXTURE);
 
-		expect(models.map((m) => m.id)).toEqual([
-			"databricks-claude-opus-4-8",
-			"databricks-llama-4-maverick",
+		expect(models.map((m) => [m.id, m.protocol])).toEqual([
+			["databricks-claude-opus-4-8", "anthropic-messages"],
+			["databricks-llama-4-maverick", "openai-chat"],
 		]);
 	});
 
@@ -316,13 +403,12 @@ describe("parseFoundationModelsResponse", () => {
 		expect(opus).toMatchObject({
 			name: "Claude Opus 4.8",
 			providerId: "databricks",
-			vendor: "databricks",
-			protocol: "openai",
+			vendor: "anthropic",
 			family: "claude-4.8",
 			maxContextLength: 1_000_000,
 			supportsImages: true,
 		});
-		expect(opus?.thinkingEffortLevels).toBeUndefined();
+		expect(opus?.thinkingEffortLevels).toContain("high");
 	});
 
 	it("returns an empty list for a malformed response", () => {
@@ -331,29 +417,11 @@ describe("parseFoundationModelsResponse", () => {
 	});
 });
 
-describe("rewriteServingUrlToGateway", () => {
-	it("rewrites the serving chat path to the gateway base path", () => {
-		expect(rewriteServingUrlToGateway(`${HOST}/serving-endpoints/chat/completions`, HOST)).toBe(
-			`${HOST}/ai-gateway/mlflow/v1/chat/completions`,
-		);
-	});
-
-	it("leaves non-serving URLs untouched", () => {
-		expect(rewriteServingUrlToGateway(`${HOST}/api/2.0/something`, HOST)).toBe(
-			`${HOST}/api/2.0/something`,
-		);
-		expect(rewriteServingUrlToGateway("https://other.example.com/serving-endpoints/x", HOST)).toBe(
-			"https://other.example.com/serving-endpoints/x",
-		);
-	});
-});
-
 describe("registerDatabricksProvider model fetcher", () => {
 	let registry: ProviderRegistry;
 
 	beforeEach(() => {
 		vi.clearAllMocks();
-		clearDatabricksGatewayModeCache();
 		registry = new ProviderRegistry(mockLogger);
 		registerDatabricksProvider(registry, mockLogger);
 	});
@@ -363,20 +431,16 @@ describe("registerDatabricksProvider model fetcher", () => {
 	});
 
 	it("uses serving-endpoints discovery when the gateway probe returns 404", async () => {
-		const fetchMock = stubRoutedFetch({ probeStatus: 404 });
+		const workspace = stubWorkspaceFetch({ probeStatus: 404 });
 
 		const models = await registry.getModelsForProvider("databricks", CREDENTIALS);
 
-		expect(models.map((m) => m.id)).toEqual([
-			"databricks-claude-sonnet-4-5",
-			"my-gpt-4o-gateway",
-			"my-custom-chat-model",
-		]);
-		expect(listUrlsCalled(fetchMock)).toEqual([PROBE_URL, SERVING_LIST_URL]);
+		expect(models.map((m) => m.id)).toContain("databricks-claude-sonnet-4-5");
+		expect(workspace.urlsCalled()).toEqual([PROBE_URL, SERVING_LIST_URL]);
 	});
 
 	it("uses foundation-models discovery when the gateway probe succeeds", async () => {
-		const fetchMock = stubRoutedFetch({ probeStatus: 200 });
+		const workspace = stubWorkspaceFetch({ probeStatus: 200 });
 
 		const models = await registry.getModelsForProvider("databricks", CREDENTIALS);
 
@@ -384,27 +448,23 @@ describe("registerDatabricksProvider model fetcher", () => {
 			"databricks-claude-opus-4-8",
 			"databricks-llama-4-maverick",
 		]);
-		expect(listUrlsCalled(fetchMock)).toEqual([PROBE_URL, FOUNDATION_LIST_URL]);
+		expect(workspace.urlsCalled()).toEqual([PROBE_URL, FOUNDATION_LIST_URL]);
 	});
 
-	it("falls back to serving mode without caching when the probe returns 5xx", async () => {
-		const fetchMock = stubRoutedFetch({ probeStatus: 503 });
+	it("probes once per registration and shares the pin with concurrent callers", async () => {
+		const workspace = stubWorkspaceFetch({ probeStatus: 200 });
 
-		const models = await registry.getModelsForProvider("databricks", CREDENTIALS);
+		const client = registry.getClientForProvider("databricks", CREDENTIALS);
+		await Promise.all([
+			registry.getModelsForProvider("databricks", CREDENTIALS),
+			runChat(client, { model: "databricks-llama-4-maverick", protocol: "openai-chat" }),
+		]);
 
-		expect(models.map((m) => m.id)).toContain("databricks-claude-sonnet-4-5");
-		expect(listUrlsCalled(fetchMock)).toEqual([PROBE_URL, SERVING_LIST_URL]);
-
-		// A fresh fetcher (new registry, shared module cache) must probe again —
-		// the transient failure was not cached as a definitive answer.
-		const secondRegistry = new ProviderRegistry(mockLogger);
-		registerDatabricksProvider(secondRegistry, mockLogger);
-		await secondRegistry.getModelsForProvider("databricks", CREDENTIALS);
-		expect(listUrlsCalled(fetchMock).filter((u) => u === PROBE_URL)).toHaveLength(2);
+		expect(workspace.probeCount()).toBe(1);
 	});
 
-	it("caches the definitive gateway probe result across fetcher instances", async () => {
-		const fetchMock = stubRoutedFetch({ probeStatus: 200 });
+	it("does not share the pin across independent registrations", async () => {
+		const workspace = stubWorkspaceFetch({ probeStatus: 200 });
 
 		await registry.getModelsForProvider("databricks", CREDENTIALS);
 
@@ -412,18 +472,18 @@ describe("registerDatabricksProvider model fetcher", () => {
 		registerDatabricksProvider(secondRegistry, mockLogger);
 		await secondRegistry.getModelsForProvider("databricks", CREDENTIALS);
 
-		expect(listUrlsCalled(fetchMock).filter((u) => u === PROBE_URL)).toHaveLength(1);
+		expect(workspace.probeCount()).toBe(2);
 	});
 
 	it("sends a Bearer token and additive customHeaders on probe and discovery", async () => {
-		const fetchMock = stubRoutedFetch({ probeStatus: 200 });
+		const workspace = stubWorkspaceFetch({ probeStatus: 200 });
 
 		await registry.getModelsForProvider("databricks", {
 			...CREDENTIALS,
 			customHeaders: { "x-databricks-use-coding-agent-mode": "true" },
 		});
 
-		for (const call of fetchMock.mock.calls) {
+		for (const call of workspace.fetchMock.mock.calls) {
 			expect(call[1]).toEqual({
 				headers: {
 					Authorization: "Bearer dapi-test-token",
@@ -434,18 +494,18 @@ describe("registerDatabricksProvider model fetcher", () => {
 	});
 
 	it("normalizes a scheme-less workspace host", async () => {
-		const fetchMock = stubRoutedFetch({ probeStatus: 404 });
+		const workspace = stubWorkspaceFetch({ probeStatus: 404 });
 
 		await registry.getModelsForProvider("databricks", {
 			...CREDENTIALS,
 			baseUrl: "adb-123.4.azuredatabricks.net/",
 		});
 
-		expect(listUrlsCalled(fetchMock)).toEqual([PROBE_URL, SERVING_LIST_URL]);
+		expect(workspace.urlsCalled()).toEqual([PROBE_URL, SERVING_LIST_URL]);
 	});
 
 	it("returns empty list when the API key is missing", async () => {
-		const fetchMock = stubRoutedFetch({ probeStatus: 200 });
+		const workspace = stubWorkspaceFetch({ probeStatus: 200 });
 
 		const models = await registry.getModelsForProvider("databricks", {
 			type: "apikey",
@@ -454,11 +514,11 @@ describe("registerDatabricksProvider model fetcher", () => {
 		});
 
 		expect(models).toEqual([]);
-		expect(fetchMock).not.toHaveBeenCalled();
+		expect(workspace.fetchMock).not.toHaveBeenCalled();
 	});
 
 	it("returns empty list when the workspace host is missing", async () => {
-		const fetchMock = stubRoutedFetch({ probeStatus: 200 });
+		const workspace = stubWorkspaceFetch({ probeStatus: 200 });
 
 		const models = await registry.getModelsForProvider("databricks", {
 			type: "apikey",
@@ -466,11 +526,11 @@ describe("registerDatabricksProvider model fetcher", () => {
 		});
 
 		expect(models).toEqual([]);
-		expect(fetchMock).not.toHaveBeenCalled();
+		expect(workspace.fetchMock).not.toHaveBeenCalled();
 	});
 
 	it("returns empty list when the discovery call fails", async () => {
-		stubRoutedFetch({ probeStatus: 404, servingStatus: 401 });
+		stubWorkspaceFetch({ probeStatus: 404, servingStatus: 401 });
 
 		const models = await registry.getModelsForProvider("databricks", CREDENTIALS);
 
@@ -478,12 +538,11 @@ describe("registerDatabricksProvider model fetcher", () => {
 	});
 });
 
-describe("registerDatabricksProvider client factory", () => {
+describe("registerDatabricksProvider surface pinning", () => {
 	let registry: ProviderRegistry;
 
 	beforeEach(() => {
 		vi.clearAllMocks();
-		clearDatabricksGatewayModeCache();
 		registry = new ProviderRegistry(mockLogger);
 		registerDatabricksProvider(registry, mockLogger);
 	});
@@ -492,10 +551,243 @@ describe("registerDatabricksProvider client factory", () => {
 		vi.unstubAllGlobals();
 	});
 
-	it("creates an OpenAI-compatible client for apikey credentials", () => {
-		const client = registry.getClientForProvider("databricks", CREDENTIALS);
+	it("pins serving on a failed probe and keeps routing there until the model cache is cleared", async () => {
+		const workspace = stubWorkspaceFetch({ probeStatus: 503 });
 
-		expect(client).toBeInstanceOf(OpenAIClient);
+		// Discovery probes first, fails, and is pinned to serving — its stamps are
+		// serving-qualified.
+		const models = await registry.getModelsForProvider("databricks", CREDENTIALS);
+		expect(models.map((m) => m.id)).toContain("databricks-claude-sonnet-4-5");
+
+		// The workspace recovers: a fresh probe would now report gateway.
+		workspace.status.probeStatus = 200;
+
+		await runChat(registry.getClientForProvider("databricks", CREDENTIALS), {
+			model: "databricks-claude-sonnet-4-5",
+			protocol: "anthropic-messages",
+		});
+
+		// The pin holds: no serving-qualified stamp is routed down a gateway path,
+		// and no second probe is fired.
+		expect(workspace.chatRequests.map((r) => r.url)).toEqual([
+			`${HOST}/serving-endpoints/anthropic/v1/messages`,
+		]);
+		expect(workspace.probeCount()).toBe(1);
+
+		// Clearing the model cache releases the pin, so the recovered workspace can
+		// be re-detected.
+		registry.clearModelCache("databricks");
+		await runChat(registry.getClientForProvider("databricks", CREDENTIALS), {
+			model: "databricks-claude-opus-4-8",
+			protocol: "anthropic-messages",
+		});
+
+		expect(workspace.probeCount()).toBe(2);
+		expect(workspace.chatRequests.at(-1)?.url).toBe(`${HOST}/ai-gateway/anthropic/v1/messages`);
+	});
+
+	it("probes and pins from a chat request made before any discovery call", async () => {
+		const workspace = stubWorkspaceFetch({ probeStatus: 200 });
+
+		// No getModelsForProvider first — the registry allows chat without it.
+		await runChat(registry.getClientForProvider("databricks", CREDENTIALS), {
+			model: "databricks-llama-4-maverick",
+			protocol: "openai-chat",
+		});
+
+		expect(workspace.chatRequests.map((r) => r.url)).toEqual([
+			`${HOST}/ai-gateway/mlflow/v1/chat/completions`,
+		]);
+
+		// A later discovery reuses the pin the chat request established.
+		const models = await registry.getModelsForProvider("databricks", CREDENTIALS);
+		expect(models.map((m) => m.id)).toContain("databricks-claude-opus-4-8");
+		expect(workspace.probeCount()).toBe(1);
+	});
+});
+
+describe("registerDatabricksProvider route seam", () => {
+	let registry: ProviderRegistry;
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		registry = new ProviderRegistry(mockLogger);
+		registerDatabricksProvider(registry, mockLogger);
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	/** Route one request and return the URL it landed on (query string dropped). */
+	async function routedUrl(
+		probeStatus: number,
+		params: { model: string; protocol?: Protocol; baseUrl?: string },
+	): Promise<string> {
+		const workspace = stubWorkspaceFetch({ probeStatus });
+		await runChat(registry.getClientForProvider("databricks", CREDENTIALS), params);
+		const request = workspace.chatRequests[0];
+		if (!request) throw new Error("no chat request was made");
+		return request.url.split("?")[0];
+	}
+
+	it("routes each protocol to its serving-surface base", async () => {
+		expect(
+			await routedUrl(404, {
+				model: "databricks-claude-sonnet-4-5",
+				protocol: "anthropic-messages",
+			}),
+		).toBe(`${HOST}/serving-endpoints/anthropic/v1/messages`);
+	});
+
+	it("routes OpenAI Responses to the serving surface root", async () => {
+		expect(await routedUrl(404, { model: "my-gpt-4o-gateway", protocol: "openai-responses" })).toBe(
+			`${HOST}/serving-endpoints/responses`,
+		);
+	});
+
+	it("routes Gemini generateContent to the serving surface v1beta base", async () => {
+		expect(
+			await routedUrl(404, { model: "databricks-gemini-2-5-pro", protocol: "google-generative" }),
+		).toBe(
+			`${HOST}/serving-endpoints/gemini/v1beta/models/databricks-gemini-2-5-pro:streamGenerateContent`,
+		);
+	});
+
+	it("routes chat completions (and an absent protocol) to the serving surface root", async () => {
+		expect(await routedUrl(404, { model: "my-custom-chat-model", protocol: "openai-chat" })).toBe(
+			`${HOST}/serving-endpoints/chat/completions`,
+		);
+
+		registry = new ProviderRegistry(mockLogger);
+		registerDatabricksProvider(registry, mockLogger);
+		expect(await routedUrl(404, { model: "my-custom-chat-model" })).toBe(
+			`${HOST}/serving-endpoints/chat/completions`,
+		);
+	});
+
+	it("routes each protocol to its gateway-surface base", async () => {
+		expect(
+			await routedUrl(200, { model: "databricks-claude-opus-4-8", protocol: "anthropic-messages" }),
+		).toBe(`${HOST}/ai-gateway/anthropic/v1/messages`);
+	});
+
+	it("routes gateway OpenAI Responses under /ai-gateway/openai/v1", async () => {
+		expect(await routedUrl(200, { model: "my-gpt-4o-gateway", protocol: "openai-responses" })).toBe(
+			`${HOST}/ai-gateway/openai/v1/responses`,
+		);
+	});
+
+	it("routes gateway Gemini generateContent under /ai-gateway/gemini/v1beta", async () => {
+		expect(
+			await routedUrl(200, { model: "databricks-gemini-2-5-pro", protocol: "google-generative" }),
+		).toBe(
+			`${HOST}/ai-gateway/gemini/v1beta/models/databricks-gemini-2-5-pro:streamGenerateContent`,
+		);
+	});
+
+	it("routes gateway chat completions under /ai-gateway/mlflow/v1", async () => {
+		expect(
+			await routedUrl(200, { model: "databricks-llama-4-maverick", protocol: "openai-chat" }),
+		).toBe(`${HOST}/ai-gateway/mlflow/v1/chat/completions`);
+	});
+
+	it("trusts a pipeline-supplied base URL verbatim and skips the probe", async () => {
+		const workspace = stubWorkspaceFetch({ probeStatus: 200 });
+
+		await runChat(registry.getClientForProvider("databricks", CREDENTIALS), {
+			model: "databricks-claude-sonnet-4-5",
+			protocol: "anthropic-messages",
+			baseUrl: "https://proxy.example.com/custom/anthropic/v1",
+		});
+
+		expect(workspace.chatRequests.map((r) => r.url)).toEqual([
+			"https://proxy.example.com/custom/anthropic/v1/messages",
+		]);
+		expect(workspace.probeCount()).toBe(0);
+	});
+
+	it("rejects a protocol it cannot route, naming the model and protocol", async () => {
+		stubWorkspaceFetch({ probeStatus: 404 });
+
+		await expect(
+			registry.getClientForProvider("databricks", CREDENTIALS).chat({
+				model: "some-bedrock-model",
+				messages: [{ role: "user", content: "hello" }],
+				protocol: "bedrock-converse",
+				cancellationToken,
+			}),
+		).rejects.toThrow(/some-bedrock-model.*bedrock-converse/);
+	});
+});
+
+describe("registerDatabricksProvider auth and headers", () => {
+	let registry: ProviderRegistry;
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		registry = new ProviderRegistry(mockLogger);
+		registerDatabricksProvider(registry, mockLogger);
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	/** Headers of the first chat request for one protocol, with custom headers set. */
+	async function chatHeaders(params: { model: string; protocol: Protocol }): Promise<Headers> {
+		const workspace = stubWorkspaceFetch({ probeStatus: 404 });
+		await runChat(
+			registry.getClientForProvider("databricks", {
+				...CREDENTIALS,
+				customHeaders: { "x-databricks-use-coding-agent-mode": "true" },
+			}),
+			params,
+		);
+		const request = workspace.chatRequests[0];
+		if (!request) throw new Error("no chat request was made");
+		return request.headers;
+	}
+
+	it("sends Bearer and additive custom headers on the Anthropic route, never x-api-key", async () => {
+		const headers = await chatHeaders({
+			model: "databricks-claude-sonnet-4-5",
+			protocol: "anthropic-messages",
+		});
+
+		expect(headers.get("authorization")).toBe("Bearer dapi-test-token");
+		expect(headers.get("x-api-key")).toBeNull();
+		expect(headers.get("x-databricks-use-coding-agent-mode")).toBe("true");
+	});
+
+	it("sends Bearer and additive custom headers on the OpenAI routes", async () => {
+		const headers = await chatHeaders({ model: "my-custom-chat-model", protocol: "openai-chat" });
+
+		expect(headers.get("authorization")).toBe("Bearer dapi-test-token");
+		expect(headers.get("x-databricks-use-coding-agent-mode")).toBe("true");
+	});
+
+	it("sends Bearer once and no x-goog-api-key on the Gemini route", async () => {
+		const headers = await chatHeaders({
+			model: "databricks-gemini-2-5-pro",
+			protocol: "google-generative",
+		});
+
+		expect(headers.get("authorization")).toBe("Bearer dapi-test-token");
+		// A duplicated header would surface as a comma-joined value.
+		expect(headers.get("authorization")).not.toContain(",");
+		expect(headers.has("x-goog-api-key")).toBe(false);
+		expect(headers.get("x-databricks-use-coding-agent-mode")).toBe("true");
+	});
+});
+
+describe("registerDatabricksProvider credential validation", () => {
+	let registry: ProviderRegistry;
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		registry = new ProviderRegistry(mockLogger);
+		registerDatabricksProvider(registry, mockLogger);
 	});
 
 	it("throws for non-apikey credentials", () => {

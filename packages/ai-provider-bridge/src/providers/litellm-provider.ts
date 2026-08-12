@@ -216,7 +216,7 @@ const litellmClientFactory: ClientFactory = (credentials) => {
 	// which must flow regardless of route. An empty key stays delegate-owned
 	// (the OpenAI client strips `Authorization` for keyless gateways).
 	const anthropicClient = new AnthropicClient(
-		credentials.apiKey,
+		{ apiKey: credentials.apiKey },
 		v1BaseUrl,
 		credentials.customHeaders,
 	);

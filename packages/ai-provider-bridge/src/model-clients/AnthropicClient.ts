@@ -24,19 +24,37 @@ import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 /** Maximum number of web searches per request */
 const WEB_SEARCH_MAX_USES = 5;
 
+/**
+ * How this client authenticates to the Anthropic Messages API.
+ *
+ * The two schemes are mutually exclusive on the wire: `apiKey` sends
+ * `x-api-key`, `authToken` sends `Authorization: Bearer` (used by gateways
+ * that front the Messages API, e.g. Databricks' native passthrough). The SDK
+ * owns both header schemes and rejects being given both at once, so the
+ * discriminated union keeps that impossible by construction.
+ */
+export type AnthropicClientAuth = { apiKey: string } | { authToken: string };
+
+/** Spread the auth config into exactly one `createAnthropic` credential option. */
+function anthropicAuthSettings(
+	auth: AnthropicClientAuth,
+): { apiKey: string } | { authToken: string } {
+	return "apiKey" in auth ? { apiKey: auth.apiKey } : { authToken: auth.authToken };
+}
+
 export class AnthropicClient implements ModelClient {
-	private readonly apiKey: string;
+	private readonly auth: AnthropicClientAuth;
 	private readonly baseURL?: string;
 	private readonly customHeaders?: Record<string, string>;
 	private readonly logger?: Logger;
 
 	constructor(
-		apiKey: string,
+		auth: AnthropicClientAuth,
 		baseURL?: string,
 		customHeaders?: Record<string, string>,
 		logger?: Logger,
 	) {
-		this.apiKey = apiKey;
+		this.auth = auth;
 		this.baseURL = baseURL;
 		this.customHeaders = customHeaders;
 		this.logger = logger;
@@ -49,7 +67,7 @@ export class AnthropicClient implements ModelClient {
 		const effectiveBaseUrl = params.baseUrl ?? this.baseURL;
 		const headers = safeSdkCustomHeaders(this.customHeaders);
 		const provider = createAnthropic({
-			apiKey: this.apiKey,
+			...anthropicAuthSettings(this.auth),
 			...(effectiveBaseUrl && { baseURL: effectiveBaseUrl }),
 			...(headers && { headers }),
 		});

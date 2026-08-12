@@ -1,6 +1,6 @@
 ---
 title: Gemini Interactions API
-description: Stateful chaining design, unsigned-reasoning filtering, and known API gotchas for the Gemini Interactions path.
+description: Stateful chaining design, unsigned-reasoning filtering, and known API gotchas for the Gemini Interactions path, contrasted with the stateless generateContent client used by gateways like Databricks.
 package: ai-provider-bridge
 ---
 
@@ -9,9 +9,39 @@ package: ai-provider-bridge
 How `GeminiClient` uses the Gemini Interactions API (`provider.interactions(modelId)`)
 for stateful conversation chaining.
 
-## Stateful Chaining
+## Two Gemini Clients
 
-All Gemini requests use the Interactions API with `store: true`. The server stores
+Not all Gemini requests use the Interactions API. `GeminiClient` (this
+document) is the direct-API path and always speaks Interactions. A second,
+separate class, `GeminiGenerateContentClient`
+(`src/model-clients/GeminiGenerateContentClient.ts`), speaks the plain
+`generateContent` surface (`POST {baseURL}/models/{model}:generateContent`)
+for gateways that expose Gemini-compatible passthrough but not the
+Interactions API — currently Databricks' native routing (see
+`memory-bank/architecture.md`'s Databricks section and
+`memory-bank/aiConfig.md`'s `inferDatabricksModelProfile`). It is a separate
+class rather than a mode flag: `GeminiClient` is deeply Interactions-specific
+(interaction-ID extraction, delta history, expired-ID retry), and forcing both
+surfaces through one bimodal class would blur that.
+
+The two clients differ at every point their host surface differs:
+
+| Aspect              | `GeminiClient` (Interactions)                                                          | `GeminiGenerateContentClient` (generateContent)                                                                                                                                            |
+| ------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| State               | Stateful — chains via `previousInteractionId`, sends only delta messages when chaining | Stateless — always sends full local history; nothing to chain, nothing can expire                                                                                                          |
+| Reasoning signature | `providerOptions.google.signature`, filtered by `filterUnsignedReasoning()`            | `providerOptions.google.thoughtSignature`, filtered by `sanitizeGenerateContentHistory()`; also preserves tool-call signatures, which Gemini 3 validates on replay                         |
+| Retry               | `withExpiredIdRetry()` retries once on expired-interaction errors                      | No retry path — there is no interaction ID to expire                                                                                                                                       |
+| Thinking control    | `thinkingLevel` validated against per-model `INTERACTIONS_PROFILES`, top-level option  | `thinkingConfig`: numeric `thinkingBudget` for Gemini 2.5 variants, categorical `thinkingLevel` for 3.x, derived from ai-config's `getGeminiGenerateContentProfile` at variant granularity |
+| Auth                | SDK-native                                                                             | `apiKey` mode uses the SDK's native `x-goog-api-key`; `authToken` (bearer gateways) uses a fetch middleware that sets `Authorization: Bearer` and strips `x-goog-api-key`                  |
+
+`sanitizeGenerateContentHistory()` is deliberately **not** a reuse of
+`filterUnsignedReasoning()`: the two APIs key signed reasoning on different
+`providerOptions.google` fields, so applying the Interactions filter to
+generateContent history would discard every valid thought, and vice versa.
+
+## Stateful Chaining (Interactions API)
+
+All requests through `GeminiClient` use the Interactions API with `store: true`. The server stores
 interaction state, enabling efficient continuations.
 
 - **`extractPreviousInteractionId()`** scans message history backwards to find the

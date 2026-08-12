@@ -60,7 +60,7 @@ const CASES: Record<string, ClientCase> = {
 	Anthropic: {
 		host: "https://api.anthropic.com",
 		versioned: "https://api.anthropic.com/v1",
-		construct: (baseUrl) => new AnthropicClient("sk-test", baseUrl),
+		construct: (baseUrl) => new AnthropicClient({ apiKey: "sk-test" }, baseUrl),
 		model: "claude-opus-4-8",
 		factory: createAnthropic,
 	},
