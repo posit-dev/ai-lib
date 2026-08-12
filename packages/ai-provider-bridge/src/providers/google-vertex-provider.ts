@@ -2,13 +2,14 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
+import type { ResolvedProviderId } from "ai-config";
 import { getAnthropicModelCapabilities } from "ai-config";
 import { GoogleAuth } from "google-auth-library";
 
 import { GoogleVertexClient } from "../model-clients/GoogleVertexClient";
 import type { Logger, ModelInfo, ProviderCredentials } from "../types";
 import { NOTIFICATION_ACTIONS } from "../types";
-import type { ProviderRegistry } from "./ProviderRegistry";
+import type { ClientFactory, ProviderRegistry } from "./ProviderRegistry";
 
 /**
  * Optional callbacks for platform-specific Google Vertex provider status updates.
@@ -179,223 +180,220 @@ export function claudeDisplayName(modelId: string): string {
 	return `Claude ${tier} ${version}`;
 }
 
-export function registerGoogleVertexProvider(
-	registry: ProviderRegistry,
+function createGoogleVertexModelFetcher(
+	providerId: ResolvedProviderId,
 	logger: Logger,
 	callbacks?: GoogleVertexProviderCallbacks,
-): void {
-	// Register model fetcher with closure-based caching
-	registry.registerModelFetcher(
-		"google-vertex",
-		(() => {
-			const TTL = MODEL_CACHE_TTL;
-			let lastFetch = 0;
-			let cachedModels: ModelInfo[] | null = null;
+) {
+	return (() => {
+		const TTL = MODEL_CACHE_TTL;
+		let lastFetch = 0;
+		let cachedModels: ModelInfo[] | null = null;
 
-			const fetcher = async (credentials: ProviderCredentials): Promise<ModelInfo[]> => {
-				// 1. Guard: Check credential type
-				if (credentials.type !== "google-cloud") {
-					logger.warn(`[GoogleVertex] Wrong credential type '${credentials.type}'`);
-					return [];
-				}
+		const fetcher = async (credentials: ProviderCredentials): Promise<ModelInfo[]> => {
+			// 1. Guard: Check credential type
+			if (credentials.type !== "google-cloud") {
+				logger.warn(`[GoogleVertex] Wrong credential type '${credentials.type}'`);
+				return [];
+			}
 
-				// 2. Guard: Check project configured
-				if (!credentials.project) {
-					logger.warn("[GoogleVertex] No project configured");
-					return [];
-				}
+			// 2. Guard: Check project configured
+			if (!credentials.project) {
+				logger.warn("[GoogleVertex] No project configured");
+				return [];
+			}
 
-				// 3. Check cache freshness
-				const now = Date.now();
-				if (cachedModels && now - lastFetch < TTL) {
-					logger.debug("[GoogleVertex] Using cached models");
-					return cachedModels;
-				}
+			// 3. Check cache freshness
+			const now = Date.now();
+			if (cachedModels && now - lastFetch < TTL) {
+				logger.debug("[GoogleVertex] Using cached models");
+				return cachedModels;
+			}
 
-				// 4. Try to fetch from Vertex AI API
-				try {
-					const location = credentials.location || "us-central1";
+			// 4. Try to fetch from Vertex AI API
+			try {
+				const location = credentials.location || "us-central1";
 
-					logger.info(
-						`[GoogleVertex] Fetching models from Vertex AI API (project=${credentials.project}, location=${location}, anthropicLocation=global)`,
-					);
+				logger.info(
+					`[GoogleVertex] Fetching models from Vertex AI API (project=${credentials.project}, location=${location}, anthropicLocation=global)`,
+				);
 
-					const token = await getAccessToken(credentials.accessToken);
+				const token = await getAccessToken(credentials.accessToken);
 
-					// Fetch from both publishers in parallel, collecting errors
-					// so that if both fail we can propagate to the outer catch
-					let googleError: Error | null = null;
-					let anthropicError: Error | null = null;
-					const [googleModels, anthropicModels] = await Promise.all([
-						fetchPublisherModels(credentials.project, location, "google", token).catch((err) => {
-							googleError = err instanceof Error ? err : new Error(String(err));
-							logger.warn(`[GoogleVertex] Failed to fetch Google models: ${googleError.message}`);
-							return [];
-						}),
-						fetchPublisherModels(credentials.project, "global", "anthropic", token).catch((err) => {
-							anthropicError = err instanceof Error ? err : new Error(String(err));
-							logger.warn(
-								`[GoogleVertex] Failed to fetch Anthropic models: ${anthropicError.message}`,
-							);
-							return [];
-						}),
-					]);
-
-					// If both publisher fetches failed, re-throw so the outer catch
-					// can surface auth_error / network_error status to the UI
-					if (googleError && anthropicError) {
-						throw isAuthError(googleError)
-							? googleError
-							: isAuthError(anthropicError)
-								? anthropicError
-								: googleError;
-					}
-
-					const freshModels: ModelInfo[] = [];
-
-					// Parse Google models - only include Gemini text generation models
-					// Exclude embedding, image generation, computer-use, and other non-chat models
-					for (const model of googleModels) {
-						const id = stripResourcePrefix(model.name);
-						if (!id.includes("gemini")) continue;
-						if (/embedding|image|computer-use/.test(id)) continue;
-
-						freshModels.push({
-							id,
-							name: geminiDisplayName(id),
-							providerId: "google-vertex",
-							vendor: "google",
-							family: undefined,
-							maxInputTokens: model.inputTokenLimit || 1000000,
-							maxOutputTokens: model.outputTokenLimit || 65536,
-							supportsTools: true,
-							supportsImages: true,
-							supportsToolResultImages: false,
-							supportedInputMediaTypes: [
-								"image/png",
-								"image/jpeg",
-								"image/gif",
-								"image/webp",
-								"application/pdf",
-							],
-							supportsWebSearch: false,
-							maxContextLength: model.inputTokenLimit || 1000000,
-						});
-					}
-
-					// Parse Anthropic partner models
-					for (const model of anthropicModels) {
-						const id = stripResourcePrefix(model.name);
-						const capabilities = getAnthropicModelCapabilities(id);
-
-						freshModels.push({
-							id,
-							name: claudeDisplayName(id),
-							providerId: "google-vertex",
-							vendor: "anthropic",
-							family: undefined,
-							maxInputTokens: undefined,
-							maxOutputTokens: undefined,
-							supportsTools: true,
-							supportsImages: true,
-							supportsToolResultImages: true,
-							supportedInputMediaTypes: [
-								"image/png",
-								"image/jpeg",
-								"image/gif",
-								"image/webp",
-								"application/pdf",
-							],
-							maxContextLength: 200000,
-							// Spread Anthropic capabilities (token limits, family, thinking effort)
-							...capabilities,
-							supportsWebSearch: false,
-						});
-					}
-
-					if (freshModels.length === 0) {
-						logger.warn("[GoogleVertex] API returned no models");
-						return cachedModels || [];
-					}
-
-					// Update cache
-					lastFetch = now;
-					cachedModels = freshModels;
-					logger.info(`[GoogleVertex] Fetched ${freshModels.length} models from API`);
-
-					// Clear any previous auth errors since fetch succeeded
-					await callbacks?.onProviderStatusChange?.({
-						providerId: "google-vertex",
-						authMethodId: "google-cloud",
-						status: "ok",
-					});
-
-					return freshModels;
-				} catch (error) {
-					const errorMsg = error instanceof Error ? error.message : String(error);
-
-					if (isAuthError(error)) {
-						const isBrokeredAuth = Boolean(credentials.accessToken);
-						const authMessage = isBrokeredAuth
-							? "Google Cloud authentication expired or is unavailable. Reconnect Google Cloud auth in Positron, then click Refresh Models."
-							: "Google Cloud credentials expired or missing. Run 'gcloud auth application-default login' to refresh, then click Refresh Models.";
-						logger.error(`[GoogleVertex] ${authMessage} Error: ${errorMsg}`);
-
-						await callbacks?.onProviderStatusChange?.({
-							providerId: "google-vertex",
-							authMethodId: "google-cloud",
-							status: "auth_error",
-							error: {
-								code: isBrokeredAuth ? "google_cloud_auth_expired" : "adc_expired",
-								message: authMessage,
-								action: {
-									label: "Refresh Models",
-									commandId: NOTIFICATION_ACTIONS.REFRESH_MODELS,
-								},
-							},
-						});
-
-						// Clear cache so subsequent requests don't short-circuit
-						cachedModels = null;
-						lastFetch = 0;
-
+				// Fetch from both publishers in parallel, collecting errors
+				// so that if both fail we can propagate to the outer catch
+				let googleError: Error | null = null;
+				let anthropicError: Error | null = null;
+				const [googleModels, anthropicModels] = await Promise.all([
+					fetchPublisherModels(credentials.project, location, "google", token).catch((err) => {
+						googleError = err instanceof Error ? err : new Error(String(err));
+						logger.warn(`[GoogleVertex] Failed to fetch Google models: ${googleError.message}`);
 						return [];
-					}
+					}),
+					fetchPublisherModels(credentials.project, "global", "anthropic", token).catch((err) => {
+						anthropicError = err instanceof Error ? err : new Error(String(err));
+						logger.warn(
+							`[GoogleVertex] Failed to fetch Anthropic models: ${anthropicError.message}`,
+						);
+						return [];
+					}),
+				]);
 
-					// Non-auth errors (network, service issues)
-					logger.warn(`[GoogleVertex] API fetch failed: ${errorMsg}, using fallback`);
+				// If both publisher fetches failed, re-throw so the outer catch
+				// can surface auth_error / network_error status to the UI
+				if (googleError && anthropicError) {
+					throw isAuthError(googleError)
+						? googleError
+						: isAuthError(anthropicError)
+							? anthropicError
+							: googleError;
+				}
+
+				const freshModels: ModelInfo[] = [];
+
+				// Parse Google models - only include Gemini text generation models
+				// Exclude embedding, image generation, computer-use, and other non-chat models
+				for (const model of googleModels) {
+					const id = stripResourcePrefix(model.name);
+					if (!id.includes("gemini")) continue;
+					if (/embedding|image|computer-use/.test(id)) continue;
+
+					freshModels.push({
+						id,
+						name: geminiDisplayName(id),
+						providerId,
+						vendor: "google",
+						family: undefined,
+						maxInputTokens: model.inputTokenLimit || 1000000,
+						maxOutputTokens: model.outputTokenLimit || 65536,
+						supportsTools: true,
+						supportsImages: true,
+						supportsToolResultImages: false,
+						supportedInputMediaTypes: [
+							"image/png",
+							"image/jpeg",
+							"image/gif",
+							"image/webp",
+							"application/pdf",
+						],
+						supportsWebSearch: false,
+						maxContextLength: model.inputTokenLimit || 1000000,
+					});
+				}
+
+				// Parse Anthropic partner models
+				for (const model of anthropicModels) {
+					const id = stripResourcePrefix(model.name);
+					const capabilities = getAnthropicModelCapabilities(id);
+
+					freshModels.push({
+						id,
+						name: claudeDisplayName(id),
+						providerId,
+						vendor: "anthropic",
+						family: undefined,
+						maxInputTokens: undefined,
+						maxOutputTokens: undefined,
+						supportsTools: true,
+						supportsImages: true,
+						supportsToolResultImages: true,
+						supportedInputMediaTypes: [
+							"image/png",
+							"image/jpeg",
+							"image/gif",
+							"image/webp",
+							"application/pdf",
+						],
+						maxContextLength: 200000,
+						// Spread Anthropic capabilities (token limits, family, thinking effort)
+						...capabilities,
+						supportsWebSearch: false,
+					});
+				}
+
+				if (freshModels.length === 0) {
+					logger.warn("[GoogleVertex] API returned no models");
+					return cachedModels || [];
+				}
+
+				// Update cache
+				lastFetch = now;
+				cachedModels = freshModels;
+				logger.info(`[GoogleVertex] Fetched ${freshModels.length} models from API`);
+
+				// Clear any previous auth errors since fetch succeeded
+				await callbacks?.onProviderStatusChange?.({
+					providerId,
+					authMethodId: "google-cloud",
+					status: "ok",
+				});
+
+				return freshModels;
+			} catch (error) {
+				const errorMsg = error instanceof Error ? error.message : String(error);
+
+				if (isAuthError(error)) {
+					const isBrokeredAuth = Boolean(credentials.accessToken);
+					const authMessage = isBrokeredAuth
+						? "Google Cloud authentication expired or is unavailable. Reconnect Google Cloud auth in Positron, then click Refresh Models."
+						: "Google Cloud credentials expired or missing. Run 'gcloud auth application-default login' to refresh, then click Refresh Models.";
+					logger.error(`[GoogleVertex] ${authMessage} Error: ${errorMsg}`);
 
 					await callbacks?.onProviderStatusChange?.({
-						providerId: "google-vertex",
+						providerId,
 						authMethodId: "google-cloud",
-						status: "network_error",
+						status: "auth_error",
 						error: {
-							code: "network_error",
-							message: errorMsg,
+							code: isBrokeredAuth ? "google_cloud_auth_expired" : "adc_expired",
+							message: authMessage,
+							action: {
+								label: "Refresh Models",
+								commandId: NOTIFICATION_ACTIONS.REFRESH_MODELS,
+							},
 						},
 					});
 
-					// Return stale cache if available, otherwise static fallback
-					if (cachedModels) {
-						logger.debug("[GoogleVertex] Returning stale cached models");
-						return cachedModels;
-					}
+					// Clear cache so subsequent requests don't short-circuit
+					cachedModels = null;
+					lastFetch = 0;
 
 					return [];
 				}
-			};
 
-			fetcher.clearCache = () => {
-				cachedModels = null;
-				lastFetch = 0;
-			};
+				// Non-auth errors (network, service issues)
+				logger.warn(`[GoogleVertex] API fetch failed: ${errorMsg}, using fallback`);
 
-			return fetcher;
-		})(),
-	);
+				await callbacks?.onProviderStatusChange?.({
+					providerId,
+					authMethodId: "google-cloud",
+					status: "network_error",
+					error: {
+						code: "network_error",
+						message: errorMsg,
+					},
+				});
 
-	// Register client factory
-	registry.registerClientFactory("google-vertex", (credentials) => {
+				// Return stale cache if available, otherwise static fallback
+				if (cachedModels) {
+					logger.debug("[GoogleVertex] Returning stale cached models");
+					return cachedModels;
+				}
+
+				return [];
+			}
+		};
+
+		fetcher.clearCache = () => {
+			cachedModels = null;
+			lastFetch = 0;
+		};
+
+		return fetcher;
+	})();
+}
+
+function createGoogleVertexClientFactory(logger: Logger): ClientFactory {
+	return (credentials) => {
 		if (credentials.type !== "google-cloud") {
 			throw new Error(
 				"Google Vertex provider requires Google Cloud credentials, got: " + credentials.type,
@@ -410,5 +408,30 @@ export function registerGoogleVertexProvider(
 			},
 			logger,
 		);
-	});
+	};
+}
+
+export function registerGoogleVertexProvider(
+	registry: ProviderRegistry,
+	logger: Logger,
+	callbacks?: GoogleVertexProviderCallbacks,
+): void {
+	registry.registerModelFetcher(
+		"google-vertex",
+		createGoogleVertexModelFetcher("google-vertex", logger, callbacks),
+	);
+	registry.registerClientFactory("google-vertex", createGoogleVertexClientFactory(logger));
+}
+
+export function registerCustomGoogleVertexProvider(
+	registry: ProviderRegistry,
+	providerId: ResolvedProviderId,
+	logger: Logger,
+	callbacks?: GoogleVertexProviderCallbacks,
+): void {
+	registry.registerModelFetcher(
+		providerId,
+		createGoogleVertexModelFetcher(providerId, logger, callbacks),
+	);
+	registry.registerClientFactory("google-vertex", createGoogleVertexClientFactory(logger));
 }

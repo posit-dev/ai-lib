@@ -4,7 +4,11 @@
 
 import { describe, expect, it } from "vitest";
 
-import { normalizeBaseUrlForProvider } from "../base-url.js";
+import {
+	normalizeBaseUrlForProvider,
+	normalizeOpenRouterBaseUrl,
+	OPENROUTER_DEFAULT_BASE_URL,
+} from "../base-url.js";
 
 interface KnownProviderCase {
 	providerId: "anthropic" | "openai" | "gemini" | "lmstudio";
@@ -89,5 +93,19 @@ describe("normalizeBaseUrlForProvider: unknown providers", () => {
 describe("normalizeBaseUrlForProvider: totality", () => {
 	it("never returns undefined; empty string in, empty string out", () => {
 		expect(normalizeBaseUrlForProvider("anthropic", "")).toBe("");
+	});
+});
+
+describe("normalizeOpenRouterBaseUrl", () => {
+	it("defaults to the canonical API root", () => {
+		expect(normalizeOpenRouterBaseUrl()).toBe(OPENROUTER_DEFAULT_BASE_URL);
+	});
+
+	it.each([
+		["https://openrouter.ai", "https://openrouter.ai/api/v1"],
+		[" https://gateway.example.com/ ", "https://gateway.example.com/api/v1"],
+		["https://gateway.example.com/api/v1/", "https://gateway.example.com/api/v1"],
+	])("normalizes %s", (input, expected) => {
+		expect(normalizeOpenRouterBaseUrl(input)).toBe(expected);
 	});
 });

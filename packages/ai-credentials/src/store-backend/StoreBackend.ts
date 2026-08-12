@@ -34,6 +34,9 @@ export interface AuthMethodDescriptor {
 export interface CreateStoreBackendOptions {
 	store: SingleFileStore;
 	resolveAuthMethod(providerId: string): AuthMethodDescriptor | undefined;
+	awsConnectionForProvider?: (
+		providerId: string,
+	) => { region?: string; profile?: string } | undefined;
 	oauthConfigForProvider?: (
 		providerId: string,
 		source?: CredentialSourceContext,
@@ -69,6 +72,7 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 	const {
 		store,
 		resolveAuthMethod,
+		awsConnectionForProvider,
 		oauthConfigForProvider,
 		shapeToken,
 		notifyReady,
@@ -96,7 +100,10 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 		return parsed.data;
 	}
 
-	function normalize(record: StoredProviderCredentials | undefined): NormalizedStored | null {
+	function normalize(
+		providerId: string,
+		record: StoredProviderCredentials | undefined,
+	): NormalizedStored | null {
 		if (!record) return null;
 		const readiness =
 			record.readiness ??
@@ -167,6 +174,26 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 				source: { type: "aws-credentials", ...record.awsAuth },
 			};
 		}
+		if (record.awsKeys) {
+			const connection = awsConnectionForProvider?.(providerId);
+			if (!connection?.region) {
+				return {
+					readiness: "unauthenticated",
+					generation: record.generation,
+					error: "AWS region is required",
+				};
+			}
+			return {
+				readiness: "ready",
+				generation: record.generation,
+				source: {
+					type: "aws-credentials",
+					region: connection.region,
+					...(connection.profile ? { profile: connection.profile } : {}),
+					...record.awsKeys,
+				},
+			};
+		}
 		if (record.googleCloudAuth) {
 			return {
 				readiness: "ready",
@@ -178,7 +205,7 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 	}
 
 	async function storedSource(providerId: string): Promise<NormalizedStored | null> {
-		return normalize(await readRecord(providerId));
+		return normalize(providerId, await readRecord(providerId));
 	}
 
 	type EnvironmentResolution =
@@ -319,6 +346,10 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 			const current = await readRecord(providerId);
 			const generation = generationFactory();
 			if (mutation.kind === "clear") {
+				if (current?.awsKeys) {
+					await store.delete(key);
+					return;
+				}
 				await store.set(key, {
 					generation,
 					readiness: "unauthenticated",
@@ -362,6 +393,30 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 						generation,
 					),
 				);
+				return;
+			}
+			if (mutation.kind === "update-aws-keys") {
+				if (mutation.keys.kind === "clear") {
+					await store.delete(key);
+					return;
+				}
+				if (mutation.keys.kind === "preserve") {
+					if (!current?.awsKeys) {
+						throw new Error("No stored manual AWS keys are available to preserve");
+					}
+					return;
+				}
+				await store.set(key, {
+					generation,
+					readiness: "ready",
+					configured: true,
+					authenticated: true,
+					awsKeys: {
+						accessKeyId: mutation.keys.accessKeyId,
+						secretAccessKey: mutation.keys.secretAccessKey,
+						...(mutation.keys.sessionToken ? { sessionToken: mutation.keys.sessionToken } : {}),
+					},
+				} satisfies StoredProviderCredentials);
 				return;
 			}
 			await store.set(key, recordForSource(mutation.source, generation));
@@ -434,7 +489,7 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 		const key = keyFor(providerId);
 		if (!key) throw new Error(`Unknown provider: ${providerId}`);
 		return store.withLock(async () => {
-			const normalized = normalize(await readRecord(providerId));
+			const normalized = normalize(providerId, await readRecord(providerId));
 			const generation = generationFactory();
 			let source: CredentialSourceInput = { type: "oauth-device" };
 			if (normalized?.source) source = normalized.source;
@@ -478,7 +533,7 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 		const key = keyFor(providerId);
 		if (!key) return "superseded";
 		return store.withLock(async () => {
-			const current = normalize(await readRecord(providerId));
+			const current = normalize(providerId, await readRecord(providerId));
 			if (!current || current.generation !== generation) return "superseded";
 			const next = build(current);
 			if (!next) return "superseded";
@@ -498,7 +553,7 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 	async function persistRefreshedTokens(providerId: string, tokens: TokenData): Promise<void> {
 		const key = keyFor(providerId);
 		if (!key) return;
-		const current = normalize(await readRecord(providerId));
+		const current = normalize(providerId, await readRecord(providerId));
 		if (!current?.source) return;
 		if (current.source.type !== "oauth-device" && current.source.type !== "oauth-u2m") return;
 		await store.set(key, authenticatedOAuthRecord(current.source, tokens, generationFactory()));
@@ -507,7 +562,7 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 	async function persistRefreshError(providerId: string, error: string): Promise<void> {
 		const key = keyFor(providerId);
 		if (!key) return;
-		const current = normalize(await readRecord(providerId));
+		const current = normalize(providerId, await readRecord(providerId));
 		if (!current?.source) return;
 		await store.set(key, terminalOAuthRecord(current.source, generationFactory(), error));
 	}

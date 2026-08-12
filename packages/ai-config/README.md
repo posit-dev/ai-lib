@@ -294,10 +294,20 @@ validation and autocomplete whether the editor language mode is JSON or JSONC.
     "custom": {
       // user-defined providers (require `type`)
       "my-gateway": { "type": "openai-compatible", "baseUrl": "https://...", "enabled": true },
+      // native-protocol custom entries are also supported and require API keys
+      "anthropic-proxy": { "type": "anthropic", "baseUrl": "https://proxy.example.com/v1" },
     },
   },
 }
 ```
+
+Supported custom types are `openai-compatible`, `anthropic`, `openai`,
+`gemini`, `aws`, `snowflake`, `google-vertex`, `ollama`, `lmstudio`,
+`deepseek`, `openrouter`, `ms-foundry`, `litellm`, and `portkey`. The
+product-bound `positai`, `copilot`, and `databricks` kinds are intentionally not
+custom types. `normalizeOpenRouterBaseUrl()` accepts either a host or an
+`/api/v1` root and returns the canonical API base; its default is
+`https://openrouter.ai/api/v1`.
 
 ## Resolution pipeline
 

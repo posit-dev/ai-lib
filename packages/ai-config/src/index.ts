@@ -36,6 +36,7 @@ export type {
 // --- Schema ----------------------------------------------------------------
 export {
 	customModelSchema,
+	customProviderEntrySchema,
 	providersConfigFragmentSchema,
 	providersConfigSchema,
 } from "./schema.js";
@@ -133,8 +134,10 @@ export {
 	LMSTUDIO_API_VERSION,
 	LMSTUDIO_HOST,
 	normalizeBaseUrlForProvider,
+	normalizeOpenRouterBaseUrl,
 	OPENAI_API_VERSION,
 	OPENAI_HOST,
+	OPENROUTER_DEFAULT_BASE_URL,
 	PORTKEY_API_VERSION,
 	PORTKEY_HOST,
 	PORTKEY_HOSTED_BASE_URL,

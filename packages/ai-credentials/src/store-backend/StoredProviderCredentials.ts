@@ -15,9 +15,9 @@
  * backend.
  *
  * V1 COMPATIBILITY: No stored version field. The Zod schema parses tolerantly
- * (optional fields default as today). `data.json` stays byte-compatible —
- * no new keys, no envelope, no migration. The generic `SingleFileStore` is
- * untouched.
+ * (optional fields default as today). New optional credential groups are
+ * additive; existing records need no envelope or migration. The generic
+ * `SingleFileStore` is untouched.
  */
 
 import { z } from "zod/v4";
@@ -91,6 +91,14 @@ export const storedProviderCredentialsSchema = z.object({
 			profile: z.string().optional(),
 			accessKeyId: z.string().optional(),
 			secretAccessKey: z.string().optional(),
+			sessionToken: z.string().optional(),
+		})
+		.optional(),
+
+	awsKeys: z
+		.object({
+			accessKeyId: z.string(),
+			secretAccessKey: z.string(),
 			sessionToken: z.string().optional(),
 		})
 		.optional(),

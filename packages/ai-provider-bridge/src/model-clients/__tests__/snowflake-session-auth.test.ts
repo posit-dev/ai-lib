@@ -28,6 +28,7 @@ vi.mock("../ai-sdk-helpers", () => ({
 
 import { ProviderRegistry } from "../../providers/ProviderRegistry";
 import {
+	registerCustomSnowflakeProvider,
 	registerSnowflakeCortexProvider,
 	type SnowflakeProviderCallbacks,
 } from "../../providers/snowflake-cortex-provider";
@@ -388,6 +389,34 @@ describe("SnowflakeClient session-token expiry (390112)", () => {
 		});
 
 		expect(reauthenticate).toHaveBeenCalledWith("A");
+		expect(fetchSpy).toHaveBeenCalledTimes(2);
+	});
+
+	it("custom registration preserves built-in session refresh after overwriting the shared factory", async () => {
+		const reauthenticate = vi.fn(async () => FRESH_TOKEN);
+		const callbacks: SnowflakeProviderCallbacks = { reauthenticateSession: reauthenticate };
+		const registry = new ProviderRegistry(mockLogger);
+		registerSnowflakeCortexProvider(registry, mockLogger, callbacks);
+		registerCustomSnowflakeProvider(registry, "custom-snowflake", mockLogger, callbacks);
+		const client = registry.getClientForProvider("snowflake-cortex", {
+			type: "apikey",
+			apiKey: SESSION_TOKEN,
+			baseUrl: BASE_URL,
+			snowflake: { sessionConnectionIdentity: "built-in-session" },
+		});
+		if (!client) throw new Error("expected a Snowflake client from the shared factory");
+
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValueOnce(jsonError(EXPIRED_BODY))
+			.mockResolvedValueOnce(eventStream("data: ok\n\n"));
+
+		await client.chat(params(CLAUDE_MODEL));
+		await anthropicOptions().fetch?.("https://x/v1/messages", {
+			headers: { "x-api-key": "session-auth" },
+		});
+
+		expect(reauthenticate).toHaveBeenCalledWith("built-in-session");
 		expect(fetchSpy).toHaveBeenCalledTimes(2);
 	});
 });

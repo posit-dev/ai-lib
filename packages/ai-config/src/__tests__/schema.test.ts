@@ -150,6 +150,23 @@ describe("providersConfigSchema", () => {
 		expect(result.success).toBe(true);
 	});
 
+	it.each(["anthropic", "openai", "gemini"] as const)(
+		"accepts a base-only custom type:'%s' entry",
+		(type) => {
+			const result = providersConfigSchema.safeParse({
+				providers: { custom: { gateway: { type, baseUrl: "https://api.example.com/v1" } } },
+			});
+			expect(result.success).toBe(true);
+		},
+	);
+
+	it.each(["positai", "copilot", "databricks"])("rejects excluded custom type:'%s'", (type) => {
+		const result = providersConfigSchema.safeParse({
+			providers: { custom: { gateway: { type } } },
+		});
+		expect(result.success).toBe(false);
+	});
+
 	it("accepts a base-only custom type:'portkey' entry", () => {
 		const result = providersConfigSchema.safeParse({
 			providers: {

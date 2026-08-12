@@ -9,25 +9,49 @@
  */
 
 // Provider registration functions
-export { registerAnthropicProvider } from "./providers/anthropic-provider";
+export {
+	registerAnthropicProvider,
+	registerCustomAnthropicProvider,
+} from "./providers/anthropic-provider";
 export { registerCopilotProvider } from "./providers/copilot-provider";
 export { registerDatabricksProvider } from "./providers/databricks-provider";
-export { registerDeepSeekProvider } from "./providers/deepseek-provider";
-export { registerBedrockProvider } from "./providers/bedrock-provider";
+export {
+	registerCustomDeepSeekProvider,
+	registerDeepSeekProvider,
+} from "./providers/deepseek-provider";
+export {
+	registerBedrockProvider,
+	registerCustomBedrockProvider,
+} from "./providers/bedrock-provider";
 export type { BedrockProviderCallbacks } from "./providers/bedrock-provider";
-export { registerFoundryProvider } from "./providers/foundry-provider";
-export { registerGeminiProvider } from "./providers/gemini-provider";
-export { registerGoogleVertexProvider } from "./providers/google-vertex-provider";
+export {
+	registerCustomFoundryProvider,
+	registerFoundryProvider,
+} from "./providers/foundry-provider";
+export { registerCustomGeminiProvider, registerGeminiProvider } from "./providers/gemini-provider";
+export {
+	registerCustomGoogleVertexProvider,
+	registerGoogleVertexProvider,
+} from "./providers/google-vertex-provider";
 export type { GoogleVertexProviderCallbacks } from "./providers/google-vertex-provider";
 export {
 	registerCustomLitellmProvider,
 	registerLitellmProvider,
 } from "./providers/litellm-provider";
-export { registerLMStudioProvider } from "./providers/lmstudio-provider";
-export { registerOllamaProvider } from "./providers/ollama-provider";
-export { registerOpenAICompatibleProvider } from "./providers/openai-compatible-provider";
-export { registerOpenAIProvider } from "./providers/openai-provider";
-export { registerOpenRouterProvider } from "./providers/openrouter-provider";
+export {
+	registerCustomLMStudioProvider,
+	registerLMStudioProvider,
+} from "./providers/lmstudio-provider";
+export { registerCustomOllamaProvider, registerOllamaProvider } from "./providers/ollama-provider";
+export {
+	registerCustomOpenAICompatibleProvider,
+	registerOpenAICompatibleProvider,
+} from "./providers/openai-compatible-provider";
+export { registerCustomOpenAIProvider, registerOpenAIProvider } from "./providers/openai-provider";
+export {
+	registerCustomOpenRouterProvider,
+	registerOpenRouterProvider,
+} from "./providers/openrouter-provider";
 export {
 	normalizePortkeyGatewayUrl,
 	registerCustomPortkeyProvider,
@@ -36,7 +60,10 @@ export {
 } from "./providers/portkey-provider";
 export type { PortkeyConnection } from "./providers/portkey-provider";
 export { registerPositAiProvider } from "./providers/positai-provider";
-export { registerSnowflakeCortexProvider } from "./providers/snowflake-cortex-provider";
+export {
+	registerCustomSnowflakeProvider,
+	registerSnowflakeCortexProvider,
+} from "./providers/snowflake-cortex-provider";
 export type { SnowflakeProviderCallbacks } from "./providers/snowflake-cortex-provider";
 
 // Provider registration orchestrator

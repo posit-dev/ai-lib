@@ -286,6 +286,9 @@ const BUILTIN_CONNECTION_SECTIONS = {
  */
 const CUSTOM_CONNECTION_SECTIONS = {
 	"openai-compatible": [],
+	anthropic: [],
+	openai: [],
+	gemini: [],
 	aws: ["aws"],
 	snowflake: ["snowflake"],
 	"google-vertex": ["googleCloud"],
@@ -335,6 +338,9 @@ function customProviderVariantSchema<K extends SupportedCustomClientKind>(kind: 
 
 export const customProviderEntrySchema = z.discriminatedUnion("type", [
 	customProviderVariantSchema("openai-compatible"),
+	customProviderVariantSchema("anthropic"),
+	customProviderVariantSchema("openai"),
+	customProviderVariantSchema("gemini"),
 	customProviderVariantSchema("aws"),
 	customProviderVariantSchema("snowflake"),
 	customProviderVariantSchema("google-vertex"),

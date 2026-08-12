@@ -2,12 +2,14 @@
  *  Copyright (C) 2025 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
+import type { ResolvedProviderId } from "ai-config";
+
 import { OllamaClient } from "../model-clients/OllamaClient";
 import type { Logger, ModelInfo } from "../types";
 import type { LocalCredentials } from "../types";
 import { joinPath } from "../utils";
 import { createCachedModelFetcher } from "./cached-model-fetcher";
-import type { ProviderRegistry } from "./ProviderRegistry";
+import type { ClientFactory, ProviderRegistry } from "./ProviderRegistry";
 
 // Helper: Extract vendor from Ollama model name
 const extractVendorFromModelName = (name: string): string => {
@@ -181,89 +183,98 @@ const fetchOllamaCapabilities = async (
 // Static fallback models - conservative capabilities
 const OLLAMA_FALLBACK: ModelInfo[] = [];
 
-export function registerOllamaProvider(registry: ProviderRegistry, logger: Logger): void {
-	// Register model fetcher with dynamic endpoint support
-	registry.registerModelFetcher(
-		"ollama",
-		createCachedModelFetcher<LocalCredentials>({
-			providerId: "ollama",
-			resolveUrl: (credentials) => {
-				return joinPath(credentials.endpoint, "api/tags");
-			},
-			hasCredentials: (credentials) => Boolean(credentials.endpoint),
-			createHeaders: () => ({
-				"Content-Type": "application/json",
-			}),
-			parseResponse: (data: unknown) => {
-				const typedData = data as {
-					models: Array<{
-						name: string;
-						size: number;
-						details?: {
-							family?: string;
-							parameter_size?: string;
-						};
-					}>;
-				};
-
-				return typedData.models.map((model) => ({
-					id: model.name,
-					name: formatOllamaModelName(model.name),
-					providerId: "ollama",
-					vendor: extractVendorFromModelName(model.name),
-					family: model.details?.family,
-					maxInputTokens: estimateContextLength(model.name),
-					maxOutputTokens: 4096,
-					// Capabilities will be enriched via /api/show
-					supportsTools: false,
-					supportsImages: false,
-					supportsToolResultImages: false,
-					supportsWebSearch: false,
-					maxContextLength: estimateContextLength(model.name),
-				}));
-			},
-			enrichModels: async (models, credentials) => {
-				// Enrich each model with capabilities from /api/show
-				const endpoint = credentials.endpoint;
-
-				return Promise.all(
-					models.map(async (model) => {
-						const caps = await fetchOllamaCapabilities(model.id, endpoint);
-
-						return {
-							...model,
-							supportsTools: caps.supportsTools,
-							supportsImages: caps.supportsImages,
-							supportedInputMediaTypes: caps.supportsImages
-								? ["image/png", "image/jpeg", "image/gif", "image/webp"]
-								: undefined,
-							// Tool result images not currently supported by Ollama
-							supportsToolResultImages: false,
-							supportsWebSearch: false,
-							// Use actual context length from /api/show if available
-							...(caps.contextLength !== undefined && {
-								maxInputTokens: caps.contextLength,
-								maxContextLength: caps.contextLength,
-							}),
-							// Thinking support
-							thinkingEffortLevels: getOllamaThinkingLevels(model.id, caps.capabilities),
-						};
-					}),
-				);
-			},
-			fallbackModels: OLLAMA_FALLBACK,
-			logger,
-			ttl: 5 * 60 * 1000, // 5 minutes - models change when user downloads new ones
+function createOllamaModelFetcher(providerId: ResolvedProviderId, logger: Logger) {
+	return createCachedModelFetcher<LocalCredentials>({
+		providerId,
+		resolveUrl: (credentials) => {
+			return joinPath(credentials.endpoint, "api/tags");
+		},
+		hasCredentials: (credentials) => Boolean(credentials.endpoint),
+		createHeaders: () => ({
+			"Content-Type": "application/json",
 		}),
-	);
+		parseResponse: (data: unknown) => {
+			const typedData = data as {
+				models: Array<{
+					name: string;
+					size: number;
+					details?: {
+						family?: string;
+						parameter_size?: string;
+					};
+				}>;
+			};
 
-	// Register client factory
-	registry.registerClientFactory("ollama", (credentials) => {
-		if (credentials.type !== "local") {
-			throw new Error(
-				`Ollama provider requires local endpoint credentials, got: ${credentials.type}`,
+			return typedData.models.map((model) => ({
+				id: model.name,
+				name: formatOllamaModelName(model.name),
+				providerId,
+				vendor: extractVendorFromModelName(model.name),
+				family: model.details?.family,
+				maxInputTokens: estimateContextLength(model.name),
+				maxOutputTokens: 4096,
+				// Capabilities will be enriched via /api/show
+				supportsTools: false,
+				supportsImages: false,
+				supportsToolResultImages: false,
+				supportsWebSearch: false,
+				maxContextLength: estimateContextLength(model.name),
+			}));
+		},
+		enrichModels: async (models, credentials) => {
+			// Enrich each model with capabilities from /api/show
+			const endpoint = credentials.endpoint;
+
+			return Promise.all(
+				models.map(async (model) => {
+					const caps = await fetchOllamaCapabilities(model.id, endpoint);
+
+					return {
+						...model,
+						supportsTools: caps.supportsTools,
+						supportsImages: caps.supportsImages,
+						supportedInputMediaTypes: caps.supportsImages
+							? ["image/png", "image/jpeg", "image/gif", "image/webp"]
+							: undefined,
+						// Tool result images not currently supported by Ollama
+						supportsToolResultImages: false,
+						supportsWebSearch: false,
+						// Use actual context length from /api/show if available
+						...(caps.contextLength !== undefined && {
+							maxInputTokens: caps.contextLength,
+							maxContextLength: caps.contextLength,
+						}),
+						// Thinking support
+						thinkingEffortLevels: getOllamaThinkingLevels(model.id, caps.capabilities),
+					};
+				}),
 			);
-		}
-		return new OllamaClient(credentials.endpoint);
+		},
+		fallbackModels: OLLAMA_FALLBACK,
+		logger,
+		ttl: 5 * 60 * 1000, // 5 minutes - models change when user downloads new ones
 	});
+}
+
+const ollamaClientFactory: ClientFactory = (credentials) => {
+	if (credentials.type !== "local") {
+		throw new Error(
+			`Ollama provider requires local endpoint credentials, got: ${credentials.type}`,
+		);
+	}
+	return new OllamaClient(credentials.endpoint);
+};
+
+export function registerOllamaProvider(registry: ProviderRegistry, logger: Logger): void {
+	registry.registerModelFetcher("ollama", createOllamaModelFetcher("ollama", logger));
+	registry.registerClientFactory("ollama", ollamaClientFactory);
+}
+
+export function registerCustomOllamaProvider(
+	registry: ProviderRegistry,
+	providerId: ResolvedProviderId,
+	logger: Logger,
+): void {
+	registry.registerModelFetcher(providerId, createOllamaModelFetcher(providerId, logger));
+	registry.registerClientFactory("ollama", ollamaClientFactory);
 }
