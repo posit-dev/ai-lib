@@ -26,6 +26,7 @@ vi.mock("../ai-sdk-helpers", () => ({
 import { registerCustomOpenRouterProvider } from "../../providers/openrouter-provider";
 import { ProviderRegistry } from "../../providers/ProviderRegistry";
 import type { CancellationToken, Logger } from "../../types";
+import { OpenRouterClient } from "../OpenRouterClient";
 
 const cancellationToken: CancellationToken = {
 	isCancellationRequested: false,
@@ -34,6 +35,24 @@ const cancellationToken: CancellationToken = {
 
 describe("OpenRouterClient base URL routing", () => {
 	beforeEach(() => vi.clearAllMocks());
+
+	it("preserves the public apiKey and customHeaders constructor form", async () => {
+		const client = new OpenRouterClient("sk-or-test", { "x-tenant": "acme" });
+		await client.chat({
+			model: "anthropic/claude-sonnet-4.6",
+			messages: [{ role: "user", content: "hello" }],
+			maxOutputTokens: 100,
+			cancellationToken,
+		});
+
+		expect(createOpenRouter).toHaveBeenCalledWith(
+			expect.objectContaining({
+				apiKey: "sk-or-test",
+				baseURL: "https://openrouter.ai/api/v1",
+				headers: { "x-tenant": "acme" },
+			}),
+		);
+	});
 
 	it("routes custom chat through the kind factory to the custom canonical API root", async () => {
 		const logger: Logger = {

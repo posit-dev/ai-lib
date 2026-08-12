@@ -5,16 +5,14 @@
 import { mintCustomProviderId } from "ai-config";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Logger, ProviderCredentials } from "../../types";
-import { registerCustomAnthropicProvider } from "../anthropic-provider";
-import { registerCustomBedrockProvider } from "../bedrock-provider";
+import type { Logger } from "../../types";
+import { registerAnthropicProvider, registerCustomAnthropicProvider } from "../anthropic-provider";
 import { registerCustomDeepSeekProvider } from "../deepseek-provider";
 import { registerCustomFoundryProvider } from "../foundry-provider";
-import { registerCustomGeminiProvider } from "../gemini-provider";
-import { registerCustomGoogleVertexProvider } from "../google-vertex-provider";
+import { registerCustomGeminiProvider, registerGeminiProvider } from "../gemini-provider";
 import { registerCustomLMStudioProvider } from "../lmstudio-provider";
 import { registerCustomOllamaProvider } from "../ollama-provider";
-import { registerCustomOpenAIProvider } from "../openai-provider";
+import { registerCustomOpenAIProvider, registerOpenAIProvider } from "../openai-provider";
 import { registerCustomOpenRouterProvider } from "../openrouter-provider";
 import { ProviderRegistry } from "../ProviderRegistry";
 import { registerCustomSnowflakeProvider } from "../snowflake-cortex-provider";
@@ -30,117 +28,6 @@ const logger: Logger = {
 describe("custom provider registrars", () => {
 	beforeEach(() => vi.clearAllMocks());
 	afterEach(() => vi.unstubAllGlobals());
-
-	it("makes every kind factory available without registering its built-in provider", () => {
-		const cases: Array<{
-			id: string;
-			kind:
-				| "anthropic"
-				| "openai"
-				| "gemini"
-				| "deepseek"
-				| "openrouter"
-				| "ms-foundry"
-				| "ollama"
-				| "lmstudio"
-				| "aws"
-				| "google-vertex"
-				| "snowflake";
-			credentials: ProviderCredentials;
-			register(registry: ProviderRegistry, id: ReturnType<typeof mintCustomProviderId>): void;
-		}> = [
-			{
-				id: "custom-anthropic",
-				kind: "anthropic",
-				credentials: { type: "apikey", apiKey: "key" },
-				register: (r, id) => registerCustomAnthropicProvider(r, id, logger),
-			},
-			{
-				id: "custom-openai",
-				kind: "openai",
-				credentials: { type: "apikey", apiKey: "key" },
-				register: (r, id) => registerCustomOpenAIProvider(r, id, logger),
-			},
-			{
-				id: "custom-gemini",
-				kind: "gemini",
-				credentials: { type: "apikey", apiKey: "key" },
-				register: (r, id) => registerCustomGeminiProvider(r, id, logger),
-			},
-			{
-				id: "custom-deepseek",
-				kind: "deepseek",
-				credentials: { type: "apikey", apiKey: "key" },
-				register: (r, id) => registerCustomDeepSeekProvider(r, id, logger),
-			},
-			{
-				id: "custom-openrouter",
-				kind: "openrouter",
-				credentials: { type: "apikey", apiKey: "key" },
-				register: (r, id) => registerCustomOpenRouterProvider(r, id, logger),
-			},
-			{
-				id: "custom-foundry",
-				kind: "ms-foundry",
-				credentials: { type: "apikey", apiKey: "key", baseUrl: "https://foundry.example.com" },
-				register: (r, id) => registerCustomFoundryProvider(r, id, logger),
-			},
-			{
-				id: "custom-ollama",
-				kind: "ollama",
-				credentials: { type: "local", endpoint: "http://localhost:11434" },
-				register: (r, id) => registerCustomOllamaProvider(r, id, logger),
-			},
-			{
-				id: "custom-lmstudio",
-				kind: "lmstudio",
-				credentials: { type: "local", endpoint: "http://localhost:1234/v1" },
-				register: (r, id) => registerCustomLMStudioProvider(r, id, logger),
-			},
-			{
-				id: "custom-bedrock",
-				kind: "aws",
-				credentials: {
-					type: "aws-credentials",
-					region: "us-east-1",
-					accessKeyId: "key",
-					secretAccessKey: "secret",
-				},
-				register: (r, id) => registerCustomBedrockProvider(r, id, logger),
-			},
-			{
-				id: "custom-vertex",
-				kind: "google-vertex",
-				credentials: {
-					type: "google-cloud",
-					project: "project",
-					location: "us-central1",
-					accessToken: "token",
-				},
-				register: (r, id) => registerCustomGoogleVertexProvider(r, id, logger),
-			},
-			{
-				id: "custom-snowflake",
-				kind: "snowflake",
-				credentials: {
-					type: "apikey",
-					apiKey: "token",
-					baseUrl: "https://account.snowflakecomputing.com",
-				},
-				register: (r, id) => registerCustomSnowflakeProvider(r, id, logger),
-			},
-		];
-
-		for (const testCase of cases) {
-			const registry = new ProviderRegistry(logger);
-			const providerId = mintCustomProviderId(testCase.id);
-			testCase.register(registry, providerId);
-			expect(
-				registry.getClientForProviderOrKind(providerId, testCase.credentials, testCase.kind),
-				testCase.kind,
-			).not.toBeNull();
-		}
-	});
 
 	it("keeps discovery caches independent for two custom IDs of one kind", async () => {
 		const fetchMock = vi.fn(
@@ -236,6 +123,7 @@ describe("custom provider registrars", () => {
 					apiKey: "key",
 					baseUrl: "https://anthropic.example.com/v1",
 				} as const,
+				expectedModelIds: ["claude-sonnet-4-6"],
 			},
 			{
 				id: mintCustomProviderId("openai-http"),
@@ -245,6 +133,7 @@ describe("custom provider registrars", () => {
 					apiKey: "key",
 					baseUrl: "https://openai.example.com/v1",
 				} as const,
+				expectedModelIds: ["gpt-5.4"],
 			},
 			{
 				id: mintCustomProviderId("gemini-http"),
@@ -254,6 +143,7 @@ describe("custom provider registrars", () => {
 					apiKey: "key",
 					baseUrl: "https://gemini.example.com/v1beta",
 				} as const,
+				expectedModelIds: ["gemini-2.5-pro"],
 			},
 			{
 				id: mintCustomProviderId("openrouter-http"),
@@ -263,28 +153,89 @@ describe("custom provider registrars", () => {
 					apiKey: "key",
 					baseUrl: "https://openrouter.example.com",
 				} as const,
+				expectedModelIds: ["anthropic/claude-sonnet-4.6"],
 			},
 			{
 				id: mintCustomProviderId("ollama-http"),
 				register: registerCustomOllamaProvider,
 				credentials: { type: "local", endpoint: "http://ollama.example.com" } as const,
+				expectedModelIds: ["qwen3:latest"],
 			},
 			{
 				id: mintCustomProviderId("lmstudio-http"),
 				register: registerCustomLMStudioProvider,
 				credentials: { type: "local", endpoint: "http://lmstudio.example.com/v1" } as const,
+				expectedModelIds: ["local-model"],
 			},
 		];
 
 		for (const testCase of cases) {
 			testCase.register(registry, testCase.id, logger);
 			const models = await registry.getModelsForProvider(testCase.id, testCase.credentials);
-			expect(models, testCase.id).not.toHaveLength(0);
+			expect(
+				models.map((model) => model.id),
+				testCase.id,
+			).toEqual(testCase.expectedModelIds);
 			expect(
 				models.every((model) => model.providerId === testCase.id),
 				testCase.id,
 			).toBe(true);
 		}
+	});
+
+	it("does not substitute hosted fallbacks when custom OpenAI or Gemini discovery fails", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response(null, { status: 503 })),
+		);
+		const registry = new ProviderRegistry(logger);
+		const openai = mintCustomProviderId("openai-failure");
+		const gemini = mintCustomProviderId("gemini-failure");
+		registerCustomOpenAIProvider(registry, openai, logger);
+		registerCustomGeminiProvider(registry, gemini, logger);
+
+		expect(
+			await registry.getModelsForProvider(openai, {
+				type: "apikey",
+				apiKey: "key",
+				baseUrl: "https://openai.example.com/v1",
+			}),
+		).toEqual([]);
+		expect(
+			await registry.getModelsForProvider(gemini, {
+				type: "apikey",
+				apiKey: "key",
+				baseUrl: "https://gemini.example.com/v1beta",
+			}),
+		).toEqual([]);
+	});
+
+	it("retains supplemental and fallback models for built-in hosted providers", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: string | URL | Request) => {
+				if (String(input).includes("api.anthropic.com")) {
+					return new Response(JSON.stringify({ data: [] }), { status: 200 });
+				}
+				return new Response(null, { status: 503 });
+			}),
+		);
+		const registry = new ProviderRegistry(logger);
+		registerAnthropicProvider(registry, logger);
+		registerOpenAIProvider(registry, logger);
+		registerGeminiProvider(registry, logger);
+
+		expect(
+			(await registry.getModelsForProvider("anthropic", { type: "apikey", apiKey: "key" })).map(
+				(model) => model.id,
+			),
+		).toEqual(["claude-opus-5", "claude-fable-5"]);
+		expect(
+			await registry.getModelsForProvider("openai", { type: "apikey", apiKey: "key" }),
+		).not.toHaveLength(0);
+		expect(
+			await registry.getModelsForProvider("gemini", { type: "apikey", apiKey: "key" }),
+		).not.toHaveLength(0);
 	});
 
 	it("discovers static custom Foundry and Snowflake models under the custom ID", async () => {

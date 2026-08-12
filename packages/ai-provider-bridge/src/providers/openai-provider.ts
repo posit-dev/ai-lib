@@ -61,7 +61,11 @@ function buildOpenAIModel(providerId: ResolvedProviderId, id: string, name: stri
 	};
 }
 
-function createOpenAIModelFetcher(providerId: ResolvedProviderId, logger: Logger) {
+function createOpenAIModelFetcher(
+	providerId: ResolvedProviderId,
+	includeHostedModels: boolean,
+	logger: Logger,
+) {
 	return createCachedModelFetcher<ApiKeyCredentials>({
 		providerId,
 		resolveUrl: (credentials) => {
@@ -89,9 +93,9 @@ function createOpenAIModelFetcher(providerId: ResolvedProviderId, logger: Logger
 				buildOpenAIModel(providerId, model.id, getOpenAIModelName(model.id)),
 			);
 		},
-		fallbackModels: OPENAI_FALLBACK_ROWS.map(({ id, name }) =>
-			buildOpenAIModel(providerId, id, name),
-		),
+		fallbackModels: includeHostedModels
+			? OPENAI_FALLBACK_ROWS.map(({ id, name }) => buildOpenAIModel(providerId, id, name))
+			: [],
 		logger,
 	});
 }
@@ -109,7 +113,7 @@ const openAIClientFactory: ClientFactory = (credentials) => {
 };
 
 export function registerOpenAIProvider(registry: ProviderRegistry, logger: Logger): void {
-	registry.registerModelFetcher("openai", createOpenAIModelFetcher("openai", logger));
+	registry.registerModelFetcher("openai", createOpenAIModelFetcher("openai", true, logger));
 	registry.registerClientFactory("openai", openAIClientFactory);
 }
 
@@ -118,6 +122,6 @@ export function registerCustomOpenAIProvider(
 	providerId: ResolvedProviderId,
 	logger: Logger,
 ): void {
-	registry.registerModelFetcher(providerId, createOpenAIModelFetcher(providerId, logger));
+	registry.registerModelFetcher(providerId, createOpenAIModelFetcher(providerId, false, logger));
 	registry.registerClientFactory("openai", openAIClientFactory);
 }

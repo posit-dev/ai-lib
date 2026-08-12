@@ -16,6 +16,7 @@ import {
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 
 type OpenRouterReasoningSettings = { effort: "high" | "medium" | "low" | "none" };
+const OPENROUTER_DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
 
 /** Map a resolved thinkingEffort string to OpenRouter's reasoning settings. */
 export function openRouterReasoningSettings(
@@ -39,10 +40,14 @@ export class OpenRouterClient implements ModelClient {
 	private readonly baseURL: string;
 	private readonly customHeaders?: Record<string, string>;
 
-	constructor(apiKey: string, baseURL: string, customHeaders?: Record<string, string>) {
+	constructor(
+		apiKey: string,
+		customHeaders?: Record<string, string>,
+		baseURL = OPENROUTER_DEFAULT_BASE_URL,
+	) {
 		this.apiKey = apiKey;
-		this.baseURL = baseURL;
 		this.customHeaders = customHeaders;
+		this.baseURL = baseURL;
 	}
 
 	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {
