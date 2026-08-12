@@ -283,7 +283,13 @@ function createBedrockModelFetcher(
 			// to detect expired/missing credentials before making the API call.
 			// This avoids unnecessary network requests and intrusive SSO login
 			// prompts on every startup.
-			const listClient = await createBedrockListClient(providerId, credentials, transport, callbacks, logger);
+			const listClient = await createBedrockListClient(
+				providerId,
+				credentials,
+				transport,
+				callbacks,
+				logger,
+			);
 			if (!listClient) {
 				cachedModels = null;
 				lastFetch = 0;
