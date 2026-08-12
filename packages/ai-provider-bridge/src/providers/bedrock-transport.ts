@@ -32,6 +32,7 @@ export async function resolveBedrockTransport({
 	logger,
 }: ResolveBedrockTransportOptions): Promise<BedrockTransport> {
 	const useFipsEndpoint = await loadConfig(NODE_USE_FIPS_ENDPOINT_CONFIG_OPTIONS, {
+		ignoreCache: true,
 		profile,
 	})();
 	const runtimeHost = `bedrock-runtime${useFipsEndpoint ? "-fips" : ""}.${region}.amazonaws.com`;

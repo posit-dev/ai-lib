@@ -6,7 +6,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Logger } from "../../types";
 import { resolveBedrockTransport } from "../bedrock-transport";
@@ -15,6 +15,15 @@ const ENVIRONMENT_KEYS = ["AWS_CONFIG_FILE", "AWS_PROFILE", "AWS_USE_FIPS_ENDPOI
 const originalEnvironment = new Map<string, string | undefined>();
 let configDirectory: string;
 let configFile: string;
+
+const INITIAL_CONFIG = [
+	"[profile standard]",
+	"use_fips_endpoint = false",
+	"",
+	"[profile secure]",
+	"use_fips_endpoint = true",
+	"",
+].join("\n");
 
 function logger(): Logger {
 	return {
@@ -32,18 +41,10 @@ beforeAll(async () => {
 	}
 	configDirectory = await mkdtemp(join(tmpdir(), "bedrock-transport-"));
 	configFile = join(configDirectory, "config");
-	await writeFile(
-		configFile,
-		[
-			"[profile standard]",
-			"use_fips_endpoint = false",
-			"",
-			"[profile secure]",
-			"use_fips_endpoint = true",
-			"",
-		].join("\n"),
-		"utf8",
-	);
+});
+
+beforeEach(async () => {
+	await writeFile(configFile, INITIAL_CONFIG, "utf8");
 });
 
 afterEach(() => {
@@ -91,6 +92,29 @@ describe("resolveBedrockTransport", () => {
 		).resolves.toEqual({
 			useFipsEndpoint: false,
 			runtimeBaseUrl: "https://bedrock-runtime.us-gov-east-1.amazonaws.com",
+			mantleEnabled: true,
+		});
+	});
+
+	it("observes shared-config edits at the same path between operations", async () => {
+		process.env.AWS_CONFIG_FILE = configFile;
+		delete process.env.AWS_USE_FIPS_ENDPOINT;
+
+		await expect(
+			resolveBedrockTransport({ region: "us-gov-west-1", profile: "secure" }),
+		).resolves.toMatchObject({ useFipsEndpoint: true });
+
+		await writeFile(
+			configFile,
+			["[profile secure]", "use_fips_endpoint = false", ""].join("\n"),
+			"utf8",
+		);
+
+		await expect(
+			resolveBedrockTransport({ region: "us-gov-west-1", profile: "secure" }),
+		).resolves.toEqual({
+			useFipsEndpoint: false,
+			runtimeBaseUrl: "https://bedrock-runtime.us-gov-west-1.amazonaws.com",
 			mantleEnabled: true,
 		});
 	});
