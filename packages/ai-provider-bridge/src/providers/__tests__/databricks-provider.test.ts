@@ -360,14 +360,16 @@ describe("parseServingEndpointsResponse", () => {
 		const models = parseServingEndpointsResponse(SERVING_ENDPOINTS_FIXTURE);
 		const byId = (id: string) => models.find((m) => m.id === id);
 
-		// The native `/v1/messages` route keeps the Anthropic table verbatim,
-		// including PDF input, which the chat-completions surface cannot take.
+		// The native `/v1/messages` route keeps the Anthropic table's limits and
+		// thinking controls, but not PDF: Databricks documents native Messages
+		// input as text + image.
 		expect(byId("databricks-claude-sonnet-4-5")).toMatchObject({
 			family: "claude-4.5",
 			maxContextLength: 200_000,
 			supportsImages: true,
 		});
-		expect(byId("databricks-claude-sonnet-4-5")?.supportedInputMediaTypes).toContain(
+		expect(byId("databricks-claude-sonnet-4-5")?.supportedInputMediaTypes).toContain("image/png");
+		expect(byId("databricks-claude-sonnet-4-5")?.supportedInputMediaTypes).not.toContain(
 			"application/pdf",
 		);
 		// Thinking controls come back on the native Gemini route.

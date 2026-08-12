@@ -28,6 +28,10 @@ describe("getGeminiGenerateContentProfile", () => {
 			"gemini-2.0-flash", // recognized as Gemini, no known thinking controls
 			"gemini-experimental",
 			"my-gemini-endpoint", // arbitrary external endpoint name
+			// Undocumented 3.x names: level sets differ per variant, so there is no
+			// generic rule to inherit — recognition must be explicit.
+			"gemini-3.7-flash",
+			"gemini-3.9-pro",
 			"gpt-5",
 			"",
 		]) {
@@ -63,6 +67,20 @@ describe("getGeminiGenerateContentProfile", () => {
 		expect(proProfile?.thinkingEffortLevels).toEqual(["low", "high"]);
 
 		expect(getGeminiGenerateContentProfile("gemini-3.6-flash")?.thinkingEffortLevels).toEqual([
+			"minimal",
+			"low",
+			"medium",
+			"high",
+		]);
+	});
+
+	it("matches the narrower Flash-Lite Image rule before plain Flash-Lite", () => {
+		// The image variant documents only minimal/high; plain 3.1 Flash-Lite
+		// documents all four. Rule order is what keeps them apart.
+		expect(
+			getGeminiGenerateContentProfile("gemini-3.1-flash-lite-image")?.thinkingEffortLevels,
+		).toEqual(["minimal", "high"]);
+		expect(getGeminiGenerateContentProfile("gemini-3.1-flash-lite")?.thinkingEffortLevels).toEqual([
 			"minimal",
 			"low",
 			"medium",

@@ -20,8 +20,11 @@
  *   Flash accepts 0–24576 and can; Flash-Lite accepts 512–24576 plus 0, and
  *   ships with thinking off by default.
  * - Gemini 3.x uses a categorical `thinkingLevel`, and the valid level set
- *   differs per variant (e.g. `gemini-3-pro-preview` supports only
- *   `low`/`high`, while the Flash-class variants add `minimal` and `medium`).
+ *   differs per variant — not per tier: `gemini-3-pro-preview` accepts only
+ *   `low`/`high`, 3.1 Pro adds `medium`, the Flash and Flash-Lite variants
+ *   accept all four, and `gemini-3.1-flash-lite-image` accepts only
+ *   `minimal`/`high`. Each documented 3.x variant therefore gets its own
+ *   exact rule; an undocumented 3.x name is not recognized at all (see below).
  *   No 3.x variant can disable thinking, so "off" is never advertised there.
  *
  * A variant that cannot be positively recognized returns `undefined`. That is
@@ -80,6 +83,8 @@ const LEVELS_WITH_MINIMAL = ["minimal", "low", "medium", "high"] as const;
 const LEVELS_LOW_MEDIUM_HIGH = ["low", "medium", "high"] as const;
 /** `gemini-3-pro-preview` documents only these two levels. */
 const LEVELS_LOW_HIGH = ["low", "high"] as const;
+/** `gemini-3.1-flash-lite-image` documents only these two levels. */
+const LEVELS_MINIMAL_HIGH = ["minimal", "high"] as const;
 
 interface VariantRule {
 	match: RegExp;
@@ -87,13 +92,16 @@ interface VariantRule {
 }
 
 /**
- * Ordered rules; first match wins, so tier-specific patterns precede broader
- * ones (`flash-lite` before `flash`, a pinned `3-pro` before generic 3.x Pro).
+ * Ordered rules; first match wins, so narrower patterns precede broader ones
+ * (`flash-lite-image` before `flash-lite` before `flash`).
  *
- * The generic 3.x rules exist so a future variant of a documented tier is still
- * routable, and they carry the *intersection* of the levels documented for that
- * tier today — never a superset, so an unseen variant cannot be advertised a
- * level it rejects.
+ * The 2.5 rules are prefix-based per tier, which is safe because budget ranges
+ * and off-ability are uniform within a 2.5 tier. The 3.x rules are **exact per
+ * documented variant**: level sets differ variant-by-variant (3 Pro has no
+ * `medium`; `3.1-flash-lite-image` has no `low`/`medium`), so there is no
+ * generic set a future variant could safely inherit. An undocumented 3.x name
+ * therefore matches nothing and yields `undefined` — no native route. Adding a
+ * new variant requires adding its explicit rule here.
  */
 const VARIANT_RULES: readonly VariantRule[] = [
 	// --- Gemini 2.5: numeric thinkingBudget ---
@@ -122,16 +130,29 @@ const VARIANT_RULES: readonly VariantRule[] = [
 		thinking: { control: "level", levels: LEVELS_LOW_MEDIUM_HIGH },
 	},
 	{
-		match: /^gemini-3[\d.]*-pro(?:$|[-.])/,
-		// 3.1 Pro documents low/medium/high; 3 Pro documents only low/high. A
-		// future Pro variant gets the conservative intersection.
-		// PHASE0-VERIFY: re-check per-variant Pro level sets as 3.x evolves.
-		thinking: { control: "level", levels: LEVELS_LOW_HIGH },
+		// Image generation accepts only `minimal`/`high`. Must precede the
+		// plain Flash-Lite rule.
+		match: /^gemini-3\.1-flash-lite-image(?:$|[-.])/,
+		thinking: { control: "level", levels: LEVELS_MINIMAL_HIGH },
 	},
 	{
-		match: /^gemini-3[\d.]*-flash(?:$|[-.])/,
-		// Every documented 3.x Flash / Flash-Lite variant supports all four
-		// levels including `minimal`.
+		match: /^gemini-3\.1-flash-lite(?:$|[-.])/,
+		thinking: { control: "level", levels: LEVELS_WITH_MINIMAL },
+	},
+	{
+		match: /^gemini-3\.5-flash-lite(?:$|[-.])/,
+		thinking: { control: "level", levels: LEVELS_WITH_MINIMAL },
+	},
+	{
+		match: /^gemini-3-flash(?:$|[-.])/,
+		thinking: { control: "level", levels: LEVELS_WITH_MINIMAL },
+	},
+	{
+		match: /^gemini-3\.5-flash(?:$|[-.])/,
+		thinking: { control: "level", levels: LEVELS_WITH_MINIMAL },
+	},
+	{
+		match: /^gemini-3\.6-flash(?:$|[-.])/,
 		thinking: { control: "level", levels: LEVELS_WITH_MINIMAL },
 	},
 ];

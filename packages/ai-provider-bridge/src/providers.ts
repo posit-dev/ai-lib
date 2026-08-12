@@ -107,12 +107,7 @@ export {
 	extractPreviousInteractionId,
 	filterUnsignedReasoning,
 } from "./model-clients/GeminiClient";
-export {
-	buildGenerateContentOptions,
-	createBearerAuthFetch,
-	GeminiGenerateContentClient,
-	sanitizeGenerateContentHistory,
-} from "./model-clients/GeminiGenerateContentClient";
+export { GeminiGenerateContentClient } from "./model-clients/GeminiGenerateContentClient";
 export type { GeminiGenerateContentAuth } from "./model-clients/GeminiGenerateContentClient";
 export {
 	getEffectiveLocation,

@@ -180,11 +180,14 @@ resolved protocol to an AI-SDK base URL (the version segment, `/v1` or
 operation path); `params.baseUrl`, when the pipeline already supplied one, is
 trusted verbatim and skips the route seam entirely.
 
-Several constants this classification depends on — the OpenAI/Gemini gateway
-`api_types` strings, hosted pay-per-token Responses `store: false` behavior,
-and tolerance of a stripped `x-goog-api-key` — are flagged `PHASE0-VERIFY` in
-code pending confirmation against a real Databricks workspace; a wrong guess
-degrades safely to the `openai-chat` fallback rather than a broken route.
+A couple of constants this classification depends on — the OpenAI/Gemini
+gateway `api_types` strings and tolerance of a stripped `x-goog-api-key` — are
+flagged `PHASE0-VERIFY` in code pending confirmation against a real Databricks
+workspace; a wrong guess degrades safely to the `openai-chat` fallback rather
+than a broken route. Hosted pay-per-token Responses endpoints are no longer in
+that bucket: Databricks documents `store`/`previous_response_id` as unsupported
+there (400 if specified), which is why those endpoints advertise no thinking
+controls (see `memory-bank/aiConfig.md`).
 
 **`ApiKeyCredentials.customHeaders`** -- Optional `Record<string, string>` of extra HTTP headers attached to every request for the provider. Intended for additive enterprise-gateway markers (e.g. Databricks `x-databricks-use-coding-agent-mode`, tenancy/routing headers). Precedence varies:
 

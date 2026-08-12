@@ -63,9 +63,38 @@ describe("inferDatabricksModelProfile — structural eligibility", () => {
 
 		expect(result.protocol).toBe("anthropic-messages");
 		expect(result.vendor).toBe("anthropic");
-		// The native route keeps what the chat surface strips.
+		// The native route recovers the thinking controls the chat surface strips.
 		expect(result.capabilities.thinkingEffortLevels).toContain("high");
-		expect(result.capabilities.supportedInputMediaTypes).toContain("application/pdf");
+		// But not PDF: Databricks documents native Messages input as text + image.
+		expect(result.capabilities.supportedInputMediaTypes).toContain("image/png");
+		expect(result.capabilities.supportedInputMediaTypes).not.toContain("application/pdf");
+	});
+
+	it("never advertises PDF input on a native route", () => {
+		const native = [
+			profile({
+				endpointName: "databricks-claude-opus-4-8",
+				task: "llm/v1/chat",
+				servedEntities: [foundationEntity("databricks-claude-opus-4-8")],
+			}),
+			profile({
+				endpointName: "my-gpt-4o-route",
+				servedEntities: [externalEntity("openai", "gpt-4o")],
+			}),
+			profile({
+				endpointName: "databricks-gemini-2-5-pro",
+				task: "llm/v1/chat",
+				servedEntities: [foundationEntity("databricks-gemini-2-5-pro")],
+			}),
+		];
+
+		for (const result of native.map(listed)) {
+			expect(result.protocol, result.protocol).not.toBe("openai-chat");
+			expect(result.capabilities.supportedInputMediaTypes, result.protocol).toContain("image/png");
+			expect(result.capabilities.supportedInputMediaTypes, result.protocol).not.toContain(
+				"application/pdf",
+			);
+		}
 	});
 
 	it("does not route a Claude identity on a provisioned-throughput or custom endpoint natively", () => {
@@ -201,6 +230,30 @@ describe("inferDatabricksModelProfile — Gemini family reconstructability", () 
 
 		expect(result.protocol).toBe("openai-chat");
 		expect(result.capabilities.thinkingEffortLevels).toBeUndefined();
+	});
+
+	it("requires the entity identity to name the same variant as the endpoint name", () => {
+		// A Gemini-shaped endpoint name fronting a non-Gemini model: the endpoint
+		// name alone would reconstruct a 2.5 Flash wire mapping for a Llama.
+		expect(
+			listed(
+				profile({
+					endpointName: "gemini-2-5-flash-router",
+					servedEntities: [externalEntity("google-cloud-vertex-ai", "llama-3-70b")],
+				}),
+			).protocol,
+		).toBe("openai-chat");
+
+		// Gemini on both sides, but different variants — the endpoint name's wire
+		// mapping would be wrong for the entity actually served.
+		expect(
+			listed(
+				profile({
+					endpointName: "gemini-2-5-pro-alias",
+					servedEntities: [externalEntity("google-cloud-vertex-ai", "gemini-3.1-pro")],
+				}),
+			).protocol,
+		).toBe("openai-chat");
 	});
 });
 

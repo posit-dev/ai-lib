@@ -9,10 +9,12 @@
  * OpenAI-compatible chat surface it exposes **native passthrough APIs** per
  * vendor (Anthropic Messages, OpenAI Responses, Gemini generateContent) on both
  * the classic Model Serving surface and the Unity AI Gateway surface. Native
- * routes recover what the chat surface loses (thinking controls, PDF input,
- * Claude cache breakpoints), so each endpoint is classified once — here — into
- * the protocol it will be routed over plus the capabilities that protocol
- * actually offers.
+ * routes recover what the chat surface loses (thinking controls, Claude cache
+ * breakpoints), so each endpoint is classified once — here — into the protocol
+ * it will be routed over plus the capabilities that protocol actually offers.
+ * They do *not* widen the accepted media types: every native passthrough route
+ * documents text + image input only, so PDF is masked off on native routes too
+ * (see {@link DATABRICKS_IMAGE_MEDIA_TYPES}).
  *
  * The rules are deliberately a **positive identification**: a native protocol is
  * stamped only when the endpoint's structure, the model's identity, and (on the
@@ -159,10 +161,17 @@ const GOOGLE_EXTERNAL_PROVIDERS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Image MIME types accepted through the Databricks OpenAI-compatible chat
- * surface. PDF input (which the upstream Anthropic/OpenAI tables include) is not
- * reliably supported there, so the chat fallback excludes it. Native routes use
- * their vendor table's media types unchanged.
+ * Image MIME types accepted through Databricks, on every route we stamp.
+ *
+ * PDF input — which the upstream Anthropic/OpenAI/Gemini tables include — is not
+ * supported by the OpenAI-compatible chat surface, and Databricks' provider-native
+ * API matrix documents native input types as text + image for Anthropic Messages
+ * and OpenAI Responses, and text + image + video + audio for Gemini
+ * generateContent
+ * (https://docs.databricks.com/aws/en/machine-learning/model-serving/provider-native-apis).
+ * No route documents PDF, so both the chat fallback and every native route are
+ * masked down to this set. Gemini's video/audio input is outside our capability
+ * surface, so it is not advertised either.
  */
 const DATABRICKS_IMAGE_MEDIA_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 
@@ -263,6 +272,23 @@ function chatSurfaceCapabilities(normalizedIdentity: string): Capabilities {
 	return {};
 }
 
+/**
+ * Mask a vendor table's media types down to what a Databricks native route
+ * actually accepts (see {@link DATABRICKS_IMAGE_MEDIA_TYPES}) — the table's
+ * image entries survive, its `application/pdf` entry does not, and a model the
+ * table gives no media types keeps none.
+ */
+function nativeMediaTypes(capabilities: Capabilities): Capabilities {
+	const { supportedInputMediaTypes, ...rest } = capabilities;
+	const masked = supportedInputMediaTypes?.filter((mediaType) =>
+		DATABRICKS_IMAGE_MEDIA_TYPES.includes(mediaType),
+	);
+	return {
+		...rest,
+		...(masked?.length ? { supportedInputMediaTypes: masked } : {}),
+	};
+}
+
 /** Recognized vendor for an identity, independent of routing eligibility. */
 function recognizedVendor(normalizedIdentity: string): string | undefined {
 	if (getAnthropicModelCapabilities(normalizedIdentity)) return "anthropic";
@@ -272,18 +298,19 @@ function recognizedVendor(normalizedIdentity: string): string | undefined {
 }
 
 /**
- * Native capabilities for a Gemini endpoint: the Gemini table's token limits and
- * media types, with the effort levels the *generateContent* variant profile
- * says are representable (the table's levels are Interactions-API levels).
+ * Native capabilities for a Gemini endpoint: the Gemini table's token limits,
+ * media types masked to the native route's set, and the effort levels the
+ * *generateContent* variant profile says are representable (the table's levels
+ * are Interactions-API levels).
  */
 function geminiNativeCapabilities(
 	normalizedEndpointName: string,
 	thinkingEffortLevels: readonly string[],
 ): Capabilities {
-	return {
+	return nativeMediaTypes({
 		...getGeminiModelCapabilities(normalizedEndpointName),
 		thinkingEffortLevels: [...thinkingEffortLevels],
-	};
+	});
 }
 
 /**
@@ -293,7 +320,8 @@ function geminiNativeCapabilities(
  * provisioned-throughput or custom endpoint (no `foundation_model`, no eligible
  * `external_model`) is not native-eligible and resolves to chat, as does an
  * unrecognized OpenAI identity or a Gemini endpoint whose variant cannot be
- * reconstructed from its name.
+ * reconstructed from its name, or whose entity identity names a different
+ * variant than its endpoint name does.
  */
 function resolveEntity(
 	entity: DatabricksServedEntityInput,
@@ -329,12 +357,12 @@ function resolveEntity(
 		(isPayPerTokenFoundation ||
 			(externalProvider !== undefined && ANTHROPIC_EXTERNAL_PROVIDERS.has(externalProvider)))
 	) {
-		// Native route keeps the Anthropic table verbatim: thinking effort levels
-		// and PDF input both survive on `/v1/messages`.
+		// The native route recovers the Anthropic table's thinking effort levels,
+		// but not PDF: Databricks documents native Messages input as text + image.
 		return {
 			...base,
 			nativeProtocol: "anthropic-messages",
-			nativeCapabilities: claudeCapabilities,
+			nativeCapabilities: nativeMediaTypes(claudeCapabilities),
 		};
 	}
 
@@ -346,14 +374,18 @@ function resolveEntity(
 		(isPayPerTokenFoundation ||
 			(externalProvider !== undefined && OPENAI_EXTERNAL_PROVIDERS.has(externalProvider)))
 	) {
-		const capabilities = openAICapabilities(openaiCapabilities);
-		// PHASE0-VERIFY: hosted pay-per-token Responses endpoints are unverified
-		// for `store: false` / encrypted-reasoning round-trips, which our
-		// responses mode sends whenever thinking is on. Until a real workspace
-		// confirms the behavior, hosted (`databricks-*`) endpoints keep the
-		// conservative treatment — no thinking controls — while external
-		// endpoints, which Databricks documents as supporting the full Responses
-		// parameter set, keep the table's levels.
+		// Native Responses input is text + image (no PDF) per Databricks'
+		// provider-native API matrix.
+		const capabilities = nativeMediaTypes(openAICapabilities(openaiCapabilities));
+		// Hosted pay-per-token endpoints cannot carry our thinking controls:
+		// Databricks documents `store` and `previous_response_id` as unsupported on
+		// pay-per-token foundation models, returning a 400 if specified
+		// (https://docs.databricks.com/aws/en/machine-learning/model-serving/query-openai-responses#limitations),
+		// and our responses thinking mode sends `store: false` plus an
+		// encrypted-reasoning round-trip whenever thinking is on. Hosted
+		// (`databricks-*`) endpoints therefore advertise no thinking controls, while
+		// external endpoints — documented as supporting the full Responses
+		// parameter set — keep the table's levels.
 		const { thinkingEffortLevels: _dropped, ...withoutThinking } = capabilities;
 		return {
 			...base,
@@ -363,13 +395,20 @@ function resolveEntity(
 	}
 
 	// --- Gemini generateContent ---
-	// Gated on the ENDPOINT NAME, not the entity identity: the endpoint name is
-	// the only identity the client receives at chat time, so the thinking variant
-	// must be reconstructable from it or the wire mapping cannot be built.
+	// Both the ENDPOINT NAME and the entity identity must resolve to the same
+	// generateContent variant. The endpoint name is the only identity the client
+	// receives at chat time, so the thinking variant must be reconstructable from
+	// it or the wire mapping cannot be built; the entity's own identity must agree,
+	// or a Gemini-named endpoint fronting something else (a Vertex Llama, or a
+	// different Gemini variant) would be stamped with the wrong wire mapping.
+	// Hosted pay-per-token endpoints, whose foundation-model name *is* the endpoint
+	// name, agree trivially.
 	const normalizedEndpointName = normalizeDatabricksModelId(input.endpointName);
 	const geminiProfile = getGeminiGenerateContentProfile(normalizedEndpointName);
+	const geminiIdentityProfile = getGeminiGenerateContentProfile(normalizedIdentity);
 	if (
 		geminiProfile &&
+		geminiIdentityProfile?.variant === geminiProfile.variant &&
 		(isPayPerTokenFoundation ||
 			(externalProvider !== undefined && GOOGLE_EXTERNAL_PROVIDERS.has(externalProvider)))
 	) {

@@ -467,11 +467,15 @@ Classification rules, in order:
   string for the selected protocol (`NATIVE_API_TYPES`); missing or unknown
   `api_types` also falls back to chat.
 - **Gemini family rule**: `google-generative` is stamped only when the
-  thinking family (2.5-budget vs. 3.x-level) is positively reconstructable
-  from the **endpoint name** — the only identity `ModelClientChatParams`
-  carries at chat time. Hosted pay-per-token names
-  (`databricks-gemini-2-5-pro`, …) qualify; arbitrarily-named external Gemini
-  endpoints fall back to `openai-chat`. This reconstruction is
+  thinking variant is positively reconstructable from the **endpoint name** —
+  the only identity `ModelClientChatParams` carries at chat time — **and** the
+  served entity's own identity resolves to the same variant. Hosted
+  pay-per-token names (`databricks-gemini-2-5-pro`, …) qualify (there the
+  foundation-model name _is_ the endpoint name, so the two agree trivially);
+  arbitrarily-named external Gemini endpoints fall back to `openai-chat`, as
+  does a Gemini-named endpoint fronting something else (a Vertex Llama) or a
+  different Gemini variant than its name suggests — either would be stamped
+  with the wrong wire mapping. This reconstruction is
   `getGeminiGenerateContentProfile` (`src/model-capabilities/gemini-generate-content.ts`),
   a shared helper the classifier and `GeminiGenerateContentClient` both call
   — the same function decides whether a model may be stamped
@@ -518,13 +522,30 @@ Classification rules, in order:
    today; preserving upstream vendor there is explicitly out of scope for
    this work and confined to `ai-lib`.
 
-Several constants here are flagged `PHASE0-VERIFY` in code pending
+**Media types are masked on every route.** No Databricks route documents PDF
+input: the OpenAI-compatible chat surface does not accept it, and the
+[provider-native API matrix](https://docs.databricks.com/aws/en/machine-learning/model-serving/provider-native-apis)
+documents native input as text + image for Anthropic Messages and OpenAI
+Responses, and text + image + video + audio for Gemini generateContent. Both
+the chat fallback and every native route therefore advertise the image set
+only (`DATABRICKS_IMAGE_MEDIA_TYPES`), dropping the vendor tables'
+`application/pdf`; Gemini's video/audio input is outside our capability
+surface and is not advertised either.
+
+**Hosted pay-per-token Responses endpoints advertise no thinking controls.**
+Databricks documents `store` and `previous_response_id` as
+[unsupported on pay-per-token foundation models](https://docs.databricks.com/aws/en/machine-learning/model-serving/query-openai-responses#limitations),
+returning a 400 if specified, and our responses thinking mode sends
+`store: false` plus an encrypted-reasoning round-trip whenever thinking is on.
+External endpoints support the full Responses parameter set and keep the
+table's levels.
+
+A few constants here remain flagged `PHASE0-VERIFY` in code pending
 confirmation against a real Databricks workspace — the exact OpenAI and
 Gemini gateway `api_types` strings (Anthropic's, `"anthropic/v1/messages"`, is
-confirmed from a captured fixture), hosted pay-per-token Responses `store:
-false` behavior, and whether Databricks' Gemini passthrough tolerates a
-stripped `x-goog-api-key` alongside Bearer auth. A wrong guess degrades
-safely — the native gate simply never passes, so those models stay on
+confirmed from a captured fixture) and whether Databricks' Gemini passthrough
+tolerates a stripped `x-goog-api-key` alongside Bearer auth. A wrong guess
+degrades safely — the native gate simply never passes, so those models stay on
 `openai-chat` rather than routing to a broken endpoint.
 
 ## Shape Guard
