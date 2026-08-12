@@ -329,16 +329,21 @@ function transformSSELine(line: string, noArgTools: string[]): string {
 /**
  * Collapse a block-array `delta.content` into the string the spec requires.
  *
- * Only `text` blocks contribute; every other block type (notably `reasoning`)
- * is dropped. An array carrying no text collapses to `""`, which is spec-valid
- * and which the SDK treats as an empty delta.
+ * Only the observed Databricks `reasoning` and `text` blocks are accepted.
+ * Reasoning is dropped and text is concatenated. Unknown block types return
+ * `undefined` so the caller can preserve the malformed payload and let the SDK
+ * report the unsupported wire shape instead of silently losing content.
  */
-function collapseContentBlocks(blocks: MalformedContentBlock[]): string {
+function collapseKnownContentBlocks(blocks: MalformedContentBlock[]): string | undefined {
 	let text = "";
 	for (const block of blocks) {
-		if (block?.type === "text" && typeof block.text === "string") {
-			text += block.text;
+		if (block?.type === "reasoning") {
+			continue;
 		}
+		if (block?.type !== "text" || typeof block.text !== "string") {
+			return undefined;
+		}
+		text += block.text;
 	}
 	return text;
 }
@@ -381,7 +386,10 @@ function fixMalformedChunk(chunk: MalformedChatCompletionChunk, noArgTools: stri
 		// content at `choices[].message.content` and never reaches this stream
 		// transform. The assistant always streams (`streamText`).
 		if (Array.isArray(delta.content)) {
-			delta.content = collapseContentBlocks(delta.content);
+			const collapsed = collapseKnownContentBlocks(delta.content);
+			if (collapsed !== undefined) {
+				delta.content = collapsed;
+			}
 		}
 
 		if (!Array.isArray(delta.tool_calls)) continue;

@@ -169,6 +169,26 @@ describe("openai-compatible SSE transforms: block-array content", () => {
 		expect(contentOf(transformed)).toBe("2 + 2 = 4.");
 	});
 
+	it("leaves unrecognized content blocks untouched so the SDK fails loudly", async () => {
+		const event = {
+			...TEXT_EVENT,
+			choices: [
+				{
+					...TEXT_EVENT.choices[0],
+					delta: {
+						role: "assistant",
+						content: [{ type: "future-output", text: "Do not silently discard this" }],
+					},
+				},
+			],
+		};
+		stubStreamingFetch(sse(event));
+
+		const [transformed] = await transformedEvents();
+
+		expect(transformed).toEqual(event);
+	});
+
 	it("passes string content through unchanged", async () => {
 		stubStreamingFetch(sse(TEXT_EVENT));
 
