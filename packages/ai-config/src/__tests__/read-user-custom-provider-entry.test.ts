@@ -2,21 +2,31 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
 	NonCustomProviderIdError,
 	readUserCustomProviderEntry,
 } from "../node/read-user-custom-provider-entry.js";
 
+const temporaryDirectories = new Set<string>();
+
 async function temporaryConfigPath(): Promise<string> {
 	const directory = await mkdtemp(join(tmpdir(), "ai-config-raw-entry-"));
+	temporaryDirectories.add(directory);
 	return join(directory, "providers.json");
 }
+
+afterEach(async () => {
+	await Promise.all(
+		[...temporaryDirectories].map((directory) => rm(directory, { recursive: true, force: true })),
+	);
+	temporaryDirectories.clear();
+});
 
 describe("readUserCustomProviderEntry", () => {
 	it("returns the exact strict user-layer entry without rewriting its JSONC", async () => {
