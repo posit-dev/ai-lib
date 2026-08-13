@@ -303,7 +303,7 @@ Positron's VS Code base includes it.
 
 ## Provider Registration
 
-`register-all-providers.ts` registers every provider into a caller-owned `ProviderRegistry`, honoring `config.allowedProviders`. It relies on `src/provider-registration.ts`, which holds the `ProviderRegistrationConfig` interface, the `RegisterAllProviders` signature type, and the `isProviderAllowed` predicate. Consumers that want to restrict the available provider set pass `allowedProviders`; there is no build-time provider filtering.
+`register-all-providers.ts` registers every provider into a caller-owned `ProviderRegistry`, honoring `config.allowedProviders`. Its private registrar map is compile-time exhaustive over `PROVIDER_IDS`, while the public `ProviderRegistrationConfig` remains colocated with the orchestrator. Consumers that want to restrict the available provider set pass `allowedProviders`; there is no build-time provider filtering.
 
 ## Dependencies
 

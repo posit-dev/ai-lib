@@ -77,7 +77,7 @@ const MODEL_CACHE_TTL = 60 * 60 * 1000;
  * when `ListInferenceProfiles` discovery is unavailable, and fabricating a
  * `us.` ID for those regions produces IDs that fail at invoke time.
  */
-export function getInferenceProfilePrefix(region: string): string | null {
+function getInferenceProfilePrefix(region: string): string | null {
 	if (region.startsWith("us-gov-")) {
 		return "us-gov";
 	}

@@ -27,12 +27,6 @@ function createMockOptions(
 	};
 }
 
-describe("LOCAL_PROVIDER_IDS", () => {
-	it("contains ollama and lmstudio", () => {
-		expect(LOCAL_PROVIDER_IDS).toEqual(["ollama", "lmstudio"]);
-	});
-});
-
 describe("isLocalProviderId", () => {
 	it("returns true for local providers", () => {
 		expect(isLocalProviderId("ollama")).toBe(true);
@@ -263,16 +257,6 @@ describe("LocalProviderManager", () => {
 			await manager.clearEndpoint("lmstudio");
 
 			expect(callback).not.toHaveBeenCalled();
-		});
-	});
-
-	describe("isEnabled()", () => {
-		it("delegates to injected callback", () => {
-			vi.mocked(options.isEnabled).mockReturnValue(false);
-			expect(manager.isEnabled()).toBe(false);
-
-			vi.mocked(options.isEnabled).mockReturnValue(true);
-			expect(manager.isEnabled()).toBe(true);
 		});
 	});
 

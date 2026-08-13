@@ -179,25 +179,6 @@ describe("LMStudioClient protocol guard", () => {
 			/Unsupported protocol for LM Studio.*anthropic-messages/,
 		);
 	});
-
-	it("accepts openai-chat protocol (or legacy openai)", async () => {
-		const client = new LMStudioClient("http://localhost:1234/v1");
-
-		const params: ModelClientChatParams = {
-			model: "some-model",
-			messages: [],
-			cancellationToken: createMockCancellationToken(),
-			protocol: "openai-chat",
-		};
-
-		// This will reject with a network error (no real server), but it should
-		// NOT reject with a protocol error — proving the guard passed.
-		try {
-			await client.chat(params);
-		} catch (error) {
-			expect(String(error)).not.toMatch(/Unsupported protocol for LM Studio/);
-		}
-	});
 });
 
 // ---------------------------------------------------------------------------

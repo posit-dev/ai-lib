@@ -112,9 +112,8 @@ interface PortkeyRegistrationPolicy {
  *
  * Also the equivalence relation for the dispatcher's same-gateway check: two
  * URLs target the same gateway iff they normalize to the same string.
- * Exported for tests.
  */
-export function normalizePortkeyGatewayUrl(rawUrl: string): string {
+function normalizePortkeyGatewayUrl(rawUrl: string): string {
 	let url: URL;
 	try {
 		url = new URL(rawUrl.trim());

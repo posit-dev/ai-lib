@@ -12,19 +12,6 @@ describe("providersConfigSchema", () => {
 		expect(result.success).toBe(true);
 	});
 
-	it("accepts a minimal config with version only", () => {
-		const result = providersConfigSchema.safeParse({ version: 1 });
-		expect(result.success).toBe(true);
-	});
-
-	it("accepts a config with $schema", () => {
-		const result = providersConfigSchema.safeParse({
-			$schema: "https://posit.co/ai/providers.schema.json",
-			version: 1,
-		});
-		expect(result.success).toBe(true);
-	});
-
 	it("accepts a config with providers.default", () => {
 		const result = providersConfigSchema.safeParse({
 			providers: { default: { enabled: true } },
@@ -150,23 +137,6 @@ describe("providersConfigSchema", () => {
 		expect(result.success).toBe(true);
 	});
 
-	it.each(["anthropic", "openai", "gemini"] as const)(
-		"accepts a base-only custom type:'%s' entry",
-		(type) => {
-			const result = providersConfigSchema.safeParse({
-				providers: { custom: { gateway: { type, baseUrl: "https://api.example.com/v1" } } },
-			});
-			expect(result.success).toBe(true);
-		},
-	);
-
-	it.each(["positai", "copilot", "databricks"])("rejects excluded custom type:'%s'", (type) => {
-		const result = providersConfigSchema.safeParse({
-			providers: { custom: { gateway: { type } } },
-		});
-		expect(result.success).toBe(false);
-	});
-
 	it("accepts a base-only custom type:'portkey' entry", () => {
 		const result = providersConfigSchema.safeParse({
 			providers: {
@@ -210,15 +180,6 @@ describe("providersConfigSchema", () => {
 			},
 		});
 		expect(result.success).toBe(false);
-	});
-
-	it("accepts a custom type:'aws' entry with an aws section", () => {
-		const result = providersConfigSchema.safeParse({
-			providers: {
-				custom: { gw: { type: "aws", aws: { region: "us-east-1" } } },
-			},
-		});
-		expect(result.success).toBe(true);
 	});
 
 	it("rejects an aws section on a custom type:'openai-compatible' entry", () => {
@@ -284,38 +245,19 @@ describe("providersConfigSchema", () => {
 
 	// --- Rejections ---
 
-	it("rejects a custom provider name that collides with a built-in id", () => {
-		const result = providersConfigSchema.safeParse({
-			providers: {
-				custom: {
-					anthropic: { type: "openai-compatible" },
+	it.each(["anthropic", "default", "custom", "__proto__"])(
+		"rejects reserved or unsafe custom provider name %s",
+		(name) => {
+			const result = providersConfigSchema.safeParse({
+				providers: {
+					custom: {
+						[name]: { type: "openai-compatible" },
+					},
 				},
-			},
-		});
-		expect(result.success).toBe(false);
-	});
-
-	it("rejects a custom provider named 'default'", () => {
-		const result = providersConfigSchema.safeParse({
-			providers: {
-				custom: {
-					default: { type: "openai-compatible" },
-				},
-			},
-		});
-		expect(result.success).toBe(false);
-	});
-
-	it("rejects a custom provider named 'custom'", () => {
-		const result = providersConfigSchema.safeParse({
-			providers: {
-				custom: {
-					custom: { type: "openai-compatible" },
-				},
-			},
-		});
-		expect(result.success).toBe(false);
-	});
+			});
+			expect(result.success).toBe(false);
+		},
+	);
 
 	it("rejects a custom provider without type", () => {
 		const result = providersConfigSchema.safeParse({

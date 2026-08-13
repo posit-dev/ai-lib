@@ -256,7 +256,12 @@ describe("Bedrock inference profile discovery", () => {
 		expect(models.some((model) => model.id === `us.${CLAUDE_MODEL_ID}`)).toBe(false);
 	});
 
-	it("falls back to prefix-constructed IDs when discovery is unavailable", async () => {
+	it.each([
+		["us-east-1", "us"],
+		["eu-west-1", "eu"],
+		["ap-northeast-1", "apac"],
+		["us-gov-west-1", "us-gov"],
+	])("falls back to an invokable profile ID in %s", async (region, expectedPrefix) => {
 		// Behavior-preservation contract: a denied/failed discovery in a handled
 		// family must produce exactly today's IDs.
 		listInferenceProfiles.mockRejectedValueOnce(
@@ -268,9 +273,9 @@ describe("Bedrock inference profile discovery", () => {
 		const registry = new ProviderRegistry(logger());
 		registerBedrockProvider(registry, logger());
 
-		const models = await registry.getModelsForProvider("bedrock", credentialsFor("us-east-1"));
+		const models = await registry.getModelsForProvider("bedrock", credentialsFor(region));
 
-		expect(models.some((model) => model.id === `us.${CLAUDE_MODEL_ID}`)).toBe(true);
+		expect(models.some((model) => model.id === `${expectedPrefix}.${CLAUDE_MODEL_ID}`)).toBe(true);
 	});
 
 	it("does not fabricate a fallback ID for a foundation model without an ID", async () => {

@@ -171,9 +171,8 @@ function createSurfaceState(logger: Logger): SurfaceState {
  * `@ai-sdk/anthropic` appends only `/messages` and `@ai-sdk/google` appends
  * `/models/{id}:generateContent`, so the version segment lives here.
  *
- * Exported for tests.
  */
-export function databricksBaseUrl(
+function databricksBaseUrl(
 	surface: DatabricksSurface,
 	protocol: Protocol | undefined,
 	host: string,
@@ -268,9 +267,8 @@ function toModelInfo(endpoint: ServingEndpoint, surface: DatabricksSurface): Mod
 /**
  * Parse a serving-endpoints list response into routable models, stamped for the
  * serving surface.
- * Exported for tests.
  */
-export function parseServingEndpointsResponse(data: unknown): ModelInfo[] {
+function parseServingEndpointsResponse(data: unknown): ModelInfo[] {
 	const endpoints = (data as { endpoints?: ServingEndpoint[] }).endpoints ?? [];
 
 	const models: ModelInfo[] = [];
@@ -290,9 +288,8 @@ export function parseServingEndpointsResponse(data: unknown): ModelInfo[] {
  * gateway surface. Route availability is not filtered here: the classifier
  * excludes endpoints whose entities cannot all serve any supported gateway
  * route.
- * Exported for tests.
  */
-export function parseFoundationModelsResponse(data: unknown): ModelInfo[] {
+function parseFoundationModelsResponse(data: unknown): ModelInfo[] {
 	const endpoints = (data as { endpoints?: ServingEndpoint[] }).endpoints ?? [];
 
 	const models: ModelInfo[] = [];

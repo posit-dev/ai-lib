@@ -54,7 +54,6 @@ const supportsVision = (model: OpenRouterModel): boolean => {
 // Static fallback models - popular models available on OpenRouter
 const OPENROUTER_FALLBACK: ModelInfo[] = [];
 
-/** Exported for testing. */
 function parseOpenRouterModelsForProvider(
 	providerId: ResolvedProviderId,
 	data: unknown,
@@ -99,10 +98,6 @@ function parseOpenRouterModelsForProvider(
 			supportsWebSearch: false,
 		};
 	});
-}
-
-export function parseOpenRouterModels(data: unknown): ModelInfo[] {
-	return parseOpenRouterModelsForProvider("openrouter", data);
 }
 
 function createOpenRouterModelFetcher(providerId: ResolvedProviderId, logger: Logger) {

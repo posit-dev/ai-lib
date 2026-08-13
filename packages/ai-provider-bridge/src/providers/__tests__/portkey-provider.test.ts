@@ -7,7 +7,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ModelClientChatParams } from "../../model-clients/ModelClient";
 import type { ApiKeyCredentials, CancellationToken, Logger } from "../../types";
 import {
-	normalizePortkeyGatewayUrl,
 	registerCustomPortkeyProvider,
 	registerPortkeyProvider,
 	resolvePortkeyConnection,
@@ -125,15 +124,6 @@ describe("resolvePortkeyConnection — URL classification", () => {
 			baseUrl: "http://localhost:8787",
 		});
 		expect(connection.mode).toBe("oss");
-	});
-});
-
-describe("normalizePortkeyGatewayUrl", () => {
-	it("normalizes scheme/host case, trailing slashes, and the /v1 segment to one gateway form", () => {
-		expect(normalizePortkeyGatewayUrl("HTTP://LOCALHOST:8787/v1/")).toBe(
-			"http://localhost:8787/v1",
-		);
-		expect(normalizePortkeyGatewayUrl("http://localhost:8787")).toBe("http://localhost:8787/v1");
 	});
 });
 

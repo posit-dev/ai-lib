@@ -17,11 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ModelClient } from "../../model-clients/ModelClient";
 import type { CancellationToken, Logger, Protocol } from "../../types";
-import {
-	parseFoundationModelsResponse,
-	parseServingEndpointsResponse,
-	registerDatabricksProvider,
-} from "../databricks-provider";
+import { registerDatabricksProvider } from "../databricks-provider";
 import { ProviderRegistry } from "../ProviderRegistry";
 
 const mockLogger: Logger = {
@@ -321,112 +317,6 @@ async function runChat(
 	}
 }
 
-describe("parseServingEndpointsResponse", () => {
-	it("keeps only READY chat-capable endpoints", () => {
-		const models = parseServingEndpointsResponse(SERVING_ENDPOINTS_FIXTURE);
-
-		expect(models.map((m) => m.id)).toEqual([
-			"databricks-claude-sonnet-4-5",
-			"databricks-gemini-2-5-pro",
-			"my-gpt-4o-gateway",
-			"mixed-vendor-split",
-			"my-custom-chat-model",
-		]);
-	});
-
-	it("stamps each endpoint with the protocol it will be routed over", () => {
-		const models = parseServingEndpointsResponse(SERVING_ENDPOINTS_FIXTURE);
-		const protocols = Object.fromEntries(models.map((m) => [m.id, m.protocol]));
-
-		expect(protocols).toEqual({
-			"databricks-claude-sonnet-4-5": "anthropic-messages",
-			"databricks-gemini-2-5-pro": "google-generative",
-			"my-gpt-4o-gateway": "openai-responses",
-			// Entities disagree on the native protocol — explicit chat fallback.
-			"mixed-vendor-split": "openai-chat",
-			// Unrecognized model — explicit chat fallback, never an absent protocol.
-			"my-custom-chat-model": "openai-chat",
-		});
-	});
-
-	it("maps endpoint name to model id and foundation display name to model name", () => {
-		const models = parseServingEndpointsResponse(SERVING_ENDPOINTS_FIXTURE);
-
-		expect(models.find((m) => m.id === "databricks-claude-sonnet-4-5")).toMatchObject({
-			id: "databricks-claude-sonnet-4-5",
-			name: "Claude Sonnet 4.5",
-			providerId: "databricks",
-			vendor: "anthropic",
-		});
-		expect(models.find((m) => m.id === "my-custom-chat-model")).toMatchObject({
-			name: "my-custom-chat-model",
-			vendor: "databricks",
-		});
-	});
-
-	it("gives natively-routed models their vendor capabilities and degrades the chat fallback", () => {
-		const models = parseServingEndpointsResponse(SERVING_ENDPOINTS_FIXTURE);
-		const byId = (id: string) => models.find((m) => m.id === id);
-
-		// The native `/v1/messages` route keeps the Anthropic table's limits and
-		// thinking controls, but not PDF: Databricks documents native Messages
-		// input as text + image.
-		expect(byId("databricks-claude-sonnet-4-5")).toMatchObject({
-			family: "claude-4.5",
-			maxContextLength: 200_000,
-			supportsImages: true,
-		});
-		expect(byId("databricks-claude-sonnet-4-5")?.supportedInputMediaTypes).toContain("image/png");
-		expect(byId("databricks-claude-sonnet-4-5")?.supportedInputMediaTypes).not.toContain(
-			"application/pdf",
-		);
-		// Thinking controls come back on the native Gemini route.
-		expect(byId("databricks-gemini-2-5-pro")?.thinkingEffortLevels).toContain("high");
-
-		// Chat-fallback endpoints stay on the degraded profile: no thinking
-		// controls, and no PDF even for a Claude entity.
-		expect(byId("mixed-vendor-split")?.thinkingEffortLevels).toBeUndefined();
-		expect(byId("mixed-vendor-split")?.supportedInputMediaTypes).not.toContain("application/pdf");
-		expect(byId("my-custom-chat-model")?.thinkingEffortLevels).toBeUndefined();
-	});
-
-	it("returns an empty list for a malformed response", () => {
-		expect(parseServingEndpointsResponse({})).toEqual([]);
-		expect(parseServingEndpointsResponse({ endpoints: [] })).toEqual([]);
-	});
-});
-
-describe("parseFoundationModelsResponse", () => {
-	it("lists only endpoints the gateway can actually route, stamped per advertised api_types", () => {
-		const models = parseFoundationModelsResponse(FOUNDATION_MODELS_FIXTURE);
-
-		expect(models.map((m) => [m.id, m.protocol])).toEqual([
-			["databricks-claude-opus-4-8", "anthropic-messages"],
-			["databricks-llama-4-maverick", "openai-chat"],
-		]);
-	});
-
-	it("maps display names and infers capabilities from the foundation model name", () => {
-		const models = parseFoundationModelsResponse(FOUNDATION_MODELS_FIXTURE);
-		const opus = models.find((m) => m.id === "databricks-claude-opus-4-8");
-
-		expect(opus).toMatchObject({
-			name: "Claude Opus 4.8",
-			providerId: "databricks",
-			vendor: "anthropic",
-			family: "claude-4.8",
-			maxContextLength: 1_000_000,
-			supportsImages: true,
-		});
-		expect(opus?.thinkingEffortLevels).toContain("high");
-	});
-
-	it("returns an empty list for a malformed response", () => {
-		expect(parseFoundationModelsResponse({})).toEqual([]);
-		expect(parseFoundationModelsResponse({ endpoints: [] })).toEqual([]);
-	});
-});
-
 describe("registerDatabricksProvider model fetcher", () => {
 	let registry: ProviderRegistry;
 
@@ -445,7 +335,20 @@ describe("registerDatabricksProvider model fetcher", () => {
 
 		const models = await registry.getModelsForProvider("databricks", CREDENTIALS);
 
-		expect(models.map((m) => m.id)).toContain("databricks-claude-sonnet-4-5");
+		expect(models.map((m) => [m.id, m.protocol])).toEqual([
+			["databricks-claude-sonnet-4-5", "anthropic-messages"],
+			["databricks-gemini-2-5-pro", "google-generative"],
+			["my-gpt-4o-gateway", "openai-responses"],
+			["mixed-vendor-split", "openai-chat"],
+			["my-custom-chat-model", "openai-chat"],
+		]);
+		expect(models[0]).toMatchObject({
+			name: "Claude Sonnet 4.5",
+			providerId: "databricks",
+			vendor: "anthropic",
+			family: "claude-4.5",
+			supportsImages: true,
+		});
 		expect(workspace.urlsCalled()).toEqual([PROBE_URL, SERVING_LIST_URL]);
 	});
 
@@ -454,10 +357,18 @@ describe("registerDatabricksProvider model fetcher", () => {
 
 		const models = await registry.getModelsForProvider("databricks", CREDENTIALS);
 
-		expect(models.map((m) => m.id)).toEqual([
-			"databricks-claude-opus-4-8",
-			"databricks-llama-4-maverick",
+		expect(models.map((m) => [m.id, m.protocol])).toEqual([
+			["databricks-claude-opus-4-8", "anthropic-messages"],
+			["databricks-llama-4-maverick", "openai-chat"],
 		]);
+		expect(models[0]).toMatchObject({
+			name: "Claude Opus 4.8",
+			providerId: "databricks",
+			vendor: "anthropic",
+			family: "claude-4.8",
+			maxContextLength: 1_000_000,
+			supportsImages: true,
+		});
 		expect(workspace.urlsCalled()).toEqual([PROBE_URL, FOUNDATION_LIST_URL]);
 	});
 

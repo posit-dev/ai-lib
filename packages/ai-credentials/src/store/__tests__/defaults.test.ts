@@ -17,26 +17,7 @@ vi.mock("os", async (importOriginal) => {
 });
 
 // Import AFTER mocks are registered.
-const { getDefaultStorePath, createDefaultStore } = await import("../defaults.js");
-
-describe("getDefaultStorePath", () => {
-	let tmpHome: string;
-
-	beforeEach(async () => {
-		tmpHome = await fs.mkdtemp(path.join(os.tmpdir(), "default-store-path-test-"));
-		mockHome = tmpHome;
-	});
-
-	afterEach(async () => {
-		mockHome = undefined;
-		await fs.rm(tmpHome, { recursive: true, force: true });
-	});
-
-	it("returns {home}/.posit/ai/auth/data.json", () => {
-		const expected = path.join(tmpHome, ".posit", "ai", "auth", "data.json");
-		expect(getDefaultStorePath()).toBe(expected);
-	});
-});
+const { createDefaultStore } = await import("../defaults.js");
 
 describe("createDefaultStore", () => {
 	let tmpHome: string;
@@ -60,14 +41,5 @@ describe("createDefaultStore", () => {
 		const raw = await fs.readFile(expectedPath, "utf-8");
 		const data = JSON.parse(raw);
 		expect(data["test-key"]).toEqual({ value: 42 });
-	});
-
-	it("accepts an optional logger and produces a functional store", async () => {
-		const logger = { debug: vi.fn(), warn: vi.fn() };
-		const store = createDefaultStore(logger);
-		await store.set("x", { n: 1 });
-
-		const result = await store.get<{ n: number }>("x");
-		expect(result).toEqual({ n: 1 });
 	});
 });

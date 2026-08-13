@@ -10,19 +10,20 @@
  * lifecycle and passes it in.
  */
 
-import {
-	isProviderAllowed,
-	type ProviderRegistrationConfig,
-	type RegisterAllProviders,
-} from "./provider-registration";
 import { registerAnthropicProvider } from "./providers/anthropic-provider";
-import { registerBedrockProvider } from "./providers/bedrock-provider";
+import {
+	registerBedrockProvider,
+	type BedrockProviderCallbacks,
+} from "./providers/bedrock-provider";
 import { registerCopilotProvider } from "./providers/copilot-provider";
 import { registerDatabricksProvider } from "./providers/databricks-provider";
 import { registerDeepSeekProvider } from "./providers/deepseek-provider";
 import { registerFoundryProvider } from "./providers/foundry-provider";
 import { registerGeminiProvider } from "./providers/gemini-provider";
-import { registerGoogleVertexProvider } from "./providers/google-vertex-provider";
+import {
+	registerGoogleVertexProvider,
+	type GoogleVertexProviderCallbacks,
+} from "./providers/google-vertex-provider";
 import { registerLitellmProvider } from "./providers/litellm-provider";
 import { registerLMStudioProvider } from "./providers/lmstudio-provider";
 import { registerOllamaProvider } from "./providers/ollama-provider";
@@ -32,11 +33,23 @@ import { registerOpenRouterProvider } from "./providers/openrouter-provider";
 import { registerPortkeyProvider } from "./providers/portkey-provider";
 import { registerPositAiProvider } from "./providers/positai-provider";
 import type { ProviderRegistry } from "./providers/ProviderRegistry";
-import { registerSnowflakeCortexProvider } from "./providers/snowflake-cortex-provider";
-import type { Logger, ProviderId } from "./types";
+import {
+	registerSnowflakeCortexProvider,
+	type SnowflakeProviderCallbacks,
+} from "./providers/snowflake-cortex-provider";
+import { PROVIDER_IDS, type Logger, type ProviderId } from "./types";
 
-// Re-export the shared config so the `providers.ts` barrel keeps resolving it from here.
-export type { ProviderRegistrationConfig } from "./provider-registration";
+export interface ProviderRegistrationConfig {
+	/** Posit AI base URL, optionally resolved lazily when models are fetched. */
+	positAiBaseUrl: string | (() => string);
+	userAgent?: string;
+	/** If set, only these providers register; an empty list registers none. */
+	allowedProviders?: ProviderId[];
+	/** Pre-built by the caller; the bridge never constructs host callbacks. */
+	bedrockCallbacks?: BedrockProviderCallbacks;
+	googleVertexCallbacks?: GoogleVertexProviderCallbacks;
+	snowflakeCallbacks?: SnowflakeProviderCallbacks;
+}
 
 /**
  * One provider's registration. Receives the caller's registry/logger plus the full config so
@@ -51,56 +64,45 @@ type ProviderRegistrar = (
 ) => void;
 
 /**
- * Every provider's registration, paired with its ProviderId. Exported so a test can assert the
- * id set equals PROVIDER_IDS (the single source of truth): a mislabeled, duplicated, or missing
- * id here would silently corrupt `allowedProviders` filtering, which keys on these labels.
- *
- * Only positai/bedrock/google-vertex/snowflake-cortex need a wrapper to thread config into a
- * non-uniform signature; the rest reference their `(registry, logger)` register fn directly.
+ * Every provider's registration, keyed by the canonical ProviderId tuple. The `satisfies` check
+ * makes missing or extra registrations a compile error, so this implementation detail does not
+ * need to be exposed for a runtime shape test.
  */
-export const PROVIDER_REGISTRARS: readonly [ProviderId, ProviderRegistrar][] = [
-	[
-		"positai",
-		(registry, logger, config) =>
-			registerPositAiProvider(registry, config.positAiBaseUrl, config.userAgent, logger),
-	],
-	[
-		"bedrock",
-		(registry, logger, config) =>
-			registerBedrockProvider(registry, logger, config.bedrockCallbacks),
-	],
-	[
-		"google-vertex",
-		(registry, logger, config) =>
-			registerGoogleVertexProvider(registry, logger, config.googleVertexCallbacks),
-	],
-	["anthropic", registerAnthropicProvider],
-	["copilot", registerCopilotProvider],
-	["openai", registerOpenAIProvider],
-	["openrouter", registerOpenRouterProvider],
-	["ollama", registerOllamaProvider],
-	["lmstudio", registerLMStudioProvider],
-	["gemini", registerGeminiProvider],
-	["openai-compatible", registerOpenAICompatibleProvider],
-	["ms-foundry", registerFoundryProvider],
-	[
-		"snowflake-cortex",
-		(registry, logger, config) =>
-			registerSnowflakeCortexProvider(registry, logger, config.snowflakeCallbacks),
-	],
-	["deepseek", registerDeepSeekProvider],
-	["databricks", registerDatabricksProvider],
-	["litellm", registerLitellmProvider],
-	["portkey", registerPortkeyProvider],
-];
+const PROVIDER_REGISTRARS = {
+	positai: (registry, logger, config) =>
+		registerPositAiProvider(registry, config.positAiBaseUrl, config.userAgent, logger),
+	bedrock: (registry, logger, config) =>
+		registerBedrockProvider(registry, logger, config.bedrockCallbacks),
+	"google-vertex": (registry, logger, config) =>
+		registerGoogleVertexProvider(registry, logger, config.googleVertexCallbacks),
+	anthropic: registerAnthropicProvider,
+	copilot: registerCopilotProvider,
+	openai: registerOpenAIProvider,
+	openrouter: registerOpenRouterProvider,
+	ollama: registerOllamaProvider,
+	lmstudio: registerLMStudioProvider,
+	gemini: registerGeminiProvider,
+	"openai-compatible": registerOpenAICompatibleProvider,
+	"ms-foundry": registerFoundryProvider,
+	"snowflake-cortex": (registry, logger, config) =>
+		registerSnowflakeCortexProvider(registry, logger, config.snowflakeCallbacks),
+	deepseek: registerDeepSeekProvider,
+	databricks: registerDatabricksProvider,
+	litellm: registerLitellmProvider,
+	portkey: registerPortkeyProvider,
+} satisfies Record<ProviderId, ProviderRegistrar>;
 
 /**
  * Register every provider with the given registry, honoring `config.allowedProviders`.
  */
-export const registerAllProviders: RegisterAllProviders = (registry, logger, config) => {
-	for (const [id, register] of PROVIDER_REGISTRARS) {
-		if (isProviderAllowed(id, config.allowedProviders)) {
-			register(registry, logger, config);
+export function registerAllProviders(
+	registry: ProviderRegistry,
+	logger: Logger,
+	config: ProviderRegistrationConfig,
+): void {
+	for (const id of PROVIDER_IDS) {
+		if (!config.allowedProviders || config.allowedProviders.includes(id)) {
+			PROVIDER_REGISTRARS[id](registry, logger, config);
 		}
 	}
-};
+}
