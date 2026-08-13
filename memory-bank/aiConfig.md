@@ -451,9 +451,10 @@ type DatabricksModelProfile =
 which deliberately omit identity metadata (the LiteLLM profile's `family`
 field is the precedent). `{ excluded: true }` is a first-class outcome, not a
 bad stamp: on the gateway surface, an endpoint whose entities cannot all serve
-the gateway chat route (missing `ai_gateway_v2_supported` or the
-`mlflow/v1/chat/completions` `api_types` entry on any configured entity) has
-no route at all and must not be listed.
+any supported native, unified Responses, or chat route has no route at all and
+must not be listed. Unified Responses and chat are independent fallbacks: every
+entity need advertise only the selected route's `api_types` entry (and gateway
+v2 support), not both.
 
 Classification rules, in order:
 
@@ -492,15 +493,16 @@ Classification rules, in order:
   Every _configured_ entity participates (`traffic_config` is deliberately
   not read — splits change independently of the configuration observed here);
   the native route requires every entity to resolve to the same protocol
-  (mixed/empty/ambiguous falls back to `openai-chat`, subject to the gateway
-  chat-availability rule above); capabilities aggregate conservatively across
+  (mixed/empty/ambiguous prefers unified MLflow Responses when every entity
+  advertises it, then falls back to `openai-chat` when chat is unanimously
+  advertised); capabilities aggregate conservatively across
   same-protocol entities (minimum numeric limits, intersection of
   media-type/effort-level sets, boolean AND, `vendor`/`family` only when
   unanimous); and the whole computation is entity-order invariant.
-- **Fallback is always an explicit `openai-chat` stamp**, never `undefined`,
-  wherever the chat route actually exists — `undefined` stays reserved for
-  providers that made no routing decision at all, mirroring the "explicit
-  fallback stamp" convention `classifyLitellmModel` already uses.
+- **Fallback stamps are always explicit**, never `undefined`: a gateway endpoint
+  gets `mlflow-responses` when unanimously advertised, otherwise `openai-chat`
+  wherever chat exists. `undefined` stays reserved for providers that made no
+  routing decision at all.
 
 **Two documented limitations, not fixed here:**
 

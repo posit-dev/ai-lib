@@ -18,14 +18,14 @@
  *
  * The rules are deliberately a **positive identification**: a native protocol is
  * stamped only when the endpoint's structure, the model's identity, and (on the
- * gateway surface) the advertised `api_types` all agree. Everything else gets an
- * explicit `openai-chat` stamp — today's behavior — so a wrong or unknown
- * classification degrades to what already works, never to a broken route.
- * `undefined` is never returned as a protocol.
+ * gateway surface) the advertised `api_types` all agree. A non-native gateway
+ * endpoint uses unified MLflow Responses when every entity advertises it, then
+ * falls back to an explicit `openai-chat` stamp when every entity advertises
+ * chat. `undefined` is never returned as a protocol.
  *
  * Two outcomes exist because unavailability is real: on the gateway surface an
- * endpoint whose entities cannot all serve gateway chat has no route at all and
- * must not be listed, which is `{ excluded: true }`.
+ * endpoint whose entities cannot all serve any supported route must not be
+ * listed, which is `{ excluded: true }`.
  *
  * This helper is pure: it reads only the endpoint structure handed to it (no
  * network, no clock). `traffic_config` is deliberately not an input — splits
@@ -568,22 +568,9 @@ export function inferDatabricksModelProfile(
 		};
 	}
 
-	// --- Chat fallback, where the chat route actually exists ---
-	// Serving mode always offers chat completions. The gateway only does so when
-	// EVERY configured entity advertises it — a mixed endpoint would otherwise be
-	// stamped for a route part of its traffic cannot serve. An endpoint with no
-	// configured entities advertises nothing, so it is excluded too.
-	if (
-		input.surface === "gateway" &&
-		!(
-			resolutions.length > 0 &&
-			resolutions.every(
-				(entity) => entity.gatewayV2Supported && entity.apiTypes.includes(GATEWAY_CHAT_API_TYPE),
-			)
-		)
-	) {
-		return { excluded: true };
-	}
+	const everyGatewayEntityAdvertises = (apiType: string): boolean =>
+		resolutions.length > 0 &&
+		resolutions.every((entity) => entity.gatewayV2Supported && entity.apiTypes.includes(apiType));
 
 	// --- Unified MLflow Responses, preferred over chat completions ---
 	// The gateway exposes a unified Responses API alongside chat completions.
@@ -599,16 +586,24 @@ export function inferDatabricksModelProfile(
 	// Gateway-only: classic serving has no unified Responses route
 	// (`/serving-endpoints/responses` is native passthrough and refuses
 	// non-passthrough models), so serving keeps chat completions.
-	if (
-		input.surface === "gateway" &&
-		resolutions.every((entity) => entity.apiTypes.includes(GATEWAY_RESPONSES_API_TYPE))
-	) {
+	if (input.surface === "gateway" && everyGatewayEntityAdvertises(GATEWAY_RESPONSES_API_TYPE)) {
 		return {
 			excluded: false,
 			protocol: "mlflow-responses",
 			vendor: unanimousVendor(resolutions) ?? DEFAULT_VENDOR,
 			capabilities: aggregateCapabilities(resolutions.map((entity) => entity.chatCapabilities)),
 		};
+	}
+
+	// --- Chat fallback, where the chat route actually exists ---
+	// Serving mode always offers chat completions. The gateway only does so when
+	// EVERY configured entity advertises it — a mixed endpoint would otherwise be
+	// stamped for a route part of its traffic cannot serve. An endpoint with no
+	// configured entities advertises nothing, so it is excluded too. This check
+	// comes after the independent Responses route: an endpoint need not advertise
+	// Chat Completions when every entity can serve unified Responses.
+	if (input.surface === "gateway" && !everyGatewayEntityAdvertises(GATEWAY_CHAT_API_TYPE)) {
+		return { excluded: true };
 	}
 
 	return {

@@ -242,6 +242,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 interface CapturedChatRequest {
 	url: string;
 	headers: Headers;
+	body: string | undefined;
 }
 
 /**
@@ -272,6 +273,12 @@ function stubWorkspaceFetch(initial: {
 		chatRequests.push({
 			url,
 			headers: input instanceof Request ? new Headers(input.headers) : new Headers(init?.headers),
+			body:
+				input instanceof Request
+					? await input.clone().text()
+					: typeof init?.body === "string"
+						? init.body
+						: undefined,
 		});
 		return new Response("", { status: 200, headers: { "content-type": "text/event-stream" } });
 	});
@@ -294,7 +301,7 @@ function stubWorkspaceFetch(initial: {
 /** Drive one chat request through the multiplexer, ignoring stream errors. */
 async function runChat(
 	client: ModelClient,
-	params: { model: string; protocol?: Protocol; baseUrl?: string },
+	params: { model: string; protocol?: Protocol; baseUrl?: string; maxOutputTokens?: number },
 ): Promise<void> {
 	try {
 		const stream = await client.chat({
@@ -302,6 +309,7 @@ async function runChat(
 			messages: [{ role: "user", content: "hello" }],
 			protocol: params.protocol,
 			baseUrl: params.baseUrl,
+			maxOutputTokens: params.maxOutputTokens,
 			cancellationToken,
 		});
 		for await (const _part of stream) {
@@ -751,6 +759,15 @@ describe("registerDatabricksProvider route seam", () => {
 		);
 	});
 
+	it("routes gateway unified MLflow Responses under /ai-gateway/mlflow/v1", async () => {
+		expect(
+			await routedUrl(200, {
+				model: "databricks-gpt-oss-120b",
+				protocol: "mlflow-responses",
+			}),
+		).toBe(`${HOST}/ai-gateway/mlflow/v1/responses`);
+	});
+
 	it("routes gateway Gemini generateContent under /ai-gateway/gemini/v1beta", async () => {
 		expect(
 			await routedUrl(200, { model: "databricks-gemini-2-5-pro", protocol: "google-generative" }),
@@ -763,6 +780,20 @@ describe("registerDatabricksProvider route seam", () => {
 		expect(
 			await routedUrl(200, { model: "databricks-llama-4-maverick", protocol: "openai-chat" }),
 		).toBe(`${HOST}/ai-gateway/mlflow/v1/chat/completions`);
+	});
+
+	it("keeps max_tokens on Databricks Chat Completions requests", async () => {
+		const workspace = stubWorkspaceFetch({ probeStatus: 200 });
+
+		await runChat(registry.getClientForProvider("databricks", CREDENTIALS), {
+			model: "databricks-llama-4-maverick",
+			protocol: "openai-chat",
+			maxOutputTokens: 1234,
+		});
+
+		const body = JSON.parse(workspace.chatRequests[0]?.body ?? "{}");
+		expect(body.max_tokens).toBe(1234);
+		expect(body.max_completion_tokens).toBeUndefined();
 	});
 
 	it("trusts a pipeline-supplied base URL verbatim and skips the probe", async () => {

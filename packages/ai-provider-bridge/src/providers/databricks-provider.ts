@@ -25,9 +25,9 @@
  * offers). The catalog pipeline carries the stamp into each chat request as
  * `params.protocol` (precedence: user override > connection `protocol` >
  * stamp), and this module's client factory dispatches per request to a
- * protocol-specific delegate. Every fallback is an explicit `openai-chat`
- * stamp, so a wrong or unknown classification degrades to plain chat
- * completions rather than to a broken route.
+ * protocol-specific delegate. Non-native gateway endpoints prefer unified
+ * MLflow Responses when advertised and otherwise carry an explicit
+ * `openai-chat` fallback stamp.
  *
  * **One pinned surface decision** ({@link createSurfaceState}) owns both
  * stamping and routing. The first caller — discovery *or* chat, since the
@@ -240,8 +240,7 @@ function isChatEndpoint(endpoint: ServingEndpoint): boolean {
 
 /**
  * Classify one endpoint into a stamped model, or `undefined` when the pinned
- * surface offers it no route at all (a gateway endpoint whose entities cannot
- * all serve gateway chat).
+ * surface offers it no route at all.
  */
 function toModelInfo(endpoint: ServingEndpoint, surface: DatabricksSurface): ModelInfo | undefined {
 	const endpointName = endpoint.name ?? "";
@@ -288,8 +287,9 @@ export function parseServingEndpointsResponse(data: unknown): ModelInfo[] {
 
 /**
  * Parse a foundation-models list response into routable models, stamped for the
- * gateway surface. Chat availability is not filtered here: the classifier
- * excludes endpoints whose entities cannot all serve the gateway chat route.
+ * gateway surface. Route availability is not filtered here: the classifier
+ * excludes endpoints whose entities cannot all serve any supported gateway
+ * route.
  * Exported for tests.
  */
 export function parseFoundationModelsResponse(data: unknown): ModelInfo[] {

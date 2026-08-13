@@ -46,6 +46,10 @@ describe("inferDatabricksModelProfile — unified MLflow Responses route", () =>
 		expect(profile("gateway", [entity([CHAT, RESPONSES])])).toBe("mlflow-responses");
 	});
 
+	it("uses Responses when Chat Completions is not advertised", () => {
+		expect(profile("gateway", [entity([RESPONSES])])).toBe("mlflow-responses");
+	});
+
 	it("falls back to chat when Responses is not advertised", () => {
 		expect(profile("gateway", [entity([CHAT])])).toBe("openai-chat");
 	});
