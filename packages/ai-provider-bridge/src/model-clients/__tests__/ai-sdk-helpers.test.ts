@@ -5,7 +5,7 @@
 import { APICallError, RetryError } from "ai";
 import { describe, expect, it } from "vitest";
 
-import { clarifyBlankRequestError } from "../ai-sdk-helpers";
+import { convertAiSdkStreamToPlatform } from "../ai-sdk-helpers";
 
 function blankApiCallError(): APICallError {
 	// What the AI SDK produces when a response's error body doesn't match the
@@ -20,17 +20,26 @@ function blankApiCallError(): APICallError {
 	});
 }
 
-describe("clarifyBlankRequestError", () => {
-	it("fills a blank APICallError message with status and body excerpt", () => {
+async function passThroughError(error: unknown): Promise<void> {
+	async function* errorStream(): AsyncGenerator<{ type: "error"; error: unknown }> {
+		yield { type: "error", error };
+	}
+	for await (const _part of convertAiSdkStreamToPlatform(errorStream(), () => {})) {
+		// Drain the public stream adapter; it clarifies error chunks in place.
+	}
+}
+
+describe("AI SDK stream error messages", () => {
+	it("fills a blank APICallError message with status and body excerpt", async () => {
 		const error = blankApiCallError();
-		clarifyBlankRequestError(error);
+		await passThroughError(error);
 		expect(error.message).toBe(
 			"Request to http://localhost:8787/v1/chat/completions failed with status 500: " +
 				'{"status":"failure","message":"Something went wrong"}',
 		);
 	});
 
-	it("fills both messages of a RetryError wrapping a blank APICallError", () => {
+	it("fills both messages of a RetryError wrapping a blank APICallError", async () => {
 		// Retryable statuses (5xx) surface as a RetryError whose message was
 		// composed from the then-blank last error.
 		const inner = blankApiCallError();
@@ -39,12 +48,12 @@ describe("clarifyBlankRequestError", () => {
 			reason: "maxRetriesExceeded",
 			errors: [inner, inner, inner],
 		});
-		clarifyBlankRequestError(retry);
+		await passThroughError(retry);
 		expect(inner.message).toContain("status 500");
 		expect(retry.message).toBe(`Failed after 3 attempts. Last error: ${inner.message}`);
 	});
 
-	it("leaves errors that already carry a message untouched", () => {
+	it("leaves errors that already carry a message untouched", async () => {
 		const error = new APICallError({
 			message: "Incorrect API key provided",
 			url: "http://localhost:8787/v1/chat/completions",
@@ -52,11 +61,11 @@ describe("clarifyBlankRequestError", () => {
 			statusCode: 401,
 			responseBody: '{"error":{"message":"Incorrect API key provided"}}',
 		});
-		clarifyBlankRequestError(error);
+		await passThroughError(error);
 		expect(error.message).toBe("Incorrect API key provided");
 
 		const plain = new Error("boom");
-		clarifyBlankRequestError(plain);
+		await passThroughError(plain);
 		expect(plain.message).toBe("boom");
 	});
 });

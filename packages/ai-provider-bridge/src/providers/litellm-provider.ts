@@ -63,9 +63,8 @@ import type { ClientFactory, ProviderRegistry } from "./ProviderRegistry";
 /**
  * Resolve the proxy's `/v1` API base from the configured base URL, tolerating
  * a user who already included the version segment.
- * Exported for tests.
  */
-export function litellmV1BaseUrl(baseUrl: string): string {
+function litellmV1BaseUrl(baseUrl: string): string {
 	const trimmed = baseUrl.trim().replace(/\/+$/, "");
 	return trimmed.endsWith("/v1") ? trimmed : `${trimmed}/v1`;
 }
@@ -143,9 +142,8 @@ function toModelInfo(
 /**
  * Parse a `/v1/model/info` response into chat-capable models, stamped with
  * `providerId` (the built-in `"litellm"` or a custom provider id).
- * Exported for tests.
  */
-export function parseLitellmModelInfoResponse(
+function parseLitellmModelInfoResponse(
 	data: unknown,
 	providerId: ResolvedProviderId = "litellm",
 ): ModelInfo[] {

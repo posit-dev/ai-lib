@@ -53,7 +53,6 @@ export {
 	registerOpenRouterProvider,
 } from "./providers/openrouter-provider";
 export {
-	normalizePortkeyGatewayUrl,
 	registerCustomPortkeyProvider,
 	registerPortkeyProvider,
 	resolvePortkeyConnection,

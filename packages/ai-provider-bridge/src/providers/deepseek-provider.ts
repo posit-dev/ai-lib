@@ -24,7 +24,6 @@ interface DeepSeekModelsResponse {
 	data: DeepSeekModel[];
 }
 
-/** Exported for testing. */
 function parseDeepSeekModelsForProvider(
 	providerId: ResolvedProviderId,
 	data: unknown,
@@ -48,10 +47,6 @@ function parseDeepSeekModelsForProvider(
 			thinkingEffortLevels: caps.thinkingEffortLevels,
 		};
 	});
-}
-
-export function parseDeepSeekModels(data: unknown): ModelInfo[] {
-	return parseDeepSeekModelsForProvider("deepseek", data);
 }
 
 function createDeepSeekModelFetcher(providerId: ResolvedProviderId, logger: Logger) {

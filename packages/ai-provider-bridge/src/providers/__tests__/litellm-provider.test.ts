@@ -7,12 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ModelClientChatParams } from "../../model-clients/ModelClient";
 import type { CancellationToken, Logger } from "../../types";
-import {
-	litellmV1BaseUrl,
-	parseLitellmModelInfoResponse,
-	registerCustomLitellmProvider,
-	registerLitellmProvider,
-} from "../litellm-provider";
+import { registerCustomLitellmProvider, registerLitellmProvider } from "../litellm-provider";
 import { ProviderRegistry } from "../ProviderRegistry";
 
 const logger: Logger = {
@@ -27,17 +22,19 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
-describe("litellmV1BaseUrl", () => {
-	it("appends /v1 to a bare proxy address", () => {
-		expect(litellmV1BaseUrl("http://localhost:4000")).toBe("http://localhost:4000/v1");
+async function discoverModels(data: object) {
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async () => Response.json(data)),
+	);
+	const registry = new ProviderRegistry(logger);
+	registerLitellmProvider(registry, logger);
+	return registry.getModelsForProvider("litellm", {
+		type: "apikey",
+		apiKey: "sk-test",
+		baseUrl: "http://localhost:4000",
 	});
-
-	it("tolerates trailing slashes and an existing /v1 segment", () => {
-		expect(litellmV1BaseUrl("http://localhost:4000/")).toBe("http://localhost:4000/v1");
-		expect(litellmV1BaseUrl("http://localhost:4000/v1")).toBe("http://localhost:4000/v1");
-		expect(litellmV1BaseUrl("http://localhost:4000/v1/")).toBe("http://localhost:4000/v1");
-	});
-});
+}
 
 describe("litellm client factory", () => {
 	const cancellationToken: CancellationToken = {
@@ -324,9 +321,9 @@ describe("registerCustomLitellmProvider", () => {
 	});
 });
 
-describe("parseLitellmModelInfoResponse", () => {
-	it("filters non-chat modes but keeps entries with unknown mode", () => {
-		const models = parseLitellmModelInfoResponse({
+describe("litellm model discovery", () => {
+	it("filters non-chat modes but keeps entries with unknown mode", async () => {
+		const models = await discoverModels({
 			data: [
 				{ model_name: "embedder", model_info: { mode: "embedding" } },
 				{ model_name: "imagegen", model_info: { mode: "image_generation" } },
@@ -337,20 +334,20 @@ describe("parseLitellmModelInfoResponse", () => {
 		expect(models.map((m) => m.id)).toEqual(["null-mode", "no-info"]);
 	});
 
-	it("skips entries without a model_name", () => {
-		const models = parseLitellmModelInfoResponse({
+	it("skips entries without a model_name", async () => {
+		const models = await discoverModels({
 			data: [{ model_info: { mode: "chat" } }, { model_name: "ok" }],
 		});
 		expect(models.map((m) => m.id)).toEqual(["ok"]);
 	});
 
-	it("returns no models for an empty or shapeless response", () => {
-		expect(parseLitellmModelInfoResponse({})).toEqual([]);
-		expect(parseLitellmModelInfoResponse({ data: [] })).toEqual([]);
+	it("returns no models for an empty or shapeless response", async () => {
+		expect(await discoverModels({})).toEqual([]);
+		expect(await discoverModels({ data: [] })).toEqual([]);
 	});
 
-	it("gives Claude aliases full Anthropic capabilities from the underlying model id", () => {
-		const [model] = parseLitellmModelInfoResponse({
+	it("gives Claude aliases full Anthropic capabilities from the underlying model id", async () => {
+		const [model] = await discoverModels({
 			data: [
 				{
 					model_name: "my-sonnet",
@@ -374,8 +371,8 @@ describe("parseLitellmModelInfoResponse", () => {
 		expect(model.supportsWebSearch).toBe(false);
 	});
 
-	it("detects Claude behind Bedrock inference-profile ids", () => {
-		const [model] = parseLitellmModelInfoResponse({
+	it("detects Claude behind Bedrock inference-profile ids", async () => {
+		const [model] = await discoverModels({
 			data: [
 				{
 					model_name: "bedrock-sonnet",
@@ -388,16 +385,16 @@ describe("parseLitellmModelInfoResponse", () => {
 		expect(model.thinkingEffortLevels).toBeDefined();
 	});
 
-	it("detects Claude from the alias when litellm_params is missing", () => {
-		const [model] = parseLitellmModelInfoResponse({
+	it("detects Claude from the alias when litellm_params is missing", async () => {
+		const [model] = await discoverModels({
 			data: [{ model_name: "claude-haiku-4-5" }],
 		});
 		expect(model.vendor).toBe("anthropic");
 		expect(model.maxOutputTokens).toBe(64_000);
 	});
 
-	it("gives recognized OpenAI reasoning models thinking levels and the Responses route", () => {
-		const [model] = parseLitellmModelInfoResponse({
+	it("gives recognized OpenAI reasoning models thinking levels and the Responses route", async () => {
+		const [model] = await discoverModels({
 			data: [
 				{
 					model_name: "gpt-5-mini",
@@ -423,8 +420,8 @@ describe("parseLitellmModelInfoResponse", () => {
 		expect(model.supportsImages).toBe(true);
 	});
 
-	it("routes non-reasoning OpenAI models over openai-chat", () => {
-		const [model] = parseLitellmModelInfoResponse({
+	it("routes non-reasoning OpenAI models over openai-chat", async () => {
+		const [model] = await discoverModels({
 			data: [
 				{
 					model_name: "my-4o",
@@ -437,8 +434,8 @@ describe("parseLitellmModelInfoResponse", () => {
 		expect(model.thinkingEffortLevels).toBeUndefined();
 	});
 
-	it("routes exact and future o-series ids over Responses without a capability-table row", () => {
-		const models = parseLitellmModelInfoResponse({
+	it("routes exact and future o-series ids over Responses without a capability-table row", async () => {
+		const models = await discoverModels({
 			data: ["o3", "o4-mini"].map((id) => ({
 				model_name: id,
 				litellm_params: { model: `openai/${id}` },
@@ -451,8 +448,8 @@ describe("parseLitellmModelInfoResponse", () => {
 		}
 	});
 
-	it("uses LiteLLM reasoning metadata for future OpenAI model versions", () => {
-		const [model] = parseLitellmModelInfoResponse({
+	it("uses LiteLLM reasoning metadata for future OpenAI model versions", async () => {
+		const [model] = await discoverModels({
 			data: [
 				{
 					model_name: "future-fast",
@@ -472,8 +469,8 @@ describe("parseLitellmModelInfoResponse", () => {
 		expect(model.thinkingEffortLevels).toEqual(["off", "minimal", "medium", "high", "xhigh"]);
 	});
 
-	it("stamps the per-family protocol on each alias", () => {
-		const models = parseLitellmModelInfoResponse({
+	it("stamps the per-family protocol on each alias", async () => {
+		const models = await discoverModels({
 			data: [
 				{
 					model_name: "my-sonnet",
@@ -495,8 +492,8 @@ describe("parseLitellmModelInfoResponse", () => {
 		]);
 	});
 
-	it("classifies a deceptive alias by its underlying id, not the alias", () => {
-		const [model] = parseLitellmModelInfoResponse({
+	it("classifies a deceptive alias by its underlying id, not the alias", async () => {
+		const [model] = await discoverModels({
 			data: [
 				{
 					model_name: "gpt-4o",
@@ -512,8 +509,8 @@ describe("parseLitellmModelInfoResponse", () => {
 		expect(model.maxContextLength).toBe(128_000);
 	});
 
-	it("does not leak OpenAI capabilities through a non-OpenAI provider prefix", () => {
-		const [model] = parseLitellmModelInfoResponse({
+	it("does not leak OpenAI capabilities through a non-OpenAI provider prefix", async () => {
+		const [model] = await discoverModels({
 			data: [
 				{
 					model_name: "reasoning-alias",
@@ -531,8 +528,8 @@ describe("parseLitellmModelInfoResponse", () => {
 		expect(model.maxContextLength).toBe(128_000);
 	});
 
-	it("honors provider metadata when an OpenAI-looking alias has no underlying id", () => {
-		const [model] = parseLitellmModelInfoResponse({
+	it("honors provider metadata when an OpenAI-looking alias has no underlying id", async () => {
+		const [model] = await discoverModels({
 			data: [
 				{
 					model_name: "gpt-5-mini",
@@ -549,8 +546,8 @@ describe("parseLitellmModelInfoResponse", () => {
 		expect(model.thinkingEffortLevels).toBeUndefined();
 	});
 
-	it("falls back to conservative defaults when model_info is all null (Ollama-style)", () => {
-		const [model] = parseLitellmModelInfoResponse({
+	it("falls back to conservative defaults when model_info is all null (Ollama-style)", async () => {
+		const [model] = await discoverModels({
 			data: [
 				{
 					model_name: "qwen3-coder",

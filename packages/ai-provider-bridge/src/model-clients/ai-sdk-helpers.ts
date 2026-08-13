@@ -43,9 +43,9 @@ function apiCallFailureMessage(error: APICallError): string {
  * Mutates `message` on the existing error objects (never replaces them) so
  * error identity and structured fields (`statusCode`, `responseBody`, …)
  * that consumers key on are preserved. Errors that already carry a message
- * are left untouched. Exported for tests.
+ * are left untouched.
  */
-export function clarifyBlankRequestError(error: unknown): void {
+function clarifyBlankRequestError(error: unknown): void {
 	if (APICallError.isInstance(error) && error.message.trim().length === 0) {
 		error.message = apiCallFailureMessage(error);
 		return;
