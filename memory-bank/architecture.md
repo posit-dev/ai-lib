@@ -62,7 +62,7 @@ branching on it; the strip helper is private to the module, so there is no way t
 | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
 | `src/types.ts`                                   | `PROVIDER_IDS` tuple (14 internal-build IDs) and `ProviderId` type -- single source of truth for valid provider IDs                                                                                                                                                             | No            |
 | `src/providers/`                                 | Provider registry, model fetchers, client factories (14 internal-build providers)                                                                                                                                                                                               | No            |
-| `src/model-clients/`                             | Chat API clients (Anthropic, OpenAI, Gemini, Bedrock, Snowflake, Copilot SDK, DeepSeek, etc.) via AI SDK                                                                                                                                                                        | No            |
+| `src/model-clients/`                             | Chat API clients (Anthropic, OpenAI, two Gemini clients -- `GeminiClient` (Interactions) and `GeminiGenerateContentClient` (plain `generateContent`) --, Bedrock, Snowflake, Copilot SDK, DeepSeek, etc.) via AI SDK                                                            | No            |
 | `src/model-capabilities/gemini-interactions.ts`  | Gemini Interactions API allowlist (`getGeminiInteractionsProfile`, `isInteractionsEligible`) -- bridge SDK-routing logic; the per-provider capability tables themselves live in `ai-config` (moved in ai-lib#9) and are re-exported from the bridge root for existing consumers | No            |
 | `src/provider-map.ts`                            | `PROVIDER_MAP` and `MAPPED_PROVIDER_IDS` -- maps logical provider IDs to Positron auth provider config                                                                                                                                                                          | No            |
 | `src/credential-shaping.ts`                      | `shapeCredentials()` -- pure token-to-`ProviderCredentials` shaping over an injected `CredentialConfig`                                                                                                                                                                         | No            |
@@ -92,7 +92,7 @@ Positron's direct providers are the union of those two sets. Currently:
 
 ## Base URLs
 
-Model clients (`AnthropicClient`, `OpenAIClient`, `GeminiClient`) **trust the base URL they are given** — `params.baseUrl ?? this.baseURL`, used raw, with no chat-time correction. There used to be a `normalizeConfiguredBaseUrl` workaround inside the clients that patched a bare host (e.g. `https://api.anthropic.com`) to its versioned form at request time; that has been removed in favor of fixing the value once, upstream, at the config-read seam.
+Model clients (`AnthropicClient`, `OpenAIClient`, `GeminiClient`, `GeminiGenerateContentClient`) **trust the base URL they are given** — `params.baseUrl ?? this.baseURL`, used raw, with no chat-time correction. There used to be a `normalizeConfiguredBaseUrl` workaround inside the clients that patched a bare host (e.g. `https://api.anthropic.com`) to its versioned form at request time; that has been removed in favor of fixing the value once, upstream, at the config-read seam.
 
 The correction policy itself lives in one public helper, `normalizeBaseUrlForProvider(providerId, url)` (`src/base-url.ts`, exported from the root entrypoint): it corrects a bare known host (anthropic/openai/gemini, tolerant of whitespace and trailing slashes) to `host/version`, and returns **any other input byte-for-byte unchanged** — so `result !== url` means precisely "bare-host fix applied." Consumers (Positron's `authentication-source.ts` and `fix-base-url-settings.ts`) use that identity check as their write-back/notification criterion. `normalizeProviderBaseUrl` (used by the model-discovery fetchers) is unrelated: it only fills in a host/version when the URL is unset and trims whitespace/trailing slashes for composition — it does not correct a configured bare host.
 
@@ -112,6 +112,15 @@ Bedrock's manual-key and `fromNodeProviderChain` branches converge in
 `createAwsCredentialProvider()`. Converse, Anthropic Messages, Mantle
 inference, and both discovery clients consume the same provider-function
 shape, keeping credential precedence identical across protocols.
+
+`AnthropicClient`'s auth parameter is a discriminated union,
+`AnthropicClientAuth = { apiKey: string } | { authToken: string }` — the two
+schemes are mutually exclusive on the wire (`x-api-key` vs
+`Authorization: Bearer`), and the SDK rejects being given both at once. Direct
+Anthropic credentials pass `{ apiKey }`; gateways that front the Messages API
+with bearer tokens (Databricks' native passthrough) pass `{ authToken }`. This
+is a breaking constructor change from the former positional `apiKey` string —
+every call site in the repo was updated in the same change.
 
 Bedrock endpoint selection is owned by the async internal
 `resolveBedrockTransport()` seam. It resolves once per operation (never in a
@@ -157,6 +166,45 @@ permissions are not needed after subscription. AWS's
 `store: false` disables retrievable Responses storage but is not a
 zero-retention guarantee: AWS account/project retention policy is configured
 separately and may still retain data according to that policy.
+
+### Databricks: pinned surface + native protocol dispatch
+
+Databricks fronts many vendors behind one workspace on one of two surfaces —
+classic Model Serving or the Unity AI Gateway — and, on both, exposes native
+passthrough APIs (Anthropic Messages, OpenAI Responses, Gemini
+generateContent) alongside the universal OpenAI-compatible chat surface.
+`registerDatabricksProvider` (`src/providers/databricks-provider.ts`) decides,
+once per registration via a single-flight `ensureSurface`, which surface a
+workspace host is on: whichever caller — discovery or a direct `chat()` call,
+since the registry contract allows chat without prior discovery — arrives
+first probes `GET {host}/api/ai-gateway/v2/endpoints` and pins the answer (a
+probe failure pins `serving`), so stamping and routing can never disagree
+about which surface backs a request. The pin is released together with the
+model cache by `clearCache()`.
+
+Discovery classification is delegated entirely to `ai-config`'s
+`inferDatabricksModelProfile` (see `memory-bank/aiConfig.md`), which stamps
+each endpoint's `protocol` plus the capabilities that protocol offers, or
+excludes the endpoint outright when the pinned surface offers it no route. The
+client factory holds three delegates against the same workspace —
+`AnthropicClient` (Bearer via `authToken`), one `OpenAIClient` (it already
+selects `/chat/completions` vs `/responses` from `params.protocol`), and
+`GeminiGenerateContentClient` — and dispatches each `chat()` call on
+`normalizeProtocol(params.protocol)`. A single route seam,
+`databricksBaseUrl(surface, protocol, host)`, maps the pinned surface and
+resolved protocol to an AI-SDK base URL (the version segment, `/v1` or
+`/v1beta`, lives in the base because the Vercel SDKs append only their
+operation path); `params.baseUrl`, when the pipeline already supplied one, is
+trusted verbatim and skips the route seam entirely.
+
+A couple of constants this classification depends on — the OpenAI/Gemini
+gateway `api_types` strings and tolerance of a stripped `x-goog-api-key` — are
+flagged `PHASE0-VERIFY` in code pending confirmation against a real Databricks
+workspace; a wrong guess degrades safely to the `openai-chat` fallback rather
+than a broken route. Hosted pay-per-token Responses endpoints are no longer in
+that bucket: Databricks documents `store`/`previous_response_id` as unsupported
+there (400 if specified), which is why those endpoints advertise no thinking
+controls (see `memory-bank/aiConfig.md`).
 
 **`ApiKeyCredentials.customHeaders`** -- Optional `Record<string, string>` of extra HTTP headers attached to every request for the provider. Intended for additive enterprise-gateway markers (e.g. Databricks `x-databricks-use-coding-agent-mode`, tenancy/routing headers). Precedence varies:
 

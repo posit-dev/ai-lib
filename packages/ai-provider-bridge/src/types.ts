@@ -75,6 +75,7 @@ export type ProviderId = (typeof PROVIDER_IDS)[number];
  * - `"anthropic-messages"` — Anthropic Messages API format
  * - `"openai-chat"` — OpenAI Chat Completions API format
  * - `"openai-responses"` — OpenAI Responses API format
+ * - `"mlflow-responses"` — Databricks unified MLflow Responses API format
  * - `"bedrock-converse"` — AWS Bedrock Converse API format
  * - `"google-generative"` — Google Generative AI (Gemini) API format
  */
@@ -82,6 +83,7 @@ export type Protocol =
 	| "anthropic-messages"
 	| "openai-chat"
 	| "openai-responses"
+	| "mlflow-responses"
 	| "bedrock-converse"
 	| "google-generative";
 
@@ -168,6 +170,7 @@ export interface ModelInfo {
 	 * - `"anthropic-messages"` — Anthropic Messages API format
 	 * - `"openai-chat"` — OpenAI Chat Completions API format
 	 * - `"openai-responses"` — OpenAI Responses API format
+	 * - `"mlflow-responses"` — Databricks gateway's unified MLflow Responses API format
 	 * - `"bedrock-converse"` — AWS Bedrock Converse API format
 	 * - `"google-generative"` — Google Generative AI (Gemini) API format
 	 *

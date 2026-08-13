@@ -255,6 +255,19 @@ describe("resolveModels", () => {
 		expect(result[0].resolvedBaseUrl).toBe("https://anthropic.example.com");
 	});
 
+	it("an explicit canonical fallback stamp participates in endpoint lookup", () => {
+		// A provider that stamps `openai-chat` as its explicit fallback (rather than
+		// leaving `protocol` absent) must resolve that protocol and reach the
+		// matching `endpoints` entry — that is what makes the stamp useful.
+		const stamped = [makeModel("fallback-endpoint", { protocol: "openai-chat" })];
+		const connection: ResolvedConnection = {
+			endpoints: { "openai-chat": "https://chat.example.com" },
+		};
+		const result = resolveModels(undefined, stamped, connection);
+		expect(result[0].resolvedProtocol).toBe("openai-chat");
+		expect(result[0].resolvedBaseUrl).toBe("https://chat.example.com");
+	});
+
 	it("resolves baseUrl from provider connection when model has none", () => {
 		const connection: ResolvedConnection = { baseUrl: "https://provider.example.com" };
 		const result = resolveModels(undefined, discovered, connection);

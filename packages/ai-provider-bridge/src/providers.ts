@@ -96,6 +96,7 @@ export {
 
 // Client implementations
 export { AnthropicClient } from "./model-clients/AnthropicClient";
+export type { AnthropicClientAuth } from "./model-clients/AnthropicClient";
 export { DeepSeekClient } from "./model-clients/DeepSeekClient";
 export { CopilotSdkClient } from "./model-clients/CopilotSdkClient";
 export { BedrockClient, isAnthropicModel } from "./model-clients/BedrockClient";
@@ -106,6 +107,8 @@ export {
 	extractPreviousInteractionId,
 	filterUnsignedReasoning,
 } from "./model-clients/GeminiClient";
+export { GeminiGenerateContentClient } from "./model-clients/GeminiGenerateContentClient";
+export type { GeminiGenerateContentAuth } from "./model-clients/GeminiGenerateContentClient";
 export {
 	getEffectiveLocation,
 	GoogleVertexClient,

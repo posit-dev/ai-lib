@@ -94,7 +94,7 @@ function familyDefaults(providerId: string, modelId: string): Partial<InferredMo
 	}
 }
 
-type CompleteInferredModelCapabilities = Omit<
+export type CompleteInferredModelCapabilities = Omit<
 	InferredModelCapabilities,
 	"requiresChatTemplateKwargs"
 >;
@@ -103,8 +103,11 @@ type CompleteInferredModelCapabilities = Omit<
  * Apply the generic baseline plus a derivation the tables themselves omit:
  * image MIME types imply image support unless the table explicitly says
  * otherwise.
+ *
+ * Exported within the package so every profile helper (LiteLLM, Databricks, …)
+ * completes capabilities the same way.
  */
-function completeCapabilities(
+export function completeCapabilities(
 	caps: Partial<InferredModelCapabilities>,
 ): CompleteInferredModelCapabilities {
 	const withDerivedImageSupport =

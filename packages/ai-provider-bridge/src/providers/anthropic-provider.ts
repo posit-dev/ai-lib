@@ -99,7 +99,7 @@ function createAnthropicClientFactory(logger: Logger): ClientFactory {
 			throw new Error(`Anthropic provider requires API key credentials, got: ${credentials.type}`);
 		}
 		return new AnthropicClient(
-			credentials.apiKey,
+			{ apiKey: credentials.apiKey },
 			credentials.baseUrl,
 			credentials.customHeaders,
 			logger,

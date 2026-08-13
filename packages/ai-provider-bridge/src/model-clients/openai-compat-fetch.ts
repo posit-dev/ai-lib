@@ -17,9 +17,11 @@
  *
  * ## Request transforms (outbound)
  *
- * 1. `max_tokens` → `max_completion_tokens`
+ * 1. `max_tokens` → `max_completion_tokens` (opt-out, see `renameMaxTokens`)
  *    Many providers reject the deprecated `max_tokens` parameter.
  *    OpenAI themselves require `max_completion_tokens` for newer models.
+ *    The reverse also exists: Databricks strict-decodes its Chat Completions
+ *    body and rejects `max_completion_tokens`, so it opts out.
  *
  * 2. `developer` role → `system` role
  *    The `developer` role is an OpenAI-specific alias for `system`
@@ -121,6 +123,21 @@ interface MalformedChatCompletionChunk {
 
 type FetchFn = (url: string | URL | globalThis.Request, init?: RequestInit) => Promise<Response>;
 
+/** Per-provider switches for {@link createOpenAICompatibleFetch}. */
+export interface OpenAICompatibleFetchOptions {
+	/**
+	 * Rename `max_tokens` to `max_completion_tokens` on outbound requests
+	 * (request transform 1). Defaults to `true`.
+	 *
+	 * Set `false` for a surface that requires the original spelling. Databricks
+	 * is one: its Chat Completions surface strict-decodes the body and answers
+	 * `400 Bad request: json: unknown field "max_completion_tokens"`, while
+	 * `max_tokens` is accepted. The rename is therefore not universally safe,
+	 * only usual.
+	 */
+	readonly renameMaxTokens?: boolean;
+}
+
 /**
  * Create a custom fetch function that applies OpenAI-compatible transforms.
  *
@@ -132,12 +149,15 @@ type FetchFn = (url: string | URL | globalThis.Request, init?: RequestInit) => P
  *   additive only — SDK/provider-managed names are ignored, and a
  *   customHeaders entry whose name collides with a header already populated
  *   by the OpenAI SDK is silently skipped.
+ * @param options - Per-provider switches; see {@link OpenAICompatibleFetchOptions}.
  */
 export function createOpenAICompatibleFetch(
 	providerName: string,
 	apiKey?: string,
 	customHeaders?: Record<string, string>,
+	options?: OpenAICompatibleFetchOptions,
 ): FetchFn {
+	const renameMaxTokens = options?.renameMaxTokens ?? true;
 	return async (url: string | URL | globalThis.Request, init?: RequestInit): Promise<Response> => {
 		const modifiedInit = { ...init };
 
@@ -163,7 +183,7 @@ export function createOpenAICompatibleFetch(
 			try {
 				const body = JSON.parse(modifiedInit.body);
 				noArgTools = extractNoArgTools(body);
-				transformRequestBody(body);
+				transformRequestBody(body, renameMaxTokens);
 				modifiedInit.body = JSON.stringify(body);
 			} catch {
 				// Not JSON, pass through unchanged
@@ -212,10 +232,11 @@ function extractNoArgTools(body: any): string[] {
  * Apply request body transforms in-place.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function transformRequestBody(body: any): void {
+function transformRequestBody(body: any, renameMaxTokens: boolean): void {
 	// Transform 1: max_tokens → max_completion_tokens.
-	// The old parameter name is rejected by newer models.
-	if ("max_tokens" in body && !("max_completion_tokens" in body)) {
+	// The old parameter name is rejected by newer models, but some surfaces
+	// (Databricks) reject the new one instead — see `renameMaxTokens`.
+	if (renameMaxTokens && "max_tokens" in body && !("max_completion_tokens" in body)) {
 		body.max_completion_tokens = body.max_tokens;
 		delete body.max_tokens;
 	}

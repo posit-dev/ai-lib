@@ -417,6 +417,169 @@ here, with three improvements over that copy: the `openai` case now derives
 the DeepSeek table, and `supportsImages` is derived from media types as
 described above).
 
+### Databricks Native Routing (`databricks-helpers.ts`, `gemini-generate-content.ts`)
+
+Databricks fronts many vendors behind one workspace and exposes native
+passthrough APIs (Anthropic Messages, OpenAI Responses, Gemini
+generateContent) alongside the universal OpenAI-compatible chat surface, on
+either of two surfaces (classic Model Serving or the Unity AI Gateway). Unlike
+`inferModelCapabilities`, routing here is genuinely provider-specific enough
+to need its own entry point, `inferDatabricksModelProfile(input)`
+(`src/model-capabilities/databricks-helpers.ts`) — it is **not** routed
+through `inferModelCapabilities(providerId, modelId)`. `ai-provider-bridge`'s
+`databricks-provider.ts` is its only caller; the equivalent bridge-side helper
+this replaced (`model-capabilities/databricks-helpers.ts` in the bridge) was
+deleted.
+
+The input is the endpoint **structure** for every configured served entity
+(not just the first), plus `surface: "serving" | "gateway"` — the pinned
+decision from `ensureSurface` (see `memory-bank/architecture.md`). The output
+is a Databricks-specific profile:
+
+```ts
+type DatabricksModelProfile =
+  | { excluded: true }
+  | {
+      excluded: false;
+      protocol: Protocol;
+      vendor: string;
+      capabilities: CompleteInferredModelCapabilities;
+    };
+```
+
+`vendor` rides explicitly in the profile rather than in the capability types,
+which deliberately omit identity metadata (the LiteLLM profile's `family`
+field is the precedent). `{ excluded: true }` is a first-class outcome, not a
+bad stamp: on the gateway surface, an endpoint whose entities cannot all serve
+any supported native, unified Responses, or chat route has no route at all and
+must not be listed. Unified Responses and chat are independent fallbacks: every
+entity need advertise only the selected route's `api_types` entry (and gateway
+v2 support), not both.
+
+Classification rules, in order:
+
+- **Structural + identity + (on gateway) advertised-surface eligibility.**
+  Provider type alone is never sufficient: a Claude model on a
+  provisioned-throughput or custom endpoint (no `foundation_model`, no
+  eligible `external_model`) is not native-eligible; OpenAI Responses
+  requires a recognized compatible family (`gpt-5*`, `gpt-4o*`); an
+  unrecognized identity falls back to chat. On the gateway surface, every
+  aggregated entity must additionally advertise the exact native `api_types`
+  string for the selected protocol (`NATIVE_API_TYPES`); missing or unknown
+  `api_types` also falls back to chat.
+- **Gemini family rule**: `google-generative` is stamped only when the
+  thinking variant is positively reconstructable from the **endpoint name** —
+  the only identity `ModelClientChatParams` carries at chat time — **and** the
+  served entity's own identity resolves to the same variant. Hosted
+  pay-per-token names (`databricks-gemini-2-5-pro`, …) qualify (there the
+  foundation-model name _is_ the endpoint name, so the two agree trivially);
+  arbitrarily-named external Gemini endpoints fall back to `openai-chat`, as
+  does a Gemini-named endpoint fronting something else (a Vertex Llama) or a
+  different Gemini variant than its name suggests — either would be stamped
+  with the wrong wire mapping. This reconstruction is
+  `getGeminiGenerateContentProfile` (`src/model-capabilities/gemini-generate-content.ts`),
+  a shared helper the classifier and `GeminiGenerateContentClient` both call
+  — the same function decides whether a model may be stamped
+  `google-generative` and how to build the wire `thinkingConfig`, so the
+  stamp and the wire choice cannot disagree. It normalizes bare Gemini ids,
+  OpenRouter-style prefixes, and Databricks naming (both pay-per-token
+  `databricks-gemini-2-5-pro` and Unity Catalog `system.ai.gemini-2-5-flash`)
+  to one rule table, and returns a **variant-granular** profile — not just
+  the coarse 2.5/3.x family — because validity differs within 2.5 itself (Pro
+  cannot disable thinking; Flash/Flash-Lite can; budget ranges and defaults
+  differ per tier) and 3.x variants differ in which `thinkingLevel` values
+  they accept.
+- **Multi-entity rules**: endpoints can traffic-split across served entities.
+  Every _configured_ entity participates (`traffic_config` is deliberately
+  not read — splits change independently of the configuration observed here);
+  the native route requires every entity to resolve to the same protocol
+  (mixed/empty/ambiguous prefers unified MLflow Responses when every entity
+  advertises it, then falls back to `openai-chat` when chat is unanimously
+  advertised); capabilities aggregate conservatively across
+  same-protocol entities (minimum numeric limits, intersection of
+  media-type/effort-level sets, boolean AND, `vendor`/`family` only when
+  unanimous); and the whole computation is entity-order invariant.
+- **Fallback stamps are always explicit**, never `undefined`: a gateway endpoint
+  gets `mlflow-responses` when unanimously advertised, otherwise `openai-chat`
+  wherever chat exists. `undefined` stays reserved for providers that made no
+  routing decision at all.
+
+**Two documented limitations, not fixed here:**
+
+1. **Protocol-override capability staleness.** If a user overrides a model's
+   protocol, the capabilities stay whatever was stamped for the _original_
+   inferred protocol — `resolveModels` merges user capability overrides into
+   the flat model object before `attachRouting`, so nothing downstream can
+   tell a user-supplied capability value apart from an inferred one once
+   merged, and no safe protocol-keyed mask can be built after that point.
+   This is the same pre-existing limitation LiteLLM has, not a new one
+   introduced for Databricks. A real fix needs a provenance/profile seam
+   through the resolution pipeline and is tracked as follow-up work, not part
+   of this feature.
+2. **`vendor` scope.** The profile's `vendor` feeds bridge
+   `ModelInfo.vendor` — a required field, consumed directly by Notebooks. The
+   assistant monorepo overwrites `vendor` with the provider display name for
+   _every_ provider (`NodeModelService.applyModelResolution`), so this
+   profile's `vendor` never reaches assistant-side pricing/display logic
+   today; preserving upstream vendor there is explicitly out of scope for
+   this work and confined to `ai-lib`.
+
+**Media types are masked on every route.** No Databricks route documents PDF
+input: the OpenAI-compatible chat surface does not accept it, and the
+[provider-native API matrix](https://docs.databricks.com/aws/en/machine-learning/model-serving/provider-native-apis)
+documents native input as text + image for Anthropic Messages and OpenAI
+Responses, and text + image + video + audio for Gemini generateContent. Both
+the chat fallback and every native route therefore advertise the image set
+only (`DATABRICKS_IMAGE_MEDIA_TYPES`), dropping the vendor tables'
+`application/pdf`; Gemini's video/audio input is outside our capability
+surface and is not advertised either.
+
+**Hosted pay-per-token Responses endpoints advertise no thinking controls.**
+Databricks documents `store` and `previous_response_id` as
+[unsupported on pay-per-token foundation models](https://docs.databricks.com/aws/en/machine-learning/model-serving/query-openai-responses#limitations),
+returning a 400 if specified, and our responses thinking mode sends
+`store: false` plus an encrypted-reasoning round-trip whenever thinking is on.
+External endpoints support the full Responses parameter set and keep the
+table's levels.
+
+**Non-native endpoints prefer the unified MLflow Responses API over chat
+completions.** The gateway exposes `/ai-gateway/mlflow/v1/responses` alongside
+`/ai-gateway/mlflow/v1/chat/completions`. It is a different API from the
+`openai/v1/responses` **native passthrough**, which Databricks refuses for
+models it does not proxy natively. Endpoints advertising the
+`mlflow/v1/responses` api_type are therefore stamped `mlflow-responses`, which
+routes to `{host}/ai-gateway/mlflow/v1` in the SDK's Responses mode. The chat
+surface loses on all three counts that matter: it rejects `store`, rejects
+`max_completion_tokens`, and streams reasoning as a `delta.content` block array
+that the OpenAI chunk schema cannot represent (so reasoning is discarded),
+while Responses accepts the same thinking controls and carries reasoning as
+first-class items.
+
+The stamp is **gateway-only**: classic serving has no unified Responses route
+(`/serving-endpoints/responses` is native passthrough and refuses
+non-passthrough models), so serving keeps `openai-chat`. The advertised
+api_type is an exact gate — on a live workspace, every endpoint advertising it
+answered 200 and the one that did not (`databricks-meta-llama-3-3-70b-instruct`)
+answered 400.
+
+Verified against a live gateway-enabled workspace: `"anthropic/v1/messages"` is
+correct, and Anthropic Messages works on `/ai-gateway/anthropic/v1`,
+`/serving-endpoints/anthropic/v1`, and the per-endpoint `ai_gateway_url` host
+alike. Note that `api_types` itself is **undocumented** — it appears in
+discovery responses but in neither the REST docs nor the SDK's
+`FoundationModel` dataclass — so an observed roll-up is its only source of
+truth.
+
+Two constants remain flagged `PHASE0-VERIFY`, both because that workspace has no
+endpoint that can exercise them: the OpenAI and Gemini gateway `api_types`
+strings. Do **not** "correct" `openai/v1/responses` to the `mlflow/v1/responses`
+seen in a roll-up — they are different APIs, and the same model answers 200 on
+one and 400 on the other. Gemini's Bearer auth is effectively settled by
+Databricks' own example, which passes a dummy `api_key` and supplies
+`Authorization: Bearer` through `http_options`. A wrong guess degrades safely —
+the native gate simply never passes, so those models stay on a working route
+rather than a broken one.
+
 ## Shape Guard
 
 `typechecks/shape-guard.typecheck.ts` holds compile-time assertions (type-checked

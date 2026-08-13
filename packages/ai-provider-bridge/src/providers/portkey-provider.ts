@@ -467,7 +467,7 @@ const portkeyClientFactory: ClientFactory = (credentials) => {
 	// included — they are chat-scoped by the resolver's per-operation split).
 	const nativeKey = connection.mode === "hosted" ? HOSTED_DUMMY_NATIVE_KEY : connection.upstreamKey;
 	const anthropicClient = new AnthropicClient(
-		nativeKey,
+		{ apiKey: nativeKey },
 		connection.baseUrl,
 		connection.chatHeaders,
 	);

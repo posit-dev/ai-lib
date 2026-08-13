@@ -75,6 +75,21 @@ export type {
 export { getAnthropicModelCapabilities } from "./model-capabilities/anthropic-helpers.js";
 export { getBedrockMantleModelCapabilities } from "./model-capabilities/bedrock-mantle-helpers.js";
 export { getDeepSeekModelCapabilities } from "./model-capabilities/deepseek-helpers.js";
+export { inferDatabricksModelProfile } from "./model-capabilities/databricks-helpers.js";
+export type {
+	DatabricksExternalModelInput,
+	DatabricksFoundationModelInput,
+	DatabricksModelProfile,
+	DatabricksModelProfileInput,
+	DatabricksNativeProtocol,
+	DatabricksServedEntityInput,
+	DatabricksSurface,
+} from "./model-capabilities/databricks-helpers.js";
+export { getGeminiGenerateContentProfile } from "./model-capabilities/gemini-generate-content.js";
+export type {
+	GeminiGenerateContentProfile,
+	GeminiGenerateContentThinking,
+} from "./model-capabilities/gemini-generate-content.js";
 export { getGeminiModelCapabilities } from "./model-capabilities/gemini-helpers.js";
 export { getGemmaModelCapabilities } from "./model-capabilities/gemma-helpers.js";
 export {
@@ -110,7 +125,11 @@ export type {
 	SnowflakeCortexModelCapabilities,
 } from "./model-capabilities/snowflake-cortex-helpers.js";
 export { inferLitellmModelProfile, inferModelCapabilities } from "./model-capabilities/infer.js";
-export type { LitellmModelProfile, LitellmModelProfileInput } from "./model-capabilities/infer.js";
+export type {
+	CompleteInferredModelCapabilities,
+	LitellmModelProfile,
+	LitellmModelProfileInput,
+} from "./model-capabilities/infer.js";
 
 // --- Defaults --------------------------------------------------------------
 export {

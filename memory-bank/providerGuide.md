@@ -52,7 +52,7 @@ Implement `ModelClient` interface with `chat()` method that returns `AsyncIterab
   never reads `usesExplicitPromptCaching` is correct by default: absent means "emit no explicit
   cache fields", which is every provider's default behavior.
 
-**Reference**: See `AnthropicClient.ts` (AI SDK pattern) or `OpenAIClient.ts` / `OllamaClient.ts` for wrapper-based implementations.
+**Reference**: See `AnthropicClient.ts` (AI SDK pattern) or `OpenAIClient.ts` / `OllamaClient.ts` for wrapper-based implementations. `AnthropicClient`'s constructor takes a discriminated auth config as its first argument (`new AnthropicClient(auth: { apiKey: string } | { authToken: string }, baseURL?, customHeaders?, logger?)`) rather than a bare API key string, so gateways that front the Messages API with bearer tokens (e.g. Databricks) pass `{ authToken }` instead of `{ apiKey }`.
 
 ## Step 3b: Add Capability Helpers (Optional)
 
@@ -169,6 +169,23 @@ key. The standing judgment: extract a shared
 arrives and the credential parameterization proves clean across all three;
 until then, mirror with the convention documented here rather than forcing a
 shallow abstraction.
+
+**Databricks is the second protocol-stamping provider** (LiteLLM is the
+first): `inferDatabricksModelProfile`, in `ai-config`, stamps each discovered
+endpoint's `protocol` the same way `classifyLitellmModel` does, so routing and
+capabilities agree — but it adds two wrinkles LiteLLM doesn't have. First, the
+workspace itself has two surfaces (classic Model Serving vs. the Unity AI
+Gateway) that change which base URLs and which advertised `api_types` are
+even eligible, so the provider module pins a `serving` vs `gateway` decision
+once per registration (`ensureSurface`, single-flight, shared by discovery and
+chat) before either stamping or routing can proceed. Second, Databricks
+dispatches over **three** delegates instead of two — `AnthropicClient`
+(`authToken`), one `OpenAIClient` (still picks `/chat/completions` vs
+`/responses` from `params.protocol`), and `GeminiGenerateContentClient` — all
+constructed without a base URL, since a shared route seam
+(`databricksBaseUrl(surface, protocol, host)`) resolves it per request from
+the pinned surface. See `memory-bank/architecture.md` (Databricks section) and
+`memory-bank/aiConfig.md` (`inferDatabricksModelProfile`) for the full picture.
 
 **Template for future gateway providers** (from the Portkey plan,
 `plans/2026-08-08-1001-portkey-multiprotocol-provider.md` in the consuming

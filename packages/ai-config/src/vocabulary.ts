@@ -60,6 +60,7 @@ export const PROTOCOL_VALUES = [
 	"anthropic-messages",
 	"openai-chat",
 	"openai-responses",
+	"mlflow-responses",
 	"bedrock-converse",
 	"google-generative",
 ] as const;
