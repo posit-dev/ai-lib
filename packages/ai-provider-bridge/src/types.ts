@@ -82,6 +82,7 @@ export type Protocol =
 	| "anthropic-messages"
 	| "openai-chat"
 	| "openai-responses"
+	| "mlflow-responses"
 	| "bedrock-converse"
 	| "google-generative";
 

@@ -120,6 +120,15 @@ const CHAT_TASK = "llm/v1/chat";
 const GATEWAY_CHAT_API_TYPE = "mlflow/v1/chat/completions";
 
 /**
+ * Unity AI Gateway api_type for the unified (MLflow) Responses API.
+ *
+ * Distinct from `openai/v1/responses`, which is OpenAI **native passthrough**
+ * and is refused for models Databricks does not proxy natively. This one is the
+ * provider-agnostic Responses surface and is the preferred non-native route.
+ */
+const GATEWAY_RESPONSES_API_TYPE = "mlflow/v1/responses";
+
+/**
  * Gateway `api_types` value that must be advertised for each native protocol.
  *
  * `anthropic/v1/messages` is confirmed from a captured gateway discovery
@@ -574,6 +583,32 @@ export function inferDatabricksModelProfile(
 		)
 	) {
 		return { excluded: true };
+	}
+
+	// --- Unified MLflow Responses, preferred over chat completions ---
+	// The gateway exposes a unified Responses API alongside chat completions.
+	// For everything that did not qualify for a native vendor route it is the
+	// better target: chat completions rejects `store`, rejects
+	// `max_completion_tokens`, and streams reasoning as a block array that the
+	// OpenAI chunk schema cannot represent (so reasoning is dropped), while
+	// Responses carries reasoning as first-class items and accepts the same
+	// thinking controls. Gated on the advertised api_type, which is exact: the
+	// one workspace model lacking it (`databricks-meta-llama-3-3-70b-instruct`)
+	// is also the one the route rejects.
+	//
+	// Gateway-only: classic serving has no unified Responses route
+	// (`/serving-endpoints/responses` is native passthrough and refuses
+	// non-passthrough models), so serving keeps chat completions.
+	if (
+		input.surface === "gateway" &&
+		resolutions.every((entity) => entity.apiTypes.includes(GATEWAY_RESPONSES_API_TYPE))
+	) {
+		return {
+			excluded: false,
+			protocol: "mlflow-responses",
+			vendor: unanimousVendor(resolutions) ?? DEFAULT_VENDOR,
+			capabilities: aggregateCapabilities(resolutions.map((entity) => entity.chatCapabilities)),
+		};
 	}
 
 	return {

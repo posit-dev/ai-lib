@@ -65,7 +65,12 @@ export class OpenAIClient implements ModelClient {
 		if (normalizedProtocol) {
 			if (normalizedProtocol === "openai-chat") {
 				effectiveApiMode = "completions";
-			} else if (normalizedProtocol === "openai-responses") {
+			} else if (
+				normalizedProtocol === "openai-responses" ||
+				// Databricks' unified MLflow Responses API speaks the same wire
+				// shape; only the base URL differs (see `databricksBaseUrl`).
+				normalizedProtocol === "mlflow-responses"
+			) {
 				effectiveApiMode = "responses";
 			} else {
 				throw new Error(`Unsupported protocol for OpenAI: ${normalizedProtocol}`);

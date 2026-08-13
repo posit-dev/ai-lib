@@ -540,13 +540,43 @@ returning a 400 if specified, and our responses thinking mode sends
 External endpoints support the full Responses parameter set and keep the
 table's levels.
 
-A few constants here remain flagged `PHASE0-VERIFY` in code pending
-confirmation against a real Databricks workspace — the exact OpenAI and
-Gemini gateway `api_types` strings (Anthropic's, `"anthropic/v1/messages"`, is
-confirmed from a captured fixture) and whether Databricks' Gemini passthrough
-tolerates a stripped `x-goog-api-key` alongside Bearer auth. A wrong guess
-degrades safely — the native gate simply never passes, so those models stay on
-`openai-chat` rather than routing to a broken endpoint.
+**Non-native endpoints prefer the unified MLflow Responses API over chat
+completions.** The gateway exposes `/ai-gateway/mlflow/v1/responses` alongside
+`/ai-gateway/mlflow/v1/chat/completions`. It is a different API from the
+`openai/v1/responses` **native passthrough**, which Databricks refuses for
+models it does not proxy natively. Endpoints advertising the
+`mlflow/v1/responses` api_type are therefore stamped `mlflow-responses`, which
+routes to `{host}/ai-gateway/mlflow/v1` in the SDK's Responses mode. The chat
+surface loses on all three counts that matter: it rejects `store`, rejects
+`max_completion_tokens`, and streams reasoning as a `delta.content` block array
+that the OpenAI chunk schema cannot represent (so reasoning is discarded),
+while Responses accepts the same thinking controls and carries reasoning as
+first-class items.
+
+The stamp is **gateway-only**: classic serving has no unified Responses route
+(`/serving-endpoints/responses` is native passthrough and refuses
+non-passthrough models), so serving keeps `openai-chat`. The advertised
+api_type is an exact gate — on a live workspace, every endpoint advertising it
+answered 200 and the one that did not (`databricks-meta-llama-3-3-70b-instruct`)
+answered 400.
+
+Verified against a live gateway-enabled workspace: `"anthropic/v1/messages"` is
+correct, and Anthropic Messages works on `/ai-gateway/anthropic/v1`,
+`/serving-endpoints/anthropic/v1`, and the per-endpoint `ai_gateway_url` host
+alike. Note that `api_types` itself is **undocumented** — it appears in
+discovery responses but in neither the REST docs nor the SDK's
+`FoundationModel` dataclass — so an observed roll-up is its only source of
+truth.
+
+Two constants remain flagged `PHASE0-VERIFY`, both because that workspace has no
+endpoint that can exercise them: the OpenAI and Gemini gateway `api_types`
+strings. Do **not** "correct" `openai/v1/responses` to the `mlflow/v1/responses`
+seen in a roll-up — they are different APIs, and the same model answers 200 on
+one and 400 on the other. Gemini's Bearer auth is effectively settled by
+Databricks' own example, which passes a dummy `api_key` and supplies
+`Authorization: Bearer` through `http_options`. A wrong guess degrades safely —
+the native gate simply never passes, so those models stay on a working route
+rather than a broken one.
 
 ## Shape Guard
 

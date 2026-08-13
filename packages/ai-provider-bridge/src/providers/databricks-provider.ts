@@ -184,6 +184,11 @@ export function databricksBaseUrl(
 			return gateway ? `${host}/ai-gateway/anthropic/v1` : `${host}/serving-endpoints/anthropic/v1`;
 		case "openai-responses":
 			return gateway ? `${host}/ai-gateway/openai/v1` : `${host}/serving-endpoints`;
+		case "mlflow-responses":
+			// The gateway's unified Responses API. Only stamped on the gateway
+			// surface — classic serving has no unified Responses route, so the
+			// classifier degrades those endpoints to `openai-chat` instead.
+			return `${host}/ai-gateway/mlflow/v1`;
 		case "google-generative":
 			return gateway
 				? `${host}/ai-gateway/gemini/v1beta`
@@ -419,7 +424,12 @@ export function registerDatabricksProvider(registry: ProviderRegistry, logger: L
 		const openaiClient = new OpenAIClient({
 			apiKey,
 			apiMode: "completions",
-			customFetch: createOpenAICompatibleFetch("Databricks", apiKey, customHeaders),
+			// Databricks strict-decodes the Chat Completions body: it requires
+			// `max_tokens` and answers 400 `unknown field "max_completion_tokens"`,
+			// so the shared wrapper's rename must be turned off here.
+			customFetch: createOpenAICompatibleFetch("Databricks", apiKey, customHeaders, {
+				renameMaxTokens: false,
+			}),
 		});
 		const geminiClient = new GeminiGenerateContentClient(
 			{ authToken: apiKey },
@@ -437,6 +447,7 @@ export function registerDatabricksProvider(registry: ProviderRegistry, logger: L
 				case undefined:
 				case "openai-chat":
 				case "openai-responses":
+				case "mlflow-responses":
 					return openaiClient;
 				case "google-generative":
 					return geminiClient;
