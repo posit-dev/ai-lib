@@ -14,12 +14,18 @@ const {
 	createBedrockAnthropic,
 	createAnthropic,
 	fromNodeProviderChain,
+	resolveBedrockTransport,
 } = vi.hoisted(() => ({
 	streamText: vi.fn(() => ({ fullStream: {} })),
 	createAmazonBedrock: vi.fn(() => vi.fn(() => ({}))),
 	createBedrockAnthropic: vi.fn(() => vi.fn(() => ({}))),
 	createAnthropic: vi.fn(() => vi.fn(() => ({}))),
 	fromNodeProviderChain: vi.fn(() => vi.fn()),
+	resolveBedrockTransport: vi.fn(async () => ({
+		useFipsEndpoint: false,
+		runtimeBaseUrl: "https://bedrock-runtime.us-east-1.amazonaws.com",
+		mantleEnabled: true,
+	})),
 }));
 
 vi.mock("ai", () => ({ streamText }));
@@ -28,6 +34,7 @@ vi.mock("@ai-sdk/amazon-bedrock/anthropic", () => ({ createBedrockAnthropic }));
 vi.mock("@ai-sdk/anthropic", () => ({ createAnthropic }));
 vi.mock("@ai-sdk/openai", () => ({ createOpenAI: vi.fn(() => ({})) }));
 vi.mock("@aws-sdk/credential-providers", () => ({ fromNodeProviderChain }));
+vi.mock("../../providers/bedrock-transport", () => ({ resolveBedrockTransport }));
 // Bypass stream-conversion + abort plumbing; we only care about providerOptions.
 vi.mock("../ai-sdk-helpers", () => ({
 	convertAiSdkStreamToPlatform: vi.fn(() => (async function* () {})()),

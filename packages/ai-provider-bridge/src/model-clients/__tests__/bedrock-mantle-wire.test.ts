@@ -5,6 +5,16 @@
 import type { ModelMessage } from "ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const { resolveBedrockTransport } = vi.hoisted(() => ({
+	resolveBedrockTransport: vi.fn(async () => ({
+		useFipsEndpoint: false,
+		runtimeBaseUrl: "https://bedrock-runtime.us-east-2.amazonaws.com",
+		mantleEnabled: true,
+	})),
+}));
+
+vi.mock("../../providers/bedrock-transport", () => ({ resolveBedrockTransport }));
+
 import type { CancellationToken } from "../../types";
 import { BedrockClient } from "../BedrockClient";
 

@@ -9,17 +9,15 @@ const {
 	listMantleModels,
 	listFoundationModels,
 	listInferenceProfiles,
+	resolveBedrockTransport,
+	bedrockListClient,
 } = vi.hoisted(() => ({
 	createAwsCredentialProvider: vi.fn(),
 	listMantleModels: vi.fn(),
 	listFoundationModels: vi.fn(),
 	listInferenceProfiles: vi.fn(),
-}));
-
-vi.mock("../bedrock-mantle-models", () => ({ listMantleModels }));
-vi.mock("../../aws-credentials", () => ({ createAwsCredentialProvider }));
-vi.mock("@aws-sdk/client-bedrock", () => ({
-	BedrockClient: vi.fn(function () {
+	resolveBedrockTransport: vi.fn(),
+	bedrockListClient: vi.fn(function () {
 		return {
 			send: (command: { __kind?: string }) =>
 				command.__kind === "inference-profiles"
@@ -27,6 +25,13 @@ vi.mock("@aws-sdk/client-bedrock", () => ({
 					: listFoundationModels(command),
 		};
 	}),
+}));
+
+vi.mock("../bedrock-mantle-models", () => ({ listMantleModels }));
+vi.mock("../../aws-credentials", () => ({ createAwsCredentialProvider }));
+vi.mock("../bedrock-transport", () => ({ resolveBedrockTransport }));
+vi.mock("@aws-sdk/client-bedrock", () => ({
+	BedrockClient: bedrockListClient,
 	ListFoundationModelsCommand: vi.fn(function (this: { __kind: string }) {
 		this.__kind = "foundation-models";
 	}),
@@ -79,6 +84,11 @@ beforeEach(() => {
 		accessKeyId: "key",
 		secretAccessKey: "secret",
 	}));
+	resolveBedrockTransport.mockResolvedValue({
+		useFipsEndpoint: false,
+		runtimeBaseUrl: "https://bedrock-runtime.us-east-2.amazonaws.com",
+		mantleEnabled: true,
+	});
 	listMantleModels.mockResolvedValue([
 		{ id: "openai.gpt-oss-120b" },
 		{ id: "openai.gpt-5.6-terra" },
@@ -138,6 +148,27 @@ describe("Bedrock provider Mantle aggregation", () => {
 
 		expect(onProviderStatusChange).toHaveBeenCalledWith(
 			expect.objectContaining({ providerId, status: "auth_error" }),
+		);
+	});
+
+	it("shares a FIPS policy with listing and suppresses Mantle discovery", async () => {
+		resolveBedrockTransport.mockResolvedValueOnce({
+			useFipsEndpoint: true,
+			runtimeBaseUrl: "https://bedrock-runtime-fips.us-gov-west-1.amazonaws.com",
+			mantleEnabled: false,
+		});
+		const registry = new ProviderRegistry(logger());
+		registerBedrockProvider(registry, logger());
+
+		await registry.getModelsForProvider("bedrock", credentialsFor("us-gov-west-1"));
+
+		expect(resolveBedrockTransport).toHaveBeenCalledTimes(1);
+		expect(listMantleModels).not.toHaveBeenCalled();
+		expect(bedrockListClient).toHaveBeenCalledWith(
+			expect.objectContaining({
+				region: "us-gov-west-1",
+				useFipsEndpoint: true,
+			}),
 		);
 	});
 
