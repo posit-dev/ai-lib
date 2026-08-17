@@ -377,7 +377,14 @@ Per-provider cases:
   `openaiMaxInputTokens()` (context window minus reserved output budget) —
   the table itself doesn't set it.
 - `positai` → the combined Anthropic/Gemma lookup.
-- `gemini` → the Gemini table.
+- `gemini` → the Gemini-API endpoint composition
+  (`getGeminiApiModelCapabilities`, `gemini-api-helpers.ts`): hosted-Gemma
+  rules (`gemma-4-*`: 256K context, 32K output, product levels `["off",
+"high"]`, image+PDF input, tool-result images) layered over the shared
+  Gemini-family table. The shared table (`gemini-helpers.ts`) deliberately
+  rejects bare `gemma-*` IDs — it is also consumed by provider-agnostic core
+  inference and VS Code LM discovery, where hosted-endpoint semantics don't
+  apply. The Posit AI/vLLM Gemma contract stays in `gemma-helpers.ts`.
 - `deepseek` → the DeepSeek table, mapped specially: DeepSeek publishes no
   separate context-window figure, so `maxContextLength` is set equal to the
   table's `maxInputTokens` (mirroring how `deepseek-provider.ts` in the bridge

@@ -32,11 +32,17 @@ describe("isInteractionsEligible", () => {
 		expect(isInteractionsEligible("gemini-3.5-flash")).toBe(true);
 	});
 
+	it("accepts hosted Gemma 4 models", () => {
+		expect(isInteractionsEligible("gemma-4-31b-it")).toBe(true);
+		expect(isInteractionsEligible("gemma-4-26b-a4b-it")).toBe(true);
+	});
+
 	it("rejects excluded models (fail-closed)", () => {
 		expect(isInteractionsEligible("gemini-3-pro-preview")).toBe(false);
 		expect(isInteractionsEligible("gemini-2.0-flash")).toBe(false);
 		expect(isInteractionsEligible("gemini-1.5-pro")).toBe(false);
 		expect(isInteractionsEligible("gemini-2.5-flash-image")).toBe(false);
+		expect(isInteractionsEligible("gemma-3-27b-it")).toBe(false);
 		expect(isInteractionsEligible("unknown-model")).toBe(false);
 	});
 });
@@ -45,31 +51,49 @@ describe("getGeminiInteractionsProfile", () => {
 	it("2.5 Pro: low/medium/high only", () => {
 		const pro = getGeminiInteractionsProfile("gemini-2.5-pro");
 		expect(pro).toBeDefined();
-		expect(pro!.thinkingLevels).toEqual(["low", "medium", "high"]);
+		expect(pro!.effortToWireLevel).toEqual({ low: "low", medium: "medium", high: "high" });
 	});
 
 	it("2.5 Flash: low/medium/high only (no minimal, no off)", () => {
 		const flash = getGeminiInteractionsProfile("gemini-2.5-flash");
 		expect(flash).toBeDefined();
-		expect(flash!.thinkingLevels).toEqual(["low", "medium", "high"]);
+		expect(flash!.effortToWireLevel).toEqual({ low: "low", medium: "medium", high: "high" });
 	});
 
 	it("2.5 Flash-Lite: low/medium/high only (no minimal on Interactions API)", () => {
 		const lite = getGeminiInteractionsProfile("gemini-2.5-flash-lite");
 		expect(lite).toBeDefined();
-		expect(lite!.thinkingLevels).toEqual(["low", "medium", "high"]);
+		expect(lite!.effortToWireLevel).toEqual({ low: "low", medium: "medium", high: "high" });
 	});
 
 	it("3-flash-preview: supports minimal thinkingLevel", () => {
 		const flash3 = getGeminiInteractionsProfile("gemini-3-flash-preview");
 		expect(flash3).toBeDefined();
-		expect(flash3!.thinkingLevels).toEqual(["minimal", "low", "medium", "high"]);
+		expect(flash3!.effortToWireLevel).toEqual({
+			minimal: "minimal",
+			low: "low",
+			medium: "medium",
+			high: "high",
+		});
 	});
 
 	it("3.5-flash: supports minimal thinkingLevel", () => {
 		const flash35 = getGeminiInteractionsProfile("gemini-3.5-flash");
 		expect(flash35).toBeDefined();
-		expect(flash35!.thinkingLevels).toEqual(["minimal", "low", "medium", "high"]);
+		expect(flash35!.effortToWireLevel).toEqual({
+			minimal: "minimal",
+			low: "low",
+			medium: "medium",
+			high: "high",
+		});
+	});
+
+	it("Gemma 4: binary thinking maps product off→minimal, high→high", () => {
+		for (const modelId of ["gemma-4-31b-it", "gemma-4-26b-a4b-it"]) {
+			const profile = getGeminiInteractionsProfile(modelId);
+			expect(profile).toBeDefined();
+			expect(profile!.effortToWireLevel).toEqual({ off: "minimal", high: "high" });
+		}
 	});
 
 	it("returns undefined for ineligible models", () => {
@@ -413,13 +437,42 @@ describe("buildInteractionsOptions", () => {
 		expect(result.google.store).toBe(true);
 	});
 
-	it("omits thinkingLevel when effort is 'off'", () => {
+	it("omits thinkingLevel when effort is 'off' for a model with no off mapping", () => {
 		const result = buildInteractionsOptions({
 			thinkingEffort: "off",
 			modelId: "gemini-2.5-flash",
 			previousInteractionId: null,
 		});
 		expect(result.google).not.toHaveProperty("thinkingLevel");
+	});
+
+	it("sends thinkingLevel: minimal explicitly when effort is 'off' for Gemma", () => {
+		// Gemma defaults to thinking ON when thinkingLevel is omitted, so the
+		// product "off" effort must be sent explicitly as wire "minimal".
+		const result = buildInteractionsOptions({
+			thinkingEffort: "off",
+			modelId: "gemma-4-31b-it",
+			previousInteractionId: null,
+		});
+		expect(result.google.thinkingLevel).toBe("minimal");
+	});
+
+	it("sends thinkingLevel: high when effort is 'high' for Gemma", () => {
+		const result = buildInteractionsOptions({
+			thinkingEffort: "high",
+			modelId: "gemma-4-26b-a4b-it",
+			previousInteractionId: null,
+		});
+		expect(result.google.thinkingLevel).toBe("high");
+	});
+
+	it("emits thinkingSummaries: auto for Gemma (profiled model)", () => {
+		const result = buildInteractionsOptions({
+			thinkingEffort: "high",
+			modelId: "gemma-4-31b-it",
+			previousInteractionId: null,
+		});
+		expect(result.google.thinkingSummaries).toBe("auto");
 	});
 
 	it("omits thinkingLevel when effort is undefined", () => {
@@ -477,23 +530,43 @@ describe("buildInteractionsOptions", () => {
 			expect(result.google.thinkingLevel).toBe("low");
 		});
 
-		it("clamps unrecognized effort to 'medium'", () => {
+		it("omits thinkingLevel for an unrecognized effort", () => {
 			const result = buildInteractionsOptions({
 				thinkingEffort: "ultra",
 				modelId: "gemini-2.5-pro",
 				previousInteractionId: null,
 			});
-			expect(result.google.thinkingLevel).toBe("medium");
+			expect(result.google).not.toHaveProperty("thinkingLevel");
 		});
 
-		it("rejects 'minimal' for 2.5 models (not in their profile)", () => {
+		it("omits thinkingLevel for inherited Object.prototype keys", () => {
+			// "constructor" resolves through Object.prototype on a plain-object
+			// mapping; it must be treated as unrecognized, not as a wire level.
+			const result = buildInteractionsOptions({
+				thinkingEffort: "constructor",
+				modelId: "gemini-2.5-pro",
+				previousInteractionId: null,
+			});
+			expect(result.google).not.toHaveProperty("thinkingLevel");
+		});
+
+		it("omits thinkingLevel for 'minimal' on 2.5 models (not in their profile)", () => {
 			const result = buildInteractionsOptions({
 				thinkingEffort: "minimal",
 				modelId: "gemini-2.5-flash",
 				previousInteractionId: null,
 			});
-			// minimal is not valid for 2.5 Flash — clamped to medium
-			expect(result.google.thinkingLevel).toBe("medium");
+			// minimal is not valid for 2.5 Flash — no mapping, so omitted
+			expect(result.google).not.toHaveProperty("thinkingLevel");
+		});
+
+		it("omits thinkingLevel for a Gemini-only level on Gemma", () => {
+			const result = buildInteractionsOptions({
+				thinkingEffort: "medium",
+				modelId: "gemma-4-31b-it",
+				previousInteractionId: null,
+			});
+			expect(result.google).not.toHaveProperty("thinkingLevel");
 		});
 
 		it("accepts 'minimal' for 3.x Flash models", () => {

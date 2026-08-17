@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 
 import { customModelSchema } from "../../schema.js";
+import { getGeminiModelCapabilities } from "../gemini-helpers.js";
 import { inferModelCapabilities } from "../infer.js";
 
 describe("inferModelCapabilities", () => {
@@ -174,6 +175,41 @@ describe("inferModelCapabilities", () => {
 		expect(other.maxContextLength).toBe(128_000);
 		expect(other.maxOutputTokens).toBe(16_384);
 		expect(other.supportsToolResultImages).toBe(false);
+	});
+
+	it("resolves hosted Gemma models through the gemini endpoint composition", () => {
+		for (const modelId of ["gemma-4-31b-it", "gemma-4-26b-a4b-it"]) {
+			const caps = inferModelCapabilities("gemini", modelId);
+			expect(caps.family).toBe("gemma-4");
+			expect(caps.maxInputTokens).toBe(262_144);
+			expect(caps.maxContextLength).toBe(262_144);
+			expect(caps.maxOutputTokens).toBe(32_768);
+			// Product-level vocabulary; the bridge maps off→minimal on the wire.
+			expect(caps.thinkingEffortLevels).toEqual(["off", "high"]);
+			expect(caps.supportsTools).toBe(true);
+			expect(caps.supportsImages).toBe(true);
+			expect(caps.supportsToolResultImages).toBe(true);
+			expect(caps.supportedInputMediaTypes).toEqual([
+				"image/png",
+				"image/jpeg",
+				"image/gif",
+				"image/webp",
+				"application/pdf",
+			]);
+		}
+	});
+
+	it("keeps hosted-Gemma semantics out of google-vertex and the shared gemini table", () => {
+		// Vertex does not serve the hosted-Gemma contract: a gemma id falls
+		// through to the conservative baseline.
+		const vertex = inferModelCapabilities("google-vertex", "gemma-4-31b-it");
+		expect(vertex.family).toBeUndefined();
+		expect(vertex.thinkingEffortLevels).toBeUndefined();
+		expect(vertex.maxContextLength).toBe(128_000);
+
+		// The shared Gemini-family table (also used by provider-agnostic core
+		// inference and VS Code LM discovery) still rejects bare gemma ids.
+		expect(getGeminiModelCapabilities("gemma-4-31b-it")).toBeUndefined();
 	});
 
 	it("infers google-vertex gemini models from the gemini table", () => {
