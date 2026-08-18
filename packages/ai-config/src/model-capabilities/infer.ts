@@ -7,6 +7,7 @@ import type { Protocol } from "../vocabulary.js";
 import { getAnthropicModelCapabilities } from "./anthropic-helpers.js";
 import { getBedrockMantleModelCapabilities } from "./bedrock-mantle-helpers.js";
 import { getDeepSeekModelCapabilities } from "./deepseek-helpers.js";
+import { getGeminiApiModelCapabilities } from "./gemini-api-helpers.js";
 import { getGeminiModelCapabilities } from "./gemini-helpers.js";
 import {
 	classifyLitellmModel,
@@ -52,7 +53,10 @@ function familyDefaults(providerId: string, modelId: string): Partial<InferredMo
 		case "positai":
 			return getPositAiModelCapabilities(modelId) ?? {};
 		case "gemini":
-			return getGeminiModelCapabilities(modelId) ?? {};
+			// The hosted Gemini API endpoint also serves Gemma models; the
+			// endpoint composition layers hosted-Gemma rules over the shared
+			// Gemini-family table.
+			return getGeminiApiModelCapabilities(modelId) ?? {};
 		case "google-vertex": {
 			// Vertex ids may be resource names (`publishers/google/models/...`).
 			// Gemini ids route to the Gemini table; Anthropic partner models to

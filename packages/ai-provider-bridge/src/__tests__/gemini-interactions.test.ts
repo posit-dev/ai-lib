@@ -7,7 +7,8 @@ import { describe, expect, it } from "vitest";
 
 import {
 	getGeminiInteractionsProfile,
-	isInteractionsEligible,
+	hasGeminiInteractionsProfile,
+	isGeminiApiChatModel,
 } from "../model-capabilities/gemini-interactions";
 import {
 	buildInteractionsOptions,
@@ -18,26 +19,19 @@ import {
 // ---------------------------------------------------------------------------
 // Eligibility
 // ---------------------------------------------------------------------------
-describe("isInteractionsEligible", () => {
-	it("accepts 2.5 chat models", () => {
-		expect(isInteractionsEligible("gemini-2.5-pro")).toBe(true);
-		expect(isInteractionsEligible("gemini-2.5-flash")).toBe(true);
-		expect(isInteractionsEligible("gemini-2.5-flash-lite")).toBe(true);
+describe("hasGeminiInteractionsProfile", () => {
+	it("accepts profiled chat models", () => {
+		expect(hasGeminiInteractionsProfile("gemini-2.5-pro")).toBe(true);
+		expect(hasGeminiInteractionsProfile("gemini-3.5-flash")).toBe(true);
+		expect(hasGeminiInteractionsProfile("gemma-4-31b-it")).toBe(true);
 	});
 
-	it("accepts known 3.x chat models", () => {
-		expect(isInteractionsEligible("gemini-3-flash-preview")).toBe(true);
-		expect(isInteractionsEligible("gemini-3.1-pro-preview")).toBe(true);
-		expect(isInteractionsEligible("gemini-3.1-flash-lite-preview")).toBe(true);
-		expect(isInteractionsEligible("gemini-3.5-flash")).toBe(true);
-	});
-
-	it("rejects excluded models (fail-closed)", () => {
-		expect(isInteractionsEligible("gemini-3-pro-preview")).toBe(false);
-		expect(isInteractionsEligible("gemini-2.0-flash")).toBe(false);
-		expect(isInteractionsEligible("gemini-1.5-pro")).toBe(false);
-		expect(isInteractionsEligible("gemini-2.5-flash-image")).toBe(false);
-		expect(isInteractionsEligible("unknown-model")).toBe(false);
+	it("rejects unprofiled models (fail-closed for thinking only)", () => {
+		expect(hasGeminiInteractionsProfile("gemini-3-pro-preview")).toBe(false);
+		expect(hasGeminiInteractionsProfile("gemini-2.0-flash")).toBe(false);
+		expect(hasGeminiInteractionsProfile("gemini-2.5-flash-image")).toBe(false);
+		expect(hasGeminiInteractionsProfile("gemma-3-27b-it")).toBe(false);
+		expect(hasGeminiInteractionsProfile("unknown-model")).toBe(false);
 	});
 });
 
@@ -45,35 +39,117 @@ describe("getGeminiInteractionsProfile", () => {
 	it("2.5 Pro: low/medium/high only", () => {
 		const pro = getGeminiInteractionsProfile("gemini-2.5-pro");
 		expect(pro).toBeDefined();
-		expect(pro!.thinkingLevels).toEqual(["low", "medium", "high"]);
+		expect(pro!.effortToWireLevel).toEqual({ low: "low", medium: "medium", high: "high" });
 	});
 
 	it("2.5 Flash: low/medium/high only (no minimal, no off)", () => {
 		const flash = getGeminiInteractionsProfile("gemini-2.5-flash");
 		expect(flash).toBeDefined();
-		expect(flash!.thinkingLevels).toEqual(["low", "medium", "high"]);
+		expect(flash!.effortToWireLevel).toEqual({ low: "low", medium: "medium", high: "high" });
 	});
 
 	it("2.5 Flash-Lite: low/medium/high only (no minimal on Interactions API)", () => {
 		const lite = getGeminiInteractionsProfile("gemini-2.5-flash-lite");
 		expect(lite).toBeDefined();
-		expect(lite!.thinkingLevels).toEqual(["low", "medium", "high"]);
+		expect(lite!.effortToWireLevel).toEqual({ low: "low", medium: "medium", high: "high" });
 	});
 
 	it("3-flash-preview: supports minimal thinkingLevel", () => {
 		const flash3 = getGeminiInteractionsProfile("gemini-3-flash-preview");
 		expect(flash3).toBeDefined();
-		expect(flash3!.thinkingLevels).toEqual(["minimal", "low", "medium", "high"]);
+		expect(flash3!.effortToWireLevel).toEqual({
+			minimal: "minimal",
+			low: "low",
+			medium: "medium",
+			high: "high",
+		});
 	});
 
 	it("3.5-flash: supports minimal thinkingLevel", () => {
 		const flash35 = getGeminiInteractionsProfile("gemini-3.5-flash");
 		expect(flash35).toBeDefined();
-		expect(flash35!.thinkingLevels).toEqual(["minimal", "low", "medium", "high"]);
+		expect(flash35!.effortToWireLevel).toEqual({
+			minimal: "minimal",
+			low: "low",
+			medium: "medium",
+			high: "high",
+		});
+	});
+
+	it("Gemma 4: binary thinking maps product off→minimal, high→high", () => {
+		for (const modelId of ["gemma-4-31b-it", "gemma-4-26b-a4b-it"]) {
+			const profile = getGeminiInteractionsProfile(modelId);
+			expect(profile).toBeDefined();
+			expect(profile!.effortToWireLevel).toEqual({ off: "minimal", high: "high" });
+		}
 	});
 
 	it("returns undefined for ineligible models", () => {
 		expect(getGeminiInteractionsProfile("gemini-2.0-flash")).toBeUndefined();
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Discovery gate (fail-open)
+// ---------------------------------------------------------------------------
+describe("isGeminiApiChatModel", () => {
+	const CHAT_METHODS = ["generateContent", "countTokens"];
+
+	it("accepts versioned Gemini and Gemma chat IDs, profiled or not", () => {
+		expect(isGeminiApiChatModel("gemini-2.5-pro", CHAT_METHODS)).toBe(true);
+		expect(isGeminiApiChatModel("gemini-3.6-flash", CHAT_METHODS)).toBe(true);
+		expect(isGeminiApiChatModel("gemma-4-31b-it", CHAT_METHODS)).toBe(true);
+		// Unprofiled but chat-shaped: fail-open
+		expect(isGeminiApiChatModel("gemini-3.5-flash-lite", CHAT_METHODS)).toBe(true);
+		expect(isGeminiApiChatModel("gemini-9.9-flash", CHAT_METHODS)).toBe(true);
+		expect(isGeminiApiChatModel("gemma-5-8b-it", CHAT_METHODS)).toBe(true);
+	});
+
+	it("accepts chat-shaped IDs when generation methods are absent", () => {
+		expect(isGeminiApiChatModel("gemini-3.6-flash")).toBe(true);
+	});
+
+	it("rejects non-versioned families by name", () => {
+		expect(isGeminiApiChatModel("gemini-embedding-001", ["embedContent", "countTokens"])).toBe(
+			false,
+		);
+		expect(isGeminiApiChatModel("gemini-robotics-er-2-preview", CHAT_METHODS)).toBe(false);
+		expect(isGeminiApiChatModel("gemini-omni-flash-preview", CHAT_METHODS)).toBe(false);
+		expect(isGeminiApiChatModel("deep-research-pro-preview-12-2025", CHAT_METHODS)).toBe(false);
+		expect(isGeminiApiChatModel("unknown-model", CHAT_METHODS)).toBe(false);
+	});
+
+	it("rejects -latest aliases to avoid duplicate picker entries", () => {
+		expect(isGeminiApiChatModel("gemini-flash-latest", CHAT_METHODS)).toBe(false);
+		expect(isGeminiApiChatModel("gemini-pro-latest", CHAT_METHODS)).toBe(false);
+		expect(isGeminiApiChatModel("gemini-flash-lite-latest", CHAT_METHODS)).toBe(false);
+	});
+
+	it("rejects non-chat suffixes that still report generateContent", () => {
+		expect(isGeminiApiChatModel("gemini-3-pro-image", CHAT_METHODS)).toBe(false);
+		expect(isGeminiApiChatModel("gemini-3.1-flash-image-preview", CHAT_METHODS)).toBe(false);
+		expect(isGeminiApiChatModel("gemini-3.1-flash-lite-image", CHAT_METHODS)).toBe(false);
+		expect(isGeminiApiChatModel("gemini-2.5-flash-preview-tts", CHAT_METHODS)).toBe(false);
+		expect(isGeminiApiChatModel("gemini-3.1-flash-tts-preview", CHAT_METHODS)).toBe(false);
+		expect(isGeminiApiChatModel("gemini-2.5-computer-use-preview-10-2025", CHAT_METHODS)).toBe(
+			false,
+		);
+	});
+
+	it("rejects models without generateContent when methods are reported", () => {
+		// Audio/live/streaming models report only bidiGenerateContent
+		expect(
+			isGeminiApiChatModel("gemini-2.5-flash-native-audio-latest", [
+				"countTokens",
+				"bidiGenerateContent",
+			]),
+		).toBe(false);
+		expect(isGeminiApiChatModel("gemini-3.1-flash-live-preview", ["bidiGenerateContent"])).toBe(
+			false,
+		);
+		expect(isGeminiApiChatModel("gemini-3.5-live-translate-preview", ["bidiGenerateContent"])).toBe(
+			false,
+		);
 	});
 });
 
@@ -413,13 +489,42 @@ describe("buildInteractionsOptions", () => {
 		expect(result.google.store).toBe(true);
 	});
 
-	it("omits thinkingLevel when effort is 'off'", () => {
+	it("omits thinkingLevel when effort is 'off' for a model with no off mapping", () => {
 		const result = buildInteractionsOptions({
 			thinkingEffort: "off",
 			modelId: "gemini-2.5-flash",
 			previousInteractionId: null,
 		});
 		expect(result.google).not.toHaveProperty("thinkingLevel");
+	});
+
+	it("sends thinkingLevel: minimal explicitly when effort is 'off' for Gemma", () => {
+		// Gemma defaults to thinking ON when thinkingLevel is omitted, so the
+		// product "off" effort must be sent explicitly as wire "minimal".
+		const result = buildInteractionsOptions({
+			thinkingEffort: "off",
+			modelId: "gemma-4-31b-it",
+			previousInteractionId: null,
+		});
+		expect(result.google.thinkingLevel).toBe("minimal");
+	});
+
+	it("sends thinkingLevel: high when effort is 'high' for Gemma", () => {
+		const result = buildInteractionsOptions({
+			thinkingEffort: "high",
+			modelId: "gemma-4-26b-a4b-it",
+			previousInteractionId: null,
+		});
+		expect(result.google.thinkingLevel).toBe("high");
+	});
+
+	it("emits thinkingSummaries: auto for Gemma (profiled model)", () => {
+		const result = buildInteractionsOptions({
+			thinkingEffort: "high",
+			modelId: "gemma-4-31b-it",
+			previousInteractionId: null,
+		});
+		expect(result.google.thinkingSummaries).toBe("auto");
 	});
 
 	it("omits thinkingLevel when effort is undefined", () => {
@@ -477,23 +582,43 @@ describe("buildInteractionsOptions", () => {
 			expect(result.google.thinkingLevel).toBe("low");
 		});
 
-		it("clamps unrecognized effort to 'medium'", () => {
+		it("omits thinkingLevel for an unrecognized effort", () => {
 			const result = buildInteractionsOptions({
 				thinkingEffort: "ultra",
 				modelId: "gemini-2.5-pro",
 				previousInteractionId: null,
 			});
-			expect(result.google.thinkingLevel).toBe("medium");
+			expect(result.google).not.toHaveProperty("thinkingLevel");
 		});
 
-		it("rejects 'minimal' for 2.5 models (not in their profile)", () => {
+		it("omits thinkingLevel for inherited Object.prototype keys", () => {
+			// "constructor" resolves through Object.prototype on a plain-object
+			// mapping; it must be treated as unrecognized, not as a wire level.
+			const result = buildInteractionsOptions({
+				thinkingEffort: "constructor",
+				modelId: "gemini-2.5-pro",
+				previousInteractionId: null,
+			});
+			expect(result.google).not.toHaveProperty("thinkingLevel");
+		});
+
+		it("omits thinkingLevel for 'minimal' on 2.5 models (not in their profile)", () => {
 			const result = buildInteractionsOptions({
 				thinkingEffort: "minimal",
 				modelId: "gemini-2.5-flash",
 				previousInteractionId: null,
 			});
-			// minimal is not valid for 2.5 Flash — clamped to medium
-			expect(result.google.thinkingLevel).toBe("medium");
+			// minimal is not valid for 2.5 Flash — no mapping, so omitted
+			expect(result.google).not.toHaveProperty("thinkingLevel");
+		});
+
+		it("omits thinkingLevel for a Gemini-only level on Gemma", () => {
+			const result = buildInteractionsOptions({
+				thinkingEffort: "medium",
+				modelId: "gemma-4-31b-it",
+				previousInteractionId: null,
+			});
+			expect(result.google).not.toHaveProperty("thinkingLevel");
 		});
 
 		it("accepts 'minimal' for 3.x Flash models", () => {

@@ -38,12 +38,28 @@ interface CapabilityRule {
  *
  * Thinking effort levels and budget/level ranges are based on:
  * https://ai.google.dev/gemini-api/docs/thinking#levels-budgets
+ *
+ * Note: on the hosted Gemini API endpoint, advertised thinking levels come
+ * from the bridge's Interactions profiles (the single source of truth
+ * there); this table's levels serve Vertex, provider-agnostic inference,
+ * and the config-migration seam.
  */
 const CAPABILITY_RULES: CapabilityRule[] = [
 	// --- Gemini 3 family ---
 	// 3.x Pro models: low/medium/high only
 	{
 		match: /^gemini-3[\d.]*-pro/,
+		family: "gemini-3",
+		maxInputTokens: 1_000_000,
+		maxContextLength: 1_000_000,
+		maxOutputTokens: 65_536,
+		thinkingEffortLevels: LEVELS_WITHOUT_MINIMAL,
+	},
+	// 3.7 models: low/medium/high only — 3.7-flash rejects `minimal` on the
+	// Interactions API ("Allowed values are: high, low, medium"; verified
+	// 2026-08-17). Must precede the generic 3.x rule.
+	{
+		match: /^gemini-3\.7/,
 		family: "gemini-3",
 		maxInputTokens: 1_000_000,
 		maxContextLength: 1_000_000,

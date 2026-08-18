@@ -82,7 +82,7 @@ export {
 } from "ai-config";
 export {
 	getGeminiInteractionsProfile,
-	isInteractionsEligible,
+	hasGeminiInteractionsProfile,
 } from "./model-capabilities/gemini-interactions";
 export type { GeminiInteractionsProfile } from "./model-capabilities/gemini-interactions";
 

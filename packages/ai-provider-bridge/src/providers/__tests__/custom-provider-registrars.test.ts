@@ -233,9 +233,28 @@ describe("custom provider registrars", () => {
 		expect(
 			await registry.getModelsForProvider("openai", { type: "apikey", apiKey: "key" }),
 		).not.toHaveLength(0);
-		expect(
-			await registry.getModelsForProvider("gemini", { type: "apikey", apiKey: "key" }),
-		).not.toHaveLength(0);
+
+		const geminiFallbacks = await registry.getModelsForProvider("gemini", {
+			type: "apikey",
+			apiKey: "key",
+		});
+		// Exact fallback row identity (id + name, in order) is the contract
+		// unique to this path. Capability-field coverage lives in the dynamic
+		// /models test (gemini-provider.test.ts) and the ai-config infer tests,
+		// which exercise the same buildGeminiModel construction — duplicating
+		// it here would force lockstep test edits on every capability change.
+		expect(geminiFallbacks.map((model) => ({ id: model.id, name: model.name }))).toEqual([
+			{ id: "gemini-2.5-pro", name: "Gemini 2.5 Pro" },
+			{ id: "gemini-2.5-flash", name: "Gemini 2.5 Flash" },
+			{ id: "gemma-4-31b-it", name: "Gemma 4 31B IT" },
+			{ id: "gemma-4-26b-a4b-it", name: "Gemma 4 26B A4B IT" },
+		]);
+		// Every fallback row is well-formed and attributed to the provider.
+		for (const model of geminiFallbacks) {
+			expect(model.providerId).toBe("gemini");
+			expect(model.supportsTools).toBe(true);
+			expect(model.maxContextLength).toBeGreaterThan(0);
+		}
 	});
 
 	it("discovers static custom Foundry and Snowflake models under the custom ID", async () => {

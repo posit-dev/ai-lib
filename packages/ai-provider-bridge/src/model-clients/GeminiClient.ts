@@ -154,13 +154,17 @@ export function filterUnsignedReasoning(messages: readonly ModelMessage[]): Mode
  *
  * - `store: true` always (stateful mode)
  * - `previousInteractionId` when chaining
- * - `thinkingLevel` validated against the per-model profile
+ * - `thinkingLevel` mapped from the product-level effort through the
+ *   per-model profile's `effortToWireLevel`
  * - `thinkingSummaries: "auto"` when the model has an Interactions profile
  *
- * If `thinkingEffort` is `"off"` or `undefined`, `thinkingLevel` is omitted
- * entirely (the model uses its default). Note: on default-on models like
- * 2.5 Flash this means thinking stays active — the product-level levels
- * should not offer "off" for those models.
+ * If `thinkingEffort` is `undefined`, or the profile has no mapping for it,
+ * `thinkingLevel` is omitted entirely (the model uses its default). Models
+ * whose default is thinking-ON and that support disabling it (hosted Gemma)
+ * map the product `"off"` effort to an explicit wire value (`minimal`).
+ * Note: on default-on models without an `"off"` mapping (e.g. 2.5 Flash),
+ * omitting `thinkingLevel` means thinking stays active — the product-level
+ * levels should not offer "off" for those models.
  */
 export function buildInteractionsOptions(params: {
 	thinkingEffort: string | undefined;
@@ -178,12 +182,21 @@ export function buildInteractionsOptions(params: {
 		google.previousInteractionId = previousInteractionId;
 	}
 
-	// Resolve thinkingLevel: validate against the per-model profile's valid
-	// levels and clamp to "medium" for unrecognised values. "off" and
-	// undefined both result in no thinkingLevel being set.
-	if (thinkingEffort !== undefined && thinkingEffort !== "off" && profile) {
-		const validLevels = profile.thinkingLevels;
-		google.thinkingLevel = validLevels.includes(thinkingEffort) ? thinkingEffort : "medium";
+	// Resolve thinkingLevel: map the product-level effort through the
+	// per-model profile to its wire value. An effort the profile does not
+	// recognize omits thinkingLevel entirely, leaving the model at its
+	// default — for default-on models without an "off" mapping (2.5 Flash),
+	// that means thinking stays active.
+	if (thinkingEffort !== undefined && profile) {
+		// Own-property check: profiles are plain objects, so an effort like
+		// "constructor" would otherwise resolve through Object.prototype and
+		// send a non-string wire value.
+		const wireLevel = Object.hasOwn(profile.effortToWireLevel, thinkingEffort)
+			? profile.effortToWireLevel[thinkingEffort]
+			: undefined;
+		if (wireLevel !== undefined) {
+			google.thinkingLevel = wireLevel;
+		}
 	}
 
 	if (profile) {
@@ -191,6 +204,42 @@ export function buildInteractionsOptions(params: {
 	}
 
 	return { google };
+}
+
+// ---------------------------------------------------------------------------
+// Raw usage metadata hoist
+// ---------------------------------------------------------------------------
+
+/**
+ * Copy raw Interactions usage into a finish-step part's provider metadata.
+ *
+ * The AI SDK's interactions provider reports usage only as `usage.raw` on
+ * finish parts; its `providerMetadata.google` carries just `interactionId`
+ * and `serviceTier`. Core persists finish-step providerMetadata on the
+ * assistant message (this is how Anthropic's raw usage reaches disk), so
+ * hoist the raw usage into `google.usageMetadata` — the same key the
+ * generateContent surface populates — to keep the raw Gemini usage on the
+ * saved message and let usage extraction see the Interactions token counts.
+ */
+export function hoistRawUsageMetadata(part: LMStreamPart): LMStreamPart {
+	if (part.type !== "finish-step") {
+		return part;
+	}
+	const raw = part.usage?.raw;
+	if (!raw || typeof raw !== "object") {
+		return part;
+	}
+	const google = part.providerMetadata?.google ?? {};
+	if (google.usageMetadata !== undefined) {
+		return part;
+	}
+	return {
+		...part,
+		providerMetadata: {
+			...part.providerMetadata,
+			google: { ...google, usageMetadata: raw },
+		},
+	};
 }
 
 // ---------------------------------------------------------------------------
@@ -361,16 +410,29 @@ export class GeminiClient implements ModelClient {
 		try {
 			const result = streamText(streamArgs);
 			return convertAiSdkStreamToPlatform(
-				this.withExpiredIdRetry(result.fullStream, {
-					...streamArgs,
-					messages: params.messages,
-					cleanup,
-				}),
+				this.withRawUsageMetadata(
+					this.withExpiredIdRetry(result.fullStream, {
+						...streamArgs,
+						messages: params.messages,
+						cleanup,
+					}),
+				),
 				cleanup,
 			);
 		} catch (error) {
 			cleanup();
 			throw error;
+		}
+	}
+
+	/**
+	 * Apply {@link hoistRawUsageMetadata} to every part of a stream.
+	 */
+	private async *withRawUsageMetadata(
+		stream: AsyncIterable<LMStreamPart>,
+	): AsyncIterable<LMStreamPart> {
+		for await (const chunk of stream) {
+			yield hoistRawUsageMetadata(chunk);
 		}
 	}
 

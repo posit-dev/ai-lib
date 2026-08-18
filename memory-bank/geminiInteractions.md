@@ -1,6 +1,6 @@
 ---
 title: Gemini Interactions API
-description: Stateful chaining design, unsigned-reasoning filtering, and known API gotchas for the Gemini Interactions path, contrasted with the stateless generateContent client used by gateways like Databricks.
+description: Stateful chaining design, unsigned-reasoning filtering, the raw-usage metadata hoist, and known API gotchas for the Gemini Interactions path, contrasted with the stateless generateContent client used by gateways like Databricks.
 package: ai-provider-bridge
 ---
 
@@ -26,13 +26,13 @@ surfaces through one bimodal class would blur that.
 
 The two clients differ at every point their host surface differs:
 
-| Aspect              | `GeminiClient` (Interactions)                                                          | `GeminiGenerateContentClient` (generateContent)                                                                                                                                            |
-| ------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| State               | Stateful — chains via `previousInteractionId`, sends only delta messages when chaining | Stateless — always sends full local history; nothing to chain, nothing can expire                                                                                                          |
-| Reasoning signature | `providerOptions.google.signature`, filtered by `filterUnsignedReasoning()`            | `providerOptions.google.thoughtSignature`, filtered by `sanitizeGenerateContentHistory()`; also preserves tool-call signatures, which Gemini 3 validates on replay                         |
-| Retry               | `withExpiredIdRetry()` retries once on expired-interaction errors                      | No retry path — there is no interaction ID to expire                                                                                                                                       |
-| Thinking control    | `thinkingLevel` validated against per-model `INTERACTIONS_PROFILES`, top-level option  | `thinkingConfig`: numeric `thinkingBudget` for Gemini 2.5 variants, categorical `thinkingLevel` for 3.x, derived from ai-config's `getGeminiGenerateContentProfile` at variant granularity |
-| Auth                | SDK-native                                                                             | `apiKey` mode uses the SDK's native `x-goog-api-key`; `authToken` (bearer gateways) uses a fetch middleware that sets `Authorization: Bearer` and strips `x-goog-api-key`                  |
+| Aspect              | `GeminiClient` (Interactions)                                                                                                      | `GeminiGenerateContentClient` (generateContent)                                                                                                                                            |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| State               | Stateful — chains via `previousInteractionId`, sends only delta messages when chaining                                             | Stateless — always sends full local history; nothing to chain, nothing can expire                                                                                                          |
+| Reasoning signature | `providerOptions.google.signature`, filtered by `filterUnsignedReasoning()`                                                        | `providerOptions.google.thoughtSignature`, filtered by `sanitizeGenerateContentHistory()`; also preserves tool-call signatures, which Gemini 3 validates on replay                         |
+| Retry               | `withExpiredIdRetry()` retries once on expired-interaction errors                                                                  | No retry path — there is no interaction ID to expire                                                                                                                                       |
+| Thinking control    | `thinkingLevel` mapped from the product-level effort via per-model `INTERACTIONS_PROFILES` (`effortToWireLevel`), top-level option | `thinkingConfig`: numeric `thinkingBudget` for Gemini 2.5 variants, categorical `thinkingLevel` for 3.x, derived from ai-config's `getGeminiGenerateContentProfile` at variant granularity |
+| Auth                | SDK-native                                                                                                                         | `apiKey` mode uses the SDK's native `x-goog-api-key`; `authToken` (bearer gateways) uses a fetch middleware that sets `Authorization: Bearer` and strips `x-goog-api-key`                  |
 
 `sanitizeGenerateContentHistory()` is deliberately **not** a reuse of
 `filterUnsignedReasoning()`: the two APIs key signed reasoning on different
@@ -69,8 +69,79 @@ Builds `providerOptions.google` for each request:
 
 - `store: true` — always (stateful mode)
 - `previousInteractionId` — when chaining
-- `thinkingLevel` — validated against per-model `INTERACTIONS_PROFILES`
+- `thinkingLevel` — mapped from the product-level thinking effort through the
+  per-model profile's `effortToWireLevel` (see below)
 - `thinkingSummaries: "auto"` — when the model has an Interactions profile
+
+**Product efforts and wire values are separate vocabularies.** Core/UI own the
+product levels; each `INTERACTIONS_PROFILES` entry owns the translation to the
+wire `thinkingLevel`. For most Gemini models the mapping is identity
+(`low→low`, …). An effort with no mapping (including `off` for models that
+cannot disable thinking) omits `thinkingLevel` entirely, leaving the model at
+its default — unrecognized efforts are deliberately **not** clamped.
+
+## Hosted Gemma
+
+The Gemini API endpoint also serves Gemma 4 (`gemma-4-31b-it`,
+`gemma-4-26b-a4b-it`), verified against the live API (2026-08-17):
+
+- **Binary thinking**: wire `thinkingLevel` accepts only `minimal` (off) and
+  `high` (on) — other values are rejected with HTTP 400. The default when
+  omitted is **ON**, so the product `off` effort maps to an explicit wire
+  `minimal`. Product levels are `["off", "high"]` (ai-config's Gemini-API
+  endpoint composition); the profile maps `off→minimal`, `high→high`.
+- **Token limits**: 262,144 input / 32,768 output (from `GET /v1beta/models`).
+- **Capabilities**: function calling, image input (png/jpeg/gif/webp),
+  `application/pdf` input (SDK file parts → `document` type), and images in
+  tool results all work; thought summaries and signatures are emitted.
+- Eligibility: both IDs carry `INTERACTIONS_PROFILES` entries (the thinking
+  gate). Capabilities come from ai-config's `getGeminiApiModelCapabilities`
+  (NOT `gemma-helpers.ts`, which is the Posit AI/vLLM `off`/`on` +
+  `chat_template_kwargs` contract).
+
+## Discovery: fail-open, thinking: fail-closed
+
+Two gates with different postures (added 2026-08-17, after Gemma and then
+Gemini 3.6/3.7 Flash were invisible until manually allowlisted):
+
+- **Discovery** (`isGeminiApiChatModel`) is **fail-open**: any chat-shaped
+  model the `/models` endpoint lists may appear in the picker — versioned
+  `gemini-\d`/`gemma-\d` IDs, excluding known non-chat suffixes
+  (`-image`, `-tts`, `-computer-use`), and requiring `generateContent` in
+  `supportedGenerationMethods` when reported (excludes `bidiGenerateContent`
+  audio/live models and `embedContent` embedding models). `-latest` aliases
+  fail the versioned-ID check, avoiding duplicate picker entries. An
+  unprofiled model chats at its default thinking state; the worst case for a
+  bad inclusion is a visible, retryable error on the first turn.
+- **Thinking** (`INTERACTIONS_PROFILES`) stays **fail-closed**: valid
+  `thinkingLevel` values cannot be inferred — gemini-3.7-flash rejects
+  `minimal` while 3.6-flash accepts it (verified 2026-08-17); hosted Gemma
+  takes only `minimal`/`high`. Unprofiled models advertise no
+  `thinkingEffortLevels` (`buildGeminiModel` strips them) and the client
+  sends no `thinkingLevel`/`thinkingSummaries`.
+
+## Raw Usage Metadata Hoist
+
+The SDK's interactions provider reports token usage only as `usage.raw` on
+finish parts; its finish `providerMetadata.google` carries just
+`interactionId` and `serviceTier` (unlike the generateContent surface, which
+publishes `google.usageMetadata`). Hosts persist finish-step
+`providerMetadata` on the assistant message — that is how Anthropic's raw
+usage reaches disk — so without intervention the raw Gemini usage would be
+dropped.
+
+`hoistRawUsageMetadata()` copies `usage.raw` into
+`providerMetadata.google.usageMetadata` on every finish-step part. The
+private `withRawUsageMetadata()` generator applies it to the whole stream,
+wrapping _outside_ `withExpiredIdRetry()` so the retry attempt's parts are
+covered too. An already-present `usageMetadata` is never overwritten.
+
+Consumers therefore find Gemini token counts under one key in either API
+shape: camelCase (`promptTokenCount`, `cachedContentTokenCount`, …) from
+generateContent, snake_case (`total_input_tokens`, `total_cached_tokens`, …)
+from Interactions. The assistant monorepo's `extractDetailedUsage` reads
+both shapes (and falls back to `usage.raw` directly if the hoist did not
+run).
 
 ## Expired-Interaction Retry
 
