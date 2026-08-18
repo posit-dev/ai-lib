@@ -1,6 +1,6 @@
 ---
 title: Gemini Interactions API
-description: Stateful chaining design, unsigned-reasoning filtering, and known API gotchas for the Gemini Interactions path, contrasted with the stateless generateContent client used by gateways like Databricks.
+description: Stateful chaining design, unsigned-reasoning filtering, the raw-usage metadata hoist, and known API gotchas for the Gemini Interactions path, contrasted with the stateless generateContent client used by gateways like Databricks.
 package: ai-provider-bridge
 ---
 
@@ -119,6 +119,29 @@ Gemini 3.6/3.7 Flash were invisible until manually allowlisted):
   takes only `minimal`/`high`. Unprofiled models advertise no
   `thinkingEffortLevels` (`buildGeminiModel` strips them) and the client
   sends no `thinkingLevel`/`thinkingSummaries`.
+
+## Raw Usage Metadata Hoist
+
+The SDK's interactions provider reports token usage only as `usage.raw` on
+finish parts; its finish `providerMetadata.google` carries just
+`interactionId` and `serviceTier` (unlike the generateContent surface, which
+publishes `google.usageMetadata`). Hosts persist finish-step
+`providerMetadata` on the assistant message — that is how Anthropic's raw
+usage reaches disk — so without intervention the raw Gemini usage would be
+dropped.
+
+`hoistRawUsageMetadata()` copies `usage.raw` into
+`providerMetadata.google.usageMetadata` on every finish-step part. The
+private `withRawUsageMetadata()` generator applies it to the whole stream,
+wrapping _outside_ `withExpiredIdRetry()` so the retry attempt's parts are
+covered too. An already-present `usageMetadata` is never overwritten.
+
+Consumers therefore find Gemini token counts under one key in either API
+shape: camelCase (`promptTokenCount`, `cachedContentTokenCount`, …) from
+generateContent, snake_case (`total_input_tokens`, `total_cached_tokens`, …)
+from Interactions. The assistant monorepo's `extractDetailedUsage` reads
+both shapes (and falls back to `usage.raw` directly if the hoist did not
+run).
 
 ## Expired-Interaction Retry
 

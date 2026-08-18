@@ -207,6 +207,42 @@ export function buildInteractionsOptions(params: {
 }
 
 // ---------------------------------------------------------------------------
+// Raw usage metadata hoist
+// ---------------------------------------------------------------------------
+
+/**
+ * Copy raw Interactions usage into a finish-step part's provider metadata.
+ *
+ * The AI SDK's interactions provider reports usage only as `usage.raw` on
+ * finish parts; its `providerMetadata.google` carries just `interactionId`
+ * and `serviceTier`. Core persists finish-step providerMetadata on the
+ * assistant message (this is how Anthropic's raw usage reaches disk), so
+ * hoist the raw usage into `google.usageMetadata` — the same key the
+ * generateContent surface populates — to keep the raw Gemini usage on the
+ * saved message and let usage extraction see the Interactions token counts.
+ */
+export function hoistRawUsageMetadata(part: LMStreamPart): LMStreamPart {
+	if (part.type !== "finish-step") {
+		return part;
+	}
+	const raw = part.usage?.raw;
+	if (!raw || typeof raw !== "object") {
+		return part;
+	}
+	const google = part.providerMetadata?.google ?? {};
+	if (google.usageMetadata !== undefined) {
+		return part;
+	}
+	return {
+		...part,
+		providerMetadata: {
+			...part.providerMetadata,
+			google: { ...google, usageMetadata: raw },
+		},
+	};
+}
+
+// ---------------------------------------------------------------------------
 // Expired-interaction error classification
 // ---------------------------------------------------------------------------
 
@@ -374,16 +410,29 @@ export class GeminiClient implements ModelClient {
 		try {
 			const result = streamText(streamArgs);
 			return convertAiSdkStreamToPlatform(
-				this.withExpiredIdRetry(result.fullStream, {
-					...streamArgs,
-					messages: params.messages,
-					cleanup,
-				}),
+				this.withRawUsageMetadata(
+					this.withExpiredIdRetry(result.fullStream, {
+						...streamArgs,
+						messages: params.messages,
+						cleanup,
+					}),
+				),
 				cleanup,
 			);
 		} catch (error) {
 			cleanup();
 			throw error;
+		}
+	}
+
+	/**
+	 * Apply {@link hoistRawUsageMetadata} to every part of a stream.
+	 */
+	private async *withRawUsageMetadata(
+		stream: AsyncIterable<LMStreamPart>,
+	): AsyncIterable<LMStreamPart> {
+		for await (const chunk of stream) {
+			yield hoistRawUsageMetadata(chunk);
 		}
 	}
 
