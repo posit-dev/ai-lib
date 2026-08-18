@@ -3,11 +3,22 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * Gemini Interactions API eligibility (allowlist + thinking profiles).
+ * Gemini Interactions API routing: discovery gate + thinking profiles.
  *
  * This is bridge routing logic — it decides which SDK surface GeminiClient
  * speaks — so it stays here when the dependency-free capability tables move
  * to ai-config (ai-lib#9).
+ *
+ * Two gates with different postures:
+ *
+ * - **Discovery is fail-open** ({@link isGeminiApiChatModel}): any
+ *   chat-shaped model the endpoint lists may appear in the picker, so new
+ *   models work immediately at their default thinking state.
+ * - **Thinking is fail-closed** ({@link INTERACTIONS_PROFILES}): only
+ *   profiled models advertise thinking levels or get `thinkingLevel`/
+ *   `thinkingSummaries` on the wire, because valid levels vary per model in
+ *   ways that cannot be inferred (gemini-3.7-flash rejects `minimal` while
+ *   3.6-flash accepts it; hosted Gemma takes only `minimal`/`high`).
  */
 
 /**
@@ -36,11 +47,15 @@ function identityLevels(...levels: string[]): Readonly<Record<string, string>> {
 }
 
 /**
- * Explicit enumerated allowlist of model IDs reachable via
- * `POST /v1beta/interactions`. **Fail-closed**: unlisted IDs are excluded.
+ * Explicit enumerated thinking profiles for models reachable via
+ * `POST /v1beta/interactions`. **Fail-closed for thinking only**: unlisted
+ * IDs are still discoverable (see {@link isGeminiApiChatModel}) but get no
+ * advertised thinking levels and no `thinkingLevel`/`thinkingSummaries` on
+ * the wire — they run at the model's default thinking state.
  *
- * To add a model: add its exact ID here with a profile, then update the
- * corresponding capability rules in ai-config and tests.
+ * To profile a model: verify its accepted `thinkingLevel` values on the
+ * Interactions API, add its exact ID here, then update the corresponding
+ * capability rules in ai-config and tests.
  *
  * effortToWireLevel must match the Interactions API docs for each model.
  */
@@ -92,8 +107,59 @@ export function getGeminiInteractionsProfile(
 }
 
 /**
- * Whether a model ID is eligible for the Interactions API.
+ * Whether a model ID has an Interactions thinking profile. Gates thinking
+ * levels/summaries only — NOT discovery (see {@link isGeminiApiChatModel}).
  */
 export function isInteractionsEligible(modelId: string): boolean {
 	return INTERACTIONS_PROFILES.has(modelId);
+}
+
+// ---------------------------------------------------------------------------
+// Discovery gate (fail-open)
+// ---------------------------------------------------------------------------
+
+/**
+ * Versioned chat-family IDs: `gemini-2.5-*`, `gemma-4-*`, … The digit
+ * requirement excludes `gemini-embedding-*`, `gemini-robotics-*`,
+ * `gemini-omni-*`, `deep-research-*`, and the `-latest` aliases (which would
+ * duplicate versioned models in the picker).
+ */
+const CHAT_MODEL_ID = /^(?:gemini|gemma)-\d/;
+
+/**
+ * Known non-chat model families whose IDs pass {@link CHAT_MODEL_ID} and
+ * that still report `generateContent`: image generation, TTS, and
+ * computer-use preview models.
+ */
+const NON_CHAT_SUFFIX = /-(?:image|tts|computer-use)(?:-|$)/;
+
+/**
+ * Whether a model listed by the Gemini API `/models` endpoint should appear
+ * in the model picker. **Fail-open** for chat-shaped models: an unprofiled
+ * model chats at its default thinking state, and the worst case for a bad
+ * inclusion is a visible, retryable error on the first turn.
+ *
+ * Three checks, validated against the live `/models` list (2026-08-17):
+ *
+ * 1. The ID must be a versioned Gemini/Gemma chat ID ({@link CHAT_MODEL_ID}).
+ * 2. Known non-chat suffixes are excluded ({@link NON_CHAT_SUFFIX}).
+ * 3. When the endpoint reports `supportedGenerationMethods`, it must include
+ *    `generateContent` — this API-provided signal excludes audio/live/
+ *    streaming models (`bidiGenerateContent`-only) and embedding models
+ *    (`embedContent`-only). A missing field is not disqualifying.
+ */
+export function isGeminiApiChatModel(
+	modelId: string,
+	supportedGenerationMethods?: readonly string[],
+): boolean {
+	if (!CHAT_MODEL_ID.test(modelId) || NON_CHAT_SUFFIX.test(modelId)) {
+		return false;
+	}
+	if (
+		supportedGenerationMethods !== undefined &&
+		!supportedGenerationMethods.includes("generateContent")
+	) {
+		return false;
+	}
+	return true;
 }

@@ -5,7 +5,10 @@
 import type { ResolvedProviderId } from "ai-config";
 import { GEMINI_API_VERSION, GEMINI_HOST, inferModelCapabilities } from "ai-config";
 
-import { isInteractionsEligible } from "../model-capabilities/gemini-interactions";
+import {
+	isGeminiApiChatModel,
+	isInteractionsEligible,
+} from "../model-capabilities/gemini-interactions";
 import { GeminiClient } from "../model-clients/GeminiClient";
 import type { Logger, ModelInfo } from "../types";
 import type { ApiKeyCredentials } from "../types";
@@ -46,7 +49,10 @@ function buildGeminiModel(
 		supportedInputMediaTypes: caps.supportedInputMediaTypes,
 		supportsToolResultImages: caps.supportsToolResultImages,
 		maxContextLength: inputTokenLimit ?? caps.maxContextLength,
-		thinkingEffortLevels: caps.thinkingEffortLevels,
+		// Only profiled models advertise thinking levels — the client can only
+		// map a product effort to a wire value when a profile exists, so an
+		// unprofiled (fail-open) model must not offer levels it would ignore.
+		thinkingEffortLevels: isInteractionsEligible(id) ? caps.thinkingEffortLevels : undefined,
 		supportsWebSearch: caps.supportsWebSearch,
 	};
 }
@@ -85,9 +91,11 @@ function createGeminiModelFetcher(
 						const modelId = model.name.replace("models/", "");
 						return { ...model, modelId };
 					})
-					// Fail-closed sole gate: only models with an explicit
-					// Interactions profile (Gemini and hosted Gemma alike)
-					.filter(({ modelId }) => isInteractionsEligible(modelId))
+					// Fail-open discovery: any chat-shaped model the endpoint
+					// lists may appear (thinking stays profile-gated)
+					.filter(({ modelId, supportedGenerationMethods }) =>
+						isGeminiApiChatModel(modelId, supportedGenerationMethods),
+					)
 					.map((model) =>
 						buildGeminiModel(
 							providerId,

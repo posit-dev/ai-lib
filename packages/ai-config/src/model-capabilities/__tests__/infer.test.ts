@@ -199,6 +199,19 @@ describe("inferModelCapabilities", () => {
 		}
 	});
 
+	it("gives gemini-3.7 models low/medium/high only (3.7-flash rejects minimal)", () => {
+		const caps = inferModelCapabilities("gemini", "gemini-3.7-flash");
+		expect(caps.family).toBe("gemini-3");
+		expect(caps.thinkingEffortLevels).toEqual(["low", "medium", "high"]);
+		// The generic 3.x rule still adds minimal for other 3.x models
+		expect(inferModelCapabilities("gemini", "gemini-3.6-flash").thinkingEffortLevels).toEqual([
+			"minimal",
+			"low",
+			"medium",
+			"high",
+		]);
+	});
+
 	it("keeps hosted-Gemma semantics out of google-vertex and the shared gemini table", () => {
 		// Vertex does not serve the hosted-Gemma contract: a gemma id falls
 		// through to the conservative baseline.

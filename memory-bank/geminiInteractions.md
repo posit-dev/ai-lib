@@ -94,10 +94,31 @@ The Gemini API endpoint also serves Gemma 4 (`gemma-4-31b-it`,
 - **Capabilities**: function calling, image input (png/jpeg/gif/webp),
   `application/pdf` input (SDK file parts → `document` type), and images in
   tool results all work; thought summaries and signatures are emitted.
-- Eligibility: both IDs are in `INTERACTIONS_PROFILES`, which is the **sole**
-  gate — the fetcher has no family-name filter. Capabilities come from
-  ai-config's `getGeminiApiModelCapabilities` (NOT `gemma-helpers.ts`, which
-  is the Posit AI/vLLM `off`/`on` + `chat_template_kwargs` contract).
+- Eligibility: both IDs carry `INTERACTIONS_PROFILES` entries (the thinking
+  gate). Capabilities come from ai-config's `getGeminiApiModelCapabilities`
+  (NOT `gemma-helpers.ts`, which is the Posit AI/vLLM `off`/`on` +
+  `chat_template_kwargs` contract).
+
+## Discovery: fail-open, thinking: fail-closed
+
+Two gates with different postures (added 2026-08-17, after Gemma and then
+Gemini 3.6/3.7 Flash were invisible until manually allowlisted):
+
+- **Discovery** (`isGeminiApiChatModel`) is **fail-open**: any chat-shaped
+  model the `/models` endpoint lists may appear in the picker — versioned
+  `gemini-\d`/`gemma-\d` IDs, excluding known non-chat suffixes
+  (`-image`, `-tts`, `-computer-use`), and requiring `generateContent` in
+  `supportedGenerationMethods` when reported (excludes `bidiGenerateContent`
+  audio/live models and `embedContent` embedding models). `-latest` aliases
+  fail the versioned-ID check, avoiding duplicate picker entries. An
+  unprofiled model chats at its default thinking state; the worst case for a
+  bad inclusion is a visible, retryable error on the first turn.
+- **Thinking** (`INTERACTIONS_PROFILES`) stays **fail-closed**: valid
+  `thinkingLevel` values cannot be inferred — gemini-3.7-flash rejects
+  `minimal` while 3.6-flash accepts it (verified 2026-08-17); hosted Gemma
+  takes only `minimal`/`high`. Unprofiled models advertise no
+  `thinkingEffortLevels` (`buildGeminiModel` strips them) and the client
+  sends no `thinkingLevel`/`thinkingSummaries`.
 
 ## Expired-Interaction Retry
 

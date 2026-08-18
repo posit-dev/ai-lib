@@ -50,6 +50,17 @@ const CAPABILITY_RULES: CapabilityRule[] = [
 		maxOutputTokens: 65_536,
 		thinkingEffortLevels: LEVELS_WITHOUT_MINIMAL,
 	},
+	// 3.7 models: low/medium/high only — 3.7-flash rejects `minimal` on the
+	// Interactions API ("Allowed values are: high, low, medium"; verified
+	// 2026-08-17). Must precede the generic 3.x rule.
+	{
+		match: /^gemini-3\.7/,
+		family: "gemini-3",
+		maxInputTokens: 1_000_000,
+		maxContextLength: 1_000_000,
+		maxOutputTokens: 65_536,
+		thinkingEffortLevels: LEVELS_WITHOUT_MINIMAL,
+	},
 	// 3.x Flash/Flash-Lite: support minimal thinkingLevel
 	{
 		match: /^gemini-3/,

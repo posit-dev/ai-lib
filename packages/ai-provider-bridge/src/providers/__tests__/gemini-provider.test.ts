@@ -88,4 +88,84 @@ describe("registerGeminiProvider model discovery", () => {
 			supportsWebSearch: false,
 		});
 	});
+
+	it("discovers unprofiled chat models fail-open, without advertised thinking levels", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response(
+						JSON.stringify({
+							models: [
+								// Profiled: full thinking levels
+								{
+									name: "models/gemini-3.6-flash",
+									displayName: "Gemini 3.6 Flash",
+									inputTokenLimit: 1048576,
+									outputTokenLimit: 65536,
+									supportedGenerationMethods: ["generateContent", "countTokens"],
+								},
+								// Unprofiled but chat-shaped: discoverable, no levels
+								{
+									name: "models/gemini-3.5-flash-lite",
+									displayName: "Gemini 3.5 Flash Lite",
+									inputTokenLimit: 1048576,
+									outputTokenLimit: 65536,
+									supportedGenerationMethods: ["generateContent", "countTokens"],
+								},
+								// Non-chat: excluded by suffix, name, or methods
+								{
+									name: "models/gemini-3-pro-image",
+									displayName: "Gemini 3 Pro Image",
+									supportedGenerationMethods: ["generateContent", "countTokens"],
+								},
+								{
+									name: "models/gemini-embedding-001",
+									displayName: "Gemini Embedding",
+									supportedGenerationMethods: ["embedContent", "countTokens"],
+								},
+								{
+									name: "models/gemini-2.5-flash-native-audio-latest",
+									displayName: "Gemini 2.5 Flash Native Audio",
+									supportedGenerationMethods: ["countTokens", "bidiGenerateContent"],
+								},
+								{
+									name: "models/gemini-flash-latest",
+									displayName: "Gemini Flash Latest",
+									supportedGenerationMethods: ["generateContent", "countTokens"],
+								},
+							],
+						}),
+						{ status: 200, headers: { "content-type": "application/json" } },
+					),
+			),
+		);
+
+		const registry = new ProviderRegistry(logger);
+		registerGeminiProvider(registry, logger);
+		const models = await registry.getModelsForProvider("gemini", {
+			type: "apikey",
+			apiKey: "key",
+		});
+
+		expect(models.map((model) => model.id)).toEqual(["gemini-3.6-flash", "gemini-3.5-flash-lite"]);
+
+		// Profiled model: levels from the ai-config table, live token overlay
+		expect(models[0]).toMatchObject({
+			family: "gemini-3",
+			maxInputTokens: 1_048_576,
+			maxOutputTokens: 65_536,
+			thinkingEffortLevels: ["minimal", "low", "medium", "high"],
+		});
+
+		// Unprofiled model: ai-config inference applies, but thinking levels
+		// are stripped — the client cannot map efforts without a profile
+		expect(models[1]).toMatchObject({
+			family: "gemini-3",
+			maxInputTokens: 1_048_576,
+			maxOutputTokens: 65_536,
+			supportsTools: true,
+		});
+		expect(models[1].thinkingEffortLevels).toBeUndefined();
+	});
 });

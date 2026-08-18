@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	getGeminiInteractionsProfile,
+	isGeminiApiChatModel,
 	isInteractionsEligible,
 } from "../model-capabilities/gemini-interactions";
 import {
@@ -30,6 +31,8 @@ describe("isInteractionsEligible", () => {
 		expect(isInteractionsEligible("gemini-3.1-pro-preview")).toBe(true);
 		expect(isInteractionsEligible("gemini-3.1-flash-lite-preview")).toBe(true);
 		expect(isInteractionsEligible("gemini-3.5-flash")).toBe(true);
+		expect(isInteractionsEligible("gemini-3.6-flash")).toBe(true);
+		expect(isInteractionsEligible("gemini-3.7-flash")).toBe(true);
 	});
 
 	it("accepts hosted Gemma 4 models", () => {
@@ -88,6 +91,23 @@ describe("getGeminiInteractionsProfile", () => {
 		});
 	});
 
+	it("3.6-flash: supports minimal thinkingLevel", () => {
+		const flash36 = getGeminiInteractionsProfile("gemini-3.6-flash");
+		expect(flash36).toBeDefined();
+		expect(flash36!.effortToWireLevel).toEqual({
+			minimal: "minimal",
+			low: "low",
+			medium: "medium",
+			high: "high",
+		});
+	});
+
+	it("3.7-flash: low/medium/high only (rejects minimal on the Interactions API)", () => {
+		const flash37 = getGeminiInteractionsProfile("gemini-3.7-flash");
+		expect(flash37).toBeDefined();
+		expect(flash37!.effortToWireLevel).toEqual({ low: "low", medium: "medium", high: "high" });
+	});
+
 	it("Gemma 4: binary thinking maps product off→minimal, high→high", () => {
 		for (const modelId of ["gemma-4-31b-it", "gemma-4-26b-a4b-it"]) {
 			const profile = getGeminiInteractionsProfile(modelId);
@@ -98,6 +118,70 @@ describe("getGeminiInteractionsProfile", () => {
 
 	it("returns undefined for ineligible models", () => {
 		expect(getGeminiInteractionsProfile("gemini-2.0-flash")).toBeUndefined();
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Discovery gate (fail-open)
+// ---------------------------------------------------------------------------
+describe("isGeminiApiChatModel", () => {
+	const CHAT_METHODS = ["generateContent", "countTokens"];
+
+	it("accepts versioned Gemini and Gemma chat IDs, profiled or not", () => {
+		expect(isGeminiApiChatModel("gemini-2.5-pro", CHAT_METHODS)).toBe(true);
+		expect(isGeminiApiChatModel("gemini-3.6-flash", CHAT_METHODS)).toBe(true);
+		expect(isGeminiApiChatModel("gemma-4-31b-it", CHAT_METHODS)).toBe(true);
+		// Unprofiled but chat-shaped: fail-open
+		expect(isGeminiApiChatModel("gemini-3.5-flash-lite", CHAT_METHODS)).toBe(true);
+		expect(isGeminiApiChatModel("gemini-9.9-flash", CHAT_METHODS)).toBe(true);
+		expect(isGeminiApiChatModel("gemma-5-8b-it", CHAT_METHODS)).toBe(true);
+	});
+
+	it("accepts chat-shaped IDs when generation methods are absent", () => {
+		expect(isGeminiApiChatModel("gemini-3.6-flash")).toBe(true);
+	});
+
+	it("rejects non-versioned families by name", () => {
+		expect(isGeminiApiChatModel("gemini-embedding-001", ["embedContent", "countTokens"])).toBe(
+			false,
+		);
+		expect(isGeminiApiChatModel("gemini-robotics-er-2-preview", CHAT_METHODS)).toBe(false);
+		expect(isGeminiApiChatModel("gemini-omni-flash-preview", CHAT_METHODS)).toBe(false);
+		expect(isGeminiApiChatModel("deep-research-pro-preview-12-2025", CHAT_METHODS)).toBe(false);
+		expect(isGeminiApiChatModel("unknown-model", CHAT_METHODS)).toBe(false);
+	});
+
+	it("rejects -latest aliases to avoid duplicate picker entries", () => {
+		expect(isGeminiApiChatModel("gemini-flash-latest", CHAT_METHODS)).toBe(false);
+		expect(isGeminiApiChatModel("gemini-pro-latest", CHAT_METHODS)).toBe(false);
+		expect(isGeminiApiChatModel("gemini-flash-lite-latest", CHAT_METHODS)).toBe(false);
+	});
+
+	it("rejects non-chat suffixes that still report generateContent", () => {
+		expect(isGeminiApiChatModel("gemini-3-pro-image", CHAT_METHODS)).toBe(false);
+		expect(isGeminiApiChatModel("gemini-3.1-flash-image-preview", CHAT_METHODS)).toBe(false);
+		expect(isGeminiApiChatModel("gemini-3.1-flash-lite-image", CHAT_METHODS)).toBe(false);
+		expect(isGeminiApiChatModel("gemini-2.5-flash-preview-tts", CHAT_METHODS)).toBe(false);
+		expect(isGeminiApiChatModel("gemini-3.1-flash-tts-preview", CHAT_METHODS)).toBe(false);
+		expect(isGeminiApiChatModel("gemini-2.5-computer-use-preview-10-2025", CHAT_METHODS)).toBe(
+			false,
+		);
+	});
+
+	it("rejects models without generateContent when methods are reported", () => {
+		// Audio/live/streaming models report only bidiGenerateContent
+		expect(
+			isGeminiApiChatModel("gemini-2.5-flash-native-audio-latest", [
+				"countTokens",
+				"bidiGenerateContent",
+			]),
+		).toBe(false);
+		expect(isGeminiApiChatModel("gemini-3.1-flash-live-preview", ["bidiGenerateContent"])).toBe(
+			false,
+		);
+		expect(isGeminiApiChatModel("gemini-3.5-live-translate-preview", ["bidiGenerateContent"])).toBe(
+			false,
+		);
 	});
 });
 
