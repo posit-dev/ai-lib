@@ -107,6 +107,7 @@ describe("inferModelCapabilities", () => {
 		const kimiK3 = inferModelCapabilities("positai", "moonshotai/Kimi-K3");
 		expect(kimiK3.maxContextLength).toBe(250_000);
 		expect(kimiK3.maxInputTokens).toBe(250_000);
+		expect(kimiK3.maxOutputTokens).toBe(131_072);
 	});
 
 	it("omits requiresChatTemplateKwargs so the result fits a models.custom entry", () => {
