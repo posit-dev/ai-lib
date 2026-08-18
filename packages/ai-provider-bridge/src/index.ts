@@ -50,6 +50,9 @@ export type { LanguageModelUsage, ModelMessage } from "ai";
 // StepLogger interface
 export type { StepLogData, StepLogger } from "./StepLogger";
 
+// Raw HTTP request/response logging (opt-in dev feature)
+export { configureRawHttpLogging, withRawHttpLogging } from "./model-clients/raw-http-logging";
+
 // CredentialProvider interface
 export type { CredentialProvider, Disposable } from "./CredentialProvider";
 

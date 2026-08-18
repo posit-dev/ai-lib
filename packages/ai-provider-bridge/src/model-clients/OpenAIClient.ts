@@ -27,6 +27,7 @@ import {
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 import { prepareExplicitOpenAIRequest } from "./openai-prompt-caching";
+import { withRawHttpLogging } from "./raw-http-logging";
 
 export type OpenAIApiMode = "completions" | "responses";
 
@@ -102,10 +103,11 @@ export class OpenAIClient implements ModelClient {
 					}
 				: undefined);
 		const headers = safeSdkCustomHeaders(this.customHeaders);
+		const loggedFetch = withRawHttpLogging(fetchFn, { provider: "openai", model: params.model });
 		const provider = createOpenAI({
 			apiKey: isEmptyKey ? "sk-placeholder" : this.apiKey,
 			...(effectiveBaseUrl && { baseURL: effectiveBaseUrl }),
-			...(fetchFn && { fetch: fetchFn }),
+			...((loggedFetch ?? fetchFn) && { fetch: loggedFetch ?? fetchFn }),
 			...(headers && { headers }),
 		});
 		const model =

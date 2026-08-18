@@ -26,6 +26,7 @@ import {
 	createStepLogger,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
+import { withRawHttpLogging } from "./raw-http-logging";
 
 // ---------------------------------------------------------------------------
 // Interaction ID extraction (compaction-aware)
@@ -343,9 +344,14 @@ export class GeminiClient implements ModelClient {
 		// correction happens at the config seam (see base-url.ts), not here.
 		const effectiveBaseUrl = params.baseUrl ?? this.baseURL;
 		const headers = safeSdkCustomHeaders(this.customHeaders);
+		const loggedFetch = withRawHttpLogging(undefined, {
+			provider: "gemini",
+			model: params.model,
+		});
 		const provider = createGoogleGenerativeAI({
 			apiKey: this.apiKey,
 			...(effectiveBaseUrl && { baseURL: effectiveBaseUrl }),
+			...(loggedFetch && { fetch: loggedFetch }),
 			...(headers && { headers }),
 		});
 

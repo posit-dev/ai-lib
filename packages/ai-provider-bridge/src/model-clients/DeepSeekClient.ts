@@ -14,6 +14,7 @@ import {
 	createStepLogger,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
+import { withRawHttpLogging } from "./raw-http-logging";
 
 /** Map our thinking effort string to DeepSeek's reasoning_effort parameter. */
 function mapReasoningEffort(effort: string): string {
@@ -66,12 +67,18 @@ export class DeepSeekClient implements ModelClient {
 		const thinkingOn = isThinkingEnabled(params.thinkingEffort);
 
 		const headers = safeSdkCustomHeaders(this.customHeaders);
+		const baseFetch = thinkingOn
+			? createFetchWithReasoningEffort(params.thinkingEffort!)
+			: undefined;
+		const loggedFetch = withRawHttpLogging(baseFetch, {
+			provider: "deepseek",
+			model: params.model,
+		});
+		const effectiveFetch = loggedFetch ?? baseFetch;
 		const provider = createDeepSeek({
 			apiKey: this.apiKey,
 			...(effectiveBaseUrl && { baseURL: effectiveBaseUrl }),
-			...(thinkingOn && {
-				fetch: createFetchWithReasoningEffort(params.thinkingEffort!),
-			}),
+			...(effectiveFetch && { fetch: effectiveFetch }),
 			...(headers && { headers }),
 		});
 

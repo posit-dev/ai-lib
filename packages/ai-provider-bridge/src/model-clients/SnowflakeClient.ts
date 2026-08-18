@@ -27,6 +27,7 @@ import {
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 import { createOpenAICompatibleFetch } from "./openai-compat-fetch";
+import { withRawHttpLogging } from "./raw-http-logging";
 
 /**
  * How the credential's token authenticates with Snowflake Cortex:
@@ -224,18 +225,27 @@ export class SnowflakeClient implements ModelClient {
 		baseUrl: string,
 	): Promise<AsyncIterable<LMStreamPart>> {
 		const headers = safeSdkCustomHeaders(this.customHeaders);
+		const baseFetch = this.isSessionAuth
+			? createSnowflakeSessionFetch(this.token, globalThis.fetch, this.sessionRefresh)
+			: undefined;
+		const loggedFetch = withRawHttpLogging(baseFetch, {
+			provider: "snowflake-cortex",
+			model: params.model,
+		});
+		const effectiveFetch = loggedFetch ?? baseFetch;
 		const provider = this.isSessionAuth
 			? createAnthropic({
 					// Auth is applied by the session fetch wrapper; this placeholder key
 					// just satisfies the SDK (its x-api-key header is stripped there).
 					apiKey: "session-auth",
 					baseURL: baseUrl,
-					fetch: createSnowflakeSessionFetch(this.token, globalThis.fetch, this.sessionRefresh),
+					...(effectiveFetch && { fetch: effectiveFetch }),
 					...(headers && { headers }),
 				})
 			: createAnthropic({
 					authToken: this.token,
 					baseURL: baseUrl,
+					...(effectiveFetch && { fetch: effectiveFetch }),
 					...(headers && { headers }),
 				});
 		const model = provider(params.model);
@@ -297,12 +307,18 @@ export class SnowflakeClient implements ModelClient {
 		const compatFetch = this.isSessionAuth
 			? createOpenAICompatibleFetch("Snowflake", "session-auth", this.customHeaders)
 			: createOpenAICompatibleFetch("Snowflake", this.token, this.customHeaders);
+		const baseFetch = this.isSessionAuth
+			? createSnowflakeSessionFetch(this.token, compatFetch, this.sessionRefresh)
+			: compatFetch;
+		const loggedFetch =
+			withRawHttpLogging(baseFetch, {
+				provider: "snowflake-cortex",
+				model: params.model,
+			}) ?? baseFetch;
 		const provider = createOpenAI({
 			apiKey: this.token || "sk-placeholder",
 			baseURL: baseUrl,
-			fetch: this.isSessionAuth
-				? createSnowflakeSessionFetch(this.token, compatFetch, this.sessionRefresh)
-				: compatFetch,
+			fetch: loggedFetch,
 		});
 		const model = provider.chat(params.model);
 

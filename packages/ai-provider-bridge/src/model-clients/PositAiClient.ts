@@ -37,6 +37,7 @@ import {
 	createStepLogger,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
+import { withRawHttpLogging } from "./raw-http-logging";
 
 /**
  * Custom fetch wrapper that replaces x-api-key header with Authorization: Bearer
@@ -184,6 +185,11 @@ export class PositAiClient implements ModelClient {
 			onCreditsDepleted,
 			onAgreementRequired,
 		);
+		// Raw HTTP logging wraps the authenticated fetch so the log reflects the
+		// final wire request (auth headers are redacted in the log files).
+		const loggedFetch =
+			withRawHttpLogging(authenticatedFetch, { provider: "positai", model: params.model }) ??
+			authenticatedFetch;
 
 		// Create abort controller with cleanup to prevent EventEmitter memory leaks
 		const { abortController, cleanup } = createAbortControllerFromToken(params.cancellationToken);
@@ -205,7 +211,7 @@ export class PositAiClient implements ModelClient {
 			const provider = createAnthropic({
 				apiKey: this.accessToken, // Required for SDK initialization, not used in header
 				baseURL: joinPath(effectiveBaseUrl, "/anthropic/v1"),
-				fetch: authenticatedFetch,
+				fetch: loggedFetch,
 			});
 			const model = provider(params.model);
 
@@ -248,7 +254,7 @@ export class PositAiClient implements ModelClient {
 			const provider = createOpenAICompatible({
 				name: "positai",
 				baseURL: joinPath(effectiveBaseUrl, "/openai/v1"),
-				fetch: authenticatedFetch,
+				fetch: loggedFetch,
 				...(thinkingFields && {
 					transformRequestBody: (body: Record<string, unknown>) => ({
 						...body,
