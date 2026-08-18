@@ -38,6 +38,11 @@ interface CapabilityRule {
  *
  * Thinking effort levels and budget/level ranges are based on:
  * https://ai.google.dev/gemini-api/docs/thinking#levels-budgets
+ *
+ * Note: on the hosted Gemini API endpoint, advertised thinking levels come
+ * from the bridge's Interactions profiles (the single source of truth
+ * there); this table's levels serve Vertex, provider-agnostic inference,
+ * and the config-migration seam.
  */
 const CAPABILITY_RULES: CapabilityRule[] = [
 	// --- Gemini 3 family ---

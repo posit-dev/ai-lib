@@ -6,8 +6,9 @@ import type { ResolvedProviderId } from "ai-config";
 import { GEMINI_API_VERSION, GEMINI_HOST, inferModelCapabilities } from "ai-config";
 
 import {
+	getGeminiInteractionsProfile,
+	hasGeminiInteractionsProfile,
 	isGeminiApiChatModel,
-	isInteractionsEligible,
 } from "../model-capabilities/gemini-interactions";
 import { GeminiClient } from "../model-clients/GeminiClient";
 import type { Logger, ModelInfo } from "../types";
@@ -35,6 +36,7 @@ function buildGeminiModel(
 	// endpoint inference, including hosted Gemma); the bridge overlays only
 	// the token limits from the live /models response.
 	const caps = inferModelCapabilities("gemini", id);
+	const profile = getGeminiInteractionsProfile(id);
 
 	return {
 		id,
@@ -49,10 +51,12 @@ function buildGeminiModel(
 		supportedInputMediaTypes: caps.supportedInputMediaTypes,
 		supportsToolResultImages: caps.supportsToolResultImages,
 		maxContextLength: inputTokenLimit ?? caps.maxContextLength,
-		// Only profiled models advertise thinking levels — the client can only
-		// map a product effort to a wire value when a profile exists, so an
-		// unprofiled (fail-open) model must not offer levels it would ignore.
-		thinkingEffortLevels: isInteractionsEligible(id) ? caps.thinkingEffortLevels : undefined,
+		// The Interactions profile is the single source of truth for product
+		// thinking levels on this endpoint: its keys are exactly the efforts
+		// the client can map to wire values. Unprofiled (fail-open) models
+		// advertise no levels. (ai-config's table levels serve Vertex and
+		// other inference consumers, not this path.)
+		thinkingEffortLevels: profile ? Object.keys(profile.effortToWireLevel) : undefined,
 		supportsWebSearch: caps.supportsWebSearch,
 	};
 }
@@ -108,8 +112,8 @@ function createGeminiModelFetcher(
 			);
 		},
 		fallbackModels: includeHostedModels
-			? GEMINI_FALLBACK_ROWS.filter(({ id }) => isInteractionsEligible(id)).map(({ id, name }) =>
-					buildGeminiModel(providerId, id, name),
+			? GEMINI_FALLBACK_ROWS.filter(({ id }) => hasGeminiInteractionsProfile(id)).map(
+					({ id, name }) => buildGeminiModel(providerId, id, name),
 				)
 			: [],
 		logger,

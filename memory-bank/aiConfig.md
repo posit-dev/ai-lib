@@ -344,9 +344,9 @@ synthesize model capabilities without taking the bridge's dependency tree
 `getOpenAIModelCapabilities`, `openaiMaxInputTokens`,
 `getPositAiModelCapabilities`) from `ai-config` so none of its existing
 consumers broke; its own `getGeminiInteractionsProfile` /
-`isInteractionsEligible` stayed behind as `gemini-interactions.ts`, since that
-allowlist is bridge SDK-routing logic (which wire API `GeminiClient` speaks),
-not a dependency-free capability table.
+`hasGeminiInteractionsProfile` stayed behind as `gemini-interactions.ts`,
+since that profile table is bridge SDK-routing logic (which wire API
+`GeminiClient` speaks), not a dependency-free capability table.
 
 **The tables** (`anthropic-helpers.ts`, `deepseek-helpers.ts`,
 `gemini-helpers.ts`, `gemma-helpers.ts`, `openai-helpers.ts`) are pure

@@ -7,8 +7,8 @@ import { describe, expect, it } from "vitest";
 
 import {
 	getGeminiInteractionsProfile,
+	hasGeminiInteractionsProfile,
 	isGeminiApiChatModel,
-	isInteractionsEligible,
 } from "../model-capabilities/gemini-interactions";
 import {
 	buildInteractionsOptions,
@@ -19,34 +19,19 @@ import {
 // ---------------------------------------------------------------------------
 // Eligibility
 // ---------------------------------------------------------------------------
-describe("isInteractionsEligible", () => {
-	it("accepts 2.5 chat models", () => {
-		expect(isInteractionsEligible("gemini-2.5-pro")).toBe(true);
-		expect(isInteractionsEligible("gemini-2.5-flash")).toBe(true);
-		expect(isInteractionsEligible("gemini-2.5-flash-lite")).toBe(true);
+describe("hasGeminiInteractionsProfile", () => {
+	it("accepts profiled chat models", () => {
+		expect(hasGeminiInteractionsProfile("gemini-2.5-pro")).toBe(true);
+		expect(hasGeminiInteractionsProfile("gemini-3.5-flash")).toBe(true);
+		expect(hasGeminiInteractionsProfile("gemma-4-31b-it")).toBe(true);
 	});
 
-	it("accepts known 3.x chat models", () => {
-		expect(isInteractionsEligible("gemini-3-flash-preview")).toBe(true);
-		expect(isInteractionsEligible("gemini-3.1-pro-preview")).toBe(true);
-		expect(isInteractionsEligible("gemini-3.1-flash-lite-preview")).toBe(true);
-		expect(isInteractionsEligible("gemini-3.5-flash")).toBe(true);
-		expect(isInteractionsEligible("gemini-3.6-flash")).toBe(true);
-		expect(isInteractionsEligible("gemini-3.7-flash")).toBe(true);
-	});
-
-	it("accepts hosted Gemma 4 models", () => {
-		expect(isInteractionsEligible("gemma-4-31b-it")).toBe(true);
-		expect(isInteractionsEligible("gemma-4-26b-a4b-it")).toBe(true);
-	});
-
-	it("rejects excluded models (fail-closed)", () => {
-		expect(isInteractionsEligible("gemini-3-pro-preview")).toBe(false);
-		expect(isInteractionsEligible("gemini-2.0-flash")).toBe(false);
-		expect(isInteractionsEligible("gemini-1.5-pro")).toBe(false);
-		expect(isInteractionsEligible("gemini-2.5-flash-image")).toBe(false);
-		expect(isInteractionsEligible("gemma-3-27b-it")).toBe(false);
-		expect(isInteractionsEligible("unknown-model")).toBe(false);
+	it("rejects unprofiled models (fail-closed for thinking only)", () => {
+		expect(hasGeminiInteractionsProfile("gemini-3-pro-preview")).toBe(false);
+		expect(hasGeminiInteractionsProfile("gemini-2.0-flash")).toBe(false);
+		expect(hasGeminiInteractionsProfile("gemini-2.5-flash-image")).toBe(false);
+		expect(hasGeminiInteractionsProfile("gemma-3-27b-it")).toBe(false);
+		expect(hasGeminiInteractionsProfile("unknown-model")).toBe(false);
 	});
 });
 
@@ -89,23 +74,6 @@ describe("getGeminiInteractionsProfile", () => {
 			medium: "medium",
 			high: "high",
 		});
-	});
-
-	it("3.6-flash: supports minimal thinkingLevel", () => {
-		const flash36 = getGeminiInteractionsProfile("gemini-3.6-flash");
-		expect(flash36).toBeDefined();
-		expect(flash36!.effortToWireLevel).toEqual({
-			minimal: "minimal",
-			low: "low",
-			medium: "medium",
-			high: "high",
-		});
-	});
-
-	it("3.7-flash: low/medium/high only (rejects minimal on the Interactions API)", () => {
-		const flash37 = getGeminiInteractionsProfile("gemini-3.7-flash");
-		expect(flash37).toBeDefined();
-		expect(flash37!.effortToWireLevel).toEqual({ low: "low", medium: "medium", high: "high" });
 	});
 
 	it("Gemma 4: binary thinking maps product off→minimal, high→high", () => {

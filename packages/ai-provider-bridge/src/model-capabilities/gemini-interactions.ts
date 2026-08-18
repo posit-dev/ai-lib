@@ -22,7 +22,8 @@
  */
 
 /**
- * Profile for a model eligible for the Gemini Interactions API.
+ * Thinking profile for a model on the Gemini Interactions API. Having a
+ * profile is NOT a discovery gate — see {@link isGeminiApiChatModel}.
  */
 export interface GeminiInteractionsProfile {
 	/**
@@ -95,10 +96,9 @@ const INTERACTIONS_PROFILES: ReadonlyMap<string, GeminiInteractionsProfile> = ne
 ]);
 
 /**
- * Return the Interactions API profile for a Gemini model, or `undefined` if
- * the model is not eligible.
- *
- * **Fail-closed**: unlisted model IDs return `undefined`.
+ * Return the Interactions API thinking profile for a model, or `undefined`
+ * if the model has no profile. Unprofiled models are still discoverable and
+ * chat-able — they just run at their default thinking state.
  */
 export function getGeminiInteractionsProfile(
 	modelId: string,
@@ -110,7 +110,7 @@ export function getGeminiInteractionsProfile(
  * Whether a model ID has an Interactions thinking profile. Gates thinking
  * levels/summaries only — NOT discovery (see {@link isGeminiApiChatModel}).
  */
-export function isInteractionsEligible(modelId: string): boolean {
+export function hasGeminiInteractionsProfile(modelId: string): boolean {
 	return INTERACTIONS_PROFILES.has(modelId);
 }
 
