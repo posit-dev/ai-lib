@@ -64,6 +64,11 @@ const INTERACTIONS_PROFILES: ReadonlyMap<string, GeminiInteractionsProfile> = ne
 	// The plan originally excluded it citing v1beta2 routing, but the SDK
 	// targets /v1beta and includes it, so we allowlist it here.
 	["gemini-3.5-flash", { effortToWireLevel: identityLevels("minimal", "low", "medium", "high") }],
+	// Verified on the live Interactions API (2026-08-17): 3.6-flash accepts
+	// minimal/low/medium/high; 3.7-flash rejects minimal ("Allowed values
+	// are: high, low, medium").
+	["gemini-3.6-flash", { effortToWireLevel: identityLevels("minimal", "low", "medium", "high") }],
+	["gemini-3.7-flash", { effortToWireLevel: identityLevels("low", "medium", "high") }],
 
 	// --- Gemma 4 (hosted on the Gemini API) ---
 	// Binary thinking, verified against the live API (2026-08-17): wire
