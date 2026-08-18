@@ -38,6 +38,9 @@ const MODEL_APIS_CAPABILITIES: Record<string, Partial<ModelInfo>> = {
 		family: "kimi",
 		thinkingEffortLevels: ["off", "low", "high", "max"],
 		supportedInputMediaTypes: ["image/png", "image/jpeg", "image/gif", "image/webp"],
+		// Kimi K3's documented max output (Moonshot API's default
+		// max_completion_tokens).
+		maxOutputTokens: 131_072,
 		// Artificially limited to stay within per-minute token rate limits.
 		maxContextLength: 250_000,
 		maxInputTokens: 250_000,
