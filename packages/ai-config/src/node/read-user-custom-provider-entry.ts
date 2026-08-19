@@ -19,8 +19,7 @@ export class NonCustomProviderIdError extends Error {
 	}
 }
 
-export interface ReadUserCustomProviderEntryOptions
-	extends ReadUserCustomProviderEntriesOptions {}
+export interface ReadUserCustomProviderEntryOptions extends ReadUserCustomProviderEntriesOptions {}
 
 /**
  * Read one custom provider exactly as authored in the user providers.json.
