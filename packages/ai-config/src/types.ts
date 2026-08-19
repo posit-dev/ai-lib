@@ -147,6 +147,14 @@ export interface ResolvedConnectionProvenance {
 	readonly aws?: {
 		readonly region?: ResolvedConnectionValueProvenance;
 	};
+	readonly snowflake?: {
+		readonly connectionName?: {
+			/** Whether the effective selection is owned by the mutable user layer. */
+			readonly userOwned: boolean;
+			/** The effective selection after removing every user-layer value. */
+			readonly valueAfterUserClear: string | undefined;
+		};
+	};
 }
 
 /**

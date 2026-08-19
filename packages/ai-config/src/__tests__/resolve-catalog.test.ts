@@ -367,6 +367,40 @@ describe("resolveProviderCatalog — legacy-positron layer merge semantics", () 
 		expect(resolved?.account).toBe("user-acct");
 	});
 
+	it("preserves Snowflake selection ownership and the value after a user clear", () => {
+		const userWithDefault = resolveProviderCatalog({
+			sources: [
+				source("user", {
+					providers: { "snowflake-cortex": { snowflake: { connectionName: "prod" } } },
+				}),
+				source("default", {
+					providers: { "snowflake-cortex": { snowflake: { connectionName: "staging" } } },
+				}),
+			],
+			baseline: STANDALONE,
+			envVars: {},
+		});
+		expect(
+			find(userWithDefault, "snowflake-cortex")?.connectionProvenance.snowflake?.connectionName,
+		).toEqual({ userOwned: true, valueAfterUserClear: "staging" });
+
+		const enforced = resolveProviderCatalog({
+			sources: [
+				source("enforced", {
+					providers: { "snowflake-cortex": { snowflake: { connectionName: "managed" } } },
+				}),
+				source("user", {
+					providers: { "snowflake-cortex": { snowflake: { connectionName: "prod" } } },
+				}),
+			],
+			baseline: STANDALONE,
+			envVars: {},
+		});
+		expect(
+			find(enforced, "snowflake-cortex")?.connectionProvenance.snowflake?.connectionName,
+		).toEqual({ userOwned: false, valueAfterUserClear: "managed" });
+	});
+
 	it("AWS region ordering: env > legacy authentication setting > unset", () => {
 		// legacy setting surfaces in the resolved connection (revival of the
 		// previously-dead authentication.aws.credentials.AWS_REGION).

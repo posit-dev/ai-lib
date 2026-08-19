@@ -239,21 +239,41 @@ function resolveConnectionProvenance(
 ): ReadonlyMap<string, ResolvedConnectionProvenance> {
 	const result = new Map<string, ResolvedConnectionProvenance>();
 	const bedrockRegion = config.providers?.bedrock?.aws?.region;
-	if (!bedrockRegion) return result;
+	if (bedrockRegion) {
+		const sourceProvidesRegion = (source: RankedConfigSource): boolean =>
+			source.config.providers?.bedrock?.aws?.region === bedrockRegion;
+		const hasConfigurationEvidence = kept.some(
+			(source) => source.kind !== "env" && sourceProvidesRegion(source),
+		);
+		const hasEnvironmentEvidence = kept.some(
+			(source) => source.kind === "env" && sourceProvidesRegion(source),
+		);
 
-	const sourceProvidesRegion = (source: RankedConfigSource): boolean =>
-		source.config.providers?.bedrock?.aws?.region === bedrockRegion;
-	const hasConfigurationEvidence = kept.some(
-		(source) => source.kind !== "env" && sourceProvidesRegion(source),
-	);
-	const hasEnvironmentEvidence = kept.some(
-		(source) => source.kind === "env" && sourceProvidesRegion(source),
-	);
+		if (hasConfigurationEvidence) {
+			result.set("bedrock", { aws: { region: "configuration" } });
+		} else if (hasEnvironmentEvidence) {
+			result.set("bedrock", { aws: { region: "environment" } });
+		}
+	}
 
-	if (hasConfigurationEvidence) {
-		result.set("bedrock", { aws: { region: "configuration" } });
-	} else if (hasEnvironmentEvidence) {
-		result.set("bedrock", { aws: { region: "environment" } });
+	const snowflakeConnectionName = config.providers?.["snowflake-cortex"]?.snowflake?.connectionName;
+	if (snowflakeConnectionName) {
+		const connectionNameFrom = (source: RankedConfigSource): string | undefined =>
+			source.config.providers?.["snowflake-cortex"]?.snowflake?.connectionName;
+		const effectiveSource = kept.find((source) => connectionNameFrom(source) !== undefined);
+		const valueAfterUserClear = kept
+			.filter((source) => source.kind !== "user")
+			.map(connectionNameFrom)
+			.find((connectionName) => connectionName !== undefined);
+
+		result.set("snowflake-cortex", {
+			snowflake: {
+				connectionName: {
+					userOwned: effectiveSource?.kind === "user",
+					valueAfterUserClear,
+				},
+			},
+		});
 	}
 
 	return result;
