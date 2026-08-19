@@ -216,8 +216,11 @@ export class BedrockClient implements ModelClient {
 	 * - Anthropic models use `createBedrockAnthropic` (native Anthropic InvokeModel API
 	 *   through Bedrock) for full feature parity including prompt caching via
 	 *   `providerOptions.anthropic.cacheControl`.
-	 * - OpenAI protocols use Bedrock Mantle. Only these routes honor `baseUrl`.
+	 * - OpenAI protocols use Bedrock Mantle.
 	 * - All other models use `createAmazonBedrock` (Converse API).
+	 *
+	 * All three routes honor an explicit `baseUrl` (e.g. a Connect gateway
+	 * route), falling back to the resolved AWS runtime endpoint otherwise.
 	 *
 	 * When an explicit `protocol` is provided, it takes precedence over the
 	 * model-ID heuristic.
@@ -254,14 +257,14 @@ export class BedrockClient implements ModelClient {
 		if (useAnthropicApi) {
 			return createBedrockAnthropic({
 				region: this.config.region,
-				baseURL: transport.runtimeBaseUrl,
+				baseURL: baseUrl ?? transport.runtimeBaseUrl,
 				credentialProvider,
 			})(modelId);
 		}
 
 		return createAmazonBedrock({
 			region: this.config.region,
-			baseURL: transport.runtimeBaseUrl,
+			baseURL: baseUrl ?? transport.runtimeBaseUrl,
 			credentialProvider,
 		})(modelId);
 	}

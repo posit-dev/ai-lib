@@ -141,6 +141,35 @@ describe("Bedrock Mantle protocol routing", () => {
 		expect(createBedrockMantle).not.toHaveBeenCalled();
 	});
 
+	it("honors an explicit baseUrl on the Converse and Anthropic routes", async () => {
+		await client.chat(
+			params({
+				model: "amazon.nova-pro",
+				protocol: "bedrock-converse",
+				baseUrl: "https://connect.example.com/__gateway__/bedrock/guid",
+			}),
+		);
+		expect(createAmazonBedrock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				baseURL: "https://connect.example.com/__gateway__/bedrock/guid",
+			}),
+		);
+
+		vi.clearAllMocks();
+		await client.chat(
+			params({
+				model: "anthropic.claude-sonnet-4-6",
+				protocol: "anthropic-messages",
+				baseUrl: "https://connect.example.com/__gateway__/bedrock/guid",
+			}),
+		);
+		expect(createBedrockAnthropic).toHaveBeenCalledWith(
+			expect.objectContaining({
+				baseURL: "https://connect.example.com/__gateway__/bedrock/guid",
+			}),
+		);
+	});
+
 	it("routes both runtime factories through the resolved FIPS host", async () => {
 		resolveBedrockTransport.mockResolvedValue({
 			useFipsEndpoint: true,
