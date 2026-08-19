@@ -54,6 +54,8 @@ export {
 	readUserCustomProviderEntry,
 } from "./read-user-custom-provider-entry.js";
 export type { ReadUserCustomProviderEntryOptions } from "./read-user-custom-provider-entry.js";
+export { readUserCustomProviderEntries } from "./read-user-custom-provider-entries.js";
+export type { ReadUserCustomProviderEntriesOptions } from "./read-user-custom-provider-entries.js";
 
 // --- Source-assembly compatibility seam (file + env → sources) -----------
 // Canonical host reads use `loadProviderCatalogReport`; `loadConfigSources`
