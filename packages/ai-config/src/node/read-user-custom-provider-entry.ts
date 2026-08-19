@@ -2,16 +2,11 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { promises as fs } from "node:fs";
-
 import { mintCustomProviderId, type CustomProviderEntry } from "../types.js";
-import { parseProvidersConfig } from "./parse-providers-config.js";
-import { PROVIDERS_CONFIG_PATH } from "./paths.js";
-
-export interface ReadUserCustomProviderEntryOptions {
-	/** Override the user providers.json path. */
-	readonly configPath?: string;
-}
+import {
+	readUserCustomProviderEntries,
+	type ReadUserCustomProviderEntriesOptions,
+} from "./read-user-custom-provider-entries.js";
 
 /** Raised when a caller asks the custom-entry reader for a non-custom provider id. */
 export class NonCustomProviderIdError extends Error {
@@ -24,13 +19,7 @@ export class NonCustomProviderIdError extends Error {
 	}
 }
 
-function isMissingFile(error: unknown): boolean {
-	return error instanceof Error && "code" in error && error.code === "ENOENT";
-}
-
-function errorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
-}
+export interface ReadUserCustomProviderEntryOptions extends ReadUserCustomProviderEntriesOptions {}
 
 /**
  * Read one custom provider exactly as authored in the user providers.json.
@@ -50,30 +39,6 @@ export async function readUserCustomProviderEntry(
 		throw new NonCustomProviderIdError(providerId, { cause: error });
 	}
 
-	const configPath = options.configPath ?? PROVIDERS_CONFIG_PATH;
-	let raw: string;
-	try {
-		raw = await fs.readFile(configPath, "utf-8");
-	} catch (error) {
-		if (isMissingFile(error)) {
-			return undefined;
-		}
-		throw new Error(
-			`[ai-config] Cannot read ${configPath}: ${errorMessage(error)}. Fix the file before editing custom providers.`,
-			{ cause: error },
-		);
-	}
-
-	try {
-		const customProviders = parseProvidersConfig(raw).providers?.custom;
-		if (!customProviders || !Object.prototype.hasOwnProperty.call(customProviders, providerId)) {
-			return undefined;
-		}
-		return customProviders[providerId];
-	} catch (error) {
-		throw new Error(
-			`[ai-config] Cannot read ${configPath}: ${errorMessage(error)}. Fix the file before editing custom providers.`,
-			{ cause: error },
-		);
-	}
+	const entries = await readUserCustomProviderEntries(options);
+	return entries.get(providerId);
 }
