@@ -37,10 +37,18 @@
  * logging reasons and never alters the bytes seen by the SDK.
  */
 
-import { existsSync, mkdirSync, writeFile } from "node:fs";
-import { join } from "node:path";
-
 const ENV_VAR = "PA_RAW_HTTP_LOG_DIR";
+
+/**
+ * Node builtins are looked up lazily (never imported statically) so this
+ * module stays bundleable for browser targets like the Positron webview
+ * frontend, which shares chunks with the model clients. Outside Node,
+ * `nodeFs` is undefined and logging is simply disabled.
+ */
+const nodeFs =
+	typeof process !== "undefined"
+		? (process.getBuiltinModule?.("node:fs") as typeof import("node:fs") | undefined)
+		: undefined;
 
 /**
  * Headers whose values are replaced with [REDACTED] in log files. "token"
@@ -76,11 +84,14 @@ export function resetRawHttpLoggingForTests(): void {
  * late-binding (must exist on disk).
  */
 function resolveOutputDir(): string | undefined {
+	if (!nodeFs || typeof process === "undefined") {
+		return undefined;
+	}
 	const envDir = process.env[ENV_VAR];
 	if (envDir) {
 		if (!envDirCreated) {
 			try {
-				mkdirSync(envDir, { recursive: true });
+				nodeFs.mkdirSync(envDir, { recursive: true });
 				envDirCreated = true;
 			} catch {
 				return undefined;
@@ -88,7 +99,7 @@ function resolveOutputDir(): string | undefined {
 		}
 		return envDir;
 	}
-	if (configuredOutputDir && existsSync(configuredOutputDir)) {
+	if (configuredOutputDir && nodeFs.existsSync(configuredOutputDir)) {
 		return configuredOutputDir;
 	}
 	return undefined;
@@ -209,7 +220,8 @@ function formatResponseFile(response: Response, body: Buffer, error?: unknown): 
 }
 
 function writeLogFile(outputDir: string, baseName: string, suffix: string, contents: Buffer): void {
-	writeFile(join(outputDir, `${baseName}-${suffix}.http`), contents, () => {
+	// Forward slash works on Windows for fs calls; avoids importing node:path.
+	nodeFs?.writeFile(`${outputDir}/${baseName}-${suffix}.http`, contents, () => {
 		// Errors are swallowed by design: logging must never break a request.
 	});
 }
