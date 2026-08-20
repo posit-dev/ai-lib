@@ -394,15 +394,19 @@ Per-provider cases:
   table and Anthropic partner ids to the Anthropic table (mirroring
   `google-vertex-provider.ts`; the builder's live-API token limits match the
   Gemini table's 1M/65k values).
-- `snowflake-cortex` → Snowflake serves a fixed catalog with its own caps, so
-  inference applies them rather than the upstream model limits: Claude ids get
-  the Anthropic Messages API shape (200k context / 16,384 output, tool-result
-  images on); anything else strips a leading `openai-` prefix, consults the
-  OpenAI table, and gets the Chat Completions shape (128k / 16,384,
-  tool-result images off, image support only when the upstream table lists
-  image media types). Only `family` and `thinkingEffortLevels` are borrowed
-  from the upstream tables (mirroring `snowflake-cortex-provider.ts`). Both
-  branches set `protocol` (`"anthropic-messages"` or `"openai-chat"`).
+- `snowflake-cortex` → context windows come from the Cortex catalog table
+  (200k/128k fallbacks for unknown Claude/other ids), while output limits are
+  borrowed from the upstream Anthropic/OpenAI tables when an explicit rule
+  recognizes the id (e.g. 128k for Opus 4.7 and GPT-5.2); unrecognized ids get
+  a conservative 16,384 output fallback, and the Anthropic helper's own 64k
+  default for unknown Claude ids is deliberately rejected. Claude ids get the
+  Anthropic Messages API shape (tool-result images on); anything else strips a
+  leading `openai-` prefix, consults the OpenAI table, and gets the Chat
+  Completions shape (tool-result images off, image support only when the
+  upstream table lists image media types). `family` and
+  `thinkingEffortLevels` are likewise borrowed from the upstream tables
+  (mirroring `snowflake-cortex-provider.ts`). Both branches set `protocol`
+  (`"anthropic-messages"` or `"openai-chat"`).
 - Protocol inference is intentionally limited to Snowflake and Bedrock Mantle;
   other provider families leave it `undefined`.
 - Anything else (`ms-foundry`, `openai-compatible`, custom provider ids) stays
