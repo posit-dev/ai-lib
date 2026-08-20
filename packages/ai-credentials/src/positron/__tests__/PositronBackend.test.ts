@@ -51,6 +51,7 @@ vi.mock("vscode", () => ({
 
 const { createPositronBackend } = await import("../PositronBackend.js");
 import type { AuthProviderMapping, CredentialConfig } from "../../types/index.js";
+import type { ProviderMap } from "../PositronBackend.js";
 
 const PROVIDER_MAP: Record<string, AuthProviderMapping> = {
 	anthropic: { authProviderId: "anthropic-api", scopes: [], credentialType: "apikey" },
@@ -82,10 +83,13 @@ function testConfig(overrides: Partial<CredentialConfig> = {}): CredentialConfig
 	};
 }
 
-function makeBackend(configOverrides: Partial<CredentialConfig> = {}) {
+function makeBackend(
+	configOverrides: Partial<CredentialConfig> = {},
+	extraMappings?: () => ProviderMap,
+) {
 	return createPositronBackend({
 		logger,
-		providerMap: PROVIDER_MAP,
+		providerMap: () => ({ ...PROVIDER_MAP, ...extraMappings?.() }),
 		credentialConfigFactory: () => testConfig(configOverrides),
 	});
 }
@@ -203,7 +207,7 @@ describe("createPositronBackend", () => {
 		mockGetSession.mockResolvedValue(makeSession("databricks-bearer-token"));
 		const backend = makeBackend({
 			getDatabricks: () => ({ host: "https://adb-123.4.azuredatabricks.net" }),
-			getCustomHeaders: (configKey) =>
+			getCustomHeaders: ({ configKey }) =>
 				configKey === "databricks" ? { "x-databricks-use-coding-agent-mode": "true" } : undefined,
 		});
 
@@ -341,8 +345,9 @@ describe("createPositronBackend", () => {
 	it("shapes baseUrl and customHeaders from the injected credential config", async () => {
 		mockGetSession.mockResolvedValue(makeSession("sk-ant"));
 		const backend = makeBackend({
-			getBaseUrl: (configKey) => (configKey === "anthropic" ? "https://proxy.example" : undefined),
-			getCustomHeaders: (configKey) =>
+			getBaseUrl: ({ configKey }) =>
+				configKey === "anthropic" ? "https://proxy.example" : undefined,
+			getCustomHeaders: ({ configKey }) =>
 				configKey === "anthropic" ? { "x-tenancy": "team-42" } : undefined,
 		});
 
@@ -351,6 +356,66 @@ describe("createPositronBackend", () => {
 			apiKey: "sk-ant",
 			baseUrl: "https://proxy.example",
 			customHeaders: { "x-tenancy": "team-42" },
+		});
+	});
+
+	describe("providers.custom entries", () => {
+		const CUSTOM_ID = "Acme Gateway";
+
+		/**
+		 * The shape a host composes for `providers.custom`: the auth provider id is
+		 * the entry id itself, so the mapping is derived rather than tabled.
+		 */
+		function customMappings(ids: readonly string[]): () => ProviderMap {
+			return () =>
+				Object.fromEntries(
+					ids.map((id) => [id, { authProviderId: id, scopes: [], credentialType: "apikey" }]),
+				);
+		}
+
+		it("resolves a custom entry through an auth provider named for the entry", async () => {
+			mockGetSession.mockResolvedValue(makeSession("custom-key"));
+			const backend = makeBackend(
+				{
+					getBaseUrl: ({ providerId }) =>
+						providerId === CUSTOM_ID ? "https://gw.acme.test" : undefined,
+				},
+				customMappings([CUSTOM_ID]),
+			);
+
+			await expect(backend.getCredentials(CUSTOM_ID)).resolves.toEqual({
+				type: "apikey",
+				apiKey: "custom-key",
+				baseUrl: "https://gw.acme.test",
+				customHeaders: undefined,
+			});
+			expect(mockGetSession).toHaveBeenCalledWith(CUSTOM_ID, [], { silent: true });
+		});
+
+		it("fires a credential change for a custom entry's auth provider", async () => {
+			const backend = makeBackend({}, customMappings([CUSTOM_ID]));
+			const seen: string[][] = [];
+			backend.onDidChangeCredentials((ids) => seen.push(ids));
+
+			sessionChangeHook.callback?.({ provider: { id: CUSTOM_ID } });
+
+			expect(seen).toEqual([[CUSTOM_ID]]);
+		});
+
+		it("notifies a custom entry that appeared after the backend was built", async () => {
+			// The map is read per lookup, not captured at construction, so an entry
+			// added later is still reachable.
+			const known: string[] = [];
+			const backend = makeBackend({}, customMappings(known));
+			const seen: string[][] = [];
+			backend.onDidChangeCredentials((ids) => seen.push(ids));
+
+			sessionChangeHook.callback?.({ provider: { id: "Late Entry" } });
+			expect(seen).toEqual([]);
+
+			known.push("Late Entry");
+			sessionChangeHook.callback?.({ provider: { id: "Late Entry" } });
+			expect(seen).toEqual([["Late Entry"]]);
 		});
 	});
 });
