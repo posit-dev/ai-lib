@@ -81,6 +81,35 @@ function markedContinuationMessages(): ModelMessage[] {
 	];
 }
 
+/**
+ * The exact message shape `prepareClassifierRequest` produces for an eligible
+ * OpenAI-route classifier: marked system message, then a two-part user message
+ * with the breakpoint on part 1 (stable prefix) only.
+ */
+function classifierShapedMessages(): ModelMessage[] {
+	return [
+		{
+			role: "system",
+			content: "You are a classifier.",
+			providerOptions: breakpointProviderOptions,
+		},
+		{
+			role: "user",
+			content: [
+				{
+					type: "text",
+					text: "<workspace>\n(none)\n</workspace>\n\n--- Conversation ---\n(empty)",
+					providerOptions: breakpointProviderOptions,
+				},
+				{
+					type: "text",
+					text: '--- Tool call to evaluate ---\nbash({"command":"ls"})\n\nShould this tool call be allowed? Respond with JSON only.',
+				},
+			],
+		},
+	];
+}
+
 async function captureRequest(options: {
 	apiMode: "completions" | "responses";
 	usesExplicitPromptCaching?: boolean;
@@ -203,6 +232,49 @@ describe("OpenAI explicit prompt caching wire requests", () => {
 				}),
 			]),
 		);
+	});
+
+	it("serializes the classifier two-part user message with the breakpoint after part 1 (Responses)", async () => {
+		const requestBody = await captureRequest({
+			apiMode: "responses",
+			usesExplicitPromptCaching: true,
+			model: "gpt-5.6-terra",
+			metadata: { sessionId: "conversation-1:classifier" },
+			messages: classifierShapedMessages(),
+		});
+
+		expect(breakpointPaths(requestBody)).toEqual([
+			"input[0].content[0].prompt_cache_breakpoint",
+			"input[1].content[0].prompt_cache_breakpoint",
+		]);
+		// Part 2 (the per-call evaluation section) survives unmarked.
+		const userContent = (requestBody.input as Array<{ content: Array<Record<string, unknown>> }>)[1]
+			.content;
+		expect(userContent).toHaveLength(2);
+		expect(userContent[1]).not.toHaveProperty("prompt_cache_breakpoint");
+		expect(userContent[1].text).toContain("--- Tool call to evaluate ---");
+	});
+
+	it("serializes the classifier two-part user message with the breakpoint after part 1 (Chat)", async () => {
+		const requestBody = await captureRequest({
+			apiMode: "responses",
+			usesExplicitPromptCaching: true,
+			model: "gpt-5.6-terra",
+			protocol: "openai-chat",
+			metadata: { sessionId: "conversation-1:classifier" },
+			messages: classifierShapedMessages(),
+		});
+
+		expect(breakpointPaths(requestBody)).toEqual([
+			"messages[0].content[0].prompt_cache_breakpoint",
+			"messages[1].content[0].prompt_cache_breakpoint",
+		]);
+		const userContent = (
+			requestBody.messages as Array<{ content: Array<Record<string, unknown>> }>
+		)[1].content;
+		expect(userContent).toHaveLength(2);
+		expect(userContent[1]).not.toHaveProperty("prompt_cache_breakpoint");
+		expect(userContent[1].text).toContain("--- Tool call to evaluate ---");
 	});
 
 	it("bounds an over-long subagent session ID to a stable 64-char cache key", async () => {
