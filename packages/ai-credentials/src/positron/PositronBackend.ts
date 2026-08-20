@@ -49,8 +49,16 @@ export interface PositronBackend extends Backend {
 
 export interface CreatePositronBackendOptions {
 	logger: Logger;
-	/** Provider-id → auth mapping (the bridge's PROVIDER_MAP). */
-	providerMap: ProviderMap;
+	/**
+	 * Provider-id → auth mapping (the bridge's `PROVIDER_MAP`, plus whatever the
+	 * host adds for `providers.custom` entries).
+	 *
+	 * A getter, not a table: custom entry ids are user-chosen and come and go
+	 * while the process runs, so a table read once at construction would silently
+	 * stop resolving — and stop firing credential-change events — for anything
+	 * added afterwards.
+	 */
+	providerMap: () => ProviderMap;
 	/** CredentialConfig factory (the host injects its catalog-backed adapter). */
 	credentialConfigFactory: () => CredentialConfig;
 }
@@ -98,8 +106,6 @@ async function tryCreateSession(
 /** Build a Positron {@link Backend} over the injected provider map. */
 export function createPositronBackend(options: CreatePositronBackendOptions): PositronBackend {
 	const { logger, providerMap, credentialConfigFactory } = options;
-
-	const mappedProviderIds = Object.keys(providerMap).filter((id) => providerMap[id] !== undefined);
 
 	// Auth provider ids observed to time out waiting to register (i.e. not shipped
 	// in this host build). Cached for the process lifetime so the multi-second
@@ -152,7 +158,7 @@ export function createPositronBackend(options: CreatePositronBackendOptions): Po
 		providerId: string,
 		prompt: boolean,
 	): Promise<ProviderCredentials | null> {
-		const mapping = providerMap[providerId];
+		const mapping = providerMap()[providerId];
 		if (!mapping) return null;
 
 		const { authProviderId, scopes, fallbackScopes } = mapping;
@@ -171,21 +177,17 @@ export function createPositronBackend(options: CreatePositronBackendOptions): Po
 		}
 
 		if (!session) return null;
-		return shapeCredentials(mapping, session.accessToken, credentialConfigFactory(), logger);
+		return shapeCredentials(
+			providerId,
+			mapping,
+			session.accessToken,
+			credentialConfigFactory(),
+			logger,
+		);
 	}
 
 	// --- Credential change events -------------------------------------------
 	const emitter = new vscode.EventEmitter<string[]>();
-
-	// Reverse map: auth provider id -> logical provider ids.
-	const authToLogical = new Map<string, string[]>();
-	for (const logicalId of mappedProviderIds) {
-		const mapping = providerMap[logicalId];
-		if (!mapping) continue;
-		const list = authToLogical.get(mapping.authProviderId) ?? [];
-		list.push(logicalId);
-		authToLogical.set(mapping.authProviderId, list);
-	}
 
 	// The emitter fires ONLY on vscode auth session changes (login/logout).
 	//
@@ -201,8 +203,13 @@ export function createPositronBackend(options: CreatePositronBackendOptions): Po
 		// A session change means the provider is registered now: drop any stale
 		// "unregistered" verdict so silent lookups resume against it.
 		unregisteredAuthProviders.delete(e.provider.id);
-		const logicalIds = authToLogical.get(e.provider.id);
-		if (logicalIds) emitter.fire(logicalIds);
+		// Reverse lookup per event rather than an index built at construction, so a
+		// custom entry added after this backend was created still notifies.
+		const current = providerMap();
+		const logicalIds = Object.keys(current).filter(
+			(id) => current[id]?.authProviderId === e.provider.id,
+		);
+		if (logicalIds.length > 0) emitter.fire(logicalIds);
 	});
 
 	function onDidChangeCredentials(callback: (providerIds: string[]) => void): Disposable {
