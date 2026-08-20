@@ -317,6 +317,31 @@ describe("createPositronBackend", () => {
 		expect(mockGetSession).toHaveBeenCalledTimes(2);
 	});
 
+	it("does not cache the verdict when the provider registers mid-lookup", async () => {
+		// The registration timeout is several seconds long, so the provider can
+		// register while a lookup is still waiting on it. The session change lands
+		// first and the rejection after, so caching on rejection would leave the
+		// provider permanently unresolvable with no further event to recover it.
+		let rejectFirst!: (err: Error) => void;
+		mockGetSession.mockReturnValueOnce(
+			new Promise((_resolve, reject) => {
+				rejectFirst = reject;
+			}),
+		);
+		const backend = makeBackend();
+		const firstLookup = backend.getCredentials("databricks");
+
+		sessionChangeHook.callback?.({ provider: { id: "databricks" } });
+		rejectFirst(NOT_REGISTERED);
+		expect(await firstLookup).toBeNull();
+
+		mockGetSession.mockResolvedValue(makeSession("databricks-bearer-token"));
+		expect(await backend.getCredentials("databricks")).toMatchObject({
+			apiKey: "databricks-bearer-token",
+		});
+		expect(mockGetSession).toHaveBeenCalledTimes(2);
+	});
+
 	it("logs the registration timeout at trace, not debug", async () => {
 		mockGetSession.mockRejectedValue(NOT_REGISTERED);
 		const backend = makeBackend();

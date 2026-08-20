@@ -126,6 +126,18 @@ export function createPositronBackend(options: CreatePositronBackendOptions): Po
 	// throws "No credentials available"). Correctness over shaving a one-time wait.
 	const unregisteredAuthProviders = new Set<string>();
 
+	// Per-auth-provider count of session changes seen, i.e. of "it registered"
+	// signals. A lookup records the count it started under and only caches its
+	// verdict if the count still matches, because the registration timeout is
+	// several seconds long and the provider can register inside that window: the
+	// event's `delete` would land first and the stale `add` after it, leaving the
+	// provider permanently unresolvable with no further event to recover it. That
+	// is the ordering a user hits when a `providers.custom` entry is added or
+	// first loaded at the same time as its auth provider registers.
+	const registrationSignals = new Map<string, number>();
+	const signalsFor = (authProviderId: string): number =>
+		registrationSignals.get(authProviderId) ?? 0;
+
 	async function trySilentSession(
 		authProviderId: string,
 		scopes: string[],
@@ -134,20 +146,25 @@ export function createPositronBackend(options: CreatePositronBackendOptions): Po
 		// for the full registration timeout again — skip the call entirely.
 		if (unregisteredAuthProviders.has(authProviderId)) return undefined;
 
+		const signalsAtStart = signalsFor(authProviderId);
 		try {
 			const session = await vscode.authentication.getSession(authProviderId, scopes, {
 				silent: true,
 			});
 			return session ?? undefined;
 		} catch (err) {
-			if (isProviderNotRegisteredError(err, authProviderId)) {
+			if (!isProviderNotRegisteredError(err, authProviderId)) {
+				logger.debug(
+					`[ai-credentials/positron] Auth session unavailable for ${authProviderId}: ${err}`,
+				);
+			} else if (signalsFor(authProviderId) !== signalsAtStart) {
+				logger.trace(
+					`[ai-credentials/positron] Auth provider ${authProviderId} registered while this lookup was in flight; not caching the verdict`,
+				);
+			} else {
 				unregisteredAuthProviders.add(authProviderId);
 				logger.trace(
 					`[ai-credentials/positron] Auth provider ${authProviderId} is not registered; skipping future silent lookups`,
-				);
-			} else {
-				logger.debug(
-					`[ai-credentials/positron] Auth session unavailable for ${authProviderId}: ${err}`,
 				);
 			}
 			return undefined;
@@ -201,7 +218,10 @@ export function createPositronBackend(options: CreatePositronBackendOptions): Po
 	// before the debounced rebuild lands.
 	const sessionSub = vscode.authentication.onDidChangeSessions((e) => {
 		// A session change means the provider is registered now: drop any stale
-		// "unregistered" verdict so silent lookups resume against it.
+		// "unregistered" verdict so silent lookups resume against it, and count the
+		// signal so a lookup still waiting on the registration timeout can't
+		// re-install the verdict when it finally rejects.
+		registrationSignals.set(e.provider.id, signalsFor(e.provider.id) + 1);
 		unregisteredAuthProviders.delete(e.provider.id);
 		// Reverse lookup per event rather than an index built at construction, so a
 		// custom entry added after this backend was created still notifies.
