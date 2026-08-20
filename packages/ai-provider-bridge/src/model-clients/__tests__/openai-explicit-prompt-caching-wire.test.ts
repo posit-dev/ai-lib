@@ -83,8 +83,10 @@ function markedContinuationMessages(): ModelMessage[] {
 
 /**
  * The exact message shape `prepareClassifierRequest` produces for an eligible
- * OpenAI-route classifier: marked system message, then a two-part user message
- * with the breakpoint on part 1 (stable prefix) only.
+ * OpenAI-route classifier mid-turn: marked system message, then a block-split
+ * user message — unmarked header, two transcript blocks carrying the read
+ * anchor (previous request's write position) and the write anchor (transcript
+ * end), and the unmarked evaluation section.
  */
 function classifierShapedMessages(): ModelMessage[] {
 	return [
@@ -98,12 +100,21 @@ function classifierShapedMessages(): ModelMessage[] {
 			content: [
 				{
 					type: "text",
-					text: "<workspace>\n(none)\n</workspace>\n\n--- Conversation ---\n(empty)",
+					text: "<workspace>\n(none)\n</workspace>\n\n--- Conversation ---\n",
+				},
+				{
+					type: "text",
+					text: "<user_message>Refactor the parser</user_message>",
 					providerOptions: breakpointProviderOptions,
 				},
 				{
 					type: "text",
-					text: '--- Tool call to evaluate ---\nbash({"command":"ls"})\n\nShould this tool call be allowed? Respond with JSON only.',
+					text: '\n<tool_call>bash({"command":"ls"})</tool_call>',
+					providerOptions: breakpointProviderOptions,
+				},
+				{
+					type: "text",
+					text: '--- Tool call to evaluate ---\nedit({"file_path":"src/a.ts"})\n\nShould this tool call be allowed? Respond with JSON only.',
 				},
 			],
 		},
@@ -234,7 +245,7 @@ describe("OpenAI explicit prompt caching wire requests", () => {
 		);
 	});
 
-	it("serializes the classifier two-part user message with the breakpoint after part 1 (Responses)", async () => {
+	it("serializes the classifier block-split user message with breakpoints on the marked transcript blocks (Responses)", async () => {
 		const requestBody = await captureRequest({
 			apiMode: "responses",
 			usesExplicitPromptCaching: true,
@@ -245,17 +256,19 @@ describe("OpenAI explicit prompt caching wire requests", () => {
 
 		expect(breakpointPaths(requestBody)).toEqual([
 			"input[0].content[0].prompt_cache_breakpoint",
-			"input[1].content[0].prompt_cache_breakpoint",
+			"input[1].content[1].prompt_cache_breakpoint",
+			"input[1].content[2].prompt_cache_breakpoint",
 		]);
-		// Part 2 (the per-call evaluation section) survives unmarked.
+		// The per-call evaluation section survives unmarked.
 		const userContent = (requestBody.input as Array<{ content: Array<Record<string, unknown>> }>)[1]
 			.content;
-		expect(userContent).toHaveLength(2);
-		expect(userContent[1]).not.toHaveProperty("prompt_cache_breakpoint");
-		expect(userContent[1].text).toContain("--- Tool call to evaluate ---");
+		expect(userContent).toHaveLength(4);
+		expect(userContent[0]).not.toHaveProperty("prompt_cache_breakpoint");
+		expect(userContent[3]).not.toHaveProperty("prompt_cache_breakpoint");
+		expect(userContent[3].text).toContain("--- Tool call to evaluate ---");
 	});
 
-	it("serializes the classifier two-part user message with the breakpoint after part 1 (Chat)", async () => {
+	it("serializes the classifier block-split user message with breakpoints on the marked transcript blocks (Chat)", async () => {
 		const requestBody = await captureRequest({
 			apiMode: "responses",
 			usesExplicitPromptCaching: true,
@@ -267,14 +280,16 @@ describe("OpenAI explicit prompt caching wire requests", () => {
 
 		expect(breakpointPaths(requestBody)).toEqual([
 			"messages[0].content[0].prompt_cache_breakpoint",
-			"messages[1].content[0].prompt_cache_breakpoint",
+			"messages[1].content[1].prompt_cache_breakpoint",
+			"messages[1].content[2].prompt_cache_breakpoint",
 		]);
 		const userContent = (
 			requestBody.messages as Array<{ content: Array<Record<string, unknown>> }>
 		)[1].content;
-		expect(userContent).toHaveLength(2);
-		expect(userContent[1]).not.toHaveProperty("prompt_cache_breakpoint");
-		expect(userContent[1].text).toContain("--- Tool call to evaluate ---");
+		expect(userContent).toHaveLength(4);
+		expect(userContent[0]).not.toHaveProperty("prompt_cache_breakpoint");
+		expect(userContent[3]).not.toHaveProperty("prompt_cache_breakpoint");
+		expect(userContent[3].text).toContain("--- Tool call to evaluate ---");
 	});
 
 	it("bounds an over-long subagent session ID to a stable 64-char cache key", async () => {

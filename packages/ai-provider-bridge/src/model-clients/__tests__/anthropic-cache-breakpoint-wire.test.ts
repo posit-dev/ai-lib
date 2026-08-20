@@ -3,10 +3,11 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * Wire regression for the auto-mode classifier's two-part user message on the
- * Anthropic-wire transports (direct Messages API and Bedrock InvokeModel):
- * the ephemeral breakpoint must serialize onto the system block and the first
- * user content block (the stable transcript prefix), and nowhere else. The
+ * Wire regression for the auto-mode classifier's block-split user message on
+ * the Anthropic-wire transports (direct Messages API and Bedrock InvokeModel):
+ * the ephemeral breakpoints must serialize onto the system block and the
+ * marked transcript blocks (the read anchor at the previous request's write
+ * position plus the write anchor at the transcript end), and nowhere else. The
  * unrelated marker namespaces core also places on the part (`bedrock`,
  * `openai`) must not leak onto the Anthropic wire.
  */
@@ -41,8 +42,10 @@ const classifierProviderOptions = {
 
 /**
  * The exact message shape `prepareClassifierRequest` produces for an
- * Anthropic-route classifier: marked system message, then a two-part user
- * message with the breakpoint on part 1 (stable prefix) only.
+ * Anthropic-route classifier mid-turn: marked system message, then a
+ * block-split user message — unmarked header, two transcript blocks carrying
+ * the read anchor (previous request's write position) and the write anchor
+ * (transcript end), and the unmarked evaluation section.
  */
 function classifierShapedMessages(): ModelMessage[] {
 	return [
@@ -56,12 +59,21 @@ function classifierShapedMessages(): ModelMessage[] {
 			content: [
 				{
 					type: "text",
-					text: "<workspace>\n(none)\n</workspace>\n\n--- Conversation ---\n(empty)",
+					text: "<workspace>\n(none)\n</workspace>\n\n--- Conversation ---\n",
+				},
+				{
+					type: "text",
+					text: "<user_message>Refactor the parser</user_message>",
 					providerOptions: classifierProviderOptions,
 				},
 				{
 					type: "text",
-					text: '--- Tool call to evaluate ---\nbash({"command":"ls"})\n\nShould this tool call be allowed? Respond with JSON only.',
+					text: '\n<tool_call>bash({"command":"ls"})</tool_call>',
+					providerOptions: classifierProviderOptions,
+				},
+				{
+					type: "text",
+					text: '--- Tool call to evaluate ---\nedit({"file_path":"src/a.ts"})\n\nShould this tool call be allowed? Respond with JSON only.',
 				},
 			],
 		},
@@ -124,18 +136,22 @@ async function consumeIgnoringStreamFailure(
 
 /** Assert the classifier breakpoint contract on an Anthropic-wire body. */
 function expectClassifierBreakpoints(body: Record<string, unknown>): void {
-	// Breakpoints on the system block and user content part 1 only.
+	// Breakpoints on the system block and the two marked transcript blocks
+	// (read anchor + write anchor) only — 3 of Anthropic's 4-breakpoint budget.
 	expect(cacheControlPaths(body)).toEqual([
 		"system[0].cache_control",
-		"messages[0].content[0].cache_control",
+		"messages[0].content[1].cache_control",
+		"messages[0].content[2].cache_control",
 	]);
 
 	const messages = body.messages as Array<{ content: Array<Record<string, unknown>> }>;
-	expect(messages[0].content).toHaveLength(2);
-	expect(messages[0].content[0].cache_control).toEqual({ type: "ephemeral" });
-	expect(messages[0].content[1]).not.toHaveProperty("cache_control");
+	expect(messages[0].content).toHaveLength(4);
+	expect(messages[0].content[0]).not.toHaveProperty("cache_control");
+	expect(messages[0].content[1].cache_control).toEqual({ type: "ephemeral" });
+	expect(messages[0].content[2].cache_control).toEqual({ type: "ephemeral" });
+	expect(messages[0].content[3]).not.toHaveProperty("cache_control");
 	// The evaluation section survives intact after the marked prefix.
-	expect(messages[0].content[1].text).toContain("--- Tool call to evaluate ---");
+	expect(messages[0].content[3].text).toContain("--- Tool call to evaluate ---");
 
 	// Unrelated marker namespaces must not leak onto the Anthropic wire.
 	const serialized = JSON.stringify(body);
@@ -151,7 +167,7 @@ afterEach(() => {
 describe("AnthropicClient classifier cache breakpoints", () => {
 	const client = new AnthropicClient({ apiKey: "sk-ant-test" });
 
-	it("serializes the breakpoint after user part 1, leaving part 2 unmarked", async () => {
+	it("serializes the breakpoints on the marked transcript blocks, leaving header and evaluation unmarked", async () => {
 		const capture = stubFetchCapture();
 
 		await consumeIgnoringStreamFailure(
@@ -175,7 +191,7 @@ describe("BedrockClient Anthropic-route classifier cache breakpoints", () => {
 		secretAccessKey: "secret",
 	});
 
-	it("serializes the breakpoint after user part 1 on the InvokeModel transport", async () => {
+	it("serializes the breakpoints on the marked transcript blocks on the InvokeModel transport", async () => {
 		const capture = stubFetchCapture();
 
 		await consumeIgnoringStreamFailure(
