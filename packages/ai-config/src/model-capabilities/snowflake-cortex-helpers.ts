@@ -6,21 +6,15 @@ import { getAnthropicModelCapabilities } from "./anthropic-helpers.js";
 import { getOpenAIModelCapabilities } from "./openai-helpers.js";
 
 /**
- * The Cortex REST API rate-limit table caps every catalog model with a
- * published row at this many output tokens, regardless of the model's upstream
- * limit, and the docs' own examples send `max_tokens: 16384`. The table omits
- * the preview `claude-opus-5` and `openai-gpt-5.4` rows, so we conservatively
- * apply the same endpoint cap to them until Snowflake publishes a distinct
- * limit. Exceeding a model's cap is a documented
+ * Output-token fallback for an id the upstream Anthropic/OpenAI tables know
+ * nothing about. Deliberately conservative, matching the Cortex REST API's
+ * documented per-account default output limit: an under-reported cap wastes
+ * output budget, an over-reported one produces
  * `400 max tokens of <count> exceeded`.
- *
- * Note this is a property of the REST endpoint, not of the models: the same
- * models reached through Cortex's AI_COMPLETE SQL function have much higher
- * output caps (up to 128k). Do not source limits from the AISQL docs page.
  *
  * https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-rest-api#rate-limits
  */
-const REST_MAX_OUTPUT_TOKENS = 16_384;
+const FALLBACK_MAX_OUTPUT_TOKENS = 16_384;
 
 /**
  * The models Posit Assistant offers on Snowflake Cortex.
@@ -131,8 +125,8 @@ export function getSnowflakeCortexModelCapabilities(
 			family: claude.family,
 			thinkingEffortLevels: claude.thinkingEffortLevels,
 			maxContextLength,
-			maxInputTokens: maxContextLength - REST_MAX_OUTPUT_TOKENS,
-			maxOutputTokens: REST_MAX_OUTPUT_TOKENS,
+			maxInputTokens: maxContextLength - claude.maxOutputTokens,
+			maxOutputTokens: claude.maxOutputTokens,
 			supportsTools: true,
 			supportsImages: true,
 			supportsToolResultImages: true,
@@ -147,13 +141,14 @@ export function getSnowflakeCortexModelCapabilities(
 		CATALOG_BY_ID.get(modelId)?.maxContextLength ?? OPENAI_FALLBACK_CONTEXT_LENGTH;
 	const supportsImages =
 		openai?.supportedInputMediaTypes?.some((mediaType) => mediaType.startsWith("image/")) ?? false;
+	const maxOutputTokens = openai?.maxOutputTokens ?? FALLBACK_MAX_OUTPUT_TOKENS;
 	return {
 		protocol: "openai-chat",
 		family: openai?.family,
 		thinkingEffortLevels: openai?.thinkingEffortLevels,
 		maxContextLength,
-		maxInputTokens: maxContextLength - REST_MAX_OUTPUT_TOKENS,
-		maxOutputTokens: REST_MAX_OUTPUT_TOKENS,
+		maxInputTokens: maxContextLength - maxOutputTokens,
+		maxOutputTokens,
 		supportsTools: true,
 		supportsImages,
 		supportsToolResultImages: false,
