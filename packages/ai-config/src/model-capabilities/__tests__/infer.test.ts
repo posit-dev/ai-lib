@@ -169,8 +169,10 @@ describe("inferModelCapabilities", () => {
 		const claude = inferModelCapabilities("snowflake-cortex", "claude-opus-9");
 		expect(claude.protocol).toBe("anthropic-messages");
 		expect(claude.maxContextLength).toBe(200_000);
-		expect(claude.maxOutputTokens).toBe(64_000); // Anthropic table default
-		expect(claude.maxInputTokens).toBe(200_000 - 64_000);
+		// No explicit Anthropic rule matches, so the helper's optimistic 64k
+		// default is rejected in favor of the conservative fallback.
+		expect(claude.maxOutputTokens).toBe(16_384);
+		expect(claude.maxInputTokens).toBe(200_000 - 16_384);
 		expect(claude.supportsToolResultImages).toBe(true);
 
 		const other = inferModelCapabilities("snowflake-cortex", "openai-gpt-9");

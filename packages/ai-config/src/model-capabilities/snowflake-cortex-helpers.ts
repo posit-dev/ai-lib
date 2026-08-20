@@ -100,8 +100,9 @@ export interface SnowflakeCortexModelCapabilities {
  * static catalog from `SNOWFLAKE_CORTEX_CATALOG` and reads capabilities from
  * here, and inference for user-configured Cortex models reads the same, so a
  * catalog entry and a `models.custom` override of the same id cannot disagree.
- * Windows and feature flags describe the REST endpoint; only `family` and
- * thinking-effort levels are borrowed from the upstream Anthropic/OpenAI tables.
+ * Windows and feature flags describe the REST endpoint; `family`,
+ * thinking-effort levels, and (for ids an explicit upstream rule recognizes)
+ * output limits are borrowed from the upstream Anthropic/OpenAI tables.
  *
  * Claude models are routed through the Anthropic Messages API rather than Chat
  * Completions (Cortex offers both) for thinking, tool use, and images in tool
@@ -120,13 +121,21 @@ export function getSnowflakeCortexModelCapabilities(
 	if (claude) {
 		const maxContextLength =
 			CATALOG_BY_ID.get(modelId)?.maxContextLength ?? CLAUDE_FALLBACK_CONTEXT_LENGTH;
+		// Adopt the upstream output limit only when an explicit capability rule
+		// matched (signalled by `family`). The Anthropic helper answers every
+		// Claude-shaped id, supplying its own optimistic 64k default when no
+		// rule matches, so unrecognized ids take the conservative fallback.
+		const maxOutputTokens =
+			claude.family !== undefined && claude.maxOutputTokens !== undefined
+				? claude.maxOutputTokens
+				: FALLBACK_MAX_OUTPUT_TOKENS;
 		return {
 			protocol: "anthropic-messages",
 			family: claude.family,
 			thinkingEffortLevels: claude.thinkingEffortLevels,
 			maxContextLength,
-			maxInputTokens: maxContextLength - claude.maxOutputTokens,
-			maxOutputTokens: claude.maxOutputTokens,
+			maxInputTokens: maxContextLength - maxOutputTokens,
+			maxOutputTokens,
 			supportsTools: true,
 			supportsImages: true,
 			supportsToolResultImages: true,
