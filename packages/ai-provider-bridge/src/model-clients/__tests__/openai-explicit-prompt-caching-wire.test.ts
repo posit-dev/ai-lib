@@ -17,6 +17,17 @@ const breakpointProviderOptions = {
 	openai: { promptCacheBreakpoint: { mode: "explicit" } },
 };
 
+/**
+ * The full marker shape core's `setCachePointOnPart` places on an eligible
+ * OpenAI route: the Anthropic and Bedrock namespaces ride along and must be
+ * stripped by the client, never serialized onto the OpenAI wire.
+ */
+const classifierProviderOptions = {
+	anthropic: { cacheControl: { type: "ephemeral" } },
+	bedrock: { cachePoint: { type: "default" } },
+	openai: { promptCacheBreakpoint: { mode: "explicit" } },
+};
+
 function breakpointPaths(value: unknown, path = ""): string[] {
 	if (Array.isArray(value)) {
 		return value.flatMap((item, index) => breakpointPaths(item, `${path}[${index}]`));
@@ -93,7 +104,7 @@ function classifierShapedMessages(): ModelMessage[] {
 		{
 			role: "system",
 			content: "You are a classifier.",
-			providerOptions: breakpointProviderOptions,
+			providerOptions: classifierProviderOptions,
 		},
 		{
 			role: "user",
@@ -105,12 +116,12 @@ function classifierShapedMessages(): ModelMessage[] {
 				{
 					type: "text",
 					text: "<user_message>Refactor the parser</user_message>",
-					providerOptions: breakpointProviderOptions,
+					providerOptions: classifierProviderOptions,
 				},
 				{
 					type: "text",
 					text: '\n<tool_call>bash({"command":"ls"})</tool_call>',
-					providerOptions: breakpointProviderOptions,
+					providerOptions: classifierProviderOptions,
 				},
 				{
 					type: "text",
@@ -119,6 +130,13 @@ function classifierShapedMessages(): ModelMessage[] {
 			],
 		},
 	];
+}
+
+/** Assert the foreign marker namespaces did not leak onto the OpenAI wire. */
+function expectNoForeignMarkerLeakage(requestBody: Record<string, unknown>): void {
+	const serialized = JSON.stringify(requestBody);
+	expect(serialized).not.toContain("cache_control");
+	expect(serialized).not.toContain("cachePoint");
 }
 
 async function captureRequest(options: {
@@ -266,6 +284,7 @@ describe("OpenAI explicit prompt caching wire requests", () => {
 		expect(userContent[0]).not.toHaveProperty("prompt_cache_breakpoint");
 		expect(userContent[3]).not.toHaveProperty("prompt_cache_breakpoint");
 		expect(userContent[3].text).toContain("--- Tool call to evaluate ---");
+		expectNoForeignMarkerLeakage(requestBody);
 	});
 
 	it("serializes the classifier block-split user message with breakpoints on the marked transcript blocks (Chat)", async () => {
@@ -290,6 +309,7 @@ describe("OpenAI explicit prompt caching wire requests", () => {
 		expect(userContent[0]).not.toHaveProperty("prompt_cache_breakpoint");
 		expect(userContent[3]).not.toHaveProperty("prompt_cache_breakpoint");
 		expect(userContent[3].text).toContain("--- Tool call to evaluate ---");
+		expectNoForeignMarkerLeakage(requestBody);
 	});
 
 	it("bounds an over-long subagent session ID to a stable 64-char cache key", async () => {
