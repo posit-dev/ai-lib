@@ -66,6 +66,26 @@ describe("shapeCredentials — Snowflake host-over-account URL", () => {
 			baseUrl: undefined,
 		});
 	});
+
+	// Standalone's Add-custom-provider form writes a flat `baseUrl` in custom-URL
+	// mode and structured host/account otherwise, into the same providers.json,
+	// so both shapes have to resolve. Structured stays preferred either way.
+	it("falls back to a flat baseUrl when there are no structured fields", () => {
+		const cfg = config({ getBaseUrl: () => "https://proxy.example.com/cortex/v1" });
+		expect(shapeCredentials("snowflake-cortex", SNOWFLAKE, "tok", cfg)).toMatchObject({
+			baseUrl: "https://proxy.example.com/cortex/v1",
+		});
+	});
+
+	it("prefers structured fields over a flat baseUrl", () => {
+		const cfg = config({
+			getBaseUrl: () => "https://stale.example.com/cortex/v1",
+			getSnowflake: () => ({ host: "h.snowflakecomputing.com" }),
+		});
+		expect(shapeCredentials("snowflake-cortex", SNOWFLAKE, "tok", cfg)).toMatchObject({
+			baseUrl: "https://h.snowflakecomputing.com/api/v2/cortex/v1",
+		});
+	});
 });
 
 // Parity coverage ported from the removed ai-provider-bridge positron auth suite.
@@ -222,6 +242,16 @@ describe("shapeCredentials — providers.custom entries", () => {
 		});
 		expect(shapeCredentials("my-snow", CUSTOM_SNOWFLAKE, "tok", cfg)).toMatchObject({
 			baseUrl: "https://mine.snowflakecomputing.com/api/v2/cortex/v1",
+		});
+	});
+
+	it("resolves a custom entry's flat baseUrl when it has no structured fields", () => {
+		const cfg = config({
+			getBaseUrl: ({ providerId }) =>
+				providerId === "my-snow" ? "https://mine.example.com/api/v2/cortex/v1" : undefined,
+		});
+		expect(shapeCredentials("my-snow", CUSTOM_SNOWFLAKE, "tok", cfg)).toMatchObject({
+			baseUrl: "https://mine.example.com/api/v2/cortex/v1",
 		});
 	});
 
