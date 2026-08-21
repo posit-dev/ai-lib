@@ -13,7 +13,6 @@ import type {
 	BuiltinProviderBlock,
 	DefaultBlock,
 	ProvidersMapFragment,
-	PlatformBaseline,
 	ProvidersMap,
 } from "./types.js";
 
@@ -35,18 +34,15 @@ export type EnablementLayer = ProvidersMap | ProvidersMapFragment | undefined;
  * 2. user      (providers.json)
  * 3. host      (Positron authentication.*, transitional)
  * 4. DEFAULT   (Workbench admin defaults)
- * then the platform baseline:
- * 5. baseline per-provider override
- * 6. baseline `defaultEnabled`
+ *
+ * When no layer defines an `enabled` value the provider is enabled: every
+ * platform supports every provider, so restrictions come from config layers
+ * (user or admin), never from a platform baseline.
  *
  * Non-user layers use the relaxed fragment map where custom entry `type` is
  * optional. Only `enabled` is read here.
  */
-export function resolveEnabled(
-	providerId: string,
-	layers: readonly EnablementLayer[],
-	baseline: PlatformBaseline,
-): boolean {
+export function resolveEnabled(providerId: string, layers: readonly EnablementLayer[]): boolean {
 	for (const layer of layers) {
 		// Per-provider block wins over the layer's default block.
 		const block = getProviderBlock(layer, providerId);
@@ -59,14 +55,9 @@ export function resolveEnabled(
 		}
 	}
 
-	// Platform baseline per-provider override.
-	const baselineOverride = baseline.providerOverrides?.[providerId];
-	if (baselineOverride?.enabled !== undefined) {
-		return baselineOverride.enabled;
-	}
-
-	// Platform baseline default.
-	return baseline.defaultEnabled;
+	// No config layer decides: enabled. All platforms support all providers;
+	// restrictions belong to config layers, not the host.
+	return true;
 }
 
 /**

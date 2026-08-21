@@ -10,10 +10,8 @@ import {
 	resolveProviderCatalog,
 	resolveProviderCatalogReport,
 } from "../resolve-catalog.js";
-import type { PlatformBaseline, ResolvedProvider } from "../types.js";
+import type { ResolvedProvider } from "../types.js";
 import { BUILTIN_PROVIDER_IDS } from "../vocabulary.js";
-
-const STANDALONE: PlatformBaseline = { defaultEnabled: true };
 
 function find(catalog: readonly ResolvedProvider[], id: string): ResolvedProvider | undefined {
 	return catalog.find((p) => (p.id as string) === id);
@@ -35,7 +33,6 @@ describe("resolveProviderCatalog — precedence", () => {
 				source("enforced", { providers: { anthropic: { enabled: false } } }),
 				source("user", { providers: { anthropic: { enabled: true } } }),
 			],
-			baseline: STANDALONE,
 			envVars: {},
 		});
 		expect(find(catalog, "anthropic")?.enabled).toBe(false);
@@ -48,7 +45,6 @@ describe("resolveProviderCatalog — precedence", () => {
 				source("user", { providers: { anthropic: { enabled: false } } }),
 				source("legacy-positron", { providers: { anthropic: { enabled: true } } }),
 			],
-			baseline: STANDALONE,
 			envVars: {},
 		});
 		expect(find(c1, "anthropic")?.enabled).toBe(false);
@@ -59,7 +55,6 @@ describe("resolveProviderCatalog — precedence", () => {
 				source("legacy-positron", { providers: { openai: { enabled: false } } }),
 				source("default", { providers: { openai: { enabled: true } } }),
 			],
-			baseline: STANDALONE,
 			envVars: {},
 		});
 		expect(find(c2, "openai")?.enabled).toBe(false);
@@ -68,7 +63,6 @@ describe("resolveProviderCatalog — precedence", () => {
 	it("default layer applies when user/legacy-positron are silent", () => {
 		const catalog = resolveProviderCatalog({
 			sources: [source("default", { providers: { default: { enabled: false } } })],
-			baseline: STANDALONE,
 			envVars: {},
 		});
 		expect(find(catalog, "anthropic")?.enabled).toBe(false);
@@ -87,7 +81,6 @@ describe("resolveProviderCatalog — sealed enforced overlay", () => {
 					providers: { anthropic: { baseUrl: "https://default.example.com" } },
 				}),
 			],
-			baseline: STANDALONE,
 			envVars: {},
 		});
 		expect(find(catalog, "anthropic")?.connection.baseUrl).toBe("https://enforced.example.com");
@@ -103,7 +96,6 @@ describe("resolveProviderCatalog — sealed enforced overlay", () => {
 					providers: { anthropic: { customHeaders: { "x-team": "user", "x-extra": "ok" } } },
 				}),
 			],
-			baseline: STANDALONE,
 			envVars: {},
 		});
 		expect(find(catalog, "anthropic")?.connection.customHeaders).toEqual({
@@ -121,7 +113,6 @@ describe("resolveProviderCatalog — sealed enforced overlay", () => {
 					providers: { anthropic: { models: { allow: ["a", "b", "c"] } } },
 				}),
 			],
-			baseline: STANDALONE,
 			envVars: {},
 		});
 		expect(find(catalog, "anthropic")?.models?.allow).toEqual(["only-this"]);
@@ -138,7 +129,6 @@ describe("resolveProviderCatalog — invalid merge tolerance", () => {
 				source("enforced", { providers: { custom: { "ghost-gw": { enabled: false } } } }),
 				source("user", { providers: { anthropic: { enabled: true } } }),
 			],
-			baseline: STANDALONE,
 			envVars: {},
 			logger,
 		});
@@ -161,7 +151,6 @@ describe("resolveProviderCatalog — invalid merge tolerance", () => {
 				// enforced; it must survive the enforced source being dropped.
 				source("legacy-positron", { providers: { anthropic: { enabled: false } } }),
 			],
-			baseline: STANDALONE,
 			envVars: {},
 			logger,
 		});
@@ -185,7 +174,6 @@ describe("resolveProviderCatalog — tightened-schema recovery", () => {
 				}),
 				source("user", { providers: { openai: { enabled: true } } }),
 			],
-			baseline: STANDALONE,
 			envVars: {},
 			logger,
 		});
@@ -209,7 +197,6 @@ describe("resolveProviderCatalog — tightened-schema recovery", () => {
 					providers: { bedrock: { snowflake: { account: "MYORG" } } },
 				}),
 			],
-			baseline: STANDALONE,
 			envVars: {},
 			logger,
 		});
@@ -235,7 +222,6 @@ describe("resolveProviderCatalog — cross-layer custom completion", () => {
 				// user completes the entry's `type` in the full stack.
 				source("default", { providers: { custom: { gateway: { enabled: false } } } }),
 			],
-			baseline: STANDALONE,
 			envVars: {},
 			logger,
 		});
@@ -261,7 +247,6 @@ describe("resolveProviderCatalog — cross-layer custom completion", () => {
 					providers: { custom: { gateway: { type: "openai-compatible" } } },
 				}),
 			],
-			baseline: STANDALONE,
 			envVars: {},
 			logger,
 		});
@@ -288,7 +273,6 @@ describe("resolveProviderCatalog — same-kind ordering", () => {
 					providers: { anthropic: { enabled: false, baseUrl: "https://second.example.com" } },
 				}),
 			],
-			baseline: STANDALONE,
 			envVars: {},
 		});
 
@@ -313,7 +297,6 @@ describe("resolveProviderCatalog — legacy-positron layer merge semantics", () 
 					providers: { anthropic: { customHeaders: { "x-team": "host", "x-host-only": "h" } } },
 				}),
 			],
-			baseline: STANDALONE,
 			envVars: {},
 		});
 		expect(find(catalog, "anthropic")?.connection.customHeaders).toEqual({
@@ -336,7 +319,6 @@ describe("resolveProviderCatalog — legacy-positron layer merge semantics", () 
 					providers: { "snowflake-cortex": { snowflake: { host: "host.snowflakecomputing.com" } } },
 				}),
 			],
-			baseline: STANDALONE,
 			envVars: {},
 		});
 		expect(find(catalog, "snowflake-cortex")?.connection.snowflake).toEqual({
@@ -357,7 +339,6 @@ describe("resolveProviderCatalog — legacy-positron layer merge semantics", () 
 					providers: { "snowflake-cortex": { snowflake: { home: "/managed/snowflake" } } },
 				}),
 			],
-			baseline: STANDALONE,
 			envVars: {},
 		});
 		// Typed access to `.home` is the point: it fails check-types until
@@ -377,7 +358,6 @@ describe("resolveProviderCatalog — legacy-positron layer merge semantics", () 
 					providers: { "snowflake-cortex": { snowflake: { connectionName: "staging" } } },
 				}),
 			],
-			baseline: STANDALONE,
 			envVars: {},
 		});
 		expect(
@@ -393,7 +373,6 @@ describe("resolveProviderCatalog — legacy-positron layer merge semantics", () 
 					providers: { "snowflake-cortex": { snowflake: { connectionName: "prod" } } },
 				}),
 			],
-			baseline: STANDALONE,
 			envVars: {},
 		});
 		expect(
@@ -408,7 +387,6 @@ describe("resolveProviderCatalog — legacy-positron layer merge semantics", () 
 			sources: [
 				source("legacy-positron", { providers: { bedrock: { aws: { region: "eu-west-1" } } } }),
 			],
-			baseline: STANDALONE,
 			envVars: {},
 		});
 		expect(find(hostOnly, "bedrock")?.connection.aws?.region).toBe("eu-west-1");
@@ -418,7 +396,6 @@ describe("resolveProviderCatalog — legacy-positron layer merge semantics", () 
 			sources: [
 				source("legacy-positron", { providers: { bedrock: { aws: { region: "eu-west-1" } } } }),
 			],
-			baseline: STANDALONE,
 			envVars: { AWS_REGION: "ap-south-1" },
 		});
 		expect(find(withEnv, "bedrock")?.connection.aws?.region).toBe("ap-south-1");
@@ -428,7 +405,6 @@ describe("resolveProviderCatalog — legacy-positron layer merge semantics", () 
 		// so it doesn't outrank the user's stored credential region.
 		const defaultOnly = resolveProviderCatalog({
 			sources: [source("user", { providers: {} })],
-			baseline: STANDALONE,
 			envVars: {},
 		});
 		expect(find(defaultOnly, "bedrock")?.connection.aws?.region).toBeUndefined();
@@ -437,7 +413,6 @@ describe("resolveProviderCatalog — legacy-positron layer merge semantics", () 
 	it("preserves whether the effective AWS region is ambient-only or deliberately configured", () => {
 		const ambientOnly = resolveProviderCatalog({
 			sources: [],
-			baseline: STANDALONE,
 			envVars: { AWS_REGION: "us-west-2" },
 		});
 		expect(find(ambientOnly, "bedrock")?.connectionProvenance.aws?.region).toBe("environment");
@@ -448,7 +423,6 @@ describe("resolveProviderCatalog — legacy-positron layer merge semantics", () 
 					providers: { bedrock: { aws: { region: "us-west-2" } } },
 				}),
 			],
-			baseline: STANDALONE,
 			envVars: { AWS_REGION: "us-west-2" },
 		});
 		expect(find(enforcedEqualToEnv, "bedrock")?.connectionProvenance.aws?.region).toBe(
@@ -461,7 +435,6 @@ describe("resolveProviderCatalog — legacy-positron layer merge semantics", () 
 					providers: { bedrock: { aws: { region: "us-west-2" } } },
 				}),
 			],
-			baseline: STANDALONE,
 			envVars: { AWS_REGION: "us-west-2" },
 		});
 		expect(find(userEqualToEnv, "bedrock")?.connectionProvenance.aws?.region).toBe("configuration");
@@ -472,7 +445,6 @@ describe("resolveProviderCatalog — legacy-positron layer merge semantics", () 
 					providers: { bedrock: { aws: { region: "eu-west-1" } } },
 				}),
 			],
-			baseline: STANDALONE,
 			envVars: { AWS_REGION: "us-west-2" },
 		});
 		expect(find(envOverridesDifferentUserValue, "bedrock")?.connectionProvenance.aws?.region).toBe(
@@ -490,7 +462,6 @@ describe("resolveProviderCatalog — enforced beats connection env", () => {
 				}),
 				source("user", { providers: {} }),
 			],
-			baseline: STANDALONE,
 			envVars: { ANTHROPIC_BASE_URL: "https://env.example.com" },
 		});
 		expect(find(catalog, "anthropic")?.connection.baseUrl).toBe("https://enforced.example.com");
@@ -506,7 +477,6 @@ describe("resolveProviderCatalog — enforced beats connection env", () => {
 					providers: { anthropic: { baseUrl: "https://default.example.com" } },
 				}),
 			],
-			baseline: STANDALONE,
 			envVars: { ANTHROPIC_BASE_URL: "https://env.example.com" },
 		});
 		expect(find(catalog, "anthropic")?.connection.baseUrl).toBe("https://env.example.com");
@@ -520,7 +490,6 @@ describe("resolveProviderCatalog — enforced beats connection env", () => {
 				}),
 				source("user", { providers: {} }),
 			],
-			baseline: STANDALONE,
 			envVars: {
 				POSITAI_AUTH_HOST: "env.login.com",
 				POSITAI_CLIENT_ID: "env-client-id",
@@ -538,7 +507,6 @@ describe("resolveProviderCatalog — snowflake + legacy vertex env vars", () => 
 	it("folds SNOWFLAKE_* env vars into snowflake-cortex connection", () => {
 		const catalog = resolveProviderCatalog({
 			sources: [],
-			baseline: STANDALONE,
 			envVars: {
 				SNOWFLAKE_ACCOUNT: "acme-prod",
 				SNOWFLAKE_HOST: "acme-prod.privatelink.snowflakecomputing.com",
@@ -555,7 +523,6 @@ describe("resolveProviderCatalog — snowflake + legacy vertex env vars", () => 
 	it("folds DATABRICKS_HOST into databricks connection (not baseUrl)", () => {
 		const catalog = resolveProviderCatalog({
 			sources: [],
-			baseline: STANDALONE,
 			envVars: { DATABRICKS_HOST: "https://adb-123.4.azuredatabricks.net" },
 		});
 		expect(find(catalog, "databricks")?.connection.databricks).toEqual({
@@ -567,7 +534,6 @@ describe("resolveProviderCatalog — snowflake + legacy vertex env vars", () => 
 	it("maps GOOGLE_VERTEX_BASE_URL to google-vertex baseUrl", () => {
 		const catalog = resolveProviderCatalog({
 			sources: [],
-			baseline: STANDALONE,
 			envVars: { GOOGLE_VERTEX_BASE_URL: "https://vertex.example.com" },
 		});
 		expect(find(catalog, "google-vertex")?.connection.baseUrl).toBe("https://vertex.example.com");
@@ -576,7 +542,6 @@ describe("resolveProviderCatalog — snowflake + legacy vertex env vars", () => 
 	it("legacy GOOGLE_VERTEX_* names apply only when GOOGLE_CLOUD_* are unset", () => {
 		const legacyOnly = resolveProviderCatalog({
 			sources: [],
-			baseline: STANDALONE,
 			envVars: { GOOGLE_VERTEX_PROJECT: "legacy-proj", GOOGLE_VERTEX_LOCATION: "us-west1" },
 		});
 		expect(find(legacyOnly, "google-vertex")?.connection.googleCloud).toEqual({
@@ -586,7 +551,6 @@ describe("resolveProviderCatalog — snowflake + legacy vertex env vars", () => 
 
 		const primaryWins = resolveProviderCatalog({
 			sources: [],
-			baseline: STANDALONE,
 			envVars: {
 				GOOGLE_CLOUD_PROJECT: "primary-proj",
 				GOOGLE_VERTEX_PROJECT: "legacy-proj",
@@ -665,7 +629,6 @@ describe("recoverValidStack — choose dropped source", () => {
 				{ kind: "enforced", label: "TEST_ENFORCED", config: badCustom("ghost") },
 				source("user", { providers: { anthropic: { enabled: true } } }),
 			],
-			baseline: STANDALONE,
 			envVars: {},
 		});
 
@@ -679,7 +642,6 @@ describe("recoverValidStack — choose dropped source", () => {
 		expect(
 			resolveProviderCatalog({
 				sources: [source("user", {})],
-				baseline: STANDALONE,
 				envVars: {},
 			}),
 		).toBeInstanceOf(Array);
@@ -702,7 +664,6 @@ describe("resolveProviderCatalog — legacy-positron-enforced (legacy Positron e
 					providers: { anthropic: { baseUrl: "https://default.example.com" } },
 				}),
 			],
-			baseline: STANDALONE,
 			envVars: {},
 		});
 		expect(find(catalog, "anthropic")?.connection.baseUrl).toBe(
@@ -718,7 +679,6 @@ describe("resolveProviderCatalog — legacy-positron-enforced (legacy Positron e
 				}),
 				source("user", { providers: {} }),
 			],
-			baseline: STANDALONE,
 			envVars: { ANTHROPIC_BASE_URL: "https://env.example.com" },
 		});
 		expect(find(catalog, "anthropic")?.connection.baseUrl).toBe(
@@ -732,7 +692,6 @@ describe("resolveProviderCatalog — legacy-positron-enforced (legacy Positron e
 				source("legacy-positron-enforced", { providers: { anthropic: { enabled: false } } }),
 				source("user", { providers: { anthropic: { enabled: true } } }),
 			],
-			baseline: STANDALONE,
 			envVars: {},
 		});
 		expect(find(catalog, "anthropic")?.enabled).toBe(false);
@@ -766,7 +725,6 @@ describe("resolveProviderCatalog — legacy-positron-enforced (legacy Positron e
 					},
 				}),
 			],
-			baseline: STANDALONE,
 			envVars: {},
 		});
 		const models = find(catalog, "anthropic")?.models;
@@ -784,7 +742,6 @@ describe("resolveProviderCatalog — legacy-positron-enforced (legacy Positron e
 					providers: { anthropic: { baseUrl: "https://enforced.example.com" } },
 				}),
 			],
-			baseline: STANDALONE,
 			envVars: {},
 		});
 		expect(find(catalog, "anthropic")?.connection.baseUrl).toBe("https://enforced.example.com");
@@ -800,7 +757,6 @@ describe("resolveProviderCatalog — legacy-positron-enforced (legacy Positron e
 					providers: { anthropic: { customHeaders: { "x-team": "user" } } },
 				}),
 			],
-			baseline: STANDALONE,
 			envVars: {},
 		});
 		const connection = find(catalog, "anthropic")?.connection;
@@ -819,7 +775,6 @@ describe("resolveProviderCatalog — legacy-positron-enforced (legacy Positron e
 				}),
 				source("user", { providers: { anthropic: { enabled: true } } }),
 			],
-			baseline: STANDALONE,
 			envVars: {},
 			logger,
 		});

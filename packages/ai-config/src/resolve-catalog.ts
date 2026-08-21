@@ -27,7 +27,6 @@ import { providersConfigSchema } from "./schema.js";
 import type {
 	ProvidersConfigFragment,
 	LoggerLike,
-	PlatformBaseline,
 	ProvidersConfig,
 	ResolvedConnectionProvenance,
 	ResolvedProvider,
@@ -51,8 +50,6 @@ import type {
  * - `legacy-positron` — transitional legacy Positron settings
  *   (`authentication.*`, enablement, model overrides).
  * - `default` — Workbench admin defaults (`POSIT_AI_PROVIDERS_DEFAULT`).
- *
- * Below all sources sits the `PlatformBaseline` (passed separately).
  *
  * `legacy-positron-enforced` and `legacy-positron` intentionally sit on
  * opposite sides of `user`: they are the enforced and non-enforced slices of
@@ -134,9 +131,6 @@ export interface ResolveProviderCatalogOptions {
 	 */
 	readonly sources: readonly ProviderConfigSource[];
 
-	/** Platform baseline (e.g. standalone: all enabled, RStudio: positai only). */
-	readonly baseline: PlatformBaseline;
-
 	/**
 	 * Environment variables for non-secret connection fields. The resolver
 	 * converts these into an internal connection source ranked **below
@@ -164,8 +158,8 @@ export interface ProviderCatalogReport {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve an ordered stack of config sources + platform baseline into the
- * full resolved provider catalog.
+ * Resolve an ordered stack of config sources into the full resolved provider
+ * catalog.
  *
  * A straightforward pipeline: **sort by precedence → recover a valid stack →
  * build the catalog.** Precedence lives in one place:
@@ -195,7 +189,7 @@ export function resolveProviderCatalog(
 export function resolveProviderCatalogReport(
 	opts: ResolveProviderCatalogOptions,
 ): ProviderCatalogReport {
-	const { sources, baseline, envVars } = opts;
+	const { sources, envVars } = opts;
 
 	// Synthesize the private env source from envVars. Skipped when the
 	// fragment is empty so an inert source never enters the stack.
@@ -218,7 +212,7 @@ export function resolveProviderCatalogReport(
 		.map<EnablementLayer>((s) => s.config.providers);
 	const connectionProvenance = resolveConnectionProvenance(kept, config);
 	return {
-		catalog: buildCatalog(config, enabledLayers, baseline, connectionProvenance),
+		catalog: buildCatalog(config, enabledLayers, connectionProvenance),
 		issues,
 	};
 }

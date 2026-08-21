@@ -8,7 +8,7 @@
 
 import type { SourcedConfigIssue } from "../config-issue.js";
 import type { LegacySettingsReader } from "../legacy-positron-settings/translate.js";
-import type { LoggerLike, PlatformBaseline, ResolvedProvider } from "../types.js";
+import type { LoggerLike, ResolvedProvider } from "../types.js";
 
 // Re-export the pure logger type so node consumers can import it from here.
 export type { LoggerLike } from "../types.js";
@@ -24,9 +24,6 @@ export type { Disposable } from "../config-source.js";
  * Options for `loadResolvedProviderCatalog()`.
  */
 export interface LoadCatalogOptions {
-	/** Platform baseline (e.g. standalone: all enabled, RStudio: positai only). */
-	readonly baseline: PlatformBaseline;
-
 	/**
 	 * Override the config file path (defaults to ~/.posit/ai/providers.json).
 	 * Useful for testing.

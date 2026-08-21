@@ -10,15 +10,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ProviderCatalogChange } from "../node/types.js";
 import { watchResolvedProviderCatalog } from "../node/watch-catalog.js";
-import type { PlatformBaseline, ProvidersConfig } from "../types.js";
+import type { ProvidersConfig } from "../types.js";
 import { BUILTIN_PROVIDER_IDS } from "../vocabulary.js";
 
 const mockLogger = {
 	debug: vi.fn(),
 	warn: vi.fn(),
 };
-
-const STANDALONE_BASELINE: PlatformBaseline = { defaultEnabled: true };
 
 async function writeConfig(configPath: string, config: ProvidersConfig): Promise<void> {
 	const dir = path.dirname(configPath);
@@ -51,7 +49,6 @@ describe("watchResolvedProviderCatalog", () => {
 
 		const changes: ProviderCatalogChange[] = [];
 		const watcher = watchResolvedProviderCatalog((change) => changes.push(change), {
-			baseline: STANDALONE_BASELINE,
 			configPath,
 			logger: mockLogger,
 		});
@@ -82,7 +79,6 @@ describe("watchResolvedProviderCatalog", () => {
 
 		const changes: ProviderCatalogChange[] = [];
 		const watcher = watchResolvedProviderCatalog((change) => changes.push(change), {
-			baseline: STANDALONE_BASELINE,
 			configPath,
 			logger: mockLogger,
 		});
@@ -108,7 +104,6 @@ describe("watchResolvedProviderCatalog", () => {
 
 		const changes: ProviderCatalogChange[] = [];
 		const watcher = watchResolvedProviderCatalog((change) => changes.push(change), {
-			baseline: STANDALONE_BASELINE,
 			configPath,
 			envVars: { AWS_REGION: "us-west-2" },
 			logger: mockLogger,
@@ -137,7 +132,6 @@ describe("watchResolvedProviderCatalog", () => {
 
 		const changes: ProviderCatalogChange[] = [];
 		const watcher = watchResolvedProviderCatalog((change) => changes.push(change), {
-			baseline: STANDALONE_BASELINE,
 			configPath,
 			logger: mockLogger,
 		});
@@ -173,7 +167,6 @@ describe("watchResolvedProviderCatalog", () => {
 
 		const changes: ProviderCatalogChange[] = [];
 		const watcher = watchResolvedProviderCatalog((change) => changes.push(change), {
-			baseline: STANDALONE_BASELINE,
 			configPath,
 			logger: mockLogger,
 		});
@@ -225,7 +218,6 @@ describe("watchResolvedProviderCatalog", () => {
 
 		const changes: ProviderCatalogChange[] = [];
 		const watcher = watchResolvedProviderCatalog((change) => changes.push(change), {
-			baseline: STANDALONE_BASELINE,
 			configPath,
 			logger: mockLogger,
 			legacyPositronSettings: reader,
@@ -258,7 +250,6 @@ describe("watchResolvedProviderCatalog", () => {
 
 		const changes: ProviderCatalogChange[] = [];
 		const watcher = watchResolvedProviderCatalog((change) => changes.push(change), {
-			baseline: STANDALONE_BASELINE,
 			configPath,
 			logger: mockLogger,
 			envVars: {
@@ -296,7 +287,6 @@ describe("watchResolvedProviderCatalog", () => {
 
 		const changes: ProviderCatalogChange[] = [];
 		const watcher = watchResolvedProviderCatalog((change) => changes.push(change), {
-			baseline: STANDALONE_BASELINE,
 			configPath,
 			logger: mockLogger,
 		});
@@ -328,7 +318,6 @@ describe("watchResolvedProviderCatalog", () => {
 
 		const changes: ProviderCatalogChange[] = [];
 		const watcher = watchResolvedProviderCatalog((change) => changes.push(change), {
-			baseline: STANDALONE_BASELINE,
 			configPath,
 			logger: mockLogger,
 		});

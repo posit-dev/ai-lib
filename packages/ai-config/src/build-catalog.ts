@@ -3,7 +3,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * Build a resolved provider catalog from enforced config + platform baseline.
+ * Build a resolved provider catalog from merged config + enablement layers.
  *
  * Internal to the node entry. The catalog is the deep object that consumers
  * iterate instead of the static PROVIDER_REGISTRY — each entry carries
@@ -17,7 +17,6 @@ import { resolveEnabled } from "./resolve-enabled.js";
 import type {
 	BuiltinProviderBlock,
 	CustomProviderEntry,
-	PlatformBaseline,
 	ProvidersConfig,
 	ProvidersMap,
 	ResolvedConnection,
@@ -77,7 +76,6 @@ const BUILTIN_CLIENT_KIND = {
 export function buildCatalog(
 	mergedConfig: ProvidersConfig,
 	enabledLayers: readonly EnablementLayer[],
-	baseline: PlatformBaseline,
 	connectionProvenance: ReadonlyMap<string, ResolvedConnectionProvenance>,
 ): readonly ResolvedProvider[] {
 	const providers = mergedConfig.providers;
@@ -86,7 +84,7 @@ export function buildCatalog(
 	// 1. Built-in providers
 	for (const id of BUILTIN_PROVIDER_IDS) {
 		const block = getBuiltinBlock(providers, id);
-		const enabled = resolveEnabled(id, enabledLayers, baseline);
+		const enabled = resolveEnabled(id, enabledLayers);
 		const connection = resolveConnection(id, block);
 
 		catalog.push({
@@ -104,7 +102,7 @@ export function buildCatalog(
 	if (customEntries && Object.keys(customEntries).length > 0) {
 		for (const [name, entry] of Object.entries(customEntries)) {
 			const customId = mintCustomProviderId(name);
-			const enabled = resolveEnabled(name, enabledLayers, baseline);
+			const enabled = resolveEnabled(name, enabledLayers);
 			const connection = resolveConnectionFromBlock(entry);
 
 			catalog.push({

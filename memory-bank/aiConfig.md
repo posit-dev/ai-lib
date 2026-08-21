@@ -154,7 +154,7 @@ Config flows through three stages: **assemble sources → resolve → watch**. P
 2. **Resolve** (`src/resolve-catalog.ts`, `resolveProviderCatalog()`): rank the
    sources by kind (`enforced` > `legacy-positron-enforced` > `user` >
    `legacy-positron` > `default`), fold them low → high so the sealed `enforced`
-   overlay can never be overwritten, apply the `PlatformBaseline` beneath, and
+   overlay can never be overwritten, and
    build `ResolvedProvider[]` via `build-catalog.ts`. Objects deep-merge per
    leaf-key (`mergeConfigFragments`), `allow`/`deny` arrays wholesale-replace.
    Connection env vars are a resolver-owned source ranked below `enforced` and
@@ -216,9 +216,10 @@ reusable independent of the catalog builder.
 
 ### Precedence ladders
 
-- **Enablement** (`resolveEnabled`): enforced per-provider > enforced default >
-  user per-provider > user default > platform-baseline per-provider > baseline
-  default.
+- **Enablement** (`resolveEnabled`): config layers are checked highest to lowest
+  (`enforced` > `legacy-positron-enforced` > `user` > `legacy-positron` >
+  `default`), with a provider-specific value winning over that layer's default.
+  A provider no layer mentions is enabled.
 - **Connection**: enforced > legacy-positron-enforced > connection env vars >
   user file > legacy-positron (legacy Positron settings via the
   `legacyPositronSettings` reader) > built-in defaults. Object keys deep-merge
@@ -641,7 +642,7 @@ the bridge's `ModelInfo` — compatible by contract, not by import.
 | `src/edit-jsonc.ts`                   | Pure validation-free JSONC diff-to-edits transformer + JSON serialization normalization                                                          |
 | `src/config-source.ts`                | `ProviderConfigSource` + internal `ProviderConfigSourceProvider` loader machinery                                                                |
 | `src/legacy-positron-settings/`       | PROVIDER-SETTINGS-MIGRATION: legacy settings map, translator, and internal source builders                                                       |
-| `src/build-catalog.ts`                | `buildCatalog()` — assemble `ResolvedProvider[]` from merged config + enablement layers + baseline (pure entry)                                  |
+| `src/build-catalog.ts`                | `buildCatalog()` — assemble `ResolvedProvider[]` from merged config + enablement layers (pure entry)                                             |
 | `src/node/load-config.ts`             | `loadConfigSourceReports()` / readers — silently assemble `{ source?, issues }` reports; compatibility wrapper renders and returns sources       |
 | `src/node/parse-jsonc.ts`             | Internal JSONC parser; comments/trailing commas, null-prototype object materialization, `SyntaxError` on invalid input                           |
 | `src/node/parse-providers-config.ts`  | Internal strict `parseProvidersConfig()` mutation seam + tolerant `parseProvidersConfigTolerant()` read seam                                     |
