@@ -89,7 +89,6 @@ Both are Zod schemas. `providersConfigSchema` is the source of truth for the on-
 | `ResolvedProviderId`                               | `BuiltinProviderId \| CustomProviderId`.                                                                 |
 | `CustomProviderId`                                 | A branded custom id, produced only by `mintCustomProviderId()`.                                          |
 | `ModelInfoLike` / `ResolvedModelInfo`              | Input/output shapes for `resolveModels()`.                                                               |
-| `PlatformBaseline`                                 | How a platform expresses enablement defaults.                                                            |
 
 ```ts
 interface ResolvedProvider {
@@ -110,12 +109,11 @@ The one sanctioned producer of the branded `CustomProviderId`. Validates the id 
 
 #### `resolveProviderCatalogReport(opts): { catalog, issues }`
 
-The **deep resolver seam** — the one place that owns the entire precedence stack. It takes an ordered list of `ProviderConfigSource`s plus a `PlatformBaseline` and returns a fully resolved catalog together with structured issues for any relaxed overlay dropped during merged-result recovery. Hosts only _contribute sources_; precedence knowledge lives here. The reconstructed merged config is sealed by the full runtime schema before catalog construction.
+The **deep resolver seam** — the one place that owns the entire precedence stack. It takes an ordered list of `ProviderConfigSource`s and returns a fully resolved catalog together with structured issues for any relaxed overlay dropped during merged-result recovery. Hosts only _contribute sources_; precedence knowledge lives here. The reconstructed merged config is sealed by the full runtime schema before catalog construction.
 
 ```ts
 function resolveProviderCatalogReport(opts: {
   sources: readonly ProviderConfigSource[]; // any order — ranked by `kind`
-  baseline: PlatformBaseline;
   envVars?: Record<string, string | undefined>; // non-secret connection source ranked below enforced (default {})
 }): { catalog: readonly ResolvedProvider[]; issues: readonly SourcedConfigIssue[] };
 ```
@@ -124,7 +122,7 @@ function resolveProviderCatalogReport(opts: {
 existing warning logging. The report seam is silent so an orchestrator can compare complete issue
 snapshots before deciding what to render.
 
-A `ProviderConfigSource` declares _what it is_ via `kind`, not _where it sits_. The resolver maps each kind to a fixed rank, highest → lowest: **`enforced` > `legacy-positron-enforced` > connection env > `user` > `legacy-positron` > `default`**, with the `PlatformBaseline` beneath all sources. The two `legacy-positron*` kinds are the transitional legacy Positron settings channels, split by whether they must beat or yield to `providers.json`. The `enforced` layer is a **sealed overlay** — no lower source can overwrite an enforced key (a correctness invariant). Connection env vars (from `envVars`) are converted into a resolver-owned source ranked below `enforced` but above `user`, so admin pins always win while env vars still override file-based config. Object fields deep-merge per leaf-key; `allow`/`deny` arrays wholesale-replace.
+A `ProviderConfigSource` declares _what it is_ via `kind`, not _where it sits_. The resolver maps each kind to a fixed rank, highest → lowest: **`enforced` > `legacy-positron-enforced` > connection env > `user` > `legacy-positron` > `default`**. The two `legacy-positron*` kinds are the transitional legacy Positron settings channels, split by whether they must beat or yield to `providers.json`. The `enforced` layer is a **sealed overlay** — no lower source can overwrite an enforced key (a correctness invariant). Connection env vars (from `envVars`) are converted into a resolver-owned source ranked below `enforced` but above `user`, so admin pins always win while env vars still override file-based config. Object fields deep-merge per leaf-key; `allow`/`deny` arrays wholesale-replace. A provider that no config layer enables or disables is enabled by default.
 
 `mergeEnforced` (two-layer) and `mergeConfigFragments` (layered) remain exported as the low-level merge primitives, but consumers should assemble sources and call `resolveProviderCatalog` rather than merging by hand.
 
@@ -195,12 +193,10 @@ import { AI_CONFIG_DIR, PROVIDERS_CONFIG_PATH } from "ai-config/node";
 
 #### `loadProviderCatalogReport(opts): Promise<{ catalog, issues }>`
 
-The canonical read seam. Assembles source-read reports (each shaped as `{ source?, issues }`), delegates precedence to `resolveProviderCatalogReport`, applies the platform baseline, and returns one complete issue snapshot beside the catalog. Source readers never log; this one-shot orchestrator renders the completed report once. The JSONC user-file reader salvages valid siblings at whole-provider-block granularity. Strict-JSON admin env fragments remain all-or-nothing. Legacy Positron readers reconstruct their current issues on every read, so a fixed-then-rebroken setting can recur correctly.
+The canonical read seam. Assembles source-read reports (each shaped as `{ source?, issues }`), delegates precedence to `resolveProviderCatalogReport`, and returns one complete issue snapshot beside the catalog. Source readers never log; this one-shot orchestrator renders the completed report once. The JSONC user-file reader salvages valid siblings at whole-provider-block granularity. Strict-JSON admin env fragments remain all-or-nothing. Legacy Positron readers reconstruct their current issues on every read, so a fixed-then-rebroken setting can recur correctly.
 
 ```ts
-const { catalog, issues } = await loadProviderCatalogReport({
-  baseline: { defaultEnabled: true },
-});
+const { catalog, issues } = await loadProviderCatalogReport({});
 ```
 
 `loadResolvedProviderCatalog(opts)` remains a compatibility wrapper returning `.catalog`.
@@ -209,7 +205,6 @@ const { catalog, issues } = await loadProviderCatalogReport({
 
 | Field                             | Description                                                                                                                                                                                        |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `baseline` (required)             | `PlatformBaseline` — enablement defaults for this platform.                                                                                                                                        |
 | `configPath?`                     | Override the file path (testing).                                                                                                                                                                  |
 | `enforcedEnvVar?`                 | Override the enforced env-var name (defaults to `POSIT_AI_PROVIDERS_ENFORCED`; testing).                                                                                                           |
 | `defaultEnvVar?`                  | Override the defaults env-var name (defaults to `POSIT_AI_PROVIDERS_DEFAULT`; testing).                                                                                                            |
@@ -239,15 +234,12 @@ await mutateProvidersConfig((current) => ({
 The single watch seam. Debounced (~300ms), ancestor-aware `fs.watch` that reloads and compares both the catalog and the complete issue snapshot. Issue comparison is order-insensitive and structural. The watcher emits issue-only add and clear transitions, and logs only newly added/changed issues; a persistent identical issue is quiet until it clears and recurs. Returns a `Disposable` — call `.dispose()` to stop.
 
 ```ts
-const sub = watchResolvedProviderCatalog(
-  (change) => {
-    if (change.enabledChanged) reregisterProviders(change.catalog);
-    if (change.connectionChanged) invalidateModelCaches(change.catalog);
-    if (change.modelsChanged) refreshModelLists(change.catalog);
-    if (change.issuesChanged) replaceConfigIssues(change.issues);
-  },
-  { baseline: { defaultEnabled: true } },
-);
+const sub = watchResolvedProviderCatalog((change) => {
+  if (change.enabledChanged) reregisterProviders(change.catalog);
+  if (change.connectionChanged) invalidateModelCaches(change.catalog);
+  if (change.modelsChanged) refreshModelLists(change.catalog);
+  if (change.issuesChanged) replaceConfigIssues(change.issues);
+}, {});
 // later:
 sub.dispose();
 ```
