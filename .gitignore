@@ -3,3 +3,4 @@ dist/
 .bridge-watch/
 *.tsbuildinfo
 *.tgz
+.DS_Store
