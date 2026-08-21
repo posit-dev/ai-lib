@@ -59,7 +59,6 @@ export type {
 	ModelInfoLike,
 	ModelOverride,
 	ModelsBlock,
-	PlatformBaseline,
 	ProvidersConfig,
 	ProvidersMap,
 	ResolvedConnection,

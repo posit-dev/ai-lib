@@ -22,7 +22,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { PlatformBaseline, ProviderConfigSource, ResolvedProvider } from "ai-config";
+import type { ProviderConfigSource, ResolvedProvider } from "ai-config";
 import { resolveProviderCatalog } from "ai-config";
 import type { Backend } from "ai-credentials";
 import { createCredentialProvider } from "ai-credentials";
@@ -33,8 +33,6 @@ import { storageKeyFor } from "ai-credentials/types";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { PROVIDER_MAP } from "../provider-map";
-
-const BASELINE: PlatformBaseline = { defaultEnabled: false };
 
 function find(catalog: readonly ResolvedProvider[], id: string): ResolvedProvider | undefined {
 	return catalog.find((p) => (p.id as string) === id);
@@ -80,7 +78,7 @@ describe("Notebooks-like consumer — config + credentials across the ai-lib sta
 				},
 			},
 		];
-		const catalog = resolveProviderCatalog({ sources, baseline: BASELINE, envVars: {} });
+		const catalog = resolveProviderCatalog({ sources, envVars: {} });
 
 		expect(find(catalog, "anthropic")?.enabled).toBe(true);
 		const gw = find(catalog, "my-gateway");
@@ -142,7 +140,7 @@ describe("Notebooks-like consumer — config + credentials across the ai-lib sta
 		const sources: ProviderConfigSource[] = [
 			{ kind: "user", config: { providers: { anthropic: { enabled: true } } } },
 		];
-		const catalog = resolveProviderCatalog({ sources, baseline: BASELINE, envVars: {} });
+		const catalog = resolveProviderCatalog({ sources, envVars: {} });
 		const anthropic = find(catalog, "anthropic");
 
 		expect(anthropic).toBeDefined();

@@ -272,24 +272,6 @@ export const MODEL_METADATA_FIELD_NAMES = [
 export const MODEL_ROUTING_FIELD_NAMES = [] as const;
 
 // ---------------------------------------------------------------------------
-// Platform baseline
-// ---------------------------------------------------------------------------
-
-/**
- * How a platform expresses its enablement defaults.
- *
- * Examples:
- * - Standalone/TUI: `{ defaultEnabled: true }` — all providers enabled by default.
- * - RStudio: `{ defaultEnabled: false, providerOverrides: { positai: { enabled: true } } }`
- */
-export interface PlatformBaseline {
-	/** Baseline `default.enabled` when neither user nor enforced config provides one. */
-	readonly defaultEnabled: boolean;
-	/** Per-provider overrides layered over `defaultEnabled`. */
-	readonly providerOverrides?: Readonly<Record<string, { enabled: boolean }>>;
-}
-
-// ---------------------------------------------------------------------------
 // Logger
 // ---------------------------------------------------------------------------
 

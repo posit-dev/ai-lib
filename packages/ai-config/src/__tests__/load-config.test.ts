@@ -12,7 +12,6 @@ import { loadProviderCatalogReport, loadResolvedProviderCatalog } from "../node/
 import { mutateProvidersConfig } from "../node/mutate-config.js";
 import { parseJsonc } from "../node/parse-jsonc.js";
 import type { ProvidersConfig, ResolvedProvider } from "../types.js";
-import type { PlatformBaseline } from "../types.js";
 import { BUILTIN_PROVIDER_IDS } from "../vocabulary.js";
 
 // ---------------------------------------------------------------------------
@@ -22,15 +21,6 @@ import { BUILTIN_PROVIDER_IDS } from "../vocabulary.js";
 const mockLogger = {
 	debug: vi.fn(),
 	warn: vi.fn(),
-};
-
-/** Standalone baseline: everything enabled by default. */
-const STANDALONE_BASELINE: PlatformBaseline = { defaultEnabled: true };
-
-/** RStudio baseline: positai only. */
-const RSTUDIO_BASELINE: PlatformBaseline = {
-	defaultEnabled: false,
-	providerOverrides: { positai: { enabled: true } },
 };
 
 async function writeConfig(dir: string, config: ProvidersConfig): Promise<string> {
@@ -94,7 +84,6 @@ describe("loadResolvedProviderCatalog", () => {
 			await fs.writeFile(configPath, raw);
 
 			const report = await loadProviderCatalogReport({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 			});
 
@@ -117,7 +106,6 @@ describe("loadResolvedProviderCatalog", () => {
 			);
 
 			const report = await loadProviderCatalogReport({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 				logger: mockLogger,
 			});
@@ -147,7 +135,6 @@ describe("loadResolvedProviderCatalog", () => {
 			);
 
 			const report = await loadProviderCatalogReport({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 				logger: mockLogger,
 			});
@@ -183,7 +170,6 @@ describe("loadResolvedProviderCatalog", () => {
 			);
 
 			const catalog = await loadResolvedProviderCatalog({
-				baseline: { defaultEnabled: false },
 				configPath,
 				logger: mockLogger,
 			});
@@ -196,7 +182,6 @@ describe("loadResolvedProviderCatalog", () => {
 
 		it("should return all built-in providers when file is missing", async () => {
 			const catalog = await loadResolvedProviderCatalog({
-				baseline: STANDALONE_BASELINE,
 				configPath: path.join(tempDir, "nonexistent.json"),
 				logger: mockLogger,
 			});
@@ -210,26 +195,11 @@ describe("loadResolvedProviderCatalog", () => {
 			const configPath = await writeConfig(tempDir, {});
 
 			const catalog = await loadResolvedProviderCatalog({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 				logger: mockLogger,
 			});
 
 			expect(catalog.length).toBe(BUILTIN_PROVIDER_IDS.length);
-		});
-
-		it("should apply RStudio baseline (positai only)", async () => {
-			const configPath = await writeConfig(tempDir, {});
-
-			const catalog = await loadResolvedProviderCatalog({
-				baseline: RSTUDIO_BASELINE,
-				configPath,
-				logger: mockLogger,
-			});
-
-			expect(findProvider(catalog, "positai")?.enabled).toBe(true);
-			expect(findProvider(catalog, "anthropic")?.enabled).toBe(false);
-			expect(findProvider(catalog, "openai")?.enabled).toBe(false);
 		});
 	});
 
@@ -247,7 +217,6 @@ describe("loadResolvedProviderCatalog", () => {
 			});
 
 			const catalog = await loadResolvedProviderCatalog({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 				logger: mockLogger,
 			});
@@ -256,7 +225,7 @@ describe("loadResolvedProviderCatalog", () => {
 			expect(findProvider(catalog, "openai")?.enabled).toBe(false);
 		});
 
-		it("user default overrides platform baseline", async () => {
+		it("user default disables providers without per-provider blocks", async () => {
 			const configPath = await writeConfig(tempDir, {
 				providers: {
 					default: { enabled: false },
@@ -264,7 +233,6 @@ describe("loadResolvedProviderCatalog", () => {
 			});
 
 			const catalog = await loadResolvedProviderCatalog({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 				logger: mockLogger,
 			});
@@ -295,7 +263,6 @@ describe("loadResolvedProviderCatalog", () => {
 			);
 
 			const catalog = await loadResolvedProviderCatalog({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 				enforcedEnvVar: "TEST_ENFORCED",
 				logger: mockLogger,
@@ -321,7 +288,6 @@ describe("loadResolvedProviderCatalog", () => {
 			);
 
 			const catalog = await loadResolvedProviderCatalog({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 				enforcedEnvVar: "TEST_ENFORCED",
 				logger: mockLogger,
@@ -338,7 +304,6 @@ describe("loadResolvedProviderCatalog", () => {
 			vi.stubEnv("TEST_ENFORCED", "not valid json{{{");
 
 			const catalog = await loadResolvedProviderCatalog({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 				enforcedEnvVar: "TEST_ENFORCED",
 				logger: mockLogger,
@@ -355,7 +320,6 @@ describe("loadResolvedProviderCatalog", () => {
 				providers: { anthropic: { baseUrl: "https://user.example.com" } },
 			});
 			const report = await loadProviderCatalogReport({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 				enforcedEnvVar: "TEST_ENFORCED",
 				envVars: {
@@ -385,7 +349,6 @@ describe("loadResolvedProviderCatalog", () => {
 				providers: { anthropic: { baseUrl: "https://user.example.com" } },
 			});
 			const report = await loadProviderCatalogReport({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 				enforcedEnvVar: "TEST_ENFORCED",
 				envVars: {
@@ -437,7 +400,6 @@ describe("loadResolvedProviderCatalog", () => {
 			);
 
 			const catalog = await loadResolvedProviderCatalog({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 				enforcedEnvVar: "TEST_ENFORCED",
 				logger: mockLogger,
@@ -471,7 +433,6 @@ describe("loadResolvedProviderCatalog", () => {
 			);
 
 			const catalog = await loadResolvedProviderCatalog({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 				enforcedEnvVar: "TEST_ENFORCED",
 				logger: mockLogger,
@@ -497,7 +458,6 @@ describe("loadResolvedProviderCatalog", () => {
 			vi.stubEnv("TEST_DEFAULT", JSON.stringify({ providers: { default: { enabled: false } } }));
 
 			const catalog = await loadResolvedProviderCatalog({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 				defaultEnvVar: "TEST_DEFAULT",
 				logger: mockLogger,
@@ -514,7 +474,6 @@ describe("loadResolvedProviderCatalog", () => {
 			vi.stubEnv("TEST_DEFAULT", JSON.stringify({ providers: { default: { enabled: false } } }));
 
 			const catalog = await loadResolvedProviderCatalog({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 				defaultEnvVar: "TEST_DEFAULT",
 				logger: mockLogger,
@@ -533,7 +492,6 @@ describe("loadResolvedProviderCatalog", () => {
 			vi.stubEnv("TEST_ENFORCED", JSON.stringify({ providers: { anthropic: { enabled: false } } }));
 
 			const catalog = await loadResolvedProviderCatalog({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 				enforcedEnvVar: "TEST_ENFORCED",
 				defaultEnvVar: "TEST_DEFAULT",
@@ -553,7 +511,6 @@ describe("loadResolvedProviderCatalog", () => {
 			const configPath = await writeConfig(tempDir, {});
 
 			const catalog = await loadResolvedProviderCatalog({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 				logger: mockLogger,
 			});
@@ -565,7 +522,6 @@ describe("loadResolvedProviderCatalog", () => {
 			const configPath = await writeConfig(tempDir, {});
 
 			const catalog = await loadResolvedProviderCatalog({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 				logger: mockLogger,
 			});
@@ -577,7 +533,6 @@ describe("loadResolvedProviderCatalog", () => {
 			const configPath = await writeConfig(tempDir, {});
 
 			const catalog = await loadResolvedProviderCatalog({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 				logger: mockLogger,
 			});
@@ -598,7 +553,6 @@ describe("loadResolvedProviderCatalog", () => {
 			const configPath = await writeConfig(tempDir, {});
 
 			const catalog = await loadResolvedProviderCatalog({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 				logger: mockLogger,
 			});
@@ -612,7 +566,6 @@ describe("loadResolvedProviderCatalog", () => {
 			const configPath = await writeConfig(tempDir, {});
 
 			const catalog = await loadResolvedProviderCatalog({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 				logger: mockLogger,
 			});
@@ -629,7 +582,6 @@ describe("loadResolvedProviderCatalog", () => {
 			});
 
 			const catalog = await loadResolvedProviderCatalog({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 				logger: mockLogger,
 			});
@@ -656,7 +608,6 @@ describe("loadResolvedProviderCatalog", () => {
 			});
 
 			const catalog = await loadResolvedProviderCatalog({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 				logger: mockLogger,
 			});
@@ -668,7 +619,7 @@ describe("loadResolvedProviderCatalog", () => {
 			expect(custom).toBeDefined();
 			expect(custom?.clientKind).toBe("openai-compatible");
 			expect(custom?.connection.baseUrl).toBe("https://my-gateway.example.com/v1");
-			expect(custom?.enabled).toBe(true); // standalone baseline
+			expect(custom?.enabled).toBe(true); // no enabled key: enabled by default
 		});
 
 		it("custom providers respect enablement", async () => {
@@ -685,7 +636,6 @@ describe("loadResolvedProviderCatalog", () => {
 			});
 
 			const catalog = await loadResolvedProviderCatalog({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 				logger: mockLogger,
 			});
@@ -718,7 +668,6 @@ describe("loadResolvedProviderCatalog", () => {
 			});
 
 			const catalog = await loadResolvedProviderCatalog({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 				logger: mockLogger,
 			});
@@ -740,7 +689,6 @@ describe("loadResolvedProviderCatalog", () => {
 			await fs.writeFile(configPath, "not valid json{{{");
 
 			const catalog = await loadResolvedProviderCatalog({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 				logger: mockLogger,
 			});
@@ -754,7 +702,6 @@ describe("loadResolvedProviderCatalog", () => {
 			await fs.writeFile(configPath, JSON.stringify({ version: 99 }));
 
 			const catalog = await loadResolvedProviderCatalog({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 				logger: mockLogger,
 			});
@@ -773,7 +720,6 @@ describe("loadResolvedProviderCatalog", () => {
 			);
 
 			const catalog = await loadResolvedProviderCatalog({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 				logger: mockLogger,
 			});
@@ -796,7 +742,6 @@ describe("loadResolvedProviderCatalog", () => {
 			await fs.writeFile(configPath, '{\n  "providers": {}\n  "version": 1\n}\n');
 
 			const report = await loadProviderCatalogReport({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 			});
 
@@ -815,7 +760,6 @@ describe("loadResolvedProviderCatalog", () => {
 			await fs.writeFile(configPath, "{ bad");
 
 			const report = await loadProviderCatalogReport({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 			});
 
@@ -840,7 +784,6 @@ describe("loadResolvedProviderCatalog", () => {
 			);
 
 			const report = await loadProviderCatalogReport({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 			});
 
@@ -858,7 +801,6 @@ describe("loadResolvedProviderCatalog", () => {
 			const readSpy = vi.spyOn(fs, "readFile").mockRejectedValueOnce(readError);
 
 			const report = await loadProviderCatalogReport({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 			});
 
@@ -877,7 +819,6 @@ describe("loadResolvedProviderCatalog", () => {
 			const configPath = await writeConfig(tempDir, {});
 
 			const report = await loadProviderCatalogReport({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 				enforcedEnvVar: "TEST_ENFORCED",
 				envVars: { TEST_ENFORCED: "not valid json{{{" },
@@ -914,7 +855,6 @@ describe("loadResolvedProviderCatalog", () => {
 			});
 
 			const catalog = await loadResolvedProviderCatalog({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 				logger: mockLogger,
 				legacyPositronSettings: fakeReader({
@@ -939,7 +879,6 @@ describe("loadResolvedProviderCatalog", () => {
 			});
 
 			const catalog = await loadResolvedProviderCatalog({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 				logger: mockLogger,
 				envVars: {
@@ -964,7 +903,6 @@ describe("loadResolvedProviderCatalog", () => {
 			});
 
 			const catalog = await loadResolvedProviderCatalog({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 				logger: mockLogger,
 				envVars: {
@@ -984,7 +922,6 @@ describe("loadResolvedProviderCatalog", () => {
 			const configPath = await writeConfig(tempDir, { providers: {} });
 
 			const catalog = await loadResolvedProviderCatalog({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 				logger: mockLogger,
 				envVars: {
@@ -1002,7 +939,6 @@ describe("loadResolvedProviderCatalog", () => {
 			const configPath = await writeConfig(tempDir, { providers: {} });
 
 			const catalog = await loadResolvedProviderCatalog({
-				baseline: STANDALONE_BASELINE,
 				configPath,
 				logger: mockLogger,
 				legacyPositronSettings: fakeReader({}),
@@ -1020,7 +956,6 @@ describe("loadResolvedProviderCatalog", () => {
 				watch: () => ({ dispose: () => {} }),
 			};
 			const opts = {
-				baseline: STANDALONE_BASELINE,
 				configPath,
 				legacyPositronSettings: reader,
 			};

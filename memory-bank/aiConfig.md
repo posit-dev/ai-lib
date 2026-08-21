@@ -154,7 +154,7 @@ Config flows through three stages: **assemble sources → resolve → watch**. P
 2. **Resolve** (`src/resolve-catalog.ts`, `resolveProviderCatalog()`): rank the
    sources by kind (`enforced` > `legacy-positron-enforced` > `user` >
    `legacy-positron` > `default`), fold them low → high so the sealed `enforced`
-   overlay can never be overwritten, apply the `PlatformBaseline` beneath, and
+   overlay can never be overwritten, and
    build `ResolvedProvider[]` via `build-catalog.ts`. Objects deep-merge per
    leaf-key (`mergeConfigFragments`), `allow`/`deny` arrays wholesale-replace.
    Connection env vars are a resolver-owned source ranked below `enforced` and

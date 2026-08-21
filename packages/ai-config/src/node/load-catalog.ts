@@ -35,7 +35,6 @@ export async function loadProviderCatalogReport(
 	const sources = reports.flatMap((report) => (report.source ? [report.source] : []));
 	const resolver = resolveProviderCatalogReport({
 		sources,
-		baseline: opts.baseline,
 		envVars: env,
 	});
 	const issues = [...reports.flatMap((report) => report.issues), ...resolver.issues];
