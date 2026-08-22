@@ -54,7 +54,10 @@ export type { StepLogData, StepLogger } from "./StepLogger";
 export type { CredentialProvider, Disposable } from "./CredentialProvider";
 
 // Cached model fetcher utility
-export { createCachedModelFetcher } from "./providers/cached-model-fetcher";
+export {
+	createCachedModelFetcher,
+	DEFAULT_DISCOVERY_DEADLINE_MS,
+} from "./providers/cached-model-fetcher";
 export type {
 	CachedModelFetcherConfig,
 	ClearableModelFetcher,

@@ -108,6 +108,7 @@ export function getOllamaThinkingLevels(
 const fetchOllamaCapabilities = async (
 	modelId: string,
 	endpoint: string,
+	signal: AbortSignal,
 ): Promise<{
 	supportsTools: boolean;
 	supportsImages: boolean;
@@ -123,6 +124,7 @@ const fetchOllamaCapabilities = async (
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ name: modelId }),
+			signal,
 		});
 
 		if (!response.ok) {
@@ -221,13 +223,13 @@ function createOllamaModelFetcher(providerId: ResolvedProviderId, logger: Logger
 				maxContextLength: estimateContextLength(model.name),
 			}));
 		},
-		enrichModels: async (models, credentials) => {
+		enrichModels: async (models, credentials, signal) => {
 			// Enrich each model with capabilities from /api/show
 			const endpoint = credentials.endpoint;
 
 			return Promise.all(
 				models.map(async (model) => {
-					const caps = await fetchOllamaCapabilities(model.id, endpoint);
+					const caps = await fetchOllamaCapabilities(model.id, endpoint, signal);
 
 					return {
 						...model,
