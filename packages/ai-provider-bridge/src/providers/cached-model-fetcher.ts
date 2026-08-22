@@ -14,6 +14,15 @@ import type { ApiKeyCredentials, Logger, ModelInfo, ProviderCredentials } from "
 
 const DEFAULT_TTL = 60 * 60 * 1000; // 60 minutes
 
+/**
+ * Default bound on one complete fresh-discovery operation — the base request
+ * (or provider-owned `fetchFresh`) plus the optional enrichment pass. 15
+ * seconds preserves the per-provider envelope Node surfaces already apply
+ * around model discovery; callers may configure a shorter deadline only as an
+ * explicit surface policy via `discoveryDeadlineMs`.
+ */
+export const DEFAULT_DISCOVERY_DEADLINE_MS = 15_000;
+
 interface CachedModelFetcherCommonConfig<T extends ProviderCredentials = ProviderCredentials> {
 	/** Provider ID for logging */
 	providerId: string;
@@ -34,20 +43,34 @@ interface CachedModelFetcherCommonConfig<T extends ProviderCredentials = Provide
 	 * Useful for providers that need multiple API calls per model (e.g., Ollama /api/show)
 	 *
 	 * Example for Ollama:
-	 * enrichModels: async (models, credentials) => {
+	 * enrichModels: async (models, credentials, signal) => {
 	 *   return Promise.all(models.map(async (model) => {
-	 *     const details = await fetchModelDetails(model.id, credentials.endpoint);
+	 *     const details = await fetchModelDetails(model.id, credentials.endpoint, signal);
 	 *     return { ...model, supportsTools: details.capabilities?.includes('tools') };
 	 *   }));
 	 * }
+	 *
+	 * `signal` aborts when the discovery deadline expires — pass it to every
+	 * nested request so enrichment work is cancelled cooperatively.
 	 */
-	enrichModels?: (models: ModelInfo[], credentials: T) => Promise<ModelInfo[]>;
+	enrichModels?: (models: ModelInfo[], credentials: T, signal: AbortSignal) => Promise<ModelInfo[]>;
 
 	/** Static fallback models if API fails */
 	fallbackModels: ModelInfo[];
 
 	/** Cache TTL in milliseconds (default: 60 minutes) */
 	ttl?: number;
+
+	/**
+	 * Discovery deadline in milliseconds (default: 15 seconds). One bound
+	 * covering the whole fresh-discovery operation: the base request (or
+	 * provider-owned `fetchFresh`) and the optional enrichment pass. On expiry
+	 * the fetcher aborts the in-flight work cooperatively (via `AbortSignal`)
+	 * and falls back to the stale cache, then `fallbackModels`; a callback
+	 * that ignores the signal is raced out and can neither hold the caller
+	 * nor overwrite the cache.
+	 */
+	discoveryDeadlineMs?: number;
 
 	/** Logger for diagnostics */
 	logger: Logger;
@@ -93,8 +116,13 @@ export interface CachedModelFetcherRequestConfig<
 export interface CachedModelFetcherFetchFreshConfig<
 	T extends ProviderCredentials = ProviderCredentials,
 > extends CachedModelFetcherCommonConfig<T> {
-	/** Fetch a fresh model list. A throw falls back to stale cache, then `fallbackModels`. */
-	fetchFresh: (credentials: T) => Promise<ModelInfo[]>;
+	/**
+	 * Fetch a fresh model list. A throw falls back to stale cache, then
+	 * `fallbackModels`. `signal` aborts when the discovery deadline expires —
+	 * pass it to every nested request so multi-request discovery is cancelled
+	 * cooperatively.
+	 */
+	fetchFresh: (credentials: T, signal: AbortSignal) => Promise<ModelInfo[]>;
 }
 
 export type CachedModelFetcherConfig<T extends ProviderCredentials = ProviderCredentials> =
@@ -117,13 +145,29 @@ export type ClearableModelFetcher = ((credentials: ProviderCredentials) => Promi
  * 1. Fresh fetch from API (if credentials present and cache expired)
  * 2. Stale cache (if fresh fetch fails but cache exists)
  * 3. Static fallback models (if no cache available)
+ *
+ * One discovery deadline (default 15 seconds, configurable via
+ * `discoveryDeadlineMs`) bounds the complete fresh-discovery operation — the
+ * base request or provider-owned `fetchFresh`, plus the optional enrichment
+ * pass. The deadline aborts an `AbortController` whose signal is handed to
+ * the request `fetch` and to the `fetchFresh`/`enrichModels` callbacks for
+ * cooperative cancellation, and the operation is raced against the deadline
+ * so a callback that ignores cancellation still cannot hold the caller. A
+ * timed-out operation falls back exactly like a failed one (stale cache, then
+ * `fallbackModels`) and never writes the cache; likewise, a fetch that spans
+ * `clearCache()` may still answer its own caller but must not repopulate a
+ * newer cache generation.
  */
 export function createCachedModelFetcher<T extends ProviderCredentials = ProviderCredentials>(
 	config: CachedModelFetcherConfig<T>,
 ): ClearableModelFetcher {
 	const TTL = config.ttl ?? DEFAULT_TTL;
+	const discoveryDeadlineMs = config.discoveryDeadlineMs ?? DEFAULT_DISCOVERY_DEADLINE_MS;
 	let lastFetch = 0;
 	let cachedModels: ModelInfo[] | null = null;
+	// Generation guard: a fetch that spans clearCache() may still answer its
+	// own caller, but must not repopulate the cache over a newer generation.
+	let generation = 0;
 
 	const fetcher: ClearableModelFetcher = async (
 		credentials: ProviderCredentials,
@@ -145,12 +189,25 @@ export function createCachedModelFetcher<T extends ProviderCredentials = Provide
 			return cachedModels;
 		}
 
-		// Try to fetch from API
-		try {
+		// One deadline covers the base request (or provider-owned fetchFresh)
+		// and the enrichment pass. The AbortSignal gives nested requests
+		// cooperative cancellation; the race below guarantees the caller is
+		// released even if a callback ignores the signal.
+		const startedIn = generation;
+		const controller = new AbortController();
+		const timeoutError = new Error(`Model discovery timed out after ${discoveryDeadlineMs}ms`);
+		const timer = setTimeout(() => controller.abort(timeoutError), discoveryDeadlineMs);
+		// A pending deadline must not, on its own, keep the process alive.
+		timer.unref?.();
+
+		// The complete fresh-discovery operation. Late settlement after a
+		// timeout is harmless: the race below already settled, this promise's
+		// rejection is handled by it, and the result is never cached.
+		const discovery = (async (): Promise<ModelInfo[]> => {
 			let freshModels: ModelInfo[];
 			if ("fetchFresh" in config) {
 				config.logger.debug(`${logPrefix} Fetching models via provider-owned fetch`);
-				freshModels = await config.fetchFresh(typedCredentials);
+				freshModels = await config.fetchFresh(typedCredentials, controller.signal);
 			} else {
 				// Resolve URL (either static or dynamic)
 				const apiUrl = config.resolveUrl ? config.resolveUrl(typedCredentials) : config.apiUrl!;
@@ -159,7 +216,7 @@ export function createCachedModelFetcher<T extends ProviderCredentials = Provide
 				const apiKeyCreds = typedCredentials as Partial<ApiKeyCredentials>;
 				const providerHeaders = config.createHeaders(typedCredentials);
 				const headers = additiveHeaderRecord(providerHeaders, apiKeyCreds.customHeaders);
-				const response = await fetch(apiUrl, { headers });
+				const response = await fetch(apiUrl, { headers, signal: controller.signal });
 
 				if (!response.ok) {
 					throw new Error(`API returned ${response.status}`);
@@ -173,8 +230,14 @@ export function createCachedModelFetcher<T extends ProviderCredentials = Provide
 			if (config.enrichModels) {
 				try {
 					config.logger.debug(`${logPrefix} Enriching models with additional details`);
-					freshModels = await config.enrichModels(freshModels, typedCredentials);
+					freshModels = await config.enrichModels(freshModels, typedCredentials, controller.signal);
 				} catch (enrichError) {
+					// A deadline abort during enrichment fails the whole discovery
+					// (the race has already fallen back); it is not a partial
+					// enrichment failure to recover from.
+					if (controller.signal.aborted) {
+						throw enrichError;
+					}
 					const enrichErrorMsg =
 						enrichError instanceof Error ? enrichError.message : String(enrichError);
 					config.logger.warn(
@@ -183,11 +246,26 @@ export function createCachedModelFetcher<T extends ProviderCredentials = Provide
 					// Continue with unenriched models
 				}
 			}
+			return freshModels;
+		})();
 
-			// Update cache
-			lastFetch = now;
-			cachedModels = freshModels;
-			config.logger.info(`${logPrefix} Fetched ${freshModels.length} models from API`);
+		const deadline = new Promise<never>((_, reject) => {
+			controller.signal.addEventListener("abort", () => reject(timeoutError), { once: true });
+		});
+
+		// Try to fetch from API
+		try {
+			const freshModels = await Promise.race([discovery, deadline]);
+			if (generation === startedIn) {
+				// Update cache
+				lastFetch = now;
+				cachedModels = freshModels;
+				config.logger.info(`${logPrefix} Fetched ${freshModels.length} models from API`);
+			} else {
+				config.logger.debug(
+					`${logPrefix} Cache cleared during fetch; returning models without caching`,
+				);
+			}
 			return freshModels;
 		} catch (error) {
 			const errorMsg = error instanceof Error ? error.message : String(error);
@@ -201,10 +279,13 @@ export function createCachedModelFetcher<T extends ProviderCredentials = Provide
 
 			// Ultimate fallback
 			return config.fallbackModels;
+		} finally {
+			clearTimeout(timer);
 		}
 	};
 
 	fetcher.clearCache = () => {
+		generation += 1;
 		cachedModels = null;
 		lastFetch = 0;
 	};

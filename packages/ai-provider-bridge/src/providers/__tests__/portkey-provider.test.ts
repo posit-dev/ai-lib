@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ModelClientChatParams } from "../../model-clients/ModelClient";
 import type { ApiKeyCredentials, CancellationToken, Logger } from "../../types";
+import { DEFAULT_DISCOVERY_DEADLINE_MS } from "../cached-model-fetcher";
 import {
 	registerCustomPortkeyProvider,
 	registerPortkeyProvider,
@@ -22,6 +23,7 @@ const logger: Logger = {
 };
 
 afterEach(() => {
+	vi.useRealTimers();
 	vi.unstubAllGlobals();
 	vi.clearAllMocks();
 });
@@ -287,6 +289,65 @@ describe("portkey model fetcher", () => {
 		expect(logger.warn).toHaveBeenCalledWith(
 			expect.stringContaining("Hosted Portkey requires a non-empty API key"),
 		);
+	});
+
+	it("passes the discovery-deadline abort signal to every catalog page request", async () => {
+		const signals: (AbortSignal | undefined)[] = [];
+		const fetchMock = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+			signals.push(init?.signal ?? undefined);
+			return Response.json({ data: [{ id: "@anthropic-prod/claude-haiku-4-5" }], total: 1 });
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		const registry = new ProviderRegistry(logger);
+		registerPortkeyProvider(registry, logger);
+		const models = await registry.getModelsForProvider("portkey", HOSTED_CREDENTIALS);
+
+		expect(models).toHaveLength(1);
+		expect(signals).toHaveLength(1);
+		expect(signals[0]).toBeInstanceOf(AbortSignal);
+		expect(signals[0]!.aborted).toBe(false);
+	});
+
+	it("stops paginating when the discovery deadline expires mid-catalog", async () => {
+		vi.useFakeTimers();
+		const signals: (AbortSignal | undefined)[] = [];
+		const fetchMock = vi.fn((_input: string | URL | Request, init?: RequestInit) => {
+			signals.push(init?.signal ?? undefined);
+			if (signals.length === 1) {
+				// Page 1 reports more models than received, so a second page follows.
+				return Promise.resolve(
+					Response.json({ data: [{ id: "@anthropic-prod/claude-haiku-4-5" }], total: 2 }),
+				);
+			}
+			// Page 2 answers only when the request is cancelled — a late response
+			// the fetcher must no longer accept.
+			return new Promise<Response>((resolve) => {
+				init?.signal?.addEventListener(
+					"abort",
+					() =>
+						resolve(Response.json({ data: [{ id: "@anthropic-prod/claude-opus-4-6" }], total: 3 })),
+					{ once: true },
+				);
+			});
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		const registry = new ProviderRegistry(logger);
+		registerPortkeyProvider(registry, logger);
+		const promise = registry.getModelsForProvider("portkey", HOSTED_CREDENTIALS);
+
+		// Let page 1 complete and page 2 start (microtask-only work).
+		await vi.advanceTimersByTimeAsync(0);
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+
+		await vi.advanceTimersByTimeAsync(DEFAULT_DISCOVERY_DEADLINE_MS);
+
+		// The deadline fell back to no models, page 2's request was aborted, and
+		// its late page did not trigger a third request.
+		await expect(promise).resolves.toEqual([]);
+		expect(signals[1]!.aborted).toBe(true);
+		expect(fetchMock).toHaveBeenCalledTimes(2);
 	});
 
 	it("fetches the hosted catalog from the exact /v1/models URL (never /v1/v1) with the key header only", async () => {

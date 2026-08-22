@@ -42,6 +42,8 @@ describe("registerCustomOpenAICompatibleProvider", () => {
 		expect(models[0]).toMatchObject({ id: "gateway-model", providerId: "acme-openai" });
 		expect(fetchMock).toHaveBeenCalledWith("https://gateway.example/v1/models", {
 			headers: { Authorization: "Bearer sk-test" },
+			// The cached fetcher's discovery-deadline abort signal rides the request.
+			signal: expect.any(AbortSignal),
 		});
 	});
 

@@ -238,6 +238,8 @@ describe("litellm model fetcher", () => {
 				"x-api-key": "sk-test",
 				Authorization: "Bearer sk-test",
 			},
+			// The cached fetcher's discovery-deadline abort signal rides the request.
+			signal: expect.any(AbortSignal),
 		});
 	});
 });

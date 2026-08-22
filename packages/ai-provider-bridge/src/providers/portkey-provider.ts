@@ -281,11 +281,14 @@ function parsePortkeyModelsPage(data: unknown): {
  * is always retained as the request model. Runs inside the cached fetcher's
  * `fetchFresh` seam, so a throw (including the missing-base-URL error, thrown
  * before any fetch) is caught by the wrapper, logged, and yields no models.
+ * `signal` is the fetcher's discovery-deadline abort signal; it rides every
+ * page request and stops pagination promptly between pages.
  */
 async function fetchPortkeyCatalog(
 	credentials: ApiKeyCredentials,
 	providerId: ResolvedProviderId,
 	logger: Logger,
+	signal: AbortSignal,
 ): Promise<ModelInfo[]> {
 	const connection = resolvePortkeyConnection(credentials);
 	if (connection.mode === "oss") {
@@ -300,13 +303,15 @@ async function fetchPortkeyCatalog(
 	let received = 0;
 	let pageLimit: number | undefined;
 	for (let pageCount = 0; pageCount < MAX_DISCOVERY_PAGES; pageCount++) {
+		// Stop paging promptly when the discovery deadline expired between pages.
+		signal.throwIfAborted();
 		// The resolver's normalized base URL already ends in /v1 — append only
 		// `/models` (never `/v1/models`, which would double the segment).
 		const url =
 			received === 0
 				? `${connection.baseUrl}/models`
 				: `${connection.baseUrl}/models?limit=${pageLimit}&offset=${received}`;
-		const response = await fetch(url, { headers: connection.discoveryHeaders });
+		const response = await fetch(url, { headers: connection.discoveryHeaders, signal });
 		if (!response.ok) {
 			throw new Error(`Portkey model listing returned ${response.status}`);
 		}
@@ -381,7 +386,8 @@ function createPortkeyModelFetcher(
 			policy.apiKeyOptional
 				? Boolean(credentials.baseUrl?.trim())
 				: Boolean(credentials.apiKey.trim()),
-		fetchFresh: (credentials) => fetchPortkeyCatalog(credentials, policy.providerId, logger),
+		fetchFresh: (credentials, signal) =>
+			fetchPortkeyCatalog(credentials, policy.providerId, logger, signal),
 		fallbackModels: [],
 		logger,
 	});

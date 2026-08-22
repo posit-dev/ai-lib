@@ -102,6 +102,28 @@ model overrides and protocol endpoints, but above provider-wide `baseUrl`.
 The full ladder is: model override/custom model → protocol endpoint →
 discovered model → provider-wide URL → client default.
 
+## Model discovery deadline
+
+`createCachedModelFetcher` owns one configurable discovery deadline
+(`discoveryDeadlineMs`, default `DEFAULT_DISCOVERY_DEADLINE_MS` = 15 seconds)
+covering the complete fresh-discovery operation: the base request (or
+provider-owned `fetchFresh`) plus the optional `enrichModels` pass. The
+deadline aborts a per-call `AbortController` whose signal is handed to the
+request `fetch` and to both callbacks — provider-owned fetchers (Portkey's
+paginated catalog) and enrichers (Ollama's `/api/show`) must thread it through
+every nested request — and the operation is raced against the deadline so a
+callback that ignores cancellation still cannot hold the caller. A timeout
+takes the same fresh → stale-cache → static-fallback path as a failure, and a
+timed-out or `clearCache()`-spanning operation never writes the cache (a
+generation guard covers the latter). The 15-second default preserves the
+per-provider envelope Node surfaces already apply around discovery, so the
+fetcher's deadline fires first and serves the stale/fallback result itself;
+surfaces may configure a shorter deadline only as an explicit policy.
+Discovery sources that do not use `createCachedModelFetcher` (Databricks,
+Posit AI, Bedrock/Mantle, Google Vertex) own their transport and are not
+bounded by it — Vertex bounds each request with its own
+`AbortSignal.timeout(15000)`.
+
 ## Credentials
 
 `ProviderCredentials` is a discriminated union (`apikey`, `oauth`, `local`, `aws-credentials`, `google-cloud`) produced by `CredentialProvider` implementations. Client factories receive the resolved credential object and use it to authenticate every model-discovery and chat request.
