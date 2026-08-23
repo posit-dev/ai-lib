@@ -355,6 +355,58 @@ describe("generalized store-backed acquisition", () => {
 			});
 		});
 
+		it("propagates the RFC 6749 error_description from a failed device-authorization start", async () => {
+			const provider = createProvider();
+			vi.stubGlobal(
+				"fetch",
+				vi.fn().mockResolvedValueOnce(
+					new Response(
+						JSON.stringify({
+							error: "invalid_client",
+							error_description: "Invalid client_id parameter value.",
+						}),
+						{ status: 400, headers: { "Content-Type": "application/json" } },
+					),
+				),
+			);
+
+			await expect(provider.startAuthentication("positai")).rejects.toThrow(
+				"oauth_http_400: Invalid client_id parameter value.",
+			);
+			await vi.waitFor(async () => {
+				expect(await store.get<StoredProviderCredentials>("auth:positai:oauth")).toMatchObject({
+					readiness: "unauthenticated",
+					error: "oauth_http_400: Invalid client_id parameter value.",
+				});
+			});
+		});
+
+		it("bounds server-supplied error detail in the persisted terminal record", async () => {
+			const provider = createProvider();
+			vi.stubGlobal(
+				"fetch",
+				vi.fn().mockResolvedValueOnce(
+					new Response(
+						JSON.stringify({
+							error: "invalid_client",
+							error_description: "x".repeat(500),
+						}),
+						{ status: 400, headers: { "Content-Type": "application/json" } },
+					),
+				),
+			);
+
+			await expect(provider.startAuthentication("positai")).rejects.toThrow("oauth_http_400: ");
+			await vi.waitFor(async () => {
+				const record = await store.get<StoredProviderCredentials>("auth:positai:oauth");
+				expect(record).toMatchObject({ readiness: "unauthenticated" });
+				const error = (record as { error?: string }).error ?? "";
+				expect(error.startsWith("oauth_http_400: ")).toBe(true);
+				expect(error.length).toBeLessThanOrEqual("oauth_http_400: ".length + 201);
+				expect(error.endsWith("…")).toBe(true);
+			});
+		});
+
 		it("shares one attempt across generic and compatibility surfaces", async () => {
 			const provider = createProvider();
 			vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(deviceCodeResponse()));

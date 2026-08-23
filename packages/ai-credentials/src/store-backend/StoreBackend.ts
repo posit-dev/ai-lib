@@ -19,7 +19,7 @@ import type {
 } from "../CredentialProvider.js";
 import type { SingleFileStore } from "../store/index.js";
 import type { Logger, ProviderCredentials, TokenData } from "../types/index.js";
-import { normalizeDatabricksHost, storageKeyFor } from "../types/index.js";
+import { normalizeDatabricksHost, requireBareAuthHost, storageKeyFor } from "../types/index.js";
 import { resolveCredentialsFromEnv } from "./envCredentialResolver.js";
 import {
 	storedProviderCredentialsSchema,
@@ -301,12 +301,13 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 		const config = await oauthConfigForProvider(providerId, source);
 		if (!config) return undefined;
 		if ("grantType" in config) return config;
+		const authHost = requireBareAuthHost(config.authHost);
 		return {
 			grantType: "device-code",
 			clientId: config.clientId,
 			scope: config.scope,
-			deviceAuthorizationEndpoint: `https://${config.authHost}/oauth/device/authorize`,
-			tokenEndpoint: `https://${config.authHost}/oauth/token`,
+			deviceAuthorizationEndpoint: `https://${authHost}/oauth/device/authorize`,
+			tokenEndpoint: `https://${authHost}/oauth/token`,
 		};
 	}
 
