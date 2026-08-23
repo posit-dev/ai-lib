@@ -5,6 +5,7 @@
 import type { ModelMessage } from "ai";
 import { describe, expect, it } from "vitest";
 
+import { createRawFetchCapture } from "../../../tests/helpers/raw-fetch-capture";
 import type { CancellationToken } from "../../types";
 import { OpenAIClient } from "../OpenAIClient";
 
@@ -147,17 +148,17 @@ async function captureRequest(options: {
 	metadata?: { sessionId?: string };
 	messages: ModelMessage[];
 }): Promise<Record<string, unknown>> {
-	let requestBody: Record<string, unknown> | undefined;
+	const fetchCapture = createRawFetchCapture(
+		async () =>
+			new Response("data: [DONE]\n\n", {
+				status: 200,
+				headers: { "content-type": "text/event-stream" },
+			}),
+	);
 	const client = new OpenAIClient({
 		apiKey: "sk-test",
 		apiMode: options.apiMode,
-		customFetch: async (_input, init) => {
-			requestBody = JSON.parse(String(init?.body));
-			return new Response("data: [DONE]\n\n", {
-				status: 200,
-				headers: { "content-type": "text/event-stream" },
-			});
-		},
+		customFetch: fetchCapture.mock,
 	});
 
 	try {
@@ -178,10 +179,8 @@ async function captureRequest(options: {
 		// The wire body is captured before the intentionally incomplete stream ends.
 	}
 
-	if (!requestBody) {
-		throw new Error("OpenAI request was not captured");
-	}
-	return requestBody;
+	const [, init] = fetchCapture.single();
+	return JSON.parse(String(init?.body));
 }
 
 describe("OpenAI explicit prompt caching wire requests", () => {

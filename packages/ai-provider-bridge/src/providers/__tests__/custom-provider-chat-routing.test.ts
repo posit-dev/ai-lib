@@ -95,6 +95,7 @@ const logger: Logger = {
 type ChatSpy = (typeof chats)[keyof typeof chats];
 
 interface RoutingCase {
+	name: string;
 	id: ResolvedProviderId;
 	kind: ClientKind;
 	credentials: ProviderCredentials;
@@ -102,96 +103,107 @@ interface RoutingCase {
 	chat: ChatSpy;
 }
 
+const ROUTING_CASES = [
+	{
+		name: "Anthropic",
+		id: mintCustomProviderId("custom-anthropic"),
+		kind: "anthropic",
+		credentials: { type: "apikey", apiKey: "key" },
+		register: registerCustomAnthropicProvider,
+		chat: chats.anthropic,
+	},
+	{
+		name: "OpenAI",
+		id: mintCustomProviderId("custom-openai"),
+		kind: "openai",
+		credentials: { type: "apikey", apiKey: "key" },
+		register: registerCustomOpenAIProvider,
+		chat: chats.openai,
+	},
+	{
+		name: "Gemini",
+		id: mintCustomProviderId("custom-gemini"),
+		kind: "gemini",
+		credentials: { type: "apikey", apiKey: "key" },
+		register: registerCustomGeminiProvider,
+		chat: chats.gemini,
+	},
+	{
+		name: "DeepSeek",
+		id: mintCustomProviderId("custom-deepseek"),
+		kind: "deepseek",
+		credentials: { type: "apikey", apiKey: "key" },
+		register: registerCustomDeepSeekProvider,
+		chat: chats.deepseek,
+	},
+	{
+		name: "OpenRouter",
+		id: mintCustomProviderId("custom-openrouter"),
+		kind: "openrouter",
+		credentials: { type: "apikey", apiKey: "key" },
+		register: registerCustomOpenRouterProvider,
+		chat: chats.openrouter,
+	},
+	{
+		name: "Foundry",
+		id: mintCustomProviderId("custom-foundry"),
+		kind: "ms-foundry",
+		credentials: { type: "apikey", apiKey: "key", baseUrl: "https://foundry.test" },
+		register: registerCustomFoundryProvider,
+		chat: chats.openai,
+	},
+	{
+		name: "Ollama",
+		id: mintCustomProviderId("custom-ollama"),
+		kind: "ollama",
+		credentials: { type: "local", endpoint: "http://ollama.test" },
+		register: registerCustomOllamaProvider,
+		chat: chats.ollama,
+	},
+	{
+		name: "LM Studio",
+		id: mintCustomProviderId("custom-lmstudio"),
+		kind: "lmstudio",
+		credentials: { type: "local", endpoint: "http://lmstudio.test/v1" },
+		register: registerCustomLMStudioProvider,
+		chat: chats.lmstudio,
+	},
+	{
+		name: "Amazon Bedrock",
+		id: mintCustomProviderId("custom-aws"),
+		kind: "aws",
+		credentials: { type: "aws-credentials", region: "us-east-1" },
+		register: registerCustomBedrockProvider,
+		chat: chats.bedrock,
+	},
+	{
+		name: "Google Vertex",
+		id: mintCustomProviderId("custom-vertex"),
+		kind: "google-vertex",
+		credentials: { type: "google-cloud", project: "project" },
+		register: registerCustomGoogleVertexProvider,
+		chat: chats.googleVertex,
+	},
+	{
+		name: "Snowflake",
+		id: mintCustomProviderId("custom-snowflake"),
+		kind: "snowflake",
+		credentials: {
+			type: "apikey",
+			apiKey: "token",
+			baseUrl: "https://snowflake.test",
+		},
+		register: registerCustomSnowflakeProvider,
+		chat: chats.snowflake,
+	},
+] satisfies readonly RoutingCase[];
+
 describe("custom provider chat routing", () => {
 	beforeEach(() => vi.clearAllMocks());
 
-	it("invokes every new kind factory through ProviderRegistry with its built-in disabled", async () => {
-		const cases: RoutingCase[] = [
-			{
-				id: mintCustomProviderId("custom-anthropic"),
-				kind: "anthropic",
-				credentials: { type: "apikey", apiKey: "key" },
-				register: registerCustomAnthropicProvider,
-				chat: chats.anthropic,
-			},
-			{
-				id: mintCustomProviderId("custom-openai"),
-				kind: "openai",
-				credentials: { type: "apikey", apiKey: "key" },
-				register: registerCustomOpenAIProvider,
-				chat: chats.openai,
-			},
-			{
-				id: mintCustomProviderId("custom-gemini"),
-				kind: "gemini",
-				credentials: { type: "apikey", apiKey: "key" },
-				register: registerCustomGeminiProvider,
-				chat: chats.gemini,
-			},
-			{
-				id: mintCustomProviderId("custom-deepseek"),
-				kind: "deepseek",
-				credentials: { type: "apikey", apiKey: "key" },
-				register: registerCustomDeepSeekProvider,
-				chat: chats.deepseek,
-			},
-			{
-				id: mintCustomProviderId("custom-openrouter"),
-				kind: "openrouter",
-				credentials: { type: "apikey", apiKey: "key" },
-				register: registerCustomOpenRouterProvider,
-				chat: chats.openrouter,
-			},
-			{
-				id: mintCustomProviderId("custom-foundry"),
-				kind: "ms-foundry",
-				credentials: { type: "apikey", apiKey: "key", baseUrl: "https://foundry.test" },
-				register: registerCustomFoundryProvider,
-				chat: chats.openai,
-			},
-			{
-				id: mintCustomProviderId("custom-ollama"),
-				kind: "ollama",
-				credentials: { type: "local", endpoint: "http://ollama.test" },
-				register: registerCustomOllamaProvider,
-				chat: chats.ollama,
-			},
-			{
-				id: mintCustomProviderId("custom-lmstudio"),
-				kind: "lmstudio",
-				credentials: { type: "local", endpoint: "http://lmstudio.test/v1" },
-				register: registerCustomLMStudioProvider,
-				chat: chats.lmstudio,
-			},
-			{
-				id: mintCustomProviderId("custom-aws"),
-				kind: "aws",
-				credentials: { type: "aws-credentials", region: "us-east-1" },
-				register: registerCustomBedrockProvider,
-				chat: chats.bedrock,
-			},
-			{
-				id: mintCustomProviderId("custom-vertex"),
-				kind: "google-vertex",
-				credentials: { type: "google-cloud", project: "project" },
-				register: registerCustomGoogleVertexProvider,
-				chat: chats.googleVertex,
-			},
-			{
-				id: mintCustomProviderId("custom-snowflake"),
-				kind: "snowflake",
-				credentials: {
-					type: "apikey",
-					apiKey: "token",
-					baseUrl: "https://snowflake.test",
-				},
-				register: registerCustomSnowflakeProvider,
-				chat: chats.snowflake,
-			},
-		];
-
-		for (const testCase of cases) {
-			vi.clearAllMocks();
+	it.each(ROUTING_CASES)(
+		"$name routes its custom kind through ProviderRegistry with the built-in disabled",
+		async (testCase) => {
 			const registry = new ProviderRegistry(logger);
 			testCase.register(registry, testCase.id, logger);
 			const client = registry.getClientForProviderOrKind(
@@ -211,6 +223,6 @@ describe("custom provider chat routing", () => {
 			});
 
 			expect(testCase.chat, testCase.kind).toHaveBeenCalledOnce();
-		}
-	});
+		},
+	);
 });

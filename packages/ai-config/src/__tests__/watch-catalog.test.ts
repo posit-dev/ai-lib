@@ -2,159 +2,163 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { promises as fs } from "fs";
-import * as os from "os";
-import * as path from "path";
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createConfigFileFixture } from "../../tests/helpers/config-file-fixture.js";
+import type { ConfigFileFixture } from "../../tests/helpers/config-file-fixture.js";
 import type { ProviderCatalogChange } from "../node/types.js";
 import { watchResolvedProviderCatalog } from "../node/watch-catalog.js";
-import type { ProvidersConfig } from "../types.js";
 import { BUILTIN_PROVIDER_IDS } from "../vocabulary.js";
+
+const EVENT_TIMEOUT_MS = 10_000;
+const QUIET_WINDOW_MS = 700;
 
 const mockLogger = {
 	debug: vi.fn(),
 	warn: vi.fn(),
 };
 
-async function writeConfig(configPath: string, config: ProvidersConfig): Promise<void> {
-	const dir = path.dirname(configPath);
-	await fs.mkdir(dir, { recursive: true });
-	await fs.writeFile(configPath, JSON.stringify(config, null, 2));
+function createChangeProbe() {
+	const changes: ProviderCatalogChange[] = [];
+	const listeners = new Set<(change: ProviderCatalogChange) => void>();
+
+	return {
+		changes,
+		handler(change: ProviderCatalogChange) {
+			changes.push(change);
+			for (const listener of [...listeners]) listener(change);
+		},
+		next(
+			predicate: (change: ProviderCatalogChange) => boolean,
+			description: string,
+		): Promise<ProviderCatalogChange> {
+			return new Promise((resolve, reject) => {
+				const listener = (change: ProviderCatalogChange) => {
+					if (!predicate(change)) return;
+					clearTimeout(timer);
+					listeners.delete(listener);
+					resolve(change);
+				};
+				const timer = setTimeout(() => {
+					listeners.delete(listener);
+					reject(new Error(`Timed out waiting for ${description}`));
+				}, EVENT_TIMEOUT_MS);
+				listeners.add(listener);
+			});
+		},
+		quiet(duration = QUIET_WINDOW_MS): Promise<void> {
+			return new Promise((resolve, reject) => {
+				const listener = (change: ProviderCatalogChange) => {
+					clearTimeout(timer);
+					listeners.delete(listener);
+					reject(new Error(`Unexpected catalog change: ${JSON.stringify(change)}`));
+				};
+				const timer = setTimeout(() => {
+					listeners.delete(listener);
+					resolve();
+				}, duration);
+				listeners.add(listener);
+			});
+		},
+	};
 }
 
-/** Allow the watcher's asynchronous initial snapshot to settle under full-suite load. */
-async function waitForInitialSnapshot(): Promise<void> {
-	await new Promise((resolve) => setTimeout(resolve, 900));
+async function awaitReady(watcher: ReturnType<typeof watchResolvedProviderCatalog>): Promise<void> {
+	expect(watcher.ready).toBeInstanceOf(Promise);
+	await watcher.ready;
 }
 
 describe("watchResolvedProviderCatalog", () => {
-	let tempDir: string;
+	let fixture: ConfigFileFixture;
+	let configPath: string;
 
 	beforeEach(async () => {
-		tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-config-watch-"));
+		fixture = await createConfigFileFixture();
+		configPath = fixture.configPath;
 		vi.clearAllMocks();
 	});
 
 	afterEach(async () => {
-		await fs.rm(tempDir, { recursive: true, force: true });
+		await fixture.cleanup();
 	});
 
-	it("should fire on enablement change", async () => {
-		const configPath = path.join(tempDir, "providers.json");
-		await writeConfig(configPath, {
+	it("should fire on enablement change delivered through a real atomic replace", async () => {
+		await fixture.writeTypedConfig({
 			providers: { anthropic: { enabled: true } },
 		});
+		const probe = createChangeProbe();
+		const watcher = watchResolvedProviderCatalog(probe.handler, { configPath, logger: mockLogger });
+		await awaitReady(watcher);
 
-		const changes: ProviderCatalogChange[] = [];
-		const watcher = watchResolvedProviderCatalog((change) => changes.push(change), {
-			configPath,
-			logger: mockLogger,
-		});
-
-		// Wait for initial load
-		await waitForInitialSnapshot();
-
-		// Change enablement
-		await writeConfig(configPath, {
+		const changed = probe.next((change) => change.enabledChanged, "enablement change");
+		await fixture.writeTypedConfigAtomic({
 			providers: { anthropic: { enabled: false } },
 		});
-
-		// Wait for debounced change
-		await new Promise((resolve) => setTimeout(resolve, 600));
-
+		const change = await changed;
 		watcher.dispose();
 
-		expect(changes.length).toBeGreaterThanOrEqual(1);
-		const lastChange = changes[changes.length - 1];
-		expect(lastChange.enabledChanged).toBe(true);
+		expect(change.enabledChanged).toBe(true);
+		expect(change.catalog.find((provider) => provider.id === "anthropic")?.enabled).toBe(false);
 	});
 
 	it("should fire on connection change", async () => {
-		const configPath = path.join(tempDir, "providers.json");
-		await writeConfig(configPath, {
+		await fixture.writeTypedConfig({
 			providers: { anthropic: { baseUrl: "https://a.example.com" } },
 		});
+		const probe = createChangeProbe();
+		const watcher = watchResolvedProviderCatalog(probe.handler, { configPath, logger: mockLogger });
+		await awaitReady(watcher);
 
-		const changes: ProviderCatalogChange[] = [];
-		const watcher = watchResolvedProviderCatalog((change) => changes.push(change), {
-			configPath,
-			logger: mockLogger,
-		});
-
-		await waitForInitialSnapshot();
-
-		await writeConfig(configPath, {
+		const changed = probe.next((change) => change.connectionChanged, "connection change");
+		await fixture.writeTypedConfigAtomic({
 			providers: { anthropic: { baseUrl: "https://b.example.com" } },
 		});
-
-		await new Promise((resolve) => setTimeout(resolve, 600));
-
+		const change = await changed;
 		watcher.dispose();
 
-		expect(changes.length).toBeGreaterThanOrEqual(1);
-		const lastChange = changes[changes.length - 1];
-		expect(lastChange.connectionChanged).toBe(true);
+		expect(change.connectionChanged).toBe(true);
 	});
 
 	it("should fire when equal-value explicit config changes connection provenance", async () => {
-		const configPath = path.join(tempDir, "providers.json");
-		await writeConfig(configPath, {});
-
-		const changes: ProviderCatalogChange[] = [];
-		const watcher = watchResolvedProviderCatalog((change) => changes.push(change), {
+		await fixture.writeTypedConfig({});
+		const probe = createChangeProbe();
+		const watcher = watchResolvedProviderCatalog(probe.handler, {
 			configPath,
 			envVars: { AWS_REGION: "us-west-2" },
 			logger: mockLogger,
 		});
+		await awaitReady(watcher);
 
-		await waitForInitialSnapshot();
-
-		await writeConfig(configPath, {
+		const changed = probe.next((change) => change.connectionChanged, "provenance change");
+		await fixture.writeTypedConfigAtomic({
 			providers: { bedrock: { aws: { region: "us-west-2" } } },
 		});
-
-		await new Promise((resolve) => setTimeout(resolve, 600));
+		const change = await changed;
 		watcher.dispose();
 
-		expect(changes.length).toBeGreaterThanOrEqual(1);
-		const lastChange = changes[changes.length - 1];
-		expect(lastChange.connectionChanged).toBe(true);
+		expect(change.connectionChanged).toBe(true);
 		expect(
-			lastChange.catalog.find((provider) => provider.id === "bedrock")?.connectionProvenance,
+			change.catalog.find((provider) => provider.id === "bedrock")?.connectionProvenance,
 		).toEqual({ aws: { region: "configuration" } });
 	});
 
 	it("should stop firing after dispose", async () => {
-		const configPath = path.join(tempDir, "providers.json");
-		await writeConfig(configPath, {});
-
-		const changes: ProviderCatalogChange[] = [];
-		const watcher = watchResolvedProviderCatalog((change) => changes.push(change), {
-			configPath,
-			logger: mockLogger,
-		});
-
-		await waitForInitialSnapshot();
+		await fixture.writeTypedConfig({});
+		const probe = createChangeProbe();
+		const watcher = watchResolvedProviderCatalog(probe.handler, { configPath, logger: mockLogger });
+		await awaitReady(watcher);
 
 		watcher.dispose();
-		const countAfterDispose = changes.length;
-
-		// Modify after dispose
-		await writeConfig(configPath, {
+		const quiet = probe.quiet();
+		await fixture.writeTypedConfigAtomic({
 			providers: { anthropic: { enabled: false } },
 		});
-
-		await new Promise((resolve) => setTimeout(resolve, 600));
-
-		// No new changes should have fired
-		expect(changes.length).toBe(countAfterDispose);
+		await quiet;
+		expect(probe.changes).toHaveLength(0);
 	});
 
 	it("should fire connectionChanged when custom provider type changes", async () => {
-		const configPath = path.join(tempDir, "providers.json");
-		await writeConfig(configPath, {
+		await fixture.writeTypedConfig({
 			providers: {
 				custom: {
 					"my-gateway": {
@@ -164,17 +168,12 @@ describe("watchResolvedProviderCatalog", () => {
 				},
 			},
 		});
+		const probe = createChangeProbe();
+		const watcher = watchResolvedProviderCatalog(probe.handler, { configPath, logger: mockLogger });
+		await awaitReady(watcher);
 
-		const changes: ProviderCatalogChange[] = [];
-		const watcher = watchResolvedProviderCatalog((change) => changes.push(change), {
-			configPath,
-			logger: mockLogger,
-		});
-
-		await waitForInitialSnapshot();
-
-		// Change the client kind (type) of the custom provider
-		await writeConfig(configPath, {
+		const changed = probe.next((change) => change.connectionChanged, "custom provider type change");
+		await fixture.writeTypedConfigAtomic({
 			providers: {
 				custom: {
 					"my-gateway": {
@@ -184,30 +183,20 @@ describe("watchResolvedProviderCatalog", () => {
 				},
 			},
 		});
-
-		await new Promise((resolve) => setTimeout(resolve, 600));
-
+		const change = await changed;
 		watcher.dispose();
 
-		expect(changes.length).toBeGreaterThanOrEqual(1);
-		const lastChange = changes[changes.length - 1];
-		// A type change is a connection-level change (different client needed)
-		expect(lastChange.connectionChanged).toBe(true);
+		expect(change.connectionChanged).toBe(true);
 	});
 
 	// PROVIDER-SETTINGS-MIGRATION(legacy-positron) gate: delete this test with
 	// the loader option.
 	it("should rebuild and emit when the legacy Positron reader signals a change", async () => {
-		const configPath = path.join(tempDir, "providers.json");
-		await writeConfig(configPath, {});
-
-		// A fake legacy reader. It starts by enabling anthropic through the
-		// legacy toggle, then flips to disabling it and fires onChange.
+		await fixture.writeTypedConfig({});
 		let legacyValues: Record<string, unknown> = {
 			"positron.assistant.provider.anthropic.enable": true,
 		};
 		let fireChange: (() => void) | undefined;
-
 		const reader = {
 			get: (key: string) => legacyValues[key],
 			watch: (onChange: () => void) => {
@@ -215,41 +204,29 @@ describe("watchResolvedProviderCatalog", () => {
 				return { dispose: () => {} };
 			},
 		};
-
-		const changes: ProviderCatalogChange[] = [];
-		const watcher = watchResolvedProviderCatalog((change) => changes.push(change), {
+		const probe = createChangeProbe();
+		const watcher = watchResolvedProviderCatalog(probe.handler, {
 			configPath,
 			logger: mockLogger,
 			legacyPositronSettings: reader,
 		});
+		await awaitReady(watcher);
 
-		// Wait for the initial load.
-		await waitForInitialSnapshot();
-
-		// Change the legacy settings and signal a change. The first emitted
-		// catalog after this watch-triggered rebuild must carry the new value —
-		// this pins the watch-path fold of the legacy layer.
+		const changed = probe.next((change) => change.enabledChanged, "legacy settings change");
 		legacyValues = { "positron.assistant.provider.anthropic.enable": false };
 		fireChange?.();
-
-		await new Promise((resolve) => setTimeout(resolve, 600));
-
+		const change = await changed;
 		watcher.dispose();
 
-		expect(changes.length).toBeGreaterThanOrEqual(1);
-		const lastChange = changes[changes.length - 1];
-		expect(lastChange.enabledChanged).toBe(true);
-		expect(lastChange.catalog.find((p) => p.id === "anthropic")?.enabled).toBe(false);
+		expect(change.catalog.find((provider) => provider.id === "anthropic")?.enabled).toBe(false);
 	});
 
 	// PROVIDER-SETTINGS-MIGRATION(legacy-positron) gate: delete this test with
 	// the loader option.
 	it("should fold the enforced env layer into watch-path rebuilds when legacyPositronEnforcedSettings is set", async () => {
-		const configPath = path.join(tempDir, "providers.json");
-		await writeConfig(configPath, {});
-
-		const changes: ProviderCatalogChange[] = [];
-		const watcher = watchResolvedProviderCatalog((change) => changes.push(change), {
+		await fixture.writeTypedConfig({});
+		const probe = createChangeProbe();
+		const watcher = watchResolvedProviderCatalog(probe.handler, {
 			configPath,
 			logger: mockLogger,
 			envVars: {
@@ -259,101 +236,89 @@ describe("watchResolvedProviderCatalog", () => {
 			},
 			legacyPositronEnforcedSettings: true,
 		});
+		await awaitReady(watcher);
 
-		// Wait for the initial load.
-		await waitForInitialSnapshot();
-
-		// Trigger a rebuild through an unrelated provider so an event fires;
-		// the emitted catalog must still carry the enforced anthropic value —
-		// this pins the watch-path fold of the flag-enabled enforced layer.
-		await writeConfig(configPath, {
+		const changed = probe.next(
+			(change) =>
+				change.catalog.find((provider) => provider.id === "openai")?.connection.baseUrl ===
+				"https://user-openai.example.com",
+			"watch-path rebuild",
+		);
+		await fixture.writeTypedConfigAtomic({
 			providers: { openai: { baseUrl: "https://user-openai.example.com" } },
 		});
-
-		await new Promise((resolve) => setTimeout(resolve, 600));
-
+		const change = await changed;
 		watcher.dispose();
 
-		expect(changes.length).toBeGreaterThanOrEqual(1);
-		const lastChange = changes[changes.length - 1];
-		expect(lastChange.catalog.find((p) => p.id === "anthropic")?.connection.baseUrl).toBe(
+		expect(change.catalog.find((provider) => provider.id === "anthropic")?.connection.baseUrl).toBe(
 			"https://enforced.example.com",
 		);
 	});
 
 	it("should include the full catalog in change events", async () => {
-		const configPath = path.join(tempDir, "providers.json");
-		await writeConfig(configPath, {});
+		await fixture.writeTypedConfig({});
+		const probe = createChangeProbe();
+		const watcher = watchResolvedProviderCatalog(probe.handler, { configPath, logger: mockLogger });
+		await awaitReady(watcher);
 
-		const changes: ProviderCatalogChange[] = [];
-		const watcher = watchResolvedProviderCatalog((change) => changes.push(change), {
-			configPath,
-			logger: mockLogger,
-		});
-
-		await waitForInitialSnapshot();
-
-		// Trigger a change
-		await writeConfig(configPath, {
+		const changed = probe.next((change) => change.enabledChanged, "full catalog event");
+		await fixture.writeTypedConfigAtomic({
 			providers: { anthropic: { enabled: false } },
 		});
-
-		await new Promise((resolve) => setTimeout(resolve, 600));
-
+		const change = await changed;
 		watcher.dispose();
 
-		if (changes.length > 0) {
-			const lastChange = changes[changes.length - 1];
-			expect(lastChange.catalog.length).toBe(BUILTIN_PROVIDER_IDS.length); // all built-ins
-		}
+		expect(change.catalog).toHaveLength(BUILTIN_PROVIDER_IDS.length);
 	});
 
 	it("emits and logs issue-only add, repeat, clear, and recurrence transitions", async () => {
-		const configPath = path.join(tempDir, "providers.json");
 		const valid = { providers: { anthropic: { enabled: true } } };
 		const invalid = {
 			providers: { anthropic: { enabled: true }, "mystery-provider": { enabled: true } },
 		};
-		await fs.writeFile(configPath, JSON.stringify(valid));
+		await fixture.writeRawJsonc(JSON.stringify(valid));
+		const probe = createChangeProbe();
+		const watcher = watchResolvedProviderCatalog(probe.handler, { configPath, logger: mockLogger });
+		await awaitReady(watcher);
 
-		const changes: ProviderCatalogChange[] = [];
-		const watcher = watchResolvedProviderCatalog((change) => changes.push(change), {
-			configPath,
-			logger: mockLogger,
-		});
-		await waitForInitialSnapshot();
-
-		await fs.writeFile(configPath, JSON.stringify(invalid));
-		await new Promise((resolve) => setTimeout(resolve, 600));
-		expect(changes).toHaveLength(1);
-		expect(changes[0]).toMatchObject({
+		const added = probe.next((change) => change.issuesChanged, "issue addition");
+		await fixture.writeRawJsoncAtomic(JSON.stringify(invalid));
+		const addedChange = await added;
+		expect(addedChange).toMatchObject({
 			enabledChanged: false,
 			connectionChanged: false,
 			modelsChanged: false,
 			issuesChanged: true,
 		});
-		expect(changes[0].issues).toEqual([
+		expect(addedChange.issues).toEqual([
 			expect.objectContaining({ path: ["providers", "mystery-provider"] }),
 		]);
 		const warningsAfterAdd = mockLogger.warn.mock.calls.length;
 
-		await fs.writeFile(configPath, JSON.stringify(invalid, null, 2));
-		await new Promise((resolve) => setTimeout(resolve, 600));
-		expect(changes).toHaveLength(1);
+		const repeatQuiet = probe.quiet();
+		await fixture.writeRawJsoncAtomic(JSON.stringify(invalid, null, 2));
+		await repeatQuiet;
+		expect(probe.changes).toHaveLength(1);
 		expect(mockLogger.warn).toHaveBeenCalledTimes(warningsAfterAdd);
 
-		await fs.writeFile(configPath, JSON.stringify(valid));
-		await new Promise((resolve) => setTimeout(resolve, 600));
-		expect(changes).toHaveLength(2);
-		expect(changes[1].issuesChanged).toBe(true);
-		expect(changes[1].issues).toEqual([]);
+		const cleared = probe.next(
+			(change) => change.issuesChanged && change.issues.length === 0,
+			"issue recovery",
+		);
+		await fixture.writeRawJsoncAtomic(JSON.stringify(valid));
+		const clearedChange = await cleared;
+		expect(clearedChange.issues).toEqual([]);
 
-		await fs.writeFile(configPath, JSON.stringify(invalid));
-		await new Promise((resolve) => setTimeout(resolve, 600));
+		const recurred = probe.next(
+			(change) => change.issuesChanged && change.issues.length > 0,
+			"issue recurrence",
+		);
+		await fixture.writeRawJsoncAtomic(JSON.stringify(invalid));
+		const recurredChange = await recurred;
 		watcher.dispose();
 
-		expect(changes).toHaveLength(3);
-		expect(changes[2].issuesChanged).toBe(true);
+		expect(recurredChange.issuesChanged).toBe(true);
+		expect(probe.changes).toHaveLength(3);
 		expect(mockLogger.warn).toHaveBeenCalledTimes(warningsAfterAdd + 1);
 	});
 });

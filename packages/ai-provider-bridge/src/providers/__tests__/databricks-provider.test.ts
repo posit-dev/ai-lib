@@ -15,6 +15,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createRawFetchCapture } from "../../../tests/helpers/raw-fetch-capture";
 import type { ModelClient } from "../../model-clients/ModelClient";
 import type { CancellationToken, Logger, Protocol } from "../../types";
 import { registerDatabricksProvider } from "../databricks-provider";
@@ -255,7 +256,7 @@ function stubWorkspaceFetch(initial: {
 	const status = { ...initial };
 	const chatRequests: CapturedChatRequest[] = [];
 
-	const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+	const fetchCapture = createRawFetchCapture(async (input, init) => {
 		const url = typeof input === "string" || input instanceof URL ? input.toString() : input.url;
 		if (url === PROBE_URL) {
 			return jsonResponse({ endpoints: [] }, status.probeStatus);
@@ -278,19 +279,19 @@ function stubWorkspaceFetch(initial: {
 		});
 		return new Response("", { status: 200, headers: { "content-type": "text/event-stream" } });
 	});
-	vi.stubGlobal("fetch", fetchMock);
+	vi.stubGlobal("fetch", fetchCapture.mock);
 
 	return {
-		fetchMock,
+		fetchMock: fetchCapture.mock,
 		status,
 		chatRequests,
 		urlsCalled: (): string[] =>
-			fetchMock.mock.calls.map((call) => {
+			fetchCapture.calls.map((call) => {
 				const input = call[0];
 				return typeof input === "string" || input instanceof URL ? input.toString() : input.url;
 			}),
 		probeCount: (): number =>
-			fetchMock.mock.calls.filter((call) => String(call[0]) === PROBE_URL).length,
+			fetchCapture.calls.filter((call) => String(call[0]) === PROBE_URL).length,
 	};
 }
 
@@ -531,7 +532,7 @@ describe("registerDatabricksProvider surface pinning", () => {
 	// may resolve after the clear and must not commit its result.
 	it("ignores a probe that resolves after the cache was cleared", async () => {
 		const probeResolvers: Array<(response: Response) => void> = [];
-		const fetchMock = vi.fn(async (input: string | URL | Request) => {
+		const fetchCapture = createRawFetchCapture(async (input) => {
 			const url = typeof input === "string" || input instanceof URL ? input.toString() : input.url;
 			if (url === PROBE_URL) {
 				return new Promise<Response>((resolve) => probeResolvers.push(resolve));
@@ -544,7 +545,7 @@ describe("registerDatabricksProvider surface pinning", () => {
 			}
 			return jsonResponse({ message: `unexpected URL: ${url}` }, 500);
 		});
-		vi.stubGlobal("fetch", fetchMock);
+		vi.stubGlobal("fetch", fetchCapture.mock);
 
 		// Discovery under the old credential: its probe hangs.
 		const stale = registry.getModelsForProvider("databricks", CREDENTIALS);
@@ -564,12 +565,12 @@ describe("registerDatabricksProvider surface pinning", () => {
 
 		const after = await registry.getModelsForProvider("databricks", CREDENTIALS);
 		expect(after.map((m) => m.id)).toContain("databricks-claude-opus-4-8");
-		expect(fetchMock.mock.calls.filter((call) => String(call[0]) === PROBE_URL)).toHaveLength(2);
+		expect(fetchCapture.calls.filter((call) => String(call[0]) === PROBE_URL)).toHaveLength(2);
 	});
 
 	it("does not repopulate the model cache from a list fetch spanning clearCache", async () => {
 		const listResolvers: Array<(response: Response) => void> = [];
-		const fetchMock = vi.fn(async (input: string | URL | Request) => {
+		const fetchCapture = createRawFetchCapture(async (input) => {
 			const url = typeof input === "string" || input instanceof URL ? input.toString() : input.url;
 			if (url === PROBE_URL) {
 				return jsonResponse({ endpoints: [] }, 404);
@@ -579,7 +580,7 @@ describe("registerDatabricksProvider surface pinning", () => {
 			}
 			return jsonResponse({ message: `unexpected URL: ${url}` }, 500);
 		});
-		vi.stubGlobal("fetch", fetchMock);
+		vi.stubGlobal("fetch", fetchCapture.mock);
 
 		// The old-credential fetch pins serving, then hangs on the list request.
 		const stale = registry.getModelsForProvider("databricks", CREDENTIALS);

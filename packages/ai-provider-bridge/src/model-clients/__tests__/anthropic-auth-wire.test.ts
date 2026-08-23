@@ -10,8 +10,12 @@
  * the selected header ever leaves.
  */
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+	createRawFetchCapture,
+	type RawFetchCapture,
+} from "../../../tests/helpers/raw-fetch-capture";
 import type { CancellationToken } from "../../types";
 import { AnthropicClient } from "../AnthropicClient";
 
@@ -20,24 +24,25 @@ const cancellationToken: CancellationToken = {
 	onCancellationRequested: () => ({ dispose() {} }),
 };
 
+let fetchCapture: RawFetchCapture;
+
+beforeEach(() => {
+	fetchCapture = createRawFetchCapture(
+		async () =>
+			new Response("", {
+				status: 200,
+				headers: { "content-type": "text/event-stream" },
+			}),
+	);
+	vi.stubGlobal("fetch", fetchCapture.mock);
+});
+
 afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
 /** Drive one chat request through a stubbed fetch and return its headers. */
 async function requestHeaders(client: AnthropicClient): Promise<Headers> {
-	let captured: Headers | undefined;
-	vi.stubGlobal(
-		"fetch",
-		vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-			captured = new Headers(init?.headers);
-			return new Response("", {
-				status: 200,
-				headers: { "content-type": "text/event-stream" },
-			});
-		}),
-	);
-
 	try {
 		const stream = await client.chat({
 			model: "claude-haiku-4-5",
@@ -52,8 +57,8 @@ async function requestHeaders(client: AnthropicClient): Promise<Headers> {
 		// about the request headers.
 	}
 
-	if (!captured) throw new Error("no request was made");
-	return captured;
+	const [, init] = fetchCapture.single();
+	return new Headers(init?.headers);
 }
 
 describe("AnthropicClient auth config", () => {

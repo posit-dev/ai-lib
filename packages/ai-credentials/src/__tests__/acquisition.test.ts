@@ -2,12 +2,12 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+	createSingleFileStoreFixture,
+	type SingleFileStoreFixture,
+} from "../../tests/helpers/single-file-store-fixture.js";
 import type {
 	AuthorizationCodeCallback,
 	AuthorizationCodeReceiver,
@@ -17,7 +17,6 @@ import type {
 	PreparedAuthorizationCodeReceiver,
 } from "../Backend";
 import { createCredentialProvider } from "../createCredentialProvider";
-import { SingleFileStore } from "../store";
 import { createStoreBackend } from "../store-backend/StoreBackend";
 import type { StoredProviderCredentials } from "../store-backend/StoredProviderCredentials";
 
@@ -47,21 +46,21 @@ const ok = (body: unknown): Response =>
 	});
 
 describe("generalized store-backed acquisition", () => {
-	let directory: string;
-	let store: SingleFileStore;
+	let fixture: SingleFileStoreFixture;
+	let store: SingleFileStoreFixture["store"];
 	let receiver: TestReceiver;
 	let generations: number;
 
 	beforeEach(() => {
-		directory = mkdtempSync(join(tmpdir(), "acquisition-"));
-		store = new SingleFileStore({ filePath: join(directory, "data.json") });
+		fixture = createSingleFileStoreFixture("acquisition-");
+		store = fixture.store;
 		receiver = new TestReceiver();
 		generations = 0;
 	});
 
 	afterEach(() => {
 		vi.unstubAllGlobals();
-		rmSync(directory, { recursive: true, force: true });
+		fixture.cleanup();
 	});
 
 	function createProvider(

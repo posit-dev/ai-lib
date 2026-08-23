@@ -2,35 +2,25 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { mkdir } from "node:fs/promises";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 
+import { createConfigFileFixture } from "../../tests/helpers/config-file-fixture.js";
 import {
 	NonCustomProviderIdError,
 	readUserCustomProviderEntry,
 } from "../node/read-user-custom-provider-entry.js";
 
-const temporaryDirectories = new Set<string>();
-
-async function temporaryConfigPath(): Promise<string> {
-	const directory = await mkdtemp(join(tmpdir(), "ai-config-raw-entry-"));
-	temporaryDirectories.add(directory);
-	return join(directory, "providers.json");
+async function configFixture() {
+	const fixture = await createConfigFileFixture();
+	onTestFinished(fixture.cleanup);
+	return fixture;
 }
-
-afterEach(async () => {
-	await Promise.all(
-		[...temporaryDirectories].map((directory) => rm(directory, { recursive: true, force: true })),
-	);
-	temporaryDirectories.clear();
-});
 
 describe("readUserCustomProviderEntry", () => {
 	it("returns the exact strict user-layer entry without rewriting its JSONC", async () => {
-		const configPath = await temporaryConfigPath();
+		const fixture = await configFixture();
 		const authored = `{
 	// This comment and the unrelated provider must remain byte-for-byte intact.
 	"version": 1,
@@ -51,9 +41,11 @@ describe("readUserCustomProviderEntry", () => {
 	},
 }
 `;
-		await writeFile(configPath, authored);
+		await fixture.writeRawJsonc(authored);
 
-		await expect(readUserCustomProviderEntry("mixed snowflake", { configPath })).resolves.toEqual({
+		await expect(
+			readUserCustomProviderEntry("mixed snowflake", { configPath: fixture.configPath }),
+		).resolves.toEqual({
 			type: "snowflake",
 			baseUrl: "https://private.example/cortex",
 			snowflake: {
@@ -63,31 +55,37 @@ describe("readUserCustomProviderEntry", () => {
 			},
 			customHeaders: { authorization: "authored-value" },
 		});
-		expect(await readFile(configPath, "utf-8")).toBe(authored);
+		expect(await fixture.readRaw()).toBe(authored);
+		expect(await fixture.readBytes()).toEqual(Buffer.from(authored, "utf8"));
 	});
 
-	it("returns undefined for an absent user entry or absent user file", async () => {
-		const configPath = await temporaryConfigPath();
-		await writeFile(configPath, '{ "version": 1, "providers": { "custom": {} } }');
+	it("returns undefined for an absent user entry", async () => {
+		const fixture = await configFixture();
+		await fixture.writeTypedConfig({ version: 1, providers: { custom: {} } });
 
-		await expect(readUserCustomProviderEntry("external gateway", { configPath })).resolves.toBe(
-			undefined,
-		);
 		await expect(
-			readUserCustomProviderEntry("external gateway", { configPath: `${configPath}.missing` }),
+			readUserCustomProviderEntry("external gateway", { configPath: fixture.configPath }),
+		).resolves.toBe(undefined);
+	});
+
+	it("returns undefined when providers.json is missing", async () => {
+		const fixture = await configFixture();
+
+		await expect(
+			readUserCustomProviderEntry("external gateway", { configPath: fixture.configPath }),
 		).resolves.toBe(undefined);
 	});
 
 	it("returns undefined for an absent prototype-named entry", async () => {
-		const configPath = await temporaryConfigPath();
-		await writeFile(
-			configPath,
-			'{ "version": 1, "providers": { "custom": { "unrelated": { "type": "ollama" } } } }',
-		);
+		const fixture = await configFixture();
+		await fixture.writeTypedConfig({
+			version: 1,
+			providers: { custom: { unrelated: { type: "ollama" } } },
+		});
 
-		await expect(readUserCustomProviderEntry("constructor", { configPath })).resolves.toBe(
-			undefined,
-		);
+		await expect(
+			readUserCustomProviderEntry("constructor", { configPath: fixture.configPath }),
+		).resolves.toBe(undefined);
 	});
 
 	it.each(["anthropic", "default", "__proto__"])(
@@ -99,24 +97,27 @@ describe("readUserCustomProviderEntry", () => {
 		},
 	);
 
-	it("rejects invalid user JSONC instead of salvaging it", async () => {
-		const configPath = await temporaryConfigPath();
-		await writeFile(
-			configPath,
+	it.each([
+		[
+			"schema-invalid JSONC",
 			'{ "version": 1, "providers": { "custom": { "gateway": { "type": "aws", "unexpected": true } } } }',
-		);
+		],
+		["malformed JSONC", '{ "version": 1, "providers": {'],
+	] as const)("rejects %s instead of salvaging it", async (_case, raw) => {
+		const fixture = await configFixture();
+		await fixture.writeRawJsonc(raw);
 
-		await expect(readUserCustomProviderEntry("gateway", { configPath })).rejects.toThrow(
-			/Fix the file before editing custom providers/,
-		);
+		await expect(
+			readUserCustomProviderEntry("gateway", { configPath: fixture.configPath }),
+		).rejects.toThrow(/Fix the file before editing custom providers/);
 	});
 
-	it("rejects an unreadable path", async () => {
-		const configPath = await temporaryConfigPath();
-		await mkdir(configPath);
+	it("rejects a directory at configPath as unreadable", async () => {
+		const fixture = await configFixture();
+		await mkdir(fixture.configPath);
 
-		await expect(readUserCustomProviderEntry("gateway", { configPath })).rejects.toThrow(
-			/Cannot read/,
-		);
+		await expect(
+			readUserCustomProviderEntry("gateway", { configPath: fixture.configPath }),
+		).rejects.toThrow(/Cannot read/);
 	});
 });

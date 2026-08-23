@@ -8,6 +8,16 @@ import { customModelSchema } from "../../schema.js";
 import { getGeminiModelCapabilities } from "../gemini-helpers.js";
 import { inferModelCapabilities } from "../infer.js";
 
+type HostedGemmaCase = {
+	name: string;
+	modelId: string;
+};
+
+const HOSTED_GEMMA_CASES = [
+	{ name: "dense hosted Gemma", modelId: "gemma-4-31b-it" },
+	{ name: "mixture-of-experts hosted Gemma", modelId: "gemma-4-26b-a4b-it" },
+] satisfies readonly HostedGemmaCase[];
+
 describe("inferModelCapabilities", () => {
 	it("returns the generic baseline for an unknown model on an unknown provider", () => {
 		expect(inferModelCapabilities("openai-compatible", "totally-unknown-model")).toEqual({
@@ -183,8 +193,9 @@ describe("inferModelCapabilities", () => {
 		expect(other.supportsToolResultImages).toBe(false);
 	});
 
-	it("resolves hosted Gemma models through the gemini endpoint composition", () => {
-		for (const modelId of ["gemma-4-31b-it", "gemma-4-26b-a4b-it"]) {
+	it.each(HOSTED_GEMMA_CASES)(
+		"resolves a $name through the gemini endpoint composition",
+		({ modelId }) => {
 			const caps = inferModelCapabilities("gemini", modelId);
 			expect(caps.family).toBe("gemma-4");
 			expect(caps.maxInputTokens).toBe(262_144);
@@ -202,8 +213,8 @@ describe("inferModelCapabilities", () => {
 				"image/webp",
 				"application/pdf",
 			]);
-		}
-	});
+		},
+	);
 
 	it("gives gemini-3.7 models low/medium/high only (3.7-flash rejects minimal)", () => {
 		const caps = inferModelCapabilities("gemini", "gemini-3.7-flash");

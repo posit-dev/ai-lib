@@ -2,10 +2,11 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
+import type { ResolvedProviderId } from "ai-config";
 import { mintCustomProviderId } from "ai-config";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Logger } from "../../types";
+import type { Logger, ProviderCredentials } from "../../types";
 import { registerAnthropicProvider, registerCustomAnthropicProvider } from "../anthropic-provider";
 import { registerCustomDeepSeekProvider } from "../deepseek-provider";
 import { registerCustomFoundryProvider } from "../foundry-provider";
@@ -24,6 +25,75 @@ const logger: Logger = {
 	debug: vi.fn(),
 	trace: vi.fn(),
 };
+
+interface HttpDiscoveryCase {
+	name: string;
+	id: ResolvedProviderId;
+	register(registry: ProviderRegistry, providerId: ResolvedProviderId, logger: Logger): void;
+	credentials: ProviderCredentials;
+	expectedModelIds: readonly string[];
+}
+
+const HTTP_DISCOVERY_CASES = [
+	{
+		name: "Anthropic",
+		id: mintCustomProviderId("anthropic-http"),
+		register: registerCustomAnthropicProvider,
+		credentials: {
+			type: "apikey",
+			apiKey: "key",
+			baseUrl: "https://anthropic.example.com/v1",
+		},
+		expectedModelIds: ["claude-sonnet-4-6"],
+	},
+	{
+		name: "OpenAI",
+		id: mintCustomProviderId("openai-http"),
+		register: registerCustomOpenAIProvider,
+		credentials: {
+			type: "apikey",
+			apiKey: "key",
+			baseUrl: "https://openai.example.com/v1",
+		},
+		expectedModelIds: ["gpt-5.4"],
+	},
+	{
+		name: "Gemini",
+		id: mintCustomProviderId("gemini-http"),
+		register: registerCustomGeminiProvider,
+		credentials: {
+			type: "apikey",
+			apiKey: "key",
+			baseUrl: "https://gemini.example.com/v1beta",
+		},
+		expectedModelIds: ["gemini-2.5-pro"],
+	},
+	{
+		name: "OpenRouter",
+		id: mintCustomProviderId("openrouter-http"),
+		register: registerCustomOpenRouterProvider,
+		credentials: {
+			type: "apikey",
+			apiKey: "key",
+			baseUrl: "https://openrouter.example.com",
+		},
+		expectedModelIds: ["anthropic/claude-sonnet-4.6"],
+	},
+	{
+		name: "Ollama",
+		id: mintCustomProviderId("ollama-http"),
+		register: registerCustomOllamaProvider,
+		credentials: { type: "local", endpoint: "http://ollama.example.com" },
+		expectedModelIds: ["qwen3:latest"],
+	},
+	{
+		name: "LM Studio",
+		id: mintCustomProviderId("lmstudio-http"),
+		register: registerCustomLMStudioProvider,
+		credentials: { type: "local", endpoint: "http://lmstudio.example.com/v1" },
+		expectedModelIds: ["local-model"],
+	},
+] satisfies readonly HttpDiscoveryCase[];
 
 describe("custom provider registrars", () => {
 	beforeEach(() => vi.clearAllMocks());
@@ -72,116 +142,60 @@ describe("custom provider registrars", () => {
 		]);
 	});
 
-	it("discovers HTTP-backed models under each custom provider ID", async () => {
-		vi.stubGlobal(
-			"fetch",
-			vi.fn(async (input: string | URL | Request) => {
-				const url = String(input);
-				let body: unknown;
-				if (url.includes("anthropic.example.com")) {
-					body = { data: [{ id: "claude-sonnet-4-6", display_name: "Claude Sonnet 4.6" }] };
-				} else if (url.includes("openai.example.com")) {
-					body = { data: [{ id: "gpt-5.4", object: "model", owned_by: "openai" }] };
-				} else if (url.includes("gemini.example.com")) {
-					body = { models: [{ name: "models/gemini-2.5-pro", displayName: "Gemini 2.5 Pro" }] };
-				} else if (url.includes("openrouter.example.com")) {
-					body = {
-						data: [
-							{
-								id: "anthropic/claude-sonnet-4.6",
-								name: "Claude Sonnet 4.6",
-								context_length: 200000,
-								pricing: { prompt: "0", completion: "0" },
-								architecture: { modality: "text->text", tokenizer: "Claude" },
-								supported_parameters: ["tools"],
-							},
-						],
-					};
-				} else if (url.endsWith("/api/tags")) {
-					body = { models: [{ name: "qwen3:latest", size: 1, details: { family: "qwen" } }] };
-				} else if (url.endsWith("/api/show")) {
-					body = { capabilities: ["tools", "thinking"], parameters: "num_ctx 32768" };
-				} else {
-					body = {
-						data: [{ id: "local-model", object: "model", owned_by: "local", permission: [] }],
-					};
-				}
-				return new Response(JSON.stringify(body), {
-					status: 200,
-					headers: { "content-type": "application/json" },
-				});
-			}),
-		);
+	it.each(HTTP_DISCOVERY_CASES)(
+		"$name discovers HTTP-backed models under its custom provider ID",
+		async (testCase) => {
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(async (input: string | URL | Request) => {
+					const url = String(input);
+					let body: unknown;
+					if (url.includes("anthropic.example.com")) {
+						body = { data: [{ id: "claude-sonnet-4-6", display_name: "Claude Sonnet 4.6" }] };
+					} else if (url.includes("openai.example.com")) {
+						body = { data: [{ id: "gpt-5.4", object: "model", owned_by: "openai" }] };
+					} else if (url.includes("gemini.example.com")) {
+						body = {
+							models: [{ name: "models/gemini-2.5-pro", displayName: "Gemini 2.5 Pro" }],
+						};
+					} else if (url.includes("openrouter.example.com")) {
+						body = {
+							data: [
+								{
+									id: "anthropic/claude-sonnet-4.6",
+									name: "Claude Sonnet 4.6",
+									context_length: 200000,
+									pricing: { prompt: "0", completion: "0" },
+									architecture: { modality: "text->text", tokenizer: "Claude" },
+									supported_parameters: ["tools"],
+								},
+							],
+						};
+					} else if (url.endsWith("/api/tags")) {
+						body = {
+							models: [{ name: "qwen3:latest", size: 1, details: { family: "qwen" } }],
+						};
+					} else if (url.endsWith("/api/show")) {
+						body = { capabilities: ["tools", "thinking"], parameters: "num_ctx 32768" };
+					} else {
+						body = {
+							data: [{ id: "local-model", object: "model", owned_by: "local", permission: [] }],
+						};
+					}
+					return new Response(JSON.stringify(body), {
+						status: 200,
+						headers: { "content-type": "application/json" },
+					});
+				}),
+			);
 
-		const registry = new ProviderRegistry(logger);
-		const cases = [
-			{
-				id: mintCustomProviderId("anthropic-http"),
-				register: registerCustomAnthropicProvider,
-				credentials: {
-					type: "apikey",
-					apiKey: "key",
-					baseUrl: "https://anthropic.example.com/v1",
-				} as const,
-				expectedModelIds: ["claude-sonnet-4-6"],
-			},
-			{
-				id: mintCustomProviderId("openai-http"),
-				register: registerCustomOpenAIProvider,
-				credentials: {
-					type: "apikey",
-					apiKey: "key",
-					baseUrl: "https://openai.example.com/v1",
-				} as const,
-				expectedModelIds: ["gpt-5.4"],
-			},
-			{
-				id: mintCustomProviderId("gemini-http"),
-				register: registerCustomGeminiProvider,
-				credentials: {
-					type: "apikey",
-					apiKey: "key",
-					baseUrl: "https://gemini.example.com/v1beta",
-				} as const,
-				expectedModelIds: ["gemini-2.5-pro"],
-			},
-			{
-				id: mintCustomProviderId("openrouter-http"),
-				register: registerCustomOpenRouterProvider,
-				credentials: {
-					type: "apikey",
-					apiKey: "key",
-					baseUrl: "https://openrouter.example.com",
-				} as const,
-				expectedModelIds: ["anthropic/claude-sonnet-4.6"],
-			},
-			{
-				id: mintCustomProviderId("ollama-http"),
-				register: registerCustomOllamaProvider,
-				credentials: { type: "local", endpoint: "http://ollama.example.com" } as const,
-				expectedModelIds: ["qwen3:latest"],
-			},
-			{
-				id: mintCustomProviderId("lmstudio-http"),
-				register: registerCustomLMStudioProvider,
-				credentials: { type: "local", endpoint: "http://lmstudio.example.com/v1" } as const,
-				expectedModelIds: ["local-model"],
-			},
-		];
-
-		for (const testCase of cases) {
+			const registry = new ProviderRegistry(logger);
 			testCase.register(registry, testCase.id, logger);
 			const models = await registry.getModelsForProvider(testCase.id, testCase.credentials);
-			expect(
-				models.map((model) => model.id),
-				testCase.id,
-			).toEqual(testCase.expectedModelIds);
-			expect(
-				models.every((model) => model.providerId === testCase.id),
-				testCase.id,
-			).toBe(true);
-		}
-	});
+			expect(models.map((model) => model.id)).toEqual(testCase.expectedModelIds);
+			expect(models.every((model) => model.providerId === testCase.id)).toBe(true);
+		},
+	);
 
 	it("does not substitute hosted fallbacks when custom OpenAI or Gemini discovery fails", async () => {
 		vi.stubGlobal(
