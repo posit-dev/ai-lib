@@ -18,11 +18,32 @@ export type AuthenticationChallenge =
 			attemptId: string;
 			authorizationUrl: string;
 			expiresIn: number;
+	  }
+	| {
+			/**
+			 * An external process (e.g. a spawned CLI such as `gcloud`) owns the
+			 * browser flow. `url` is omitted when the process opens the browser
+			 * itself and no URL is known up front.
+			 */
+			kind: "external-browser";
+			attemptId: string;
+			url?: string;
+			instructions: string;
+			expiresIn: number;
 	  };
 
 export type AuthenticationStartResult =
 	| { status: "started"; challenge: AuthenticationChallenge }
-	| { status: "already-in-progress" };
+	| { status: "already-in-progress" }
+	| {
+			/**
+			 * No attempt was created — the provider cannot be authenticated in
+			 * this environment (e.g. required CLI missing, no SSO profile
+			 * configured). Callers should fall back to a configuration UI.
+			 */
+			status: "unavailable";
+			reason: string;
+	  };
 
 /** Strict semantic inputs accepted by the store-backed credential controller. */
 export type CredentialSourceInput =
