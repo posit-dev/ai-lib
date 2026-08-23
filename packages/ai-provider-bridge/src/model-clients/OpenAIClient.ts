@@ -23,6 +23,7 @@ import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
 	createStepLogger,
+	suppressAiSdkDefaultErrorLogging,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 import { prepareExplicitOpenAIRequest } from "./openai-prompt-caching";
@@ -168,6 +169,7 @@ export class OpenAIClient implements ModelClient {
 			toolChoice: params.tools ? "auto" : undefined,
 			abortSignal: abortController.signal,
 			providerOptions,
+			onError: suppressAiSdkDefaultErrorLogging,
 			// Capture raw JSON on each step finish
 			onStepFinish: createStepLogger(params.stepLoggers || [], "openai", params.model),
 		});

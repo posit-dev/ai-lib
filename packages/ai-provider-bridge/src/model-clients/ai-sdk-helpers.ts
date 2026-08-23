@@ -63,6 +63,12 @@ function clarifyBlankRequestError(error: unknown): void {
 }
 
 /**
+ * Disable AI SDK's default `console.error` side channel for stream failures.
+ * Errors still flow through `fullStream`, where callers handle and report them.
+ */
+export function suppressAiSdkDefaultErrorLogging(): void {}
+
+/**
  * Convert AI SDK stream to platform-agnostic LMStreamPart format.
  * The cleanup function is called when the stream completes (normally, via error,
  * or when the consumer breaks early) to prevent EventEmitter memory leaks.
