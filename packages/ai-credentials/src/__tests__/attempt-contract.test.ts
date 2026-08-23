@@ -30,6 +30,15 @@ describe("authentication attempt contract", () => {
 		expect("reason" in inProgress).toBe(false);
 	});
 
+	it("distinguishes a synchronously completed refresh from an interactive start", () => {
+		const completed: AuthenticationStartResult = { status: "completed" };
+		expect(completed.status).toBe("completed");
+		// A completed refresh created no attempt, so there is nothing to track
+		// or cancel — the result carries no challenge and no attemptId.
+		expect("challenge" in completed).toBe(false);
+		expect("attemptId" in completed).toBe(false);
+	});
+
 	it("carries an external-browser challenge with optional url", () => {
 		const withUrl: AuthenticationChallenge = {
 			kind: "external-browser",

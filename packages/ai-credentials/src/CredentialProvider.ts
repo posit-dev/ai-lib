@@ -37,6 +37,14 @@ export type AuthenticationStartResult =
 	| { status: "already-in-progress" }
 	| {
 			/**
+			 * The refresh completed synchronously (e.g. a silent token refresh
+			 * that needed no browser interaction). No attempt was created;
+			 * callers should refetch auth status and models.
+			 */
+			status: "completed";
+	  }
+	| {
+			/**
 			 * No attempt was created — the provider cannot be authenticated in
 			 * this environment (e.g. required CLI missing, no SSO profile
 			 * configured). Callers should fall back to a configuration UI.
