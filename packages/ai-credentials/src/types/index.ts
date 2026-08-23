@@ -30,6 +30,7 @@ export {
 	buildSnowflakeCortexUrl,
 	buildSnowflakeCortexUrlFromHost,
 	normalizeDatabricksHost,
+	requireBareAuthHost,
 } from "./utils.js";
 
 // OAuth protocol/runtime types (moved from @assistant/core platform.ts)
