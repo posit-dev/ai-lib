@@ -509,6 +509,10 @@ async function postForm(
  * usually means a bad client ID or scope, which the body names explicitly.
  */
 async function oauthErrorDetail(response: Response): Promise<string> {
+	// Bound every candidate the same way: the message is persisted in the
+	// terminal credential record and echoed in status payloads and logs, so
+	// a server must not be able to stuff an arbitrarily large value into it.
+	const bound = (value: string): string => (value.length > 200 ? `${value.slice(0, 200)}…` : value);
 	try {
 		const text = await response.text();
 		if (!text) return "";
@@ -517,15 +521,14 @@ async function oauthErrorDetail(response: Response): Promise<string> {
 			if (typeof body === "object" && body !== null) {
 				const record = body as Record<string, unknown>;
 				const description = record.error_description;
-				if (typeof description === "string" && description) return `: ${description}`;
+				if (typeof description === "string" && description) return `: ${bound(description)}`;
 				const code = record.error;
-				if (typeof code === "string" && code) return `: ${code}`;
+				if (typeof code === "string" && code) return `: ${bound(code)}`;
 			}
 		} catch {
 			// Not JSON — fall through to the raw body.
 		}
-		const bounded = text.length > 200 ? `${text.slice(0, 200)}…` : text;
-		return `: ${bounded}`;
+		return `: ${bound(text)}`;
 	} catch {
 		return "";
 	}

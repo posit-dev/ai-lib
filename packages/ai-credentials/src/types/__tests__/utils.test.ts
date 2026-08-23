@@ -37,4 +37,21 @@ describe("requireBareAuthHost", () => {
 		expect(() => requireBareAuthHost("login.posit.cloud?x=1")).toThrow(/Invalid auth host/);
 		expect(() => requireBareAuthHost("login.posit.cloud#y")).toThrow(/Invalid auth host/);
 	});
+
+	it("throws for an empty host", () => {
+		expect(() => requireBareAuthHost("")).toThrow(/Invalid auth host/);
+		expect(() => requireBareAuthHost("   ")).toThrow(/Invalid auth host/);
+	});
+
+	it("throws for userinfo, which would silently target a different hostname", () => {
+		expect(() => requireBareAuthHost("user@login.posit.cloud")).toThrow(/Invalid auth host/);
+		expect(() => requireBareAuthHost("user:pass@login.posit.cloud")).toThrow(/Invalid auth host/);
+	});
+
+	it("throws for invalid ports, backslashes, and internal whitespace", () => {
+		expect(() => requireBareAuthHost("login.posit.cloud:abc")).toThrow(/Invalid auth host/);
+		expect(() => requireBareAuthHost("login.posit.cloud:99999")).toThrow(/Invalid auth host/);
+		expect(() => requireBareAuthHost("login.posit.cloud\\oauth")).toThrow(/Invalid auth host/);
+		expect(() => requireBareAuthHost("login. posit.cloud")).toThrow(/Invalid auth host/);
+	});
 });
