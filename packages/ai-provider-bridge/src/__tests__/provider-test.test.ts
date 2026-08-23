@@ -22,23 +22,38 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
+interface LMStudioVersionedEndpointCase {
+	/** Name of the versioned-endpoint behavior being preserved. */
+	name: string;
+	endpoint: string;
+	expectedUrl: string;
+}
+
+// Both endpoints are already versioned, so provider URL construction is identical.
+const LM_STUDIO_VERSIONED_ENDPOINT_CASES: readonly LMStudioVersionedEndpointCase[] = [
+	{
+		name: "uses a /v1 endpoint as-is (no double /v1)",
+		endpoint: "http://localhost:1234/v1",
+		expectedUrl: "http://localhost:1234/v1/models",
+	},
+	{
+		name: "leaves a custom versioned endpoint untouched",
+		endpoint: "http://gpu-box:1234/v1",
+		expectedUrl: "http://gpu-box:1234/v1/models",
+	},
+];
+
 describe("testLMStudioProvider URL construction", () => {
-	it("uses a /v1 endpoint as-is (no double /v1)", async () => {
+	it.each(LM_STUDIO_VERSIONED_ENDPOINT_CASES)("$name", async ({ endpoint, expectedUrl }) => {
 		const captured = mockFetchCapturingUrl();
-		await testLMStudioProvider("http://localhost:1234/v1");
-		expect(captured.urls).toEqual(["http://localhost:1234/v1/models"]);
+		await testLMStudioProvider(endpoint);
+		expect(captured.urls).toEqual([expectedUrl]);
 	});
 
 	it("normalizes the bare default host for backward compatibility", async () => {
 		const captured = mockFetchCapturingUrl();
 		await testLMStudioProvider("http://localhost:1234");
 		expect(captured.urls).toEqual(["http://localhost:1234/v1/models"]);
-	});
-
-	it("leaves a custom versioned endpoint untouched", async () => {
-		const captured = mockFetchCapturingUrl();
-		await testLMStudioProvider("http://gpu-box:1234/v1");
-		expect(captured.urls).toEqual(["http://gpu-box:1234/v1/models"]);
 	});
 });
 

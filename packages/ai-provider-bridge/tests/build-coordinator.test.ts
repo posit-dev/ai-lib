@@ -503,6 +503,7 @@ describe("bridge generation observation", () => {
 		let livenessClosed = false;
 		let writerAlive = true;
 		const announced = vi.fn();
+		const consoleLog = vi.spyOn(console, "log").mockImplementation(() => {});
 		const following = followGenerations(watchOwner, {
 			observer,
 			processIsAlive: () => writerAlive,
@@ -512,6 +513,8 @@ describe("bridge generation observation", () => {
 			},
 			announce: announced,
 		});
+		expect(consoleLog).toHaveBeenCalledWith("bridge coordinator: following writer pid 42...");
+		consoleLog.mockRestore();
 		await vi.waitFor(() => expect(announced).toHaveBeenCalledTimes(1));
 
 		await writeGeneration(paths, 2, watchOwner.token);

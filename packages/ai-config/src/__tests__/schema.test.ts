@@ -2,9 +2,23 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
+import { promises as fs } from "fs";
+
 import { describe, it, expect } from "vitest";
 
+import { serializeProvidersSchema } from "../../scripts/generate-schema.js";
 import { providersConfigFragmentSchema, providersConfigSchema } from "../schema.js";
+
+describe("providers.schema.json", () => {
+	it("matches the generated schema", async () => {
+		const committedSchema = await fs.readFile(
+			new URL("../../providers.schema.json", import.meta.url),
+			"utf-8",
+		);
+
+		expect(committedSchema).toBe(serializeProvidersSchema());
+	});
+});
 
 describe("providersConfigSchema", () => {
 	it("accepts an empty config", () => {

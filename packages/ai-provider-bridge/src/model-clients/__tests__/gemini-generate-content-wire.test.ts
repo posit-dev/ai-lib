@@ -26,6 +26,7 @@ vi.mock("ai-config", async (importOriginal) => ({
 	getGeminiGenerateContentProfile,
 }));
 
+import { createRawFetchCapture } from "../../../tests/helpers/raw-fetch-capture";
 import type { CancellationToken } from "../../types";
 import { GeminiGenerateContentClient } from "../GeminiGenerateContentClient";
 
@@ -91,21 +92,14 @@ async function capture(
 		thinkingEffort?: string;
 	} = {},
 ): Promise<CapturedRequest> {
-	let captured: CapturedRequest | undefined;
-	vi.stubGlobal(
-		"fetch",
-		vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-			captured = {
-				url: String(input),
-				headers: new Headers(init?.headers),
-				body: JSON.parse(String(init?.body)),
-			};
-			return new Response("", {
+	const rawFetch = createRawFetchCapture(
+		async () =>
+			new Response("", {
 				status: 200,
 				headers: { "content-type": "text/event-stream" },
-			});
-		}),
+			}),
 	);
+	vi.stubGlobal("fetch", rawFetch.mock);
 
 	try {
 		const stream = await client.chat({
@@ -122,8 +116,12 @@ async function capture(
 		// about the serialized request.
 	}
 
-	if (!captured) throw new Error("no request was made");
-	return captured;
+	const [input, init] = rawFetch.single();
+	return {
+		url: String(input),
+		headers: new Headers(init?.headers),
+		body: JSON.parse(String(init?.body)),
+	};
 }
 
 beforeEach(() => {
@@ -187,14 +185,11 @@ describe("GeminiGenerateContentClient routing", () => {
 		expect(url).toContain("https://ctor.example/v1beta/");
 
 		// Same client, per-request override.
-		let requestUrl = "";
-		vi.stubGlobal(
-			"fetch",
-			vi.fn(async (input: RequestInfo | URL) => {
-				requestUrl = String(input);
-				return new Response("", { status: 200, headers: { "content-type": "text/event-stream" } });
-			}),
+		const rawFetch = createRawFetchCapture(
+			async () =>
+				new Response("", { status: 200, headers: { "content-type": "text/event-stream" } }),
 		);
+		vi.stubGlobal("fetch", rawFetch.mock);
 		const client = new GeminiGenerateContentClient(
 			{ apiKey: "goog-key" },
 			"https://ctor.example/v1beta",
@@ -212,7 +207,7 @@ describe("GeminiGenerateContentClient routing", () => {
 		} catch {
 			// stream errors are irrelevant here
 		}
-		expect(requestUrl).toContain("https://per-request.example/v1beta/");
+		expect(String(rawFetch.single()[0])).toContain("https://per-request.example/v1beta/");
 	});
 
 	it("throws a model-naming error when no variant profile resolves", async () => {

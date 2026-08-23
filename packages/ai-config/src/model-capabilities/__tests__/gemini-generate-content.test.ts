@@ -6,37 +6,72 @@ import { describe, expect, it } from "vitest";
 
 import { getGeminiGenerateContentProfile } from "../gemini-generate-content.js";
 
-describe("getGeminiGenerateContentProfile", () => {
-	it("normalizes bare, prefixed, and Databricks endpoint-name spellings to one variant", () => {
-		const variants = [
-			"gemini-2.5-pro",
-			"google/gemini-2.5-pro",
-			"databricks-gemini-2-5-pro",
-			"system.ai.gemini-2-5-pro",
-			"GEMINI-2.5-PRO",
-		].map((id) => getGeminiGenerateContentProfile(id)?.variant);
+type NormalizationCase = {
+	name: string;
+	id: string;
+};
 
-		expect(variants).toEqual(["2.5-pro", "2.5-pro", "2.5-pro", "2.5-pro", "2.5-pro"]);
+const NORMALIZATION_CASES = [
+	{ name: "bare id", id: "gemini-2.5-pro" },
+	{ name: "provider-prefixed id", id: "google/gemini-2.5-pro" },
+	{ name: "Databricks endpoint name", id: "databricks-gemini-2-5-pro" },
+	{ name: "Unity Catalog system-model name", id: "system.ai.gemini-2-5-pro" },
+	{ name: "uppercase id", id: "GEMINI-2.5-PRO" },
+] satisfies readonly NormalizationCase[];
+
+type UndocumentedVariantCase = {
+	name: string;
+	id: string;
+};
+
+const UNDOCUMENTED_VARIANT_CASES = [
+	{ name: "undocumented 3.7 Flash", id: "gemini-3.7-flash" },
+	{ name: "undocumented 3.9 Pro", id: "gemini-3.9-pro" },
+] satisfies readonly UndocumentedVariantCase[];
+
+type BudgetRangeCase = {
+	name: string;
+	id: string;
+	min: number;
+	max: number;
+};
+
+const BUDGET_RANGE_CASES = [
+	{ name: "2.5 Pro", id: "gemini-2.5-pro", min: 128, max: 32_768 },
+	{ name: "2.5 Flash", id: "gemini-2.5-flash", min: 0, max: 24_576 },
+	{ name: "2.5 Flash-Lite", id: "gemini-2.5-flash-lite", min: 512, max: 24_576 },
+] satisfies readonly BudgetRangeCase[];
+
+describe("getGeminiGenerateContentProfile", () => {
+	it.each(NORMALIZATION_CASES)("normalizes a $name to the 2.5 Pro variant", ({ id }) => {
+		expect(getGeminiGenerateContentProfile(id)?.variant).toBe("2.5-pro");
 	});
 
 	it("drops preview/latest suffixes from the reported variant", () => {
 		expect(getGeminiGenerateContentProfile("gemini-3-pro-preview")?.variant).toBe("3-pro");
 	});
 
-	it("returns undefined for ids that are not positively reconstructable", () => {
-		for (const id of [
-			"gemini-2.0-flash", // recognized as Gemini, no known thinking controls
-			"gemini-experimental",
-			"my-gemini-endpoint", // arbitrary external endpoint name
-			// Undocumented 3.x names: level sets differ per variant, so there is no
-			// generic rule to inherit — recognition must be explicit.
-			"gemini-3.7-flash",
-			"gemini-3.9-pro",
-			"gpt-5",
-			"",
-		]) {
-			expect(getGeminiGenerateContentProfile(id), id).toBeUndefined();
-		}
+	it("returns undefined for a known Gemini variant without thinking controls", () => {
+		expect(getGeminiGenerateContentProfile("gemini-2.0-flash")).toBeUndefined();
+	});
+
+	it("rejects a malformed Gemini signature", () => {
+		expect(getGeminiGenerateContentProfile("gemini-experimental")).toBeUndefined();
+	});
+
+	it("rejects a misleading embedded Gemini prefix in an arbitrary endpoint name", () => {
+		expect(getGeminiGenerateContentProfile("my-gemini-endpoint")).toBeUndefined();
+	});
+
+	// Level sets differ per 3.x variant, so there is no generic rule to inherit:
+	// recognition must be explicit.
+	it.each(UNDOCUMENTED_VARIANT_CASES)("returns undefined for $name", ({ id }) => {
+		expect(getGeminiGenerateContentProfile(id)).toBeUndefined();
+	});
+
+	it("returns undefined for non-Gemini and empty ids", () => {
+		expect(getGeminiGenerateContentProfile("gpt-5")).toBeUndefined();
+		expect(getGeminiGenerateContentProfile("")).toBeUndefined();
 	});
 
 	it("uses numeric budgets for 2.5 and categorical levels for 3.x", () => {
@@ -88,20 +123,16 @@ describe("getGeminiGenerateContentProfile", () => {
 		]);
 	});
 
-	it("keeps every budget wire value inside the variant's documented range", () => {
-		const ranges: Record<string, { min: number; max: number }> = {
-			"gemini-2.5-pro": { min: 128, max: 32_768 },
-			"gemini-2.5-flash": { min: 0, max: 24_576 },
-			"gemini-2.5-flash-lite": { min: 512, max: 24_576 },
-		};
-		for (const [id, range] of Object.entries(ranges)) {
+	it.each(BUDGET_RANGE_CASES)(
+		"keeps every $name budget wire value inside its documented range",
+		({ id, min, max }) => {
 			const thinking = getGeminiGenerateContentProfile(id)?.thinking;
-			expect(thinking?.control, id).toBe("budget");
-			if (thinking?.control !== "budget") continue;
+			expect(thinking?.control).toBe("budget");
+			if (thinking?.control !== "budget") return;
 			const { low, medium, high } = thinking.budgets;
-			expect([low, medium, high], id).toEqual([low, medium, high].slice().sort((a, b) => a - b));
-			expect(low, id).toBeGreaterThanOrEqual(range.min);
-			expect(high, id).toBeLessThanOrEqual(range.max);
-		}
-	});
+			expect([low, medium, high]).toEqual([low, medium, high].slice().sort((a, b) => a - b));
+			expect(low).toBeGreaterThanOrEqual(min);
+			expect(high).toBeLessThanOrEqual(max);
+		},
+	);
 });

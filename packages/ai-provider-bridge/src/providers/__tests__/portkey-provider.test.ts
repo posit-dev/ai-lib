@@ -4,6 +4,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { createRawFetchCapture } from "../../../tests/helpers/raw-fetch-capture";
 import type { ModelClientChatParams } from "../../model-clients/ModelClient";
 import type { ApiKeyCredentials, CancellationToken, Logger } from "../../types";
 import { DEFAULT_DISCOVERY_DEADLINE_MS } from "../cached-model-fetcher";
@@ -551,18 +552,14 @@ describe("portkey client factory", () => {
 		credentials: ApiKeyCredentials,
 		params: Partial<ModelClientChatParams> & { model: string },
 	): Promise<CapturedChatRequest> {
-		const requests: CapturedChatRequest[] = [];
-		const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-			const url =
-				typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-			const headers = new Headers(input instanceof Request ? input.headers : init?.headers);
-			requests.push({ url, headers });
-			return new Response(JSON.stringify({ error: { message: "stop here" } }), {
-				status: 400,
-				headers: { "content-type": "application/json" },
-			});
-		});
-		vi.stubGlobal("fetch", fetchMock);
+		const capture = createRawFetchCapture(
+			async () =>
+				new Response(JSON.stringify({ error: { message: "stop here" } }), {
+					status: 400,
+					headers: { "content-type": "application/json" },
+				}),
+		);
+		vi.stubGlobal("fetch", capture.mock);
 
 		const registry = new ProviderRegistry(logger);
 		registerPortkeyProvider(registry, logger);
@@ -581,8 +578,12 @@ describe("portkey client factory", () => {
 		} catch {
 			// Expected — only the captured request matters.
 		}
-		expect(requests.length).toBeGreaterThan(0);
-		return requests[0];
+		expect(capture.calls.length).toBeGreaterThan(0);
+		const [input, init] = capture.call(0);
+		const url =
+			typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+		const headers = new Headers(input instanceof Request ? input.headers : init?.headers);
+		return { url, headers };
 	}
 
 	it("dispatches anthropic-messages (and undefined) to the Anthropic delegate", async () => {

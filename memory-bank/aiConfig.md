@@ -303,7 +303,10 @@ without managing locking, atomicity, or watch lifecycle themselves.
   edits, is ancestor-aware (watches the nearest existing parent dir until the
   config dir appears), reloads + diffs catalog and issues, and emits a typed
   `ProviderCatalogChange` with category flags plus `issues`/`issuesChanged`.
-  It logs only issue-set additions; clear-then-recur logs again. The initial load does not emit.
+  The returned disposable handle also exposes `ready`, which settles after the
+  initial non-emitting snapshot has loaded so callers can safely coordinate a
+  subsequent mutation. It logs only issue-set additions; clear-then-recur logs
+  again. The initial load does not emit.
 - **Mutate** (`src/node/mutate-config.ts`) takes cross-process safety seriously:
   a `proper-lockfile` lock (with retries and stale detection), an in-process
   serialization queue per config path, race-safe first-creation via the

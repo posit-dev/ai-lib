@@ -29,7 +29,12 @@ import { resolveProviderCatalogReport } from "../resolve-catalog.js";
 import type { LoggerLike, ResolvedProvider } from "../types.js";
 import { readEnvFragment, readFileConfig } from "./load-config.js";
 import { DEFAULT_ENV_VAR, ENFORCED_ENV_VAR, PROVIDERS_CONFIG_PATH } from "./paths.js";
-import type { Disposable, ProviderCatalogChange, WatchCatalogOptions } from "./types.js";
+import type {
+	Disposable,
+	ProviderCatalogChange,
+	WatchCatalogHandle,
+	WatchCatalogOptions,
+} from "./types.js";
 
 /**
  * Watch the provider config sources for changes and emit typed
@@ -43,12 +48,13 @@ import type { Disposable, ProviderCatalogChange, WatchCatalogOptions } from "./t
  * @param handler - Called with the change event whenever any source changes.
  * @param opts - Optional path/env overrides and the optional legacy opt-ins
  *   (`legacyPositronSettings` reader, `legacyPositronEnforcedSettings` flag).
- * @returns Disposable that stops watching.
+ * @returns Watch handle whose readiness promise settles after the initial
+ * snapshot is loaded and whose disposable remains backward compatible.
  */
 export function watchResolvedProviderCatalog(
 	handler: (change: ProviderCatalogChange) => void,
 	opts: WatchCatalogOptions,
-): Disposable {
+): WatchCatalogHandle {
 	const configPath = opts.configPath ?? PROVIDERS_CONFIG_PATH;
 	const env = opts.envVars ?? process.env;
 	const logger = opts.logger;
@@ -114,8 +120,9 @@ export function watchResolvedProviderCatalog(
 		}, 300);
 	};
 
-	// Load initial snapshot.
-	void rebuild();
+	// Load initial snapshot and expose its completion so callers can perform
+	// subsequent writes without racing initialization.
+	const ready = rebuild();
 
 	// Subscribe to change signals from every watchable source.
 	for (const provider of sourceProviders) {
@@ -125,6 +132,7 @@ export function watchResolvedProviderCatalog(
 	}
 
 	return {
+		ready,
 		dispose: () => {
 			disposed = true;
 			if (debounceTimer) clearTimeout(debounceTimer);

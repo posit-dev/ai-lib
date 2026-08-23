@@ -11,15 +11,48 @@ import {
 	stripCatalogSlug,
 } from "../portkey-helpers.js";
 
+type CatalogSlugNormalizationCase = {
+	name: string;
+	id: string;
+	expected: string;
+};
+
+const CATALOG_SLUG_NORMALIZATION_CASES = [
+	{
+		name: "catalog model id",
+		id: "@anthropic-prod/claude-haiku-4-5",
+		expected: "claude-haiku-4-5",
+	},
+	{ name: "nested model id", id: "@prod/nested/model", expected: "nested/model" },
+] satisfies readonly CatalogSlugNormalizationCase[];
+
+const CLAUDE_CAPABILITY_CASES = [
+	{ name: "catalog-routed Claude id", id: "@anthropic-prod/claude-haiku-4-5" },
+	{ name: "bare Claude id", id: "claude-haiku-4-5" },
+] satisfies readonly { name: string; id: string }[];
+
+const CONSERVATIVE_CAPABILITY_CASES = [
+	{ name: "OpenAI id", id: "gpt-5-mini" },
+	{ name: "unrecognized catalog id", id: "@prod/qwen-3-coder" },
+] satisfies readonly { name: string; id: string }[];
+
 describe("stripCatalogSlug", () => {
-	it("strips the @slug/ prefix up to the first slash", () => {
-		expect(stripCatalogSlug("@anthropic-prod/claude-haiku-4-5")).toBe("claude-haiku-4-5");
-		expect(stripCatalogSlug("@prod/nested/model")).toBe("nested/model");
+	it.each(CATALOG_SLUG_NORMALIZATION_CASES)(
+		"strips the @slug/ prefix from a $name",
+		({ id, expected }) => {
+			expect(stripCatalogSlug(id)).toBe(expected);
+		},
+	);
+
+	it("returns a bare id unchanged", () => {
+		expect(stripCatalogSlug("claude-haiku-4-5")).toBe("claude-haiku-4-5");
 	});
 
-	it("returns ids without the @slug/ shape unchanged", () => {
-		expect(stripCatalogSlug("claude-haiku-4-5")).toBe("claude-haiku-4-5");
+	it("returns a malformed @slug signature without a slash unchanged", () => {
 		expect(stripCatalogSlug("@no-slash")).toBe("@no-slash");
+	});
+
+	it("returns an empty id unchanged", () => {
 		expect(stripCatalogSlug("")).toBe("");
 	});
 });
@@ -88,18 +121,19 @@ describe("classifyPortkeyModel", () => {
 });
 
 describe("getPortkeyModelCapabilities", () => {
-	it("gives Claude ids Anthropic capabilities, stripping catalog slugs internally", () => {
-		const routed = getPortkeyModelCapabilities("@anthropic-prod/claude-haiku-4-5");
-		expect(routed).toBeDefined();
-		expect(routed?.maxOutputTokens).toBe(64_000);
-		expect(getPortkeyModelCapabilities("claude-haiku-4-5")).toBeDefined();
+	it.each(CLAUDE_CAPABILITY_CASES)("gives a $name Anthropic capabilities", ({ id }) => {
+		const caps = getPortkeyModelCapabilities(id);
+		expect(caps).toBeDefined();
+		expect(caps?.maxOutputTokens).toBe(64_000);
 	});
 
-	it("returns undefined for non-Claude ids (conservative defaults apply)", () => {
-		// TODO(phase0-gate): widen per probe matrix — no OpenAI-caps branch yet.
-		expect(getPortkeyModelCapabilities("gpt-5-mini")).toBeUndefined();
-		expect(getPortkeyModelCapabilities("@prod/qwen-3-coder")).toBeUndefined();
-	});
+	// TODO(phase0-gate): widen per probe matrix — no OpenAI-caps branch yet.
+	it.each(CONSERVATIVE_CAPABILITY_CASES)(
+		"returns undefined for an $name so conservative defaults apply",
+		({ id }) => {
+			expect(getPortkeyModelCapabilities(id)).toBeUndefined();
+		},
+	);
 });
 
 // The ID-only seam has no catalog metadata; the catalog-entry classifier tests

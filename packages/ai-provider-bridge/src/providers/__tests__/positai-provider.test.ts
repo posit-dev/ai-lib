@@ -2,24 +2,11 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-/**
- * Interface-level tests for Phase 4 protocol routing behavior.
- *
- * These verify the specific regressions the Phase 4 fixes target:
- * - Posit AI protocol mapping (unsupported protocols suppressed, vendor preserved)
- * - LM Studio rejecting unsupported protocols
- * - Vertex explicit Anthropic protocol using global location
- */
-
 import { describe, expect, it, vi } from "vitest";
 
-import { getEffectiveLocation, isVertexAnthropicModel } from "../model-clients/GoogleVertexClient";
-import { LMStudioClient } from "../model-clients/LMStudioClient";
-import type { ModelClientChatParams } from "../model-clients/ModelClient";
-import { registerPositAiProvider } from "../providers/positai-provider";
-import { ProviderRegistry } from "../providers/ProviderRegistry";
-import type { Logger, ModelInfo, ProviderCredentials } from "../types";
-import type { CancellationToken } from "../types";
+import type { Logger, ProviderCredentials } from "../../types";
+import { registerPositAiProvider } from "../positai-provider";
+import { ProviderRegistry } from "../ProviderRegistry";
 
 function createMockLogger(): Logger {
 	return {
@@ -30,17 +17,6 @@ function createMockLogger(): Logger {
 		trace: vi.fn(),
 	};
 }
-
-function createMockCancellationToken(): CancellationToken {
-	return {
-		isCancellationRequested: false,
-		onCancellationRequested: () => ({ dispose: () => {} }),
-	};
-}
-
-// ---------------------------------------------------------------------------
-// Posit AI protocol mapping
-// ---------------------------------------------------------------------------
 
 describe("Posit AI protocol mapping", () => {
 	it("maps anthropic-messages protocol and sets vendor to anthropic", async () => {
@@ -143,64 +119,4 @@ describe("Posit AI protocol mapping", () => {
 
 		vi.restoreAllMocks();
 	});
-});
-
-// ---------------------------------------------------------------------------
-// LM Studio protocol guard
-// ---------------------------------------------------------------------------
-
-describe("LMStudioClient protocol guard", () => {
-	it("rejects openai-responses protocol", async () => {
-		const client = new LMStudioClient("http://localhost:1234/v1");
-
-		const params: ModelClientChatParams = {
-			model: "some-model",
-			messages: [],
-			cancellationToken: createMockCancellationToken(),
-			protocol: "openai-responses",
-		};
-
-		await expect(client.chat(params)).rejects.toThrow(
-			/Unsupported protocol for LM Studio.*openai-responses/,
-		);
-	});
-
-	it("rejects anthropic-messages protocol", async () => {
-		const client = new LMStudioClient("http://localhost:1234/v1");
-
-		const params: ModelClientChatParams = {
-			model: "some-model",
-			messages: [],
-			cancellationToken: createMockCancellationToken(),
-			protocol: "anthropic-messages",
-		};
-
-		await expect(client.chat(params)).rejects.toThrow(
-			/Unsupported protocol for LM Studio.*anthropic-messages/,
-		);
-	});
-});
-
-// ---------------------------------------------------------------------------
-// Vertex location heuristic with explicit protocol
-// ---------------------------------------------------------------------------
-
-describe("GoogleVertexClient location heuristic", () => {
-	it("routes recognized Anthropic model IDs to global via model-ID heuristic", () => {
-		// Baseline: recognized model IDs already go to global
-		expect(isVertexAnthropicModel("claude-sonnet-4-6")).toBe(true);
-		expect(getEffectiveLocation("claude-sonnet-4-6", "us-central1")).toBe("global");
-	});
-
-	it("routes unrecognized model IDs to configured location", () => {
-		// A model ID that doesn't match the anthropic pattern
-		expect(isVertexAnthropicModel("my-custom-model")).toBe(false);
-		expect(getEffectiveLocation("my-custom-model", "us-central1")).toBe("us-central1");
-	});
-
-	// The actual location-with-protocol behavior is tested indirectly:
-	// GoogleVertexClient.createModel is private, so we verify the exported
-	// helpers produce the right inputs and trust that createModel's
-	// `useAnthropicApi && protocol === "anthropic-messages"` → "global" branch
-	// is covered by the type-checked implementation.
 });

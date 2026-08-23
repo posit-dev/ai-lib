@@ -127,7 +127,7 @@ on the methods, forcing callers to declare types at each call site:
 | `clear(): Promise<void>`               | Remove all keys                                                        |
 | `keys(): Promise<string[]>`            | List keys                                                              |
 | `withLock<T>(fn): Promise<T>`          | Run `fn` inside a cross-process lock for a multi-step critical section |
-| `watch(handler): Disposable`           | Subscribe to external file changes; dispose to stop                    |
+| `watch(handler): WatchHandle`          | Subscribe to changes; await `ready`; dispose to stop                   |
 
 Keys are **opaque strings**. A `namespace:key` convention (e.g.
 `auth:positai:oauth`) is recommended so multiple products can share one file,
@@ -164,9 +164,10 @@ whole permission step is skipped on Windows.
 `watch(handler)` uses `chokidar` with a 200ms debounce to coalesce rapid edits,
 and `awaitWriteFinish` (100ms stability, 50ms poll) plus listening to both
 `change` and `add` events so the temp-file+rename atomic-write pattern is
-detected reliably. It ensures the file exists before watching, logs (rather than
-throws) on init failure, and returns a `Disposable` whose `dispose()` clears the
-debounce timer and closes the watcher.
+detected reliably. It ensures the file exists before watching, logs initialization
+failures for disposable-only callers, and returns a `WatchHandle` whose `ready`
+promise settles when chokidar is listening. `dispose()` clears the debounce timer,
+closes the watcher, and also settles readiness if disposal wins the startup race.
 
 ### Corruption tolerance
 

@@ -8,10 +8,12 @@ import {
 	type DatabricksModelProfile,
 	type DatabricksModelProfileInput,
 	type DatabricksServedEntityInput,
+	type DatabricksSurface,
 	inferDatabricksModelProfile,
 } from "../databricks-helpers.js";
 
 const GATEWAY_CHAT = "mlflow/v1/chat/completions";
+const GATEWAY_RESPONSES = "mlflow/v1/responses";
 const ANTHROPIC_NATIVE = "anthropic/v1/messages";
 
 /** A pay-per-token foundation-model entity, optionally advertising gateway APIs. */
@@ -39,6 +41,22 @@ function profile(input: Partial<DatabricksModelProfileInput> = {}): DatabricksMo
 		servedEntities: [],
 		...input,
 	});
+}
+
+function responseEntity(apiTypes: readonly string[]): DatabricksServedEntityInput {
+	return foundationEntity("system.ai.some-model", apiTypes);
+}
+
+function responseProtocol(
+	surface: DatabricksSurface,
+	servedEntities: readonly DatabricksServedEntityInput[],
+) {
+	const result = profile({
+		surface,
+		endpointName: "databricks-some-model",
+		servedEntities,
+	});
+	return result.excluded ? "excluded" : result.protocol;
 }
 
 /** Narrow to the listed variant, failing the test when the endpoint was excluded. */
@@ -309,6 +327,57 @@ describe("inferDatabricksModelProfile — gateway surface gating", () => {
 				}),
 			).protocol,
 		).toBe("anthropic-messages");
+	});
+});
+
+/**
+ * The gateway's unified MLflow Responses API is the preferred route for
+ * endpoints that do not qualify for a native vendor protocol: chat completions
+ * rejects `store` and `max_completion_tokens` and cannot represent the block
+ * arrays these models stream for reasoning, while Responses handles all three.
+ *
+ * Eligibility is the advertised `mlflow/v1/responses` api_type, and the route
+ * exists only on the gateway surface.
+ */
+describe("inferDatabricksModelProfile — unified MLflow Responses route", () => {
+	it("prefers Responses over chat when the gateway advertises it", () => {
+		expect(responseProtocol("gateway", [responseEntity([GATEWAY_CHAT, GATEWAY_RESPONSES])])).toBe(
+			"mlflow-responses",
+		);
+	});
+
+	it("uses Responses when Chat Completions is not advertised", () => {
+		expect(responseProtocol("gateway", [responseEntity([GATEWAY_RESPONSES])])).toBe(
+			"mlflow-responses",
+		);
+	});
+
+	it("falls back to chat when Responses is not advertised", () => {
+		expect(responseProtocol("gateway", [responseEntity([GATEWAY_CHAT])])).toBe("openai-chat");
+	});
+
+	it("stays on chat for the serving surface, which has no unified Responses route", () => {
+		expect(responseProtocol("serving", [responseEntity([GATEWAY_CHAT, GATEWAY_RESPONSES])])).toBe(
+			"openai-chat",
+		);
+	});
+
+	it("requires every configured entity to advertise Responses", () => {
+		expect(
+			responseProtocol("gateway", [
+				responseEntity([GATEWAY_CHAT, GATEWAY_RESPONSES]),
+				responseEntity([GATEWAY_CHAT]),
+			]),
+		).toBe("openai-chat");
+	});
+
+	it("does not displace a native vendor protocol", () => {
+		const claude = foundationEntity("system.ai.databricks-claude-sonnet-4-5", [
+			GATEWAY_CHAT,
+			ANTHROPIC_NATIVE,
+			GATEWAY_RESPONSES,
+		]);
+		expect(responseProtocol("gateway", [claude])).toBe("anthropic-messages");
 	});
 });
 
