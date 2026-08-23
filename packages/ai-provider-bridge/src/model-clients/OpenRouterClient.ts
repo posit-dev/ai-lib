@@ -12,6 +12,7 @@ import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
 	createStepLogger,
+	suppressAiSdkDefaultErrorLogging,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 
@@ -75,6 +76,7 @@ export class OpenRouterClient implements ModelClient {
 			tools: params.tools,
 			toolChoice: params.tools ? "auto" : undefined,
 			abortSignal: abortController.signal,
+			onError: suppressAiSdkDefaultErrorLogging,
 			onStepFinish: createStepLogger(params.stepLoggers || [], "openrouter", params.model),
 		});
 
