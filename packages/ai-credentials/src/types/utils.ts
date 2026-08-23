@@ -3,10 +3,36 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * Provider URL construction helpers (Snowflake Cortex, Databricks).
+ * Provider URL construction helpers (Snowflake Cortex, Databricks, OAuth hosts).
  *
  * Pure functions with no platform dependencies — safe for browser/renderer.
  */
+
+// ---------------------------------------------------------------------------
+// OAuth auth hosts
+// ---------------------------------------------------------------------------
+
+/**
+ * Validate a user-supplied OAuth auth host, returning it unchanged when it is
+ * a bare authority (`host[:port]`) suitable for interpolating into
+ * `https://${host}/oauth/...` endpoint URLs.
+ *
+ * Users naturally paste a host with a scheme (`https://login.posit.cloud`)
+ * because every other URL-shaped setting takes one; without validation the
+ * interpolation produces `https://https://login.posit.cloud/...`, which the
+ * fetch stack parses with `https` as the hostname and fails with the cryptic
+ * `getaddrinfo ENOTFOUND https`. Throw a descriptive error instead, so the
+ * message that reaches the UI says exactly what to fix.
+ */
+export function requireBareAuthHost(raw: string): string {
+	const host = raw.trim();
+	if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(host) || /[/?#]/.test(host)) {
+		throw new Error(
+			`Invalid auth host "${raw}": expected a bare hostname such as "login.posit.cloud" — remove the URL scheme and any path.`,
+		);
+	}
+	return host;
+}
 
 // ---------------------------------------------------------------------------
 // Snowflake
