@@ -221,6 +221,20 @@ The sorting question: "If this test fails in six months, will it point at a real
 
 **A bug fix's repro test must fail on the unfixed code.** Run it before writing the fix; if it passes, it's aimed at the wrong boundary.
 
+### Test Structure
+
+- Keep tests with their owning domain under `src/**/__tests__/`; put shared test-only fixtures under the package's `tests/helpers/`.
+- Keep configuration, storage, credential, provider, wire, and build-process contracts in separate suites even when they share setup.
+- Test helpers should manage setup and cleanup without embedding expected behavior, normalizing wire data, or creating shared mutable state.
+- Keep `build-coordinator.test.ts` separate from default tests; run it after a full build when coordinator behavior is affected.
+
+### Test Quality Gates
+
+- Prefer readiness signals, observed events, injected timing seams, or `vi.waitFor` over arbitrary sleeps. Retain representative real filesystem, watcher, permission, lock, and process tests.
+- Wire tests must assert raw requests; helpers must not normalize or reconstruct URLs, headers, or bodies.
+- Test runs must have empty stderr and no unexpected Vitest `stdout |` or `stderr |` output. Capture and assert intentional output locally rather than suppressing it globally.
+- Run the affected workspace tests plus `npm run check-types` and `npm run format:check`; run bridge lint and the coordinator suite when relevant.
+
 ### Provider Implementation (`ai-provider-bridge`)
 
 When adding a new provider:
