@@ -15,6 +15,7 @@
  */
 
 import type { OAuthBackendHooks, OAuthProviderConfig } from "./Backend.js";
+import { requireBareAuthHost } from "./types/index.js";
 import type { DeviceAuthInfo, Logger, TokenData } from "./types/index.js";
 
 /** Token endpoint response shape (RFC 8628 §3.5 / OAuth token response). */
@@ -133,7 +134,7 @@ export class OAuthEngine {
 		// flow's success (persistTokens) or failure (polling) resolves it.
 		await this.hooks.clearError(providerId);
 
-		const authUrl = `https://${config.authHost}/oauth/device/authorize`;
+		const authUrl = `https://${requireBareAuthHost(config.authHost)}/oauth/device/authorize`;
 		const params = new URLSearchParams({ scope: config.scope, client_id: config.clientId });
 
 		this.logger?.debug(`[ai-credentials] startDeviceAuth: requesting device code from ${authUrl}`);
@@ -198,7 +199,7 @@ export class OAuthEngine {
 		deviceCode: string,
 		interval: number,
 	): Promise<void> {
-		const tokenUrl = `https://${config.authHost}/oauth/token`;
+		const tokenUrl = `https://${requireBareAuthHost(config.authHost)}/oauth/token`;
 
 		// Cancel any prior polling for this provider.
 		this.cancelPolling(providerId);
@@ -305,7 +306,7 @@ export class OAuthEngine {
 			}
 		}
 
-		const tokenUrl = `https://${config.authHost}/oauth/token`;
+		const tokenUrl = `https://${requireBareAuthHost(config.authHost)}/oauth/token`;
 		const params = new URLSearchParams({
 			scope: config.scope,
 			client_id: config.clientId,

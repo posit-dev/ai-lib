@@ -21,6 +21,7 @@ vi.mock("../ai-sdk-helpers", () => ({
 		cleanup: vi.fn(),
 	})),
 	createStepLogger: vi.fn(() => undefined),
+	suppressAiSdkDefaultErrorLogging: vi.fn(),
 }));
 
 import { registerCustomOpenRouterProvider } from "../../providers/openrouter-provider";

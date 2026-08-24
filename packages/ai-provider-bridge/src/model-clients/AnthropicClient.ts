@@ -18,6 +18,7 @@ import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
 	createStepLogger,
+	suppressAiSdkDefaultErrorLogging,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 
@@ -110,6 +111,7 @@ export class AnthropicClient implements ModelClient {
 				toolChoice: tools ? "auto" : undefined,
 				abortSignal: abortController.signal,
 				providerOptions,
+				onError: suppressAiSdkDefaultErrorLogging,
 				// Capture raw JSON on each step finish
 				onStepFinish: createStepLogger(params.stepLoggers || [], "anthropic", params.model),
 			},

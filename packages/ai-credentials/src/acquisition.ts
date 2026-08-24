@@ -496,9 +496,42 @@ async function postForm(
 		signal,
 	});
 	if (!allowError && !response.ok) {
-		throw new Error(`oauth_http_${response.status}`);
+		throw new Error(`oauth_http_${response.status}${await oauthErrorDetail(response)}`);
 	}
 	return response;
+}
+
+/**
+ * Best-effort detail for a failed OAuth endpoint call. RFC 6749 §5.2 error
+ * bodies are JSON (`{"error": "...", "error_description": "..."}`); prefer
+ * the description, fall back to bounded raw text. The status alone
+ * (`oauth_http_400`) tells the user nothing — a 400 from device authorization
+ * usually means a bad client ID or scope, which the body names explicitly.
+ */
+async function oauthErrorDetail(response: Response): Promise<string> {
+	// Bound every candidate the same way: the message is persisted in the
+	// terminal credential record and echoed in status payloads and logs, so
+	// a server must not be able to stuff an arbitrarily large value into it.
+	const bound = (value: string): string => (value.length > 200 ? `${value.slice(0, 200)}…` : value);
+	try {
+		const text = await response.text();
+		if (!text) return "";
+		try {
+			const body: unknown = JSON.parse(text);
+			if (typeof body === "object" && body !== null) {
+				const record = body as Record<string, unknown>;
+				const description = record.error_description;
+				if (typeof description === "string" && description) return `: ${bound(description)}`;
+				const code = record.error;
+				if (typeof code === "string" && code) return `: ${bound(code)}`;
+			}
+		} catch {
+			// Not JSON — fall through to the raw body.
+		}
+		return `: ${bound(text)}`;
+	} catch {
+		return "";
+	}
 }
 
 async function tokenData(
