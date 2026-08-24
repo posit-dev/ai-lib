@@ -17,6 +17,7 @@ import type { LanguageModelV3 } from "@ai-sdk/provider";
 import { streamText } from "ai";
 
 import { createAwsCredentialProvider } from "../aws-credentials";
+import { safeSdkCustomHeaders } from "../custom-headers";
 import { resolveBedrockTransport, type BedrockTransport } from "../providers/bedrock-transport";
 import { sanitizeToolCallIdsForAnthropic } from "../tool-call-ids";
 import {
@@ -56,6 +57,16 @@ export interface BedrockClientConfig {
 	sessionToken?: string;
 	/** Extra request headers (e.g. for a header-gated proxy in front of a gateway). */
 	customHeaders?: Record<string, string>;
+	/**
+	 * Allow an explicit `baseUrl` (see {@link ModelClientChatParams.baseUrl}) to
+	 * override the resolved FIPS runtime endpoint. Defaults to false: an
+	 * unrecognized override under FIPS is rejected rather than silently sent to
+	 * an endpoint with no FIPS guarantee. Callers that route through a trusted,
+	 * admin-configured gateway (e.g. the Posit Connect provider) opt in
+	 * explicitly, since that redirect is deliberate rather than accidental
+	 * misconfiguration.
+	 */
+	allowBaseUrlUnderFips?: boolean;
 }
 
 export class BedrockClient implements ModelClient {
@@ -223,9 +234,11 @@ export class BedrockClient implements ModelClient {
 	 *
 	 * The Anthropic and Converse routes honor an explicit `baseUrl` (e.g. a
 	 * Connect gateway route), falling back to the resolved AWS runtime endpoint
-	 * otherwise; when FIPS endpoints are mandated the explicit URL still wins,
-	 * but the override is logged. Mantle also honors an explicit `baseUrl` but
-	 * has no runtime-endpoint fallback and is vetoed entirely under FIPS.
+	 * otherwise. When FIPS endpoints are mandated, an explicit `baseUrl` is
+	 * rejected unless {@link BedrockClientConfig.allowBaseUrlUnderFips} opts in
+	 * (then the override is logged). Mantle also honors an explicit `baseUrl`
+	 * but has no runtime-endpoint fallback and is vetoed entirely under FIPS,
+	 * with no override.
 	 *
 	 * When an explicit `protocol` is provided, it takes precedence over the
 	 * model-ID heuristic.
@@ -237,6 +250,7 @@ export class BedrockClient implements ModelClient {
 		baseUrl?: string,
 	): LanguageModelV3 {
 		const credentialProvider = createAwsCredentialProvider(this.config);
+		const headers = safeSdkCustomHeaders(this.config.customHeaders);
 
 		if (protocol === "openai-chat" || protocol === "openai-responses") {
 			if (!transport.mantleEnabled) {
@@ -247,7 +261,7 @@ export class BedrockClient implements ModelClient {
 			const mantle = createBedrockMantle({
 				region: this.config.region,
 				baseURL: baseUrl,
-				headers: this.config.customHeaders,
+				headers,
 				credentialProvider,
 				// Enforce the AWS-credentials-only contract. Without this explicit
 				// opt-out, a stale AWS_BEARER_TOKEN_BEDROCK overrides SigV4.
@@ -257,6 +271,12 @@ export class BedrockClient implements ModelClient {
 		}
 
 		if (baseUrl && transport.useFipsEndpoint) {
+			if (!this.config.allowBaseUrlUnderFips) {
+				throw new Error(
+					`Bedrock base URL override to ${baseUrl} is not permitted while AWS FIPS endpoints ` +
+						`are enforced (resolved FIPS endpoint: ${transport.runtimeBaseUrl}).`,
+				);
+			}
 			this.logger?.warn(
 				`[Bedrock] Explicit base URL ${baseUrl} overrides the FIPS runtime endpoint ${transport.runtimeBaseUrl}`,
 			);
@@ -270,7 +290,7 @@ export class BedrockClient implements ModelClient {
 			return createBedrockAnthropic({
 				region: this.config.region,
 				baseURL: baseUrl ?? transport.runtimeBaseUrl,
-				headers: this.config.customHeaders,
+				headers,
 				credentialProvider,
 			})(modelId);
 		}
@@ -278,7 +298,7 @@ export class BedrockClient implements ModelClient {
 		return createAmazonBedrock({
 			region: this.config.region,
 			baseURL: baseUrl ?? transport.runtimeBaseUrl,
-			headers: this.config.customHeaders,
+			headers,
 			credentialProvider,
 		})(modelId);
 	}
