@@ -86,4 +86,9 @@ export const PROVIDER_ENV_MAPPINGS: Record<string, ProviderEnvMapping> = {
 	portkey: {
 		apiKey: "PORTKEY_API_KEY",
 	},
+	// The standard Posit Connect API-key variable (rsconnect/connectapi
+	// convention); pairs with ai-config's POSIT_CONNECT_URL connection var.
+	connect: {
+		apiKey: "CONNECT_API_KEY",
+	},
 };

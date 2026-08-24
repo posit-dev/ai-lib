@@ -86,9 +86,9 @@ const CONNECTION_ENV_MAPPINGS: Partial<Record<BuiltinProviderId, ConnectionEnvMa
 	// mode, which determines what the stored key *is* — see base-url.ts's
 	// PORTKEY_HOSTED_BASE_URL and the bridge's resolvePortkeyConnection.
 	portkey: { baseUrl: "PORTKEY_BASE_URL" },
-	// The Connect server URL; integration discovery and the per-integration
-	// gateway routes are both derived from it.
-	connect: { baseUrl: "POSIT_CONNECT_GATEWAY_URL" },
+	// The Connect server root URL (NOT a gateway route); integration discovery
+	// and the per-integration gateway routes are both derived from it.
+	connect: { baseUrl: "POSIT_CONNECT_URL" },
 };
 
 // ---------------------------------------------------------------------------
