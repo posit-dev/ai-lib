@@ -2,7 +2,7 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { CONNECT_BEDROCK_MODEL_IDS } from "ai-config";
+import { CONNECT_BEDROCK_MODEL_IDS, CONNECT_BEDROCK_MODELS } from "ai-config";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const chats = vi.hoisted(() => ({
@@ -23,7 +23,7 @@ vi.mock("../../model-clients/BedrockClient", () => ({
 
 import { AnthropicClient } from "../../model-clients/AnthropicClient";
 import { BedrockClient } from "../../model-clients/BedrockClient";
-import type { CancellationToken, Logger } from "../../types";
+import type { CancellationToken, Logger, ProviderCredentials } from "../../types";
 import {
 	registerConnectProvider,
 	shapeConnectIntegrations,
@@ -105,6 +105,19 @@ function stubDiscoveryFetch(routes: Record<string, () => Response> = {}): Return
 	return fetchMock;
 }
 
+function mintSuccess(region = "us-west-2") {
+	return vi.fn(async () => ({
+		ok: true as const,
+		credentials: {
+			type: "aws-credentials" as const,
+			region,
+			accessKeyId: "AKIA",
+			secretAccessKey: "SECRET",
+			sessionToken: "SESSION",
+		},
+	}));
+}
+
 beforeEach(() => {
 	vi.clearAllMocks();
 });
@@ -114,11 +127,12 @@ afterEach(() => {
 });
 
 describe("shapeConnectIntegrations", () => {
-	it("keeps allowlisted templates, requires Viewer auth for aws, and drops guid-less records", () => {
+	it("keeps supported templates even from a verbatim allowlist, requires Viewer auth for aws, and drops guid-less records", () => {
+		// "github" is in the allowlist but has no shaping rule, so it is still dropped.
 		const shaped = shapeConnectIntegrations(
 			[...INTEGRATION_RECORDS, { template: "anthropic", name: "No Guid" }],
 			CONNECT_URL,
-			["anthropic", "aws"],
+			["anthropic", "aws", "github"],
 		);
 
 		expect(shaped.map((integration) => integration.idPrefix)).toEqual([
@@ -190,7 +204,9 @@ describe("connect model fetcher", () => {
 	it("discovers integrations and namespaces each gateway's models", async () => {
 		const fetchMock = stubDiscoveryFetch();
 		// Trailing slash on the configured URL must not produce double-slash requests.
-		const models = await registryWithProvider().getModelsForProvider("connect", {
+		const models = await registryWithProvider({
+			getAwsCredentials: vi.fn(),
+		}).getModelsForProvider("connect", {
 			...credentials,
 			baseUrl: `${CONNECT_URL}/`,
 		});
@@ -222,6 +238,12 @@ describe("connect model fetcher", () => {
 		expect(bedrockModels.map((model) => model.id)).toEqual(
 			CONNECT_BEDROCK_MODEL_IDS.map((id) => `connect-bedrock-team/${id}`),
 		);
+		// Display names come from the declared table's human-readable name plus
+		// the integration label, never the raw wire id.
+		const [firstDeclared] = CONNECT_BEDROCK_MODELS;
+		expect(
+			models.find((model) => model.id === `connect-bedrock-team/${firstDeclared.id}`)?.name,
+		).toBe(`${firstDeclared.name} (Bedrock Team)`);
 		for (const model of bedrockModels) {
 			expect(model).toMatchObject({
 				providerId: "connect",
@@ -233,11 +255,23 @@ describe("connect model fetcher", () => {
 		expect(models).toHaveLength(1 + CONNECT_BEDROCK_MODEL_IDS.length);
 	});
 
+	it("skips AWS-backed integrations and warns when no credential callback is provided", async () => {
+		stubDiscoveryFetch();
+		const models = await registryWithProvider().getModelsForProvider("connect", credentials);
+
+		expect(models.map((model) => model.id)).toEqual([
+			"connect-anthropic-prod/claude-sonnet-4-5-20250929",
+		]);
+		expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("no AWS credential callback"));
+	});
+
 	it("isolates a failing integration's discovery from the others", async () => {
 		stubDiscoveryFetch({
 			[`${ANTHROPIC_GATEWAY}/models`]: () => json({ error: "boom" }, 500),
 		});
-		const models = await registryWithProvider().getModelsForProvider("connect", credentials);
+		const models = await registryWithProvider({
+			getAwsCredentials: vi.fn(),
+		}).getModelsForProvider("connect", credentials);
 
 		expect(models.map((model) => model.id)).toEqual(
 			CONNECT_BEDROCK_MODEL_IDS.map((id) => `connect-bedrock-team/${id}`),
@@ -277,12 +311,26 @@ describe("connect chat routing", () => {
 		};
 	}
 
-	async function clientAfterDiscovery(callbacks?: ConnectProviderCallbacks) {
+	function clientWithoutDiscovery(
+		callbacks?: ConnectProviderCallbacks,
+		creds: ProviderCredentials = credentials,
+	) {
+		const registry = new ProviderRegistry(logger);
+		registerConnectProvider(registry, logger, callbacks);
+		const client = registry.getClientForProvider("connect", creds);
+		expect(client).not.toBeNull();
+		return client!;
+	}
+
+	async function clientAfterDiscovery(
+		callbacks?: ConnectProviderCallbacks,
+		creds: ProviderCredentials = credentials,
+	) {
 		stubDiscoveryFetch();
 		const registry = new ProviderRegistry(logger);
 		registerConnectProvider(registry, logger, callbacks);
-		await registry.getModelsForProvider("connect", credentials);
-		const client = registry.getClientForProvider("connect", credentials);
+		await registry.getModelsForProvider("connect", creds);
+		const client = registry.getClientForProvider("connect", creds);
 		expect(client).not.toBeNull();
 		return client!;
 	}
@@ -309,16 +357,7 @@ describe("connect chat routing", () => {
 	});
 
 	it("routes bedrock-converse through per-request STS credentials without forcing a protocol", async () => {
-		const getAwsCredentials = vi.fn(async () => ({
-			ok: true as const,
-			credentials: {
-				type: "aws-credentials" as const,
-				region: "us-west-2",
-				accessKeyId: "AKIA",
-				secretAccessKey: "SECRET",
-				sessionToken: "SESSION",
-			},
-		}));
+		const getAwsCredentials = mintSuccess();
 		const client = await clientAfterDiscovery({ getAwsCredentials });
 		const modelId = CONNECT_BEDROCK_MODEL_IDS[0];
 
@@ -326,6 +365,7 @@ describe("connect chat routing", () => {
 
 		expect(getAwsCredentials).toHaveBeenCalledWith(
 			expect.objectContaining({ guid: AWS_GUID, region: "us-west-2" }),
+			expect.any(AbortSignal),
 		);
 		expect(BedrockClient).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -349,6 +389,141 @@ describe("connect chat routing", () => {
 		expect(delegated.protocol).toBeUndefined();
 	});
 
+	it("routes stamped models statelessly when the integration cache is empty", async () => {
+		const getAwsCredentials = mintSuccess();
+		const client = clientWithoutDiscovery({ getAwsCredentials });
+		const modelId = CONNECT_BEDROCK_MODEL_IDS[0];
+
+		await client.chat(chatParams(`connect-bedrock-team/${modelId}`, "bedrock-converse"));
+
+		// No discovery ran, so the integration is synthesized from the stamp.
+		expect(getAwsCredentials).toHaveBeenCalledWith(
+			expect.objectContaining({ guid: AWS_GUID, template: "aws" }),
+			expect.any(AbortSignal),
+		);
+		expect(BedrockClient).toHaveBeenCalledWith(
+			expect.objectContaining({ region: "us-west-2" }),
+			logger,
+		);
+		const delegated = chats.bedrock.mock.calls[0][0] as { model: string; baseUrl?: string };
+		expect(delegated.model).toBe(modelId);
+		expect(delegated.baseUrl).toBe(BEDROCK_GATEWAY);
+
+		await client.chat(
+			chatParams("connect-anthropic-prod/claude-sonnet-4-5-20250929", "anthropic-messages"),
+		);
+		expect(chats.anthropic).toHaveBeenCalledWith(
+			expect.objectContaining({ baseUrl: ANTHROPIC_GATEWAY }),
+		);
+	});
+
+	it("rejects a stamped model discovered against a different Connect server", async () => {
+		const client = clientWithoutDiscovery();
+
+		await expect(
+			client.chat({
+				model: "connect-anthropic-prod/claude-sonnet-4-5-20250929",
+				messages: [],
+				cancellationToken,
+				baseUrl: `https://other.example.com/__gateway__/anthropic/${ANTHROPIC_GUID}/v1`,
+			}),
+		).rejects.toThrow(/other\.example\.com.*Refresh the model list/s);
+		expect(chats.anthropic).not.toHaveBeenCalled();
+	});
+
+	it("rejects a baseUrl that is not a Connect gateway route", async () => {
+		const client = clientWithoutDiscovery();
+
+		await expect(
+			client.chat({
+				model: "connect-anthropic-prod/claude-sonnet-4-5-20250929",
+				messages: [],
+				cancellationToken,
+				baseUrl: `${CONNECT_URL}/some/other/api`,
+			}),
+		).rejects.toThrow(/not a Connect gateway URL/);
+	});
+
+	it("resolves an unstamped override model through the discovery cache", async () => {
+		const client = await clientAfterDiscovery();
+
+		await client.chat({
+			model: "connect-anthropic-prod/claude-3-haiku-20240307",
+			messages: [],
+			cancellationToken,
+		});
+
+		expect(chats.anthropic).toHaveBeenCalledWith(
+			expect.objectContaining({
+				model: "claude-3-haiku-20240307",
+				baseUrl: ANTHROPIC_GATEWAY,
+			}),
+		);
+	});
+
+	it("asks for a model-list refresh when an unstamped model's prefix is unknown", async () => {
+		const client = await clientAfterDiscovery();
+
+		await expect(
+			client.chat({
+				model: "connect-nonexistent/claude-sonnet-4-5-20250929",
+				messages: [],
+				cancellationToken,
+			}),
+		).rejects.toThrow(/Refresh the model list/);
+	});
+
+	it("drops integrations deleted on the server at the next discovery", async () => {
+		stubDiscoveryFetch();
+		const registry = new ProviderRegistry(logger);
+		registerConnectProvider(registry, logger);
+		await registry.getModelsForProvider("connect", credentials);
+		const client = registry.getClientForProvider("connect", credentials)!;
+
+		await client.chat({
+			model: "connect-anthropic-prod/claude-3-haiku-20240307",
+			messages: [],
+			cancellationToken,
+		});
+		expect(chats.anthropic).toHaveBeenCalledTimes(1);
+
+		stubDiscoveryFetch({
+			[`${CONNECT_URL}/__api__/v1/oauth/integrations`]: () => json([]),
+		});
+		registry.clearModelCache("connect");
+		await registry.getModelsForProvider("connect", credentials);
+
+		await expect(
+			client.chat({
+				model: "connect-anthropic-prod/claude-3-haiku-20240307",
+				messages: [],
+				cancellationToken,
+			}),
+		).rejects.toThrow(/Refresh the model list/);
+	});
+
+	it("forwards an anthropic-messages override on an AWS-backed integration to Bedrock", async () => {
+		const getAwsCredentials = mintSuccess();
+		const client = await clientAfterDiscovery({ getAwsCredentials });
+		const modelId = CONNECT_BEDROCK_MODEL_IDS[0];
+
+		// The template selects the transport: the gateway still requires SigV4,
+		// so the override picks the wire format inside BedrockClient instead of
+		// re-routing to the token-spending Anthropic path.
+		await client.chat({
+			model: `connect-bedrock-team/${modelId}`,
+			messages: [],
+			cancellationToken,
+			protocol: "anthropic-messages",
+			baseUrl: BEDROCK_GATEWAY,
+		});
+
+		expect(chats.anthropic).not.toHaveBeenCalled();
+		expect(chats.bedrock).toHaveBeenCalledWith(
+			expect.objectContaining({ protocol: "anthropic-messages", baseUrl: BEDROCK_GATEWAY }),
+		);
+	});
+
 	it("surfaces the failure code and login URL when AWS credentials cannot be minted", async () => {
 		const loginUrl = `${CONNECT_URL}/__oauth__/integrations/${AWS_GUID}/login`;
 		const client = await clientAfterDiscovery({
@@ -368,8 +543,72 @@ describe("connect chat routing", () => {
 		expect(chats.bedrock).not.toHaveBeenCalled();
 	});
 
+	it("throws rather than fall back to ambient AWS credentials when the mint is incomplete", async () => {
+		const client = await clientAfterDiscovery({
+			getAwsCredentials: vi.fn(async () => ({
+				ok: true as const,
+				credentials: { type: "aws-credentials" as const, region: "us-west-2" },
+			})),
+		});
+
+		await expect(
+			client.chat(
+				chatParams(`connect-bedrock-team/${CONNECT_BEDROCK_MODEL_IDS[0]}`, "bedrock-converse"),
+			),
+		).rejects.toThrow(/incomplete AWS credentials/);
+		expect(chats.bedrock).not.toHaveBeenCalled();
+	});
+
+	it("signs with the integration's sts_region over the minted region and warns", async () => {
+		const client = await clientAfterDiscovery({ getAwsCredentials: mintSuccess("us-east-1") });
+
+		await client.chat(
+			chatParams(`connect-bedrock-team/${CONNECT_BEDROCK_MODEL_IDS[0]}`, "bedrock-converse"),
+		);
+
+		expect(BedrockClient).toHaveBeenCalledWith(
+			expect.objectContaining({ region: "us-west-2" }),
+			logger,
+		);
+		expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("sts_region"));
+	});
+
+	it("passes provider customHeaders through to BedrockClient", async () => {
+		const customHeaders = { "x-proxy-token": "t" };
+		const client = await clientAfterDiscovery(
+			{ getAwsCredentials: mintSuccess() },
+			{
+				...credentials,
+				customHeaders,
+			},
+		);
+
+		await client.chat(
+			chatParams(`connect-bedrock-team/${CONNECT_BEDROCK_MODEL_IDS[0]}`, "bedrock-converse"),
+		);
+
+		expect(BedrockClient).toHaveBeenCalledWith(expect.objectContaining({ customHeaders }), logger);
+	});
+
+	it("leaves ids whose first segment is not a connect- prefix unsplit", async () => {
+		const arn =
+			"arn:aws:bedrock:us-west-2:123456789012:inference-profile/us.anthropic.claude-sonnet-4-5-20250929-v1:0";
+		const client = await clientAfterDiscovery({ getAwsCredentials: mintSuccess() });
+
+		await client.chat({
+			model: arn,
+			messages: [],
+			cancellationToken,
+			protocol: "bedrock-converse",
+			baseUrl: BEDROCK_GATEWAY,
+		});
+
+		const delegated = chats.bedrock.mock.calls[0][0] as { model: string };
+		expect(delegated.model).toBe(arn);
+	});
+
 	it("rejects protocols the Connect gateways cannot serve", async () => {
-		const client = await clientAfterDiscovery();
+		const client = await clientAfterDiscovery({ getAwsCredentials: mintSuccess() });
 
 		await expect(
 			client.chat({
@@ -378,6 +617,16 @@ describe("connect chat routing", () => {
 				cancellationToken,
 				protocol: "openai-chat",
 				baseUrl: ANTHROPIC_GATEWAY,
+			}),
+		).rejects.toThrow(/cannot route protocol "openai-chat"/);
+
+		await expect(
+			client.chat({
+				model: `connect-bedrock-team/${CONNECT_BEDROCK_MODEL_IDS[0]}`,
+				messages: [],
+				cancellationToken,
+				protocol: "openai-chat",
+				baseUrl: BEDROCK_GATEWAY,
 			}),
 		).rejects.toThrow(/cannot route protocol "openai-chat"/);
 	});

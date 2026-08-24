@@ -13,6 +13,13 @@
  * integration's models as `connect-<slug>/<modelId>` so one flat model list
  * can route back to the right gateway.
  *
+ * Chat routing is stateless for discovery-stamped models: the stamped gateway
+ * URL embeds the Connect server, the template (which selects the transport),
+ * and the integration guid, so routing never depends on discovery-time state
+ * that a re-registration, restart, or re-discovery could invalidate. The
+ * integration cache exists only to resolve user-configured models that carry
+ * no stamp.
+ *
  * Two templates are shaped today:
  * - `anthropic` — a pass-through reverse proxy on
  *   `{connect}/__gateway__/anthropic/{guid}/v1` that swaps the federated
@@ -28,12 +35,13 @@
 
 import type { ResolvedProviderId } from "ai-config";
 import {
-	CONNECT_BEDROCK_MODEL_IDS,
+	CONNECT_BEDROCK_MODELS,
 	getAnthropicModelCapabilities,
 	getConnectBedrockModelCapabilities,
 } from "ai-config";
 
 import { additiveHeaderRecord } from "../custom-headers";
+import { createAbortControllerFromToken } from "../model-clients/ai-sdk-helpers";
 import { AnthropicClient } from "../model-clients/AnthropicClient";
 import { BedrockClient } from "../model-clients/BedrockClient";
 import type { ModelClient, ModelClientChatParams } from "../model-clients/ModelClient";
@@ -117,8 +125,13 @@ export interface ConnectProviderCallbacks {
 	 * Mint per-integration AWS credentials for an `aws`-template integration
 	 * (rserver's `/connect_aws_credentials`, keyed by the integration's guid).
 	 * Called per request — the credentials are short-lived STS material.
+	 * `signal` aborts when the chat is cancelled; honor it so a cancelled chat
+	 * is not held behind a hung credential exchange.
 	 */
-	getAwsCredentials(integration: ConnectIntegration): Promise<ConnectAwsCredentialResult>;
+	getAwsCredentials(
+		integration: ConnectIntegration,
+		signal?: AbortSignal,
+	): Promise<ConnectAwsCredentialResult>;
 	/**
 	 * The admin-configured template allowlist. The bridge intersects it with
 	 * its supported set; absent means the default (`anthropic`, `aws`).
@@ -141,11 +154,13 @@ function slugify(input: string): string {
 }
 
 /**
- * Derive a human-readable, deterministic model-id prefix from the
- * integration's admin-facing name (e.g. `connect-anthropic-superuser`) so
- * model ids are stable across discoveries. Falls back to description, then
- * template, when the name is blank; a within-batch collision (or an empty
- * slug) falls back to the guid, which is unique by construction.
+ * Derive a human-readable model-id prefix from the integration's admin-facing
+ * name (e.g. `connect-anthropic-superuser`), deterministic for a given record
+ * set — ids stay stable while the server's integrations are unchanged. Falls
+ * back to description, then template, when the name is blank; a within-batch
+ * collision (or an empty slug) falls back to the guid, which is unique by
+ * construction. Collision fallbacks depend on record order, which is one
+ * reason chat routing keys on the stamped gateway URL rather than the prefix.
  */
 function mintIntegrationPrefix(input: {
 	name: string;
@@ -193,7 +208,10 @@ function configString(record: Record<string, unknown>, key: string): string | un
 /**
  * Shape the integrations endpoint's raw body into allowlisted
  * {@link ConnectIntegration}s. Exported so hosts that resolve prefixes back to
- * integrations (e.g. a credential transport) mint identical slugs.
+ * integrations (e.g. a credential transport) mint identical slugs; templates
+ * outside {@link SUPPORTED_TEMPLATES} are dropped here regardless of the
+ * allowlist, so a host may pass the admin allowlist verbatim and still shape
+ * the exact records (and prefixes) the bridge shapes.
  */
 export function shapeConnectIntegrations(
 	body: readonly unknown[],
@@ -208,7 +226,7 @@ export function shapeConnectIntegrations(
 		const guid = typeof record.guid === "string" ? record.guid : "";
 		if (!guid) continue;
 		const template = nullString(record.template);
-		if (!templates.includes(template)) continue;
+		if (!templates.includes(template) || !SUPPORTED_TEMPLATES.has(template)) continue;
 		if (template === "aws" && nullString(record.auth_type) !== VIEWER_AUTH_TYPE) continue;
 		const name = nullString(record.name);
 		const description = nullString(record.description);
@@ -235,12 +253,15 @@ export function shapeConnectIntegrations(
 // ---------------------------------------------------------------------------
 
 /**
- * Integrations discovered by the model fetcher, kept for the client's
- * per-request routing (`connect-<slug>` → guid/region/gateway). Entries are
- * merged, never cleared, so an in-flight chat on a model from a previous
- * discovery still resolves.
+ * Integrations from the most recent discovery, replaced wholesale each time
+ * so deleted or re-pointed integrations cannot linger. Chat consults it only
+ * for user-configured models that carry no discovery stamp (no `baseUrl`);
+ * stamped models route from the gateway URL alone, so a reset cache
+ * (re-registration, process restart) never strands them. `connectUrl` records
+ * which server the entries came from — they are never used against another.
  */
 interface ConnectIntegrationCache {
+	connectUrl?: string;
 	readonly byPrefix: Map<string, ConnectIntegration>;
 }
 
@@ -293,12 +314,12 @@ function bedrockGatewayModels(
 	providerId: ResolvedProviderId,
 	integration: ConnectIntegration,
 ): ModelInfo[] {
-	return CONNECT_BEDROCK_MODEL_IDS.map((modelId) => ({
-		id: `${integration.idPrefix}/${modelId}`,
-		name: `${modelId} (${integrationLabel(integration)})`,
+	return CONNECT_BEDROCK_MODELS.map((model) => ({
+		id: `${integration.idPrefix}/${model.id}`,
+		name: `${model.name} (${integrationLabel(integration)})`,
 		providerId,
 		vendor: "anthropic",
-		...getConnectBedrockModelCapabilities(modelId),
+		...getConnectBedrockModelCapabilities(model.id),
 		protocol: "bedrock-converse" as const,
 		baseUrl: integration.baseUrl,
 	}));
@@ -381,33 +402,47 @@ function createConnectModelFetcher(
 			const templates = resolveTemplates(callbacks?.templates?.(), logger);
 			const records = await fetchIntegrationRecords(connectUrl, credentials, signal);
 			const integrations = shapeConnectIntegrations(records, connectUrl, templates);
+			// Replace the cache wholesale: deleted or re-pointed integrations must
+			// not linger, and entries must never outlive the server they came from.
+			cache.connectUrl = connectUrl;
+			cache.byPrefix.clear();
 			for (const integration of integrations) {
 				cache.byPrefix.set(integration.idPrefix, integration);
 			}
 
-			const models: ModelInfo[] = [];
-			for (const integration of integrations) {
-				if (integration.template === "aws") {
-					models.push(...bedrockGatewayModels(providerId, integration));
-					continue;
-				}
-				// One misconfigured integration must not hide the others, so
-				// per-integration discovery failures are isolated — but a deadline
-				// abort fails the whole discovery (the fetcher has already fallen
-				// back), so it must not be swallowed as a per-integration failure.
-				try {
-					models.push(
-						...(await discoverAnthropicGatewayModels(providerId, integration, credentials, signal)),
-					);
-				} catch (error) {
-					if (signal.aborted) throw error;
-					const message = error instanceof Error ? error.message : String(error);
-					logger.warn(
-						`[connect] Model discovery failed for integration "${integrationLabel(integration)}": ${message}`,
-					);
-				}
+			if (!callbacks && integrations.some((integration) => integration.template === "aws")) {
+				logger.warn(
+					"[connect] Skipping AWS-backed integrations: no AWS credential callback was provided, " +
+						"so their gateway requests could never be signed.",
+				);
 			}
-			return models;
+			const modelLists = await Promise.all(
+				integrations.map(async (integration): Promise<ModelInfo[]> => {
+					if (integration.template === "aws") {
+						return callbacks ? bedrockGatewayModels(providerId, integration) : [];
+					}
+					// One misconfigured integration must not hide the others, so
+					// per-integration discovery failures are isolated — but a deadline
+					// abort fails the whole discovery (the fetcher has already fallen
+					// back), so it must not be swallowed as a per-integration failure.
+					try {
+						return await discoverAnthropicGatewayModels(
+							providerId,
+							integration,
+							credentials,
+							signal,
+						);
+					} catch (error) {
+						if (signal.aborted) throw error;
+						const message = error instanceof Error ? error.message : String(error);
+						logger.warn(
+							`[connect] Model discovery failed for integration "${integrationLabel(integration)}": ${message}`,
+						);
+						return [];
+					}
+				}),
+			);
+			return modelLists.flat();
 		},
 		fallbackModels: [],
 		logger,
@@ -421,11 +456,34 @@ function createConnectModelFetcher(
 /**
  * Split a namespaced `connect-<slug>/<modelId>` id on the FIRST `/` only —
  * the minted prefix never contains one, but Bedrock model ids (ARNs) may.
+ * A first segment that is not a minted `connect-` prefix (e.g. a raw ARN's
+ * `arn:aws:...`) leaves the whole id as the wire model.
  */
 function splitConnectModelId(model: string): { prefix?: string; wireModel: string } {
 	const separator = model.indexOf("/");
-	if (separator <= 0) return { wireModel: model };
+	if (separator <= 0 || !model.slice(0, separator).startsWith("connect-")) {
+		return { wireModel: model };
+	}
 	return { prefix: model.slice(0, separator), wireModel: model.slice(separator + 1) };
+}
+
+/**
+ * Recover the routing facts a discovery stamp encodes. The gateway URL shape
+ * ({@link gatewayBaseUrl}) embeds the Connect server, the proxy kind (which
+ * names the template), and the integration guid, which is what makes
+ * stamped-model routing stateless. Returns `undefined` for URLs that are not
+ * Connect gateway routes.
+ */
+function parseGatewayBaseUrl(
+	baseUrl: string,
+): { connectUrl: string; template: string; guid: string } | undefined {
+	const match = /^(.+?)\/__gateway__\/(anthropic|bedrock)\/([^/]+)/.exec(baseUrl);
+	if (!match) return undefined;
+	return {
+		connectUrl: match[1],
+		template: match[2] === "bedrock" ? "aws" : "anthropic",
+		guid: match[3],
+	};
 }
 
 /**
@@ -443,59 +501,129 @@ class ConnectClient implements ModelClient {
 	) {}
 
 	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {
+		const connectUrl = this.credentials.baseUrl?.replace(/\/+$/, "");
+		if (!connectUrl) {
+			throw new Error("Connect provider credentials carry no Connect server URL.");
+		}
 		const { prefix, wireModel } = splitConnectModelId(params.model);
-		const integration = prefix ? this.cache.byPrefix.get(prefix) : undefined;
-		// Models are stamped with protocol/baseUrl at discovery; the cache covers
-		// user-configured overrides that carry neither.
-		const protocol =
-			normalizeProtocol(params.protocol) ??
-			(integration && (integration.template === "aws" ? "bedrock-converse" : "anthropic-messages"));
-		const baseUrl = params.baseUrl ?? integration?.baseUrl;
-		if (!baseUrl) {
-			throw new Error(
-				`Connect provider has no gateway base URL for model "${params.model}". ` +
-					`Refresh the model list and try again.`,
-			);
+
+		// A discovery-stamped baseUrl is the source of truth: it names the
+		// server, template, and guid, so routing never depends on cache state.
+		// Only user-configured models without a stamp fall back to the cache.
+		let integration: ConnectIntegration;
+		if (params.baseUrl) {
+			const parsed = parseGatewayBaseUrl(params.baseUrl);
+			if (!parsed) {
+				throw new Error(
+					`Connect provider model "${params.model}" has base URL "${params.baseUrl}", ` +
+						`which is not a Connect gateway URL.`,
+				);
+			}
+			if (parsed.connectUrl !== connectUrl) {
+				throw new Error(
+					`Connect provider model "${params.model}" was discovered against ${parsed.connectUrl}, ` +
+						`but the provider now points at ${connectUrl}. Refresh the model list and try again.`,
+				);
+			}
+			integration = this.resolveIntegration(parsed, prefix);
+		} else {
+			const cached =
+				prefix && this.cache.connectUrl === connectUrl
+					? this.cache.byPrefix.get(prefix)
+					: undefined;
+			if (!cached) {
+				throw new Error(
+					`Connect provider has no gateway base URL for model "${params.model}". ` +
+						`Refresh the model list and try again.`,
+				);
+			}
+			integration = cached;
 		}
 
-		if (protocol === "anthropic-messages") {
-			const client = new AnthropicClient(
-				{ apiKey: this.credentials.apiKey },
+		const protocol = normalizeProtocol(params.protocol);
+		const baseUrl = params.baseUrl ?? integration.baseUrl;
+
+		// The template selects the transport — a protocol override can pick the
+		// wire format within it, but never re-routes off the integration's
+		// gateway (an aws gateway always requires SigV4, whatever the protocol).
+		if (integration.template === "aws") {
+			if (protocol && protocol !== "bedrock-converse" && protocol !== "anthropic-messages") {
+				throw new Error(
+					`Connect provider cannot route protocol "${params.protocol}" for model "${params.model}"; ` +
+						`an AWS-backed integration supports bedrock-converse and anthropic-messages.`,
+				);
+			}
+			return this.bedrockChat(
+				params,
+				wireModel,
 				baseUrl,
-				this.credentials.customHeaders,
-				this.logger,
+				integration,
+				protocol === "anthropic-messages" ? "anthropic-messages" : undefined,
 			);
-			return client.chat({ ...params, model: wireModel, baseUrl });
 		}
 
-		if (protocol === "bedrock-converse") {
-			return this.bedrockChat(params, wireModel, baseUrl, integration);
+		if (protocol && protocol !== "anthropic-messages") {
+			throw new Error(
+				`Connect provider cannot route protocol "${params.protocol}" for model "${params.model}"; ` +
+					`an Anthropic-backed integration supports only anthropic-messages.`,
+			);
 		}
-
-		throw new Error(
-			`Connect provider cannot route protocol "${params.protocol}" for model "${params.model}"; ` +
-				`supported protocols are anthropic-messages and bedrock-converse.`,
+		const client = new AnthropicClient(
+			{ apiKey: this.credentials.apiKey },
+			baseUrl,
+			this.credentials.customHeaders,
+			this.logger,
 		);
+		return client.chat({ ...params, model: wireModel, baseUrl });
+	}
+
+	/**
+	 * Resolve the integration record for a stamped model: prefer the cached
+	 * record (it carries the admin-facing name and `sts_region`) when it came
+	 * from the same server, else synthesize one from the stamp so routing
+	 * survives an empty or replaced cache.
+	 */
+	private resolveIntegration(
+		parsed: { connectUrl: string; template: string; guid: string },
+		prefix: string | undefined,
+	): ConnectIntegration {
+		if (this.cache.connectUrl === parsed.connectUrl) {
+			for (const cached of this.cache.byPrefix.values()) {
+				if (cached.guid === parsed.guid) return cached;
+			}
+		}
+		return {
+			idPrefix: prefix ?? `connect-${parsed.guid}`,
+			guid: parsed.guid,
+			template: parsed.template,
+			name: "",
+			description: "",
+			baseUrl: gatewayBaseUrl(parsed.connectUrl, parsed.template, parsed.guid),
+			loginUrl: integrationLoginUrl(parsed.connectUrl, parsed.guid),
+		};
 	}
 
 	private async bedrockChat(
 		params: ModelClientChatParams,
 		wireModel: string,
 		baseUrl: string,
-		integration: ConnectIntegration | undefined,
+		integration: ConnectIntegration,
+		protocol: "anthropic-messages" | undefined,
 	): Promise<AsyncIterable<LMStreamPart>> {
-		if (!integration) {
-			throw new Error(
-				`Unknown Posit Connect integration for model "${params.model}". ` +
-					`Refresh the model list and try again.`,
-			);
-		}
 		if (!this.callbacks) {
 			throw new Error(
 				"Connect provider has no AWS credential callback; Bedrock-backed integrations are unavailable.",
 			);
 		}
-		const result = await this.callbacks.getAwsCredentials(integration);
+		// The mint is a network exchange of its own; tie it to the chat's
+		// cancellation so an abandoned request is not held behind it.
+		const { abortController, cleanup } = createAbortControllerFromToken(params.cancellationToken);
+		let result: ConnectAwsCredentialResult;
+		try {
+			result = await this.callbacks.getAwsCredentials(integration, abortController.signal);
+		} finally {
+			cleanup();
+		}
 		if (!result.ok) {
 			const detail = result.detail ? ` ${result.detail}` : "";
 			const login = result.loginUrl ? ` Sign in at ${result.loginUrl} and try again.` : "";
@@ -504,20 +632,39 @@ class ConnectClient implements ModelClient {
 			);
 		}
 		const aws = result.credentials;
+		if (!aws.accessKeyId || !aws.secretAccessKey) {
+			// An incomplete key set would send BedrockClient to the ambient AWS
+			// credential chain — the wrong identity for a gateway that verifies
+			// the minted one.
+			throw new Error(
+				`Posit Connect returned incomplete AWS credentials for integration ` +
+					`"${integrationLabel(integration)}".`,
+			);
+		}
+		// Connect verifies inbound SigV4 against the integration record's
+		// sts_region, so prefer it; the minted material's region covers a
+		// synthesized record that has none.
+		const region = integration.region ?? aws.region;
+		if (integration.region && aws.region && integration.region !== aws.region) {
+			this.logger.warn(
+				`[connect] Integration "${integrationLabel(integration)}" declares sts_region ` +
+					`${integration.region} but the minted credentials name ${aws.region}; signing with ${region}.`,
+			);
+		}
 		const client = new BedrockClient(
 			{
-				region: aws.region,
-				profile: aws.profile,
+				region,
 				accessKeyId: aws.accessKeyId,
 				secretAccessKey: aws.secretAccessKey,
 				sessionToken: aws.sessionToken,
+				customHeaders: this.credentials.customHeaders,
 			},
 			this.logger,
 		);
-		// No explicit protocol: BedrockClient's model-id heuristic keeps
+		// Absent protocol: BedrockClient's model-id heuristic keeps
 		// `us.anthropic.*` ids on the native Anthropic (InvokeModel) route, which
 		// the gateway also allows and which supports thinking.
-		return client.chat({ ...params, model: wireModel, baseUrl, protocol: undefined });
+		return client.chat({ ...params, model: wireModel, baseUrl, protocol });
 	}
 }
 
@@ -540,7 +687,8 @@ export function registerConnectProvider(
 	callbacks?: ConnectProviderCallbacks,
 ): void {
 	// Shared between the fetcher (writer) and the client (reader) so chat can
-	// resolve a model's `connect-<slug>` prefix back to its integration.
+	// resolve user-configured models that carry no discovery stamp; stamped
+	// models route from their gateway URL alone.
 	const cache: ConnectIntegrationCache = { byPrefix: new Map() };
 	registry.registerModelFetcher(
 		"connect",
