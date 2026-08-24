@@ -28,7 +28,7 @@ describe("getConnectBedrockModelCapabilities", () => {
 		});
 	});
 
-	it("falls back to conservative limits for an id the Anthropic table cannot answer", () => {
+	it("falls back to conservative limits and image flags for an id the Anthropic table cannot answer", () => {
 		const caps = getConnectBedrockModelCapabilities("mistral.mistral-large-2407-v1:0");
 
 		expect(caps.family).toBeUndefined();
@@ -37,5 +37,10 @@ describe("getConnectBedrockModelCapabilities", () => {
 		expect(caps.maxContextLength).toBe(200_000);
 		expect(caps.maxOutputTokens).toBe(4_096);
 		expect(caps.maxInputTokens).toBe(caps.maxContextLength - caps.maxOutputTokens);
+		// Vision is not the norm across Bedrock chat models; over-reporting it
+		// produces hard API errors, so unknown ids must not claim image support.
+		expect(caps.supportsImages).toBe(false);
+		expect(caps.supportsToolResultImages).toBe(false);
+		expect(caps.supportsTools).toBe(true);
 	});
 });

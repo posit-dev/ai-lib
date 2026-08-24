@@ -113,8 +113,8 @@ export type ClientKind = (typeof CLIENT_KIND_VALUES)[number];
  * **equal**.
  *
  * This is a strict subset of {@link CLIENT_KIND_VALUES}. Product-bound kinds
- * (`positai`, `copilot`, `databricks`) remain excluded because their auth flows
- * are not generic custom-provider flows.
+ * (`positai`, `copilot`, `databricks`, `connect`) remain excluded because
+ * their auth flows are not generic custom-provider flows.
  */
 export const SUPPORTED_CUSTOM_CLIENT_KIND_VALUES = [
 	"openai-compatible",

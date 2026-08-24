@@ -75,6 +75,7 @@ export { getAnthropicModelCapabilities } from "./model-capabilities/anthropic-he
 export { getBedrockMantleModelCapabilities } from "./model-capabilities/bedrock-mantle-helpers.js";
 export {
 	CONNECT_BEDROCK_MODEL_IDS,
+	CONNECT_BEDROCK_MODELS,
 	getConnectBedrockModelCapabilities,
 } from "./model-capabilities/connect-helpers.js";
 export type { ConnectBedrockModelCapabilities } from "./model-capabilities/connect-helpers.js";
