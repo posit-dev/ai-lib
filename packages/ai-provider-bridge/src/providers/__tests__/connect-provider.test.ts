@@ -44,6 +44,9 @@ const ANTHROPIC_GUID = "aaaa1111-1111-1111-1111-111111111111";
 const AWS_GUID = "bbbb2222-2222-2222-2222-222222222222";
 const ANTHROPIC_GATEWAY = `${CONNECT_URL}/__gateway__/anthropic/${ANTHROPIC_GUID}/v1`;
 const BEDROCK_GATEWAY = `${CONNECT_URL}/__gateway__/bedrock/${AWS_GUID}`;
+// Minted prefixes always embed the full guid; see mintIntegrationPrefix.
+const ANTHROPIC_PREFIX = `connect-anthropic-prod-${ANTHROPIC_GUID}`;
+const AWS_PREFIX = `connect-bedrock-team-${AWS_GUID}`;
 
 const INTEGRATION_RECORDS = [
 	{
@@ -136,8 +139,8 @@ describe("shapeConnectIntegrations", () => {
 		);
 
 		expect(shaped.map((integration) => integration.idPrefix)).toEqual([
-			"connect-anthropic-prod",
-			"connect-bedrock-team",
+			ANTHROPIC_PREFIX,
+			AWS_PREFIX,
 		]);
 		expect(shaped[0]).toMatchObject({
 			guid: ANTHROPIC_GUID,
@@ -152,23 +155,25 @@ describe("shapeConnectIntegrations", () => {
 		});
 	});
 
-	it("mints prefixes from name, then description, then template, falling back to the guid on collision", () => {
+	it("mints prefixes from name, then description, then template, always suffixed with the guid", () => {
 		const shaped = shapeConnectIntegrations(
 			[
-				{ guid: "guid-one-12345678", template: "anthropic", name: "Anthropic" },
-				{ guid: "guid-two-12345678", template: "anthropic", name: "Anthropic" },
-				{ guid: "guid-three-1234", template: "anthropic", name: "", description: "Fallback Desc" },
-				{ guid: "guid4", template: "anthropic", name: "", description: "" },
+				{ guid: "guid-one", template: "anthropic", name: "Anthropic" },
+				{ guid: "guid-two", template: "anthropic", name: "Anthropic" },
+				{ guid: "guid-three", template: "anthropic", name: "", description: "Fallback Desc" },
+				{ guid: "guid-four", template: "anthropic", name: "", description: "" },
 			],
 			CONNECT_URL,
 			["anthropic"],
 		);
 
+		// Two integrations sharing a name still mint distinct prefixes — the
+		// guid, not the slug, is what makes a prefix unique.
 		expect(shaped.map((integration) => integration.idPrefix)).toEqual([
-			"connect-anthropic",
+			"connect-anthropic-guid-one",
 			"connect-anthropic-guid-two",
-			"connect-fallback-desc",
-			"connect-anthropic-guid4",
+			"connect-fallback-desc-guid-three",
+			"connect-anthropic-guid-four",
 		]);
 	});
 });
@@ -223,7 +228,7 @@ describe("connect model fetcher", () => {
 		);
 
 		const anthropicModel = models.find(
-			(model) => model.id === "connect-anthropic-prod/claude-sonnet-4-5-20250929",
+			(model) => model.id === `${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`,
 		);
 		expect(anthropicModel).toMatchObject({
 			name: "Claude Sonnet 4.5 (Anthropic Prod)",
@@ -234,21 +239,25 @@ describe("connect model fetcher", () => {
 			supportsWebSearch: true,
 		});
 
-		const bedrockModels = models.filter((model) => model.protocol === "bedrock-converse");
+		// Every declared Connect Bedrock model is a recognized Claude id today,
+		// so it declares anthropic-messages — the route BedrockClient actually
+		// takes for it — even though it is served through the bedrock gateway.
+		const bedrockModels = models.filter((model) => model.id.startsWith(`${AWS_PREFIX}/`));
 		expect(bedrockModels.map((model) => model.id)).toEqual(
-			CONNECT_BEDROCK_MODEL_IDS.map((id) => `connect-bedrock-team/${id}`),
+			CONNECT_BEDROCK_MODEL_IDS.map((id) => `${AWS_PREFIX}/${id}`),
 		);
 		// Display names come from the declared table's human-readable name plus
 		// the integration label, never the raw wire id.
 		const [firstDeclared] = CONNECT_BEDROCK_MODELS;
-		expect(
-			models.find((model) => model.id === `connect-bedrock-team/${firstDeclared.id}`)?.name,
-		).toBe(`${firstDeclared.name} (Bedrock Team)`);
+		expect(models.find((model) => model.id === `${AWS_PREFIX}/${firstDeclared.id}`)?.name).toBe(
+			`${firstDeclared.name} (Bedrock Team)`,
+		);
 		for (const model of bedrockModels) {
 			expect(model).toMatchObject({
 				providerId: "connect",
 				baseUrl: BEDROCK_GATEWAY,
 				supportsWebSearch: false,
+				protocol: "anthropic-messages",
 			});
 		}
 
@@ -260,7 +269,7 @@ describe("connect model fetcher", () => {
 		const models = await registryWithProvider().getModelsForProvider("connect", credentials);
 
 		expect(models.map((model) => model.id)).toEqual([
-			"connect-anthropic-prod/claude-sonnet-4-5-20250929",
+			`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`,
 		]);
 		expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("no AWS credential callback"));
 	});
@@ -274,7 +283,7 @@ describe("connect model fetcher", () => {
 		}).getModelsForProvider("connect", credentials);
 
 		expect(models.map((model) => model.id)).toEqual(
-			CONNECT_BEDROCK_MODEL_IDS.map((id) => `connect-bedrock-team/${id}`),
+			CONNECT_BEDROCK_MODEL_IDS.map((id) => `${AWS_PREFIX}/${id}`),
 		);
 		expect(logger.warn).toHaveBeenCalledWith(
 			expect.stringContaining('discovery failed for integration "Anthropic Prod"'),
@@ -339,7 +348,7 @@ describe("connect chat routing", () => {
 		const client = await clientAfterDiscovery();
 
 		await client.chat(
-			chatParams("connect-anthropic-prod/claude-sonnet-4-5-20250929", "anthropic-messages"),
+			chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`, "anthropic-messages"),
 		);
 
 		expect(AnthropicClient).toHaveBeenCalledWith(
@@ -361,7 +370,7 @@ describe("connect chat routing", () => {
 		const client = await clientAfterDiscovery({ getAwsCredentials });
 		const modelId = CONNECT_BEDROCK_MODEL_IDS[0];
 
-		await client.chat(chatParams(`connect-bedrock-team/${modelId}`, "bedrock-converse"));
+		await client.chat(chatParams(`${AWS_PREFIX}/${modelId}`, "bedrock-converse"));
 
 		expect(getAwsCredentials).toHaveBeenCalledWith(
 			expect.objectContaining({ guid: AWS_GUID, region: "us-west-2" }),
@@ -373,6 +382,9 @@ describe("connect chat routing", () => {
 				accessKeyId: "AKIA",
 				secretAccessKey: "SECRET",
 				sessionToken: "SESSION",
+				// Connect's gateway redirect is a deliberate, trusted override, so
+				// it must reach BedrockClient even when FIPS endpoints are enforced.
+				allowBaseUrlUnderFips: true,
 			}),
 			logger,
 		);
@@ -394,7 +406,7 @@ describe("connect chat routing", () => {
 		const client = clientWithoutDiscovery({ getAwsCredentials });
 		const modelId = CONNECT_BEDROCK_MODEL_IDS[0];
 
-		await client.chat(chatParams(`connect-bedrock-team/${modelId}`, "bedrock-converse"));
+		await client.chat(chatParams(`${AWS_PREFIX}/${modelId}`, "bedrock-converse"));
 
 		// No discovery ran, so the integration is synthesized from the stamp.
 		expect(getAwsCredentials).toHaveBeenCalledWith(
@@ -410,7 +422,7 @@ describe("connect chat routing", () => {
 		expect(delegated.baseUrl).toBe(BEDROCK_GATEWAY);
 
 		await client.chat(
-			chatParams("connect-anthropic-prod/claude-sonnet-4-5-20250929", "anthropic-messages"),
+			chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`, "anthropic-messages"),
 		);
 		expect(chats.anthropic).toHaveBeenCalledWith(
 			expect.objectContaining({ baseUrl: ANTHROPIC_GATEWAY }),
@@ -422,7 +434,7 @@ describe("connect chat routing", () => {
 
 		await expect(
 			client.chat({
-				model: "connect-anthropic-prod/claude-sonnet-4-5-20250929",
+				model: `${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`,
 				messages: [],
 				cancellationToken,
 				baseUrl: `https://other.example.com/__gateway__/anthropic/${ANTHROPIC_GUID}/v1`,
@@ -436,7 +448,7 @@ describe("connect chat routing", () => {
 
 		await expect(
 			client.chat({
-				model: "connect-anthropic-prod/claude-sonnet-4-5-20250929",
+				model: `${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`,
 				messages: [],
 				cancellationToken,
 				baseUrl: `${CONNECT_URL}/some/other/api`,
@@ -448,9 +460,32 @@ describe("connect chat routing", () => {
 		const client = await clientAfterDiscovery();
 
 		await client.chat({
-			model: "connect-anthropic-prod/claude-3-haiku-20240307",
+			model: `${ANTHROPIC_PREFIX}/claude-3-haiku-20240307`,
 			messages: [],
 			cancellationToken,
+		});
+
+		expect(chats.anthropic).toHaveBeenCalledWith(
+			expect.objectContaining({
+				model: "claude-3-haiku-20240307",
+				baseUrl: ANTHROPIC_GATEWAY,
+			}),
+		);
+	});
+
+	it("resolves an unstamped model through the cache when ai-config falls back to the bare Connect root", async () => {
+		// ai-config's resolver stamps a model with the provider's own baseUrl
+		// when the model carries none of its own — the bare Connect server root,
+		// not a real gateway URL. That fallback must be treated like "no
+		// baseUrl" and fall through to the cache, not rejected as an unknown
+		// gateway route.
+		const client = await clientAfterDiscovery();
+
+		await client.chat({
+			model: `${ANTHROPIC_PREFIX}/claude-3-haiku-20240307`,
+			messages: [],
+			cancellationToken,
+			baseUrl: CONNECT_URL,
 		});
 
 		expect(chats.anthropic).toHaveBeenCalledWith(
@@ -473,6 +508,28 @@ describe("connect chat routing", () => {
 		).rejects.toThrow(/Refresh the model list/);
 	});
 
+	it("never resolves an unstamped model against a cache populated by different credentials", async () => {
+		// Discovery under one session's token must not leak its integrations to
+		// a second session that never discovered against this provider — even
+		// against the same Connect server.
+		stubDiscoveryFetch();
+		const registry = new ProviderRegistry(logger);
+		registerConnectProvider(registry, logger);
+		await registry.getModelsForProvider("connect", credentials);
+
+		const otherSession = { ...credentials, apiKey: "tok-other-user" };
+		const client = registry.getClientForProvider("connect", otherSession)!;
+
+		await expect(
+			client.chat({
+				model: `${ANTHROPIC_PREFIX}/claude-3-haiku-20240307`,
+				messages: [],
+				cancellationToken,
+			}),
+		).rejects.toThrow(/Refresh the model list/);
+		expect(chats.anthropic).not.toHaveBeenCalled();
+	});
+
 	it("drops integrations deleted on the server at the next discovery", async () => {
 		stubDiscoveryFetch();
 		const registry = new ProviderRegistry(logger);
@@ -481,7 +538,7 @@ describe("connect chat routing", () => {
 		const client = registry.getClientForProvider("connect", credentials)!;
 
 		await client.chat({
-			model: "connect-anthropic-prod/claude-3-haiku-20240307",
+			model: `${ANTHROPIC_PREFIX}/claude-3-haiku-20240307`,
 			messages: [],
 			cancellationToken,
 		});
@@ -495,7 +552,7 @@ describe("connect chat routing", () => {
 
 		await expect(
 			client.chat({
-				model: "connect-anthropic-prod/claude-3-haiku-20240307",
+				model: `${ANTHROPIC_PREFIX}/claude-3-haiku-20240307`,
 				messages: [],
 				cancellationToken,
 			}),
@@ -511,7 +568,7 @@ describe("connect chat routing", () => {
 		// so the override picks the wire format inside BedrockClient instead of
 		// re-routing to the token-spending Anthropic path.
 		await client.chat({
-			model: `connect-bedrock-team/${modelId}`,
+			model: `${AWS_PREFIX}/${modelId}`,
 			messages: [],
 			cancellationToken,
 			protocol: "anthropic-messages",
@@ -536,9 +593,7 @@ describe("connect chat routing", () => {
 		});
 
 		await expect(
-			client.chat(
-				chatParams(`connect-bedrock-team/${CONNECT_BEDROCK_MODEL_IDS[0]}`, "bedrock-converse"),
-			),
+			client.chat(chatParams(`${AWS_PREFIX}/${CONNECT_BEDROCK_MODEL_IDS[0]}`, "bedrock-converse")),
 		).rejects.toThrow(new RegExp(`oauth_session_required.*${loginUrl}`));
 		expect(chats.bedrock).not.toHaveBeenCalled();
 	});
@@ -552,9 +607,7 @@ describe("connect chat routing", () => {
 		});
 
 		await expect(
-			client.chat(
-				chatParams(`connect-bedrock-team/${CONNECT_BEDROCK_MODEL_IDS[0]}`, "bedrock-converse"),
-			),
+			client.chat(chatParams(`${AWS_PREFIX}/${CONNECT_BEDROCK_MODEL_IDS[0]}`, "bedrock-converse")),
 		).rejects.toThrow(/incomplete AWS credentials/);
 		expect(chats.bedrock).not.toHaveBeenCalled();
 	});
@@ -563,7 +616,7 @@ describe("connect chat routing", () => {
 		const client = await clientAfterDiscovery({ getAwsCredentials: mintSuccess("us-east-1") });
 
 		await client.chat(
-			chatParams(`connect-bedrock-team/${CONNECT_BEDROCK_MODEL_IDS[0]}`, "bedrock-converse"),
+			chatParams(`${AWS_PREFIX}/${CONNECT_BEDROCK_MODEL_IDS[0]}`, "bedrock-converse"),
 		);
 
 		expect(BedrockClient).toHaveBeenCalledWith(
@@ -584,7 +637,7 @@ describe("connect chat routing", () => {
 		);
 
 		await client.chat(
-			chatParams(`connect-bedrock-team/${CONNECT_BEDROCK_MODEL_IDS[0]}`, "bedrock-converse"),
+			chatParams(`${AWS_PREFIX}/${CONNECT_BEDROCK_MODEL_IDS[0]}`, "bedrock-converse"),
 		);
 
 		expect(BedrockClient).toHaveBeenCalledWith(expect.objectContaining({ customHeaders }), logger);
@@ -612,7 +665,7 @@ describe("connect chat routing", () => {
 
 		await expect(
 			client.chat({
-				model: "connect-anthropic-prod/claude-sonnet-4-5-20250929",
+				model: `${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`,
 				messages: [],
 				cancellationToken,
 				protocol: "openai-chat",
@@ -622,7 +675,7 @@ describe("connect chat routing", () => {
 
 		await expect(
 			client.chat({
-				model: `connect-bedrock-team/${CONNECT_BEDROCK_MODEL_IDS[0]}`,
+				model: `${AWS_PREFIX}/${CONNECT_BEDROCK_MODEL_IDS[0]}`,
 				messages: [],
 				cancellationToken,
 				protocol: "openai-chat",

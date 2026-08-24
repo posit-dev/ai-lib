@@ -155,25 +155,20 @@ function slugify(input: string): string {
 
 /**
  * Derive a human-readable model-id prefix from the integration's admin-facing
- * name (e.g. `connect-anthropic-superuser`), deterministic for a given record
- * set — ids stay stable while the server's integrations are unchanged. Falls
- * back to description, then template, when the name is blank; a within-batch
- * collision (or an empty slug) falls back to the guid, which is unique by
- * construction. Collision fallbacks depend on record order, which is one
- * reason chat routing keys on the stamped gateway URL rather than the prefix.
+ * name (e.g. `connect-anthropic-superuser-<guid>`), falling back to
+ * description, then template, when the name is blank. The guid is always
+ * embedded, so two integrations can never mint the same prefix regardless of
+ * record order — chat routing keys on the stamped gateway URL regardless, but
+ * this keeps the prefix itself collision-free too.
  */
 function mintIntegrationPrefix(input: {
 	name: string;
 	description: string;
 	template: string;
 	guid: string;
-	takenIds: ReadonlySet<string>;
 }): string {
 	const slug = slugify(input.name) || slugify(input.description) || slugify(input.template);
-	const candidate = slug ? `connect-${slug}` : `connect-${input.guid}`;
-	if (!input.takenIds.has(candidate)) return candidate;
-	const suffixed = `connect-${slug}-${input.guid.slice(0, 8)}`;
-	return input.takenIds.has(suffixed) ? `connect-${input.guid}` : suffixed;
+	return slug ? `connect-${slug}-${input.guid}` : `connect-${input.guid}`;
 }
 
 /**
@@ -219,7 +214,6 @@ export function shapeConnectIntegrations(
 	templates: readonly string[],
 ): ConnectIntegration[] {
 	const integrations: ConnectIntegration[] = [];
-	const takenIds = new Set<string>();
 	for (const entry of body) {
 		if (typeof entry !== "object" || entry === null) continue;
 		const record = entry as Record<string, unknown>;
@@ -230,8 +224,7 @@ export function shapeConnectIntegrations(
 		if (template === "aws" && nullString(record.auth_type) !== VIEWER_AUTH_TYPE) continue;
 		const name = nullString(record.name);
 		const description = nullString(record.description);
-		const idPrefix = mintIntegrationPrefix({ name, description, template, guid, takenIds });
-		takenIds.add(idPrefix);
+		const idPrefix = mintIntegrationPrefix({ name, description, template, guid });
 		integrations.push({
 			idPrefix,
 			guid,
@@ -257,12 +250,20 @@ export function shapeConnectIntegrations(
  * so deleted or re-pointed integrations cannot linger. Chat consults it only
  * for user-configured models that carry no discovery stamp (no `baseUrl`);
  * stamped models route from the gateway URL alone, so a reset cache
- * (re-registration, process restart) never strands them. `connectUrl` records
- * which server the entries came from — they are never used against another.
+ * (re-registration, process restart) never strands them. `credentialKey`
+ * records which server AND token populated it, since one `ProviderRegistry`
+ * can be called with different credentials over time (e.g. distinct user
+ * sessions against the same server) and this cache must never answer a
+ * lookup for credentials that did not write it.
  */
 interface ConnectIntegrationCache {
-	connectUrl?: string;
+	credentialKey?: string;
 	readonly byPrefix: Map<string, ConnectIntegration>;
+}
+
+/** Identifies which credentials populated a cache: the server plus the token. */
+function connectCredentialKey(connectUrl: string, credentials: ApiKeyCredentials): string {
+	return `${connectUrl} ${credentials.apiKey}`;
 }
 
 function resolveTemplates(
@@ -309,7 +310,14 @@ function integrationLabel(integration: ConnectIntegration): string {
 	return integration.name || integration.idPrefix;
 }
 
-/** The declared Bedrock models for one `aws`-template integration. */
+/**
+ * The declared Bedrock models for one `aws`-template integration. Models
+ * recognized by the Anthropic-on-Bedrock table declare `anthropic-messages`
+ * — the route {@link BedrockClient}'s heuristic actually takes for them — so
+ * host-side behavior keyed on the declared protocol (e.g. explicit
+ * prompt-cache markers) matches the wire format in use; anything else falls
+ * back to `bedrock-converse`.
+ */
 function bedrockGatewayModels(
 	providerId: ResolvedProviderId,
 	integration: ConnectIntegration,
@@ -320,7 +328,10 @@ function bedrockGatewayModels(
 		providerId,
 		vendor: "anthropic",
 		...getConnectBedrockModelCapabilities(model.id),
-		protocol: "bedrock-converse" as const,
+		protocol:
+			getAnthropicModelCapabilities(model.id) !== undefined
+				? ("anthropic-messages" as const)
+				: ("bedrock-converse" as const),
 		baseUrl: integration.baseUrl,
 	}));
 }
@@ -397,14 +408,20 @@ function createConnectModelFetcher(
 		// The token AND the Connect server URL must both be present; without a
 		// baseUrl there is nothing to discover against (Snowflake pattern).
 		hasCredentials: (credentials) => Boolean(credentials.apiKey && credentials.baseUrl),
+		// Different sessions against the same (or different) Connect server must
+		// never share a cached model list — the list reflects which
+		// integrations THIS token can see.
+		cacheKey: (credentials) =>
+			connectCredentialKey(credentials.baseUrl!.replace(/\/+$/, ""), credentials),
 		fetchFresh: async (credentials, signal) => {
 			const connectUrl = credentials.baseUrl!.replace(/\/+$/, "");
 			const templates = resolveTemplates(callbacks?.templates?.(), logger);
 			const records = await fetchIntegrationRecords(connectUrl, credentials, signal);
 			const integrations = shapeConnectIntegrations(records, connectUrl, templates);
 			// Replace the cache wholesale: deleted or re-pointed integrations must
-			// not linger, and entries must never outlive the server they came from.
-			cache.connectUrl = connectUrl;
+			// not linger, and entries must never outlive the server (or
+			// credentials) they came from.
+			cache.credentialKey = connectCredentialKey(connectUrl, credentials);
 			cache.byPrefix.clear();
 			for (const integration of integrations) {
 				cache.byPrefix.set(integration.idPrefix, integration);
@@ -509,10 +526,17 @@ class ConnectClient implements ModelClient {
 
 		// A discovery-stamped baseUrl is the source of truth: it names the
 		// server, template, and guid, so routing never depends on cache state.
-		// Only user-configured models without a stamp fall back to the cache.
+		// An unstamped model resolves to the bare Connect root as ai-config's
+		// fallback (the provider's own configured baseUrl), which is not a real
+		// stamp — treat it the same as no baseUrl at all and fall back to the
+		// cache. Only user-configured models without a real stamp reach that
+		// fallback.
+		const hasStampedBaseUrl =
+			Boolean(params.baseUrl) && params.baseUrl!.replace(/\/+$/, "") !== connectUrl;
+
 		let integration: ConnectIntegration;
-		if (params.baseUrl) {
-			const parsed = parseGatewayBaseUrl(params.baseUrl);
+		if (hasStampedBaseUrl) {
+			const parsed = parseGatewayBaseUrl(params.baseUrl!);
 			if (!parsed) {
 				throw new Error(
 					`Connect provider model "${params.model}" has base URL "${params.baseUrl}", ` +
@@ -527,8 +551,9 @@ class ConnectClient implements ModelClient {
 			}
 			integration = this.resolveIntegration(parsed, prefix);
 		} else {
+			const credentialKey = connectCredentialKey(connectUrl, this.credentials);
 			const cached =
-				prefix && this.cache.connectUrl === connectUrl
+				prefix && this.cache.credentialKey === credentialKey
 					? this.cache.byPrefix.get(prefix)
 					: undefined;
 			if (!cached) {
@@ -541,7 +566,10 @@ class ConnectClient implements ModelClient {
 		}
 
 		const protocol = normalizeProtocol(params.protocol);
-		const baseUrl = params.baseUrl ?? integration.baseUrl;
+		// An unstamped model's baseUrl (when present at all) is ai-config's bare
+		// Connect-root fallback, not a real gateway route — always route through
+		// the resolved integration's baseUrl in that case.
+		const baseUrl = hasStampedBaseUrl ? params.baseUrl! : integration.baseUrl;
 
 		// The template selects the transport — a protocol override can pick the
 		// wire format within it, but never re-routes off the integration's
@@ -580,14 +608,15 @@ class ConnectClient implements ModelClient {
 	/**
 	 * Resolve the integration record for a stamped model: prefer the cached
 	 * record (it carries the admin-facing name and `sts_region`) when it came
-	 * from the same server, else synthesize one from the stamp so routing
-	 * survives an empty or replaced cache.
+	 * from these same credentials, else synthesize one from the stamp so
+	 * routing survives an empty, replaced, or foreign-credential cache.
 	 */
 	private resolveIntegration(
 		parsed: { connectUrl: string; template: string; guid: string },
 		prefix: string | undefined,
 	): ConnectIntegration {
-		if (this.cache.connectUrl === parsed.connectUrl) {
+		const credentialKey = connectCredentialKey(parsed.connectUrl, this.credentials);
+		if (this.cache.credentialKey === credentialKey) {
 			for (const cached of this.cache.byPrefix.values()) {
 				if (cached.guid === parsed.guid) return cached;
 			}
@@ -658,6 +687,10 @@ class ConnectClient implements ModelClient {
 				secretAccessKey: aws.secretAccessKey,
 				sessionToken: aws.sessionToken,
 				customHeaders: this.credentials.customHeaders,
+				// Routing through Connect's gateway is a deliberate, admin-configured
+				// redirect (not an accidental override), so it overrides even a FIPS
+				// runtime endpoint.
+				allowBaseUrlUnderFips: true,
 			},
 			this.logger,
 		);
