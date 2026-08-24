@@ -42,7 +42,9 @@ async function main() {
 			resolve();
 			return;
 		}
-		process.send("lock-released", () => resolve());
+		// Pass sendHandle/options explicitly: the short send(message, callback)
+		// overload only exists in @types/node >= 22.19, and consumers can hoist older.
+		process.send("lock-released", undefined, undefined, () => resolve());
 	});
 	process.disconnect();
 }
