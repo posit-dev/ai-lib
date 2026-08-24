@@ -15,6 +15,10 @@ import {
 	registerBedrockProvider,
 	type BedrockProviderCallbacks,
 } from "./providers/bedrock-provider";
+import {
+	registerConnectProvider,
+	type ConnectProviderCallbacks,
+} from "./providers/connect-provider";
 import { registerCopilotProvider } from "./providers/copilot-provider";
 import { registerDatabricksProvider } from "./providers/databricks-provider";
 import { registerDeepSeekProvider } from "./providers/deepseek-provider";
@@ -49,6 +53,7 @@ export interface ProviderRegistrationConfig {
 	bedrockCallbacks?: BedrockProviderCallbacks;
 	googleVertexCallbacks?: GoogleVertexProviderCallbacks;
 	snowflakeCallbacks?: SnowflakeProviderCallbacks;
+	connectCallbacks?: ConnectProviderCallbacks;
 }
 
 /**
@@ -90,6 +95,8 @@ const PROVIDER_REGISTRARS = {
 	databricks: registerDatabricksProvider,
 	litellm: registerLitellmProvider,
 	portkey: registerPortkeyProvider,
+	connect: (registry, logger, config) =>
+		registerConnectProvider(registry, logger, config.connectCallbacks),
 } satisfies Record<ProviderId, ProviderRegistrar>;
 
 /**

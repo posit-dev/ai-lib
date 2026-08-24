@@ -73,6 +73,11 @@ export type {
 // --- Model capability inference ---------------------------------------------
 export { getAnthropicModelCapabilities } from "./model-capabilities/anthropic-helpers.js";
 export { getBedrockMantleModelCapabilities } from "./model-capabilities/bedrock-mantle-helpers.js";
+export {
+	CONNECT_BEDROCK_MODEL_IDS,
+	getConnectBedrockModelCapabilities,
+} from "./model-capabilities/connect-helpers.js";
+export type { ConnectBedrockModelCapabilities } from "./model-capabilities/connect-helpers.js";
 export { getDeepSeekModelCapabilities } from "./model-capabilities/deepseek-helpers.js";
 export { inferDatabricksModelProfile } from "./model-capabilities/databricks-helpers.js";
 export type {
