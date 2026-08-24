@@ -199,6 +199,69 @@ describe("Bedrock Mantle protocol routing", () => {
 		);
 	});
 
+	it("warns when an explicit baseUrl overrides the FIPS runtime endpoint", async () => {
+		resolveBedrockTransport.mockResolvedValue({
+			useFipsEndpoint: true,
+			runtimeBaseUrl: "https://bedrock-runtime-fips.us-gov-west-1.amazonaws.com",
+			mantleEnabled: false,
+		});
+		const logger = {
+			info: vi.fn(),
+			warn: vi.fn(),
+			error: vi.fn(),
+			debug: vi.fn(),
+			trace: vi.fn(),
+		};
+		const fipsClient = new BedrockClient(
+			{ region: "us-gov-west-1", accessKeyId: "key", secretAccessKey: "secret" },
+			logger,
+		);
+
+		await fipsClient.chat(
+			params({
+				model: "amazon.nova-pro",
+				protocol: "bedrock-converse",
+				baseUrl: "https://connect.example.com/__gateway__/bedrock/guid",
+			}),
+		);
+
+		expect(createAmazonBedrock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				baseURL: "https://connect.example.com/__gateway__/bedrock/guid",
+			}),
+		);
+		expect(logger.warn).toHaveBeenCalledWith(
+			expect.stringContaining("overrides the FIPS runtime endpoint"),
+		);
+	});
+
+	it("forwards customHeaders to every factory route", async () => {
+		const customHeaders = { "x-proxy-token": "t" };
+		const headeredClient = new BedrockClient({
+			region: "us-east-2",
+			accessKeyId: "key",
+			secretAccessKey: "secret",
+			customHeaders,
+		});
+
+		await headeredClient.chat(params({ model: "amazon.nova-pro", protocol: "bedrock-converse" }));
+		expect(createAmazonBedrock).toHaveBeenCalledWith(
+			expect.objectContaining({ headers: customHeaders }),
+		);
+
+		await headeredClient.chat(
+			params({ model: "anthropic.claude-sonnet-4-6", protocol: "anthropic-messages" }),
+		);
+		expect(createBedrockAnthropic).toHaveBeenCalledWith(
+			expect.objectContaining({ headers: customHeaders }),
+		);
+
+		await headeredClient.chat(params({ model: "openai.gpt-5.5", protocol: "openai-chat" }));
+		expect(createBedrockMantle).toHaveBeenCalledWith(
+			expect.objectContaining({ headers: customHeaders }),
+		);
+	});
+
 	it("rejects Mantle protocols when FIPS endpoints are enabled", async () => {
 		resolveBedrockTransport.mockResolvedValue({
 			useFipsEndpoint: true,

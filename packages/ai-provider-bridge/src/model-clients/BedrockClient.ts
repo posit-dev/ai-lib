@@ -54,6 +54,8 @@ export interface BedrockClientConfig {
 	accessKeyId?: string;
 	secretAccessKey?: string;
 	sessionToken?: string;
+	/** Extra request headers (e.g. for a header-gated proxy in front of a gateway). */
+	customHeaders?: Record<string, string>;
 }
 
 export class BedrockClient implements ModelClient {
@@ -219,8 +221,11 @@ export class BedrockClient implements ModelClient {
 	 * - OpenAI protocols use Bedrock Mantle.
 	 * - All other models use `createAmazonBedrock` (Converse API).
 	 *
-	 * All three routes honor an explicit `baseUrl` (e.g. a Connect gateway
-	 * route), falling back to the resolved AWS runtime endpoint otherwise.
+	 * The Anthropic and Converse routes honor an explicit `baseUrl` (e.g. a
+	 * Connect gateway route), falling back to the resolved AWS runtime endpoint
+	 * otherwise; when FIPS endpoints are mandated the explicit URL still wins,
+	 * but the override is logged. Mantle also honors an explicit `baseUrl` but
+	 * has no runtime-endpoint fallback and is vetoed entirely under FIPS.
 	 *
 	 * When an explicit `protocol` is provided, it takes precedence over the
 	 * model-ID heuristic.
@@ -242,12 +247,19 @@ export class BedrockClient implements ModelClient {
 			const mantle = createBedrockMantle({
 				region: this.config.region,
 				baseURL: baseUrl,
+				headers: this.config.customHeaders,
 				credentialProvider,
 				// Enforce the AWS-credentials-only contract. Without this explicit
 				// opt-out, a stale AWS_BEARER_TOKEN_BEDROCK overrides SigV4.
 				apiKey: "",
 			});
 			return protocol === "openai-chat" ? mantle.chat(modelId) : mantle.responses(modelId);
+		}
+
+		if (baseUrl && transport.useFipsEndpoint) {
+			this.logger?.warn(
+				`[Bedrock] Explicit base URL ${baseUrl} overrides the FIPS runtime endpoint ${transport.runtimeBaseUrl}`,
+			);
 		}
 
 		const useAnthropicApi = protocol
@@ -258,6 +270,7 @@ export class BedrockClient implements ModelClient {
 			return createBedrockAnthropic({
 				region: this.config.region,
 				baseURL: baseUrl ?? transport.runtimeBaseUrl,
+				headers: this.config.customHeaders,
 				credentialProvider,
 			})(modelId);
 		}
@@ -265,6 +278,7 @@ export class BedrockClient implements ModelClient {
 		return createAmazonBedrock({
 			region: this.config.region,
 			baseURL: baseUrl ?? transport.runtimeBaseUrl,
+			headers: this.config.customHeaders,
 			credentialProvider,
 		})(modelId);
 	}
