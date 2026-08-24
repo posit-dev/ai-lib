@@ -42,7 +42,7 @@ async function main() {
 			resolve();
 			return;
 		}
-		process.send("lock-released", () => resolve());
+		process.send("lock-released", undefined, undefined, () => resolve());
 	});
 	process.disconnect();
 }
