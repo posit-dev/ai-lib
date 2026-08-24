@@ -18,6 +18,40 @@ function createMockLogger(): Logger {
 	};
 }
 
+const OAUTH_CREDENTIALS = {
+	type: "oauth",
+	accessToken: "test-token",
+} as ProviderCredentials;
+
+function createModelsResponse(
+	ids: string[],
+	protocol: string = "openai-chat-completions",
+): Response {
+	return new Response(
+		JSON.stringify({
+			chat: ids.map((id) => ({
+				id,
+				display_name: id,
+				endpoints: [{ path: "/openai/v1", protocol }],
+				max_context_length: 200_000,
+			})),
+		}),
+		{ status: 200 },
+	);
+}
+
+async function fetchModels(ids: string[], protocol?: string) {
+	const logger = createMockLogger();
+	const registry = new ProviderRegistry(logger);
+	registerPositAiProvider(registry, "https://api.posit.cloud", "test/1.0", logger);
+
+	vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(createModelsResponse(ids, protocol));
+
+	const models = await registry.getModelsForProvider("positai", OAUTH_CREDENTIALS);
+	vi.restoreAllMocks();
+	return models;
+}
+
 describe("Posit AI protocol mapping", () => {
 	it("maps anthropic-messages protocol and sets vendor to anthropic", async () => {
 		const logger = createMockLogger();
@@ -118,5 +152,25 @@ describe("Posit AI protocol mapping", () => {
 		expect(models[0].vendor).toBe("openai");
 
 		vi.restoreAllMocks();
+	});
+});
+
+describe("Posit AI maxOutputTokens fallback", () => {
+	it("applies the fallback maxOutputTokens to a model with no capability entry", async () => {
+		const models = await fetchModels(["some-org/unknown-model"]);
+		expect(models).toHaveLength(1);
+		expect(models[0]?.maxOutputTokens).toBe(16_384);
+	});
+
+	it("applies the fallback maxOutputTokens to GLM-5.2, whose capability entry omits it", async () => {
+		const models = await fetchModels(["zai-org/GLM-5.2"]);
+		expect(models).toHaveLength(1);
+		expect(models[0]?.maxOutputTokens).toBe(16_384);
+	});
+
+	it("lets an explicit capability-entry maxOutputTokens take precedence (Kimi K3)", async () => {
+		const models = await fetchModels(["moonshotai/Kimi-K3"]);
+		expect(models).toHaveLength(1);
+		expect(models[0]?.maxOutputTokens).toBe(131_072);
 	});
 });
