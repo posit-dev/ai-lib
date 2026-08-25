@@ -115,6 +115,13 @@ export function mintCustomProviderId(id: string): CustomProviderId {
 // Resolved provider catalog
 // ---------------------------------------------------------------------------
 
+/**
+ * Microsoft Entra ID auth mode for the built-in `ms-foundry` provider.
+ * `"apikey"` is the back-compat default; `"entra"` acquires tokens at
+ * runtime via `@azure/identity` (DefaultAzureCredential) and stores nothing.
+ */
+export type AzureAuthMode = "apikey" | "entra";
+
 /** Connection config resolved from a provider block. */
 export interface ResolvedConnection {
 	baseUrl?: string;
@@ -124,6 +131,7 @@ export interface ResolvedConnection {
 	endpoints?: Partial<Record<Protocol, string>>;
 	positaiLogin?: { host?: string; clientId?: string; scope?: string };
 	aws?: { region?: string; profile?: string };
+	azure?: { authMode?: AzureAuthMode; scope?: string; tenantId?: string };
 	googleCloud?: { project?: string; location?: string };
 	snowflake?: { account?: string; host?: string; home?: string; connectionName?: string };
 	databricks?: { host?: string };

@@ -63,6 +63,7 @@ const externalDeps = [
 	"@smithy/core",
 	"@github/copilot-sdk",
 	"@openrouter/ai-sdk-provider",
+	"@azure/identity",
 	"ai",
 	"ai-sdk-ollama",
 	"google-auth-library",

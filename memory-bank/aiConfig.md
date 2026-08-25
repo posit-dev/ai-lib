@@ -98,13 +98,15 @@ JSON Schema:
 
 **Capability maps (single source of truth).** `BUILTIN_CONNECTION_SECTIONS`
 (keyed by built-in id) and `CUSTOM_CONNECTION_SECTIONS` (keyed by supported
-custom `type`) name which of `aws` / `googleCloud` / `snowflake` / `positaiLogin`
-each provider carries. Both are `satisfies Record<…>` so a missing key is a
-compile error (exhaustiveness). Only four built-ins carry a section — `bedrock`
-(`aws`), `google-vertex` (`googleCloud`), `snowflake-cortex` (`snowflake`),
-`positai` (`positaiLogin`); of the custom kinds only `aws` / `google-vertex` /
-`snowflake` do. `positaiLogin` attaches to the built-in `positai` key **only** —
-no custom variant carries it.
+custom `type`) name which of `aws` / `azure` / `googleCloud` / `snowflake` /
+`positaiLogin` each provider carries. Both are `satisfies Record<…>` so a
+missing key is a compile error (exhaustiveness). Only five built-ins carry a
+section — `bedrock` (`aws`), `ms-foundry` (`azure`), `google-vertex`
+(`googleCloud`), `snowflake-cortex` (`snowflake`), `positai` (`positaiLogin`);
+of the custom kinds only `aws` / `google-vertex` / `snowflake` do.
+`positaiLogin` attaches to the built-in `positai` key **only** — no custom
+variant carries it. Likewise `azure` attaches to the built-in `ms-foundry`
+key only: custom `ms-foundry` providers stay required-API-key.
 
 **Supported custom kinds ⊂ client kinds.** `providers.custom` entries are
 restricted to `SUPPORTED_CUSTOM_CLIENT_KIND_VALUES`, a local mirror of
@@ -125,6 +127,17 @@ was renamed from `oauth` to `positaiLogin` — it is Posit-login-specific config
 overlay. It does **not** touch the auth-method / storage-key / status vocabulary,
 which stays `oauth` (a genuinely different concept — mapped at the
 `getPositaiAuthConfig` seam in `@assistant/node`).
+
+**`azure` (Microsoft Foundry Entra ID).** The built-in `ms-foundry` key carries an
+`azure` sub-section (`authMode` `"apikey" | "entra"`, `scope`, `tenantId` — all
+optional, all non-secret). `MS_FOUNDRY_DEFAULTS` resolves an absent `authMode`
+to `"apikey"` (back-compat) and an absent `scope` to
+`MS_FOUNDRY_DEFAULT_SCOPE` (`https://cognitiveservices.azure.com/.default`;
+newer Foundry-scoped endpoints may want `https://ai.azure.com/.default`), so the
+resolved catalog always carries both. Env overlays: `MS_FOUNDRY_AUTH_MODE` /
+`MS_FOUNDRY_ENTRA_SCOPE` / `MS_FOUNDRY_TENANT_ID`. Entra tokens are acquired at
+runtime by `@azure/identity` in the bridge — nothing secret is stored, and a
+fresh entra configuration writes nothing to the credential store.
 
 **Strict validation vs. permissive working type.** Strictness is a parse-time
 property. The inferred `ProvidersMap` built-in blocks and `ResolvedConnection`

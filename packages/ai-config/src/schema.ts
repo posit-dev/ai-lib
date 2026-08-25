@@ -135,6 +135,26 @@ export const googleCloudConfigSchema = z
 	})
 	.strict();
 
+/**
+ * Microsoft Entra ID auth mode for the built-in `ms-foundry` provider.
+ * Absent `authMode` resolves to `"apikey"` (back-compat); see
+ * `MS_FOUNDRY_DEFAULTS` in defaults.ts.
+ */
+export const azureAuthModeSchema = z.enum(["apikey", "entra"]);
+
+/**
+ * Azure / Microsoft Entra ID connection config for `ms-foundry` — all
+ * non-secret. Entra tokens are acquired at runtime by `@azure/identity`
+ * (DefaultAzureCredential); nothing secret is ever stored here.
+ */
+export const azureConfigSchema = z
+	.object({
+		authMode: azureAuthModeSchema.optional(),
+		scope: z.string().optional(),
+		tenantId: z.string().optional(),
+	})
+	.strict();
+
 export const snowflakeConfigSchema = z
 	.object({
 		account: z.string().optional(),
@@ -196,6 +216,7 @@ const baseConnectionFields = {
  */
 const CONNECTION_SECTION_SCHEMAS = {
 	aws: awsConfigSchema,
+	azure: azureConfigSchema,
 	googleCloud: googleCloudConfigSchema,
 	snowflake: snowflakeConfigSchema,
 	databricks: databricksConfigSchema,
@@ -213,6 +234,7 @@ type ConnectionSectionName = keyof typeof CONNECTION_SECTION_SCHEMAS;
 const allConnectionFields = {
 	...baseConnectionFields,
 	aws: awsConfigSchema.optional(),
+	azure: azureConfigSchema.optional(),
 	googleCloud: googleCloudConfigSchema.optional(),
 	snowflake: snowflakeConfigSchema.optional(),
 	databricks: databricksConfigSchema.optional(),
@@ -254,7 +276,7 @@ function connectionBlockSchema<S extends ConnectionSectionName>(sections: readon
 
 /**
  * Which connection sub-sections each **built-in** provider key carries.
- * Most are base-only; only the four capability-bearing ids name a section.
+ * Most are base-only; only the capability-bearing ids name a section.
  * `positaiLogin` attaches to the built-in `positai` key ONLY (no custom
  * variant carries it).
  */
@@ -271,7 +293,7 @@ const BUILTIN_CONNECTION_SECTIONS = {
 	lmstudio: [],
 	"openai-compatible": [],
 	"snowflake-cortex": ["snowflake"],
-	"ms-foundry": [],
+	"ms-foundry": ["azure"],
 	deepseek: [],
 	databricks: ["databricks"],
 	litellm: [],

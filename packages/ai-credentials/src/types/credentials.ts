@@ -105,6 +105,24 @@ export interface GoogleCloudCredentials {
 }
 
 /**
+ * Microsoft Entra ID credentials (Microsoft Foundry).
+ *
+ * Carries NO secret material: the Entra token is acquired and refreshed at
+ * runtime by `@azure/identity` (DefaultAzureCredential) inside the provider
+ * client. `scope` is required because the config resolver assigns the
+ * default (`https://cognitiveservices.azure.com/.default`) when the user
+ * does not supply one. A fresh entra configuration is synthesized from the
+ * provider catalog and never persisted to the credential store.
+ */
+export interface AzureEntraCredentials {
+	type: "azure-entra";
+	baseUrl: string;
+	scope: string;
+	tenantId?: string;
+	customHeaders?: Record<string, string>;
+}
+
+/**
  * Credentials for authenticating with a provider.
  * Discriminated union based on the 'type' field.
  */
@@ -113,4 +131,5 @@ export type ProviderCredentials =
 	| OAuthCredentials
 	| LocalCredentials
 	| AwsCredentials
-	| GoogleCloudCredentials;
+	| GoogleCloudCredentials
+	| AzureEntraCredentials;

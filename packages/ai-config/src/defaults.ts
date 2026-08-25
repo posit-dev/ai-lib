@@ -55,6 +55,23 @@ export const GOOGLE_VERTEX_DEFAULTS = {
 } as const satisfies ResolvedConnection;
 
 /**
+ * Default Entra token scope for Microsoft Foundry's OpenAI-compatible
+ * `/openai/v1` surface. Newer Foundry-scoped endpoints may want
+ * `https://ai.azure.com/.default` instead — overridable via `azure.scope`.
+ */
+export const MS_FOUNDRY_DEFAULT_SCOPE = "https://cognitiveservices.azure.com/.default";
+
+/**
+ * Microsoft Foundry defaults. An absent `azure.authMode` resolves to
+ * `"apikey"` (back-compat for every existing Foundry config); an absent
+ * `azure.scope` resolves to {@link MS_FOUNDRY_DEFAULT_SCOPE} so synthesized
+ * Entra credentials can treat `scope` as required.
+ */
+export const MS_FOUNDRY_DEFAULTS = {
+	azure: { authMode: "apikey", scope: MS_FOUNDRY_DEFAULT_SCOPE },
+} as const satisfies ResolvedConnection;
+
+/**
  * Map of built-in provider id → connection defaults.
  * Only providers that need non-empty defaults appear here.
  */
@@ -65,4 +82,5 @@ export const PROVIDER_CONNECTION_DEFAULTS: Readonly<
 	ollama: OLLAMA_DEFAULTS,
 	lmstudio: LMSTUDIO_DEFAULTS,
 	"google-vertex": GOOGLE_VERTEX_DEFAULTS,
+	"ms-foundry": MS_FOUNDRY_DEFAULTS,
 };
