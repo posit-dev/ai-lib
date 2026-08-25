@@ -21,6 +21,14 @@ export type BearerTokenProvider = () => Promise<string>;
 
 const tokenProviderCache = new Map<string, BearerTokenProvider>();
 
+function isCredentialUnavailable(error: unknown): boolean {
+	if (!(error instanceof Error)) return false;
+	if (error.name === "CredentialUnavailableError") return true;
+	if (error.name !== "AggregateAuthenticationError" || !("errors" in error)) return false;
+	const errors = error.errors;
+	return Array.isArray(errors) && errors.length > 0 && errors.every(isCredentialUnavailable);
+}
+
 /**
  * Return a cached bearer-token provider for `scope` (+ optional `tenantId`).
  *
@@ -33,7 +41,7 @@ export function createAzureEntraTokenProvider(
 	scope: string,
 	tenantId?: string,
 ): BearerTokenProvider {
-	const cacheKey = `${tenantId ?? ""}${scope}`;
+	const cacheKey = JSON.stringify([tenantId ?? null, scope]);
 	let provider = tokenProviderCache.get(cacheKey);
 	if (!provider) {
 		const acquire = getBearerTokenProvider(
@@ -45,12 +53,18 @@ export function createAzureEntraTokenProvider(
 				return await acquire();
 			} catch (error) {
 				const detail = error instanceof Error ? error.message : String(error);
+				if (isCredentialUnavailable(error)) {
+					throw new Error(
+						"Microsoft Entra ID authentication failed: no usable Azure credential was found. " +
+							"Sign in with `az login` (or configure a managed identity / service principal " +
+							"environment), then try again. " +
+							"See https://learn.microsoft.com/en-us/azure/ai-foundry/foundry-models/how-to/configure-entra-id " +
+							`for setup guidance. Underlying error: ${detail}`,
+					);
+				}
 				throw new Error(
-					"Microsoft Entra ID authentication failed: no usable Azure credential was found. " +
-						"Sign in with `az login` (or configure a managed identity / service principal " +
-						"environment), then try again. " +
-						"See https://learn.microsoft.com/en-us/azure/ai-foundry/foundry-models/how-to/configure-entra-id " +
-						`for setup guidance. Underlying error: ${detail}`,
+					"Microsoft Entra ID token acquisition failed. Verify the configured tenant ID and " +
+						`scope, then try again. Underlying error: ${detail}`,
 				);
 			}
 		};

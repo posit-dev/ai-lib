@@ -42,14 +42,54 @@ describe("createAzureEntraTokenProvider", () => {
 		expect(mocks.defaultAzureCredential).toHaveBeenCalledWith({});
 	});
 
+	it("does not collide distinct scope and tenant pairs", () => {
+		mocks.getBearerTokenProvider.mockReturnValue(async () => "token");
+
+		const first = createAzureEntraTokenProvider("c", "ab");
+		const second = createAzureEntraTokenProvider("bc", "a");
+
+		expect(first).not.toBe(second);
+		expect(mocks.defaultAzureCredential).toHaveBeenCalledTimes(2);
+	});
+
 	it("normalizes token-acquisition failures into an actionable error", async () => {
 		mocks.getBearerTokenProvider.mockReturnValue(async () => {
-			throw new Error("CredentialUnavailableError: no credential in the chain succeeded");
+			const error = new Error("no credential in the chain succeeded");
+			error.name = "CredentialUnavailableError";
+			throw error;
 		});
 
 		const provider = createAzureEntraTokenProvider("scope-a");
 		await expect(provider()).rejects.toThrow(/az login/);
 		await expect(provider()).rejects.toThrow(/no credential in the chain succeeded/);
+	});
+
+	it("recognizes an aggregate containing only unavailable credentials", async () => {
+		mocks.getBearerTokenProvider.mockReturnValue(async () => {
+			const unavailable = new Error("Azure CLI is not installed");
+			unavailable.name = "CredentialUnavailableError";
+			const aggregate = Object.assign(new Error("credential chain failed"), {
+				name: "AggregateAuthenticationError",
+				errors: [unavailable],
+			});
+			throw aggregate;
+		});
+
+		const provider = createAzureEntraTokenProvider("scope-a");
+		await expect(provider()).rejects.toThrow(/az login/);
+	});
+
+	it("does not diagnose other token-acquisition failures as missing credentials", async () => {
+		mocks.getBearerTokenProvider.mockReturnValue(async () => {
+			const error = new Error("invalid tenant");
+			error.name = "AuthenticationError";
+			throw error;
+		});
+
+		const provider = createAzureEntraTokenProvider("scope-a", "bad-tenant");
+		await expect(provider()).rejects.toThrow(/token acquisition failed/);
+		await expect(provider()).rejects.not.toThrow(/no usable Azure credential/);
+		await expect(provider()).rejects.toThrow(/invalid tenant/);
 	});
 
 	it("passes tokens through unchanged on success", async () => {
