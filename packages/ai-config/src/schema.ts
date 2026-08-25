@@ -25,11 +25,21 @@ import type { BuiltinProviderId, SupportedCustomClientKind } from "./vocabulary.
 // Leaf enums
 // ---------------------------------------------------------------------------
 
-export const protocolSchema = z.enum(PROTOCOL_VALUES);
+export const protocolSchema = z
+	.enum(PROTOCOL_VALUES)
+	.describe(
+		"API wire protocol used to talk to a model. Set this only when a provider or model does not use its default protocol.",
+	);
 
-export const clientKindSchema = z.enum(CLIENT_KIND_VALUES);
+export const clientKindSchema = z
+	.enum(CLIENT_KIND_VALUES)
+	.describe("Which built-in provider client handles this entry.");
 
-export const discoverySchema = z.enum(["auto", "off"]);
+export const discoverySchema = z
+	.enum(["auto", "off"])
+	.describe(
+		"Whether to ask the provider for its model list. `auto` discovers models from the provider; `off` offers only the models declared under `models.custom`.",
+	);
 
 // ---------------------------------------------------------------------------
 // Model overrides + custom models
@@ -41,19 +51,58 @@ export const discoverySchema = z.enum(["auto", "off"]);
  */
 export const modelOverrideSchema = z
 	.object({
-		name: z.string().optional(),
-		family: z.string().optional(),
-		maxContextLength: z.number().int().positive().optional(),
-		maxInputTokens: z.number().int().positive().optional(),
-		maxOutputTokens: z.number().int().positive().optional(),
-		protocol: protocolSchema.optional(),
-		baseUrl: z.string().optional(),
-		supportsTools: z.boolean().optional(),
-		supportsImages: z.boolean().optional(),
-		supportsToolResultImages: z.boolean().optional(),
-		supportedInputMediaTypes: z.array(z.string()).optional(),
-		supportsWebSearch: z.boolean().optional(),
-		thinkingEffortLevels: z.array(z.string()).optional(),
+		name: z.string().describe("Display name shown in the model picker.").optional(),
+		family: z
+			.string()
+			.describe(
+				"Model family, used for grouping models and for selecting family-specific system prompt content.",
+			)
+			.optional(),
+		maxContextLength: z
+			.number()
+			.int()
+			.positive()
+			.describe("Total context window, in tokens.")
+			.optional(),
+		maxInputTokens: z
+			.number()
+			.int()
+			.positive()
+			.describe("Largest number of input tokens accepted in one request.")
+			.optional(),
+		maxOutputTokens: z
+			.number()
+			.int()
+			.positive()
+			.describe("Largest number of tokens the model may generate in one response.")
+			.optional(),
+		protocol: protocolSchema
+			.describe("API wire protocol for this model, overriding the provider's protocol.")
+			.optional(),
+		baseUrl: z
+			.string()
+			.describe("Base URL for this model only, overriding the provider's base URL.")
+			.optional(),
+		supportsTools: z.boolean().describe("Whether the model can call tools.").optional(),
+		supportsImages: z.boolean().describe("Whether the model accepts images as input.").optional(),
+		supportsToolResultImages: z
+			.boolean()
+			.describe("Whether the model accepts images returned by a tool result.")
+			.optional(),
+		supportedInputMediaTypes: z
+			.array(z.string())
+			.describe("Media types the model accepts as input, such as `image/png`.")
+			.optional(),
+		supportsWebSearch: z
+			.boolean()
+			.describe("Whether the model supports the provider's own web search.")
+			.optional(),
+		thinkingEffortLevels: z
+			.array(z.string())
+			.describe(
+				"Thinking effort levels this model accepts. The set varies by model, for example `off`, `low`, `medium`, `high`, `xhigh`.",
+			)
+			.optional(),
 	})
 	.strict();
 
@@ -64,21 +113,53 @@ export const modelOverrideSchema = z
  */
 export const customModelSchema = z
 	.object({
-		id: z.string().min(1),
-		name: z.string().min(1),
-		maxContextLength: z.number().int().positive(),
-		supportsTools: z.boolean(),
-		supportsImages: z.boolean(),
-		supportsToolResultImages: z.boolean(),
-		supportsWebSearch: z.boolean(),
+		id: z.string().min(1).describe("Model id sent to the provider's API."),
+		name: z.string().min(1).describe("Display name shown in the model picker."),
+		maxContextLength: z.number().int().positive().describe("Total context window, in tokens."),
+		supportsTools: z.boolean().describe("Whether the model can call tools."),
+		supportsImages: z.boolean().describe("Whether the model accepts images as input."),
+		supportsToolResultImages: z
+			.boolean()
+			.describe("Whether the model accepts images returned by a tool result."),
+		supportsWebSearch: z
+			.boolean()
+			.describe("Whether the model supports the provider's own web search."),
 		// Optional metadata
-		family: z.string().optional(),
-		maxInputTokens: z.number().int().positive().optional(),
-		maxOutputTokens: z.number().int().positive().optional(),
-		protocol: protocolSchema.optional(),
-		baseUrl: z.string().optional(),
-		supportedInputMediaTypes: z.array(z.string()).optional(),
-		thinkingEffortLevels: z.array(z.string()).optional(),
+		family: z
+			.string()
+			.describe(
+				"Model family, used for grouping models and for selecting family-specific system prompt content.",
+			)
+			.optional(),
+		maxInputTokens: z
+			.number()
+			.int()
+			.positive()
+			.describe("Largest number of input tokens accepted in one request.")
+			.optional(),
+		maxOutputTokens: z
+			.number()
+			.int()
+			.positive()
+			.describe("Largest number of tokens the model may generate in one response.")
+			.optional(),
+		protocol: protocolSchema
+			.describe("API wire protocol for this model, overriding the provider's protocol.")
+			.optional(),
+		baseUrl: z
+			.string()
+			.describe("Base URL for this model only, overriding the provider's base URL.")
+			.optional(),
+		supportedInputMediaTypes: z
+			.array(z.string())
+			.describe("Media types the model accepts as input, such as `image/png`.")
+			.optional(),
+		thinkingEffortLevels: z
+			.array(z.string())
+			.describe(
+				"Thinking effort levels this model accepts. The set varies by model, for example `off`, `low`, `medium`, `high`, `xhigh`.",
+			)
+			.optional(),
 	})
 	.strict();
 
@@ -93,10 +174,28 @@ export const customModelSchema = z
 export const modelsBlockSchema = z
 	.object({
 		discovery: discoverySchema.optional(),
-		allow: z.array(z.string()).optional(),
-		deny: z.array(z.string()).optional(),
-		overrides: z.record(z.string(), modelOverrideSchema).optional(),
-		custom: z.array(customModelSchema).optional(),
+		allow: z
+			.array(z.string())
+			.describe(
+				"Model ids to offer. When this list is non-empty it is exclusive: no other model from this provider is offered.",
+			)
+			.optional(),
+		deny: z
+			.array(z.string())
+			.describe("Model ids to hide. Applied after `allow`, so a model listed in both is hidden.")
+			.optional(),
+		overrides: z
+			.record(z.string().describe("Model id to patch."), modelOverrideSchema)
+			.describe(
+				"Metadata patches for models the provider already returns, keyed by model id. Only the fields you set are changed.",
+			)
+			.optional(),
+		custom: z
+			.array(customModelSchema)
+			.describe(
+				"Models to declare yourself, for models the provider does not return from discovery.",
+			)
+			.optional(),
 	})
 	.strict();
 
@@ -114,26 +213,43 @@ export const modelsBlockSchema = z
  */
 export const positaiLoginConfigSchema = z
 	.object({
-		host: z.string().optional(),
-		clientId: z.string().optional(),
-		scope: z.string().optional(),
+		host: z
+			.string()
+			.describe(
+				"Posit host to sign in against. The device-authorization and token URLs are derived from it.",
+			)
+			.optional(),
+		clientId: z
+			.string()
+			.describe("OAuth client id used for the device-authorization sign-in flow.")
+			.optional(),
+		scope: z.string().describe("Space-separated OAuth scopes requested at sign-in.").optional(),
 	})
-	.strict();
+	.strict()
+	.describe("Posit sign-in settings for the built-in positai provider.");
 
 /** AWS connection config — secret fields (accessKeyId/secretAccessKey/sessionToken) excluded. */
 export const awsConfigSchema = z
 	.object({
-		region: z.string().optional(),
-		profile: z.string().optional(),
+		region: z.string().describe("AWS region to call, such as `us-east-1`.").optional(),
+		profile: z
+			.string()
+			.describe("Named profile from your AWS config and credentials files.")
+			.optional(),
 	})
-	.strict();
+	.strict()
+	.describe("AWS connection settings for Bedrock. Credentials are not stored here.");
 
 export const googleCloudConfigSchema = z
 	.object({
-		project: z.string().optional(),
-		location: z.string().optional(),
+		project: z.string().describe("Google Cloud project id for Vertex AI.").optional(),
+		location: z
+			.string()
+			.describe("Google Cloud region for Vertex AI, such as `us-central1`.")
+			.optional(),
 	})
-	.strict();
+	.strict()
+	.describe("Google Cloud connection settings for Vertex AI.");
 
 /**
  * Microsoft Entra ID auth mode for the built-in `ms-foundry` provider.
@@ -157,24 +273,40 @@ export const azureConfigSchema = z
 
 export const snowflakeConfigSchema = z
 	.object({
-		account: z.string().optional(),
-		host: z.string().optional(),
+		account: z.string().describe("Snowflake account identifier.").optional(),
+		host: z
+			.string()
+			.describe(
+				"Snowflake host name. Set this when the account identifier alone does not resolve to the right host.",
+			)
+			.optional(),
 		/**
 		 * Directory containing `connections.toml` (the `SNOWFLAKE_HOME` override).
 		 * Points Snowflake credential discovery at a non-default location — e.g.
 		 * Workbench Managed Credentials, which place `connections.toml` in a
 		 * managed directory. Non-secret.
 		 */
-		home: z.string().optional(),
+		home: z
+			.string()
+			.describe(
+				"Directory holding `connections.toml`, the same thing `SNOWFLAKE_HOME` sets. Point this at a managed directory when your credentials are not in the default location.",
+			)
+			.optional(),
 		/**
 		 * Name of the `connections.toml` connection to use (non-secret). Selects
 		 * one entry from the file `home` points at. Consumed by
 		 * `@assistant/node`'s Snowflake resolver on Node platforms; ignored in
 		 * Positron, which defers Snowflake credentials to `vscode.authentication`.
 		 */
-		connectionName: z.string().optional(),
+		connectionName: z
+			.string()
+			.describe(
+				"Which connection from `connections.toml` to use. Node-backed surfaces only; Positron uses its own Snowflake sign-in.",
+			)
+			.optional(),
 	})
-	.strict();
+	.strict()
+	.describe("Snowflake connection settings. Credentials are not stored here.");
 
 /**
  * Databricks workspace host (NOT a chat base URL — the bridge derives the
@@ -183,12 +315,21 @@ export const snowflakeConfigSchema = z
  */
 export const databricksConfigSchema = z
 	.object({
-		host: z.string().optional(),
+		host: z
+			.string()
+			.describe(
+				"Databricks workspace host. This is not a chat base URL: the serving-endpoint URL is derived from it.",
+			)
+			.optional(),
 	})
-	.strict();
+	.strict()
+	.describe("Databricks workspace settings.");
 
 /** Per-protocol base-URL overrides (partial — only specified protocols). */
-export const endpointsSchema = z.record(protocolSchema, z.string().optional());
+export const endpointsSchema = z.record(
+	protocolSchema,
+	z.string().describe("Base URL to use for this protocol.").optional(),
+);
 
 // ---------------------------------------------------------------------------
 // Connection field composition
@@ -201,13 +342,41 @@ export const endpointsSchema = z.record(protocolSchema, z.string().optional());
  * per-provider via {@link connectionBlockSchema}.
  */
 const baseConnectionFields = {
-	enabled: z.boolean().optional(),
-	baseUrl: z.string().optional(),
-	endpoint: z.string().optional(),
-	customHeaders: z.record(z.string(), z.string()).optional(),
-	protocol: protocolSchema.optional(),
-	endpoints: endpointsSchema.optional(),
-	models: modelsBlockSchema.optional(),
+	enabled: z
+		.boolean()
+		.describe("Whether this provider is available. Set to false to hide it from the model picker.")
+		.optional(),
+	baseUrl: z
+		.string()
+		.describe(
+			"Base URL for the provider's API. Some providers need a version segment: `https://api.anthropic.com/v1` for Anthropic, `https://api.openai.com/v1` for OpenAI, and `https://generativelanguage.googleapis.com/v1beta` for Gemini. A bare host will fail for those.",
+		)
+		.optional(),
+	endpoint: z
+		.string()
+		.describe(
+			"Endpoint URL for a self-hosted provider such as Ollama or LM Studio, for example `http://localhost:11434`.",
+		)
+		.optional(),
+	customHeaders: z
+		.record(z.string().describe("Header name."), z.string().describe("Header value."))
+		.describe(
+			"Extra HTTP headers sent with every request to this provider, for proxy tenancy or routing markers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+		)
+		.optional(),
+	protocol: protocolSchema
+		.describe(
+			"API wire protocol for this provider. Set this only when the provider does not use its default protocol.",
+		)
+		.optional(),
+	endpoints: endpointsSchema
+		.describe(
+			"Base URL overrides for one protocol at a time, keyed by protocol. Use this when every model on a protocol shares a path that the provider's other models do not.",
+		)
+		.optional(),
+	models: modelsBlockSchema
+		.describe("Which models this provider offers, and how their metadata is filled in.")
+		.optional(),
 };
 
 /**
@@ -339,7 +508,10 @@ export const builtinProviderBlockSchema = z.object(allConnectionFields).strict()
 /** The `providers.default` baseline block — carries `enabled` only for v1. */
 export const defaultBlockSchema = z
 	.object({
-		enabled: z.boolean().optional(),
+		enabled: z
+			.boolean()
+			.describe("Default enablement for providers that do not set `enabled` themselves.")
+			.optional(),
 	})
 	.strict();
 
@@ -352,7 +524,7 @@ export const defaultBlockSchema = z
 function customProviderVariantSchema<K extends SupportedCustomClientKind>(kind: K) {
 	return z
 		.object({
-			type: z.literal(kind),
+			type: z.literal(kind).describe("Which provider client handles this entry."),
 			...baseConnectionFields,
 			...connectionSectionShape(CUSTOM_CONNECTION_SECTIONS[kind]),
 		})
@@ -443,7 +615,12 @@ export const customProviderEntryFragmentSchema = z
  * so adding a built-in id cannot make those paths disagree.
  */
 export const builtinProviderBlockSchemas = Object.fromEntries(
-	BUILTIN_PROVIDER_IDS.map((id) => [id, connectionBlockSchema(BUILTIN_CONNECTION_SECTIONS[id])]),
+	BUILTIN_PROVIDER_IDS.map((id) => [
+		id,
+		connectionBlockSchema(BUILTIN_CONNECTION_SECTIONS[id]).describe(
+			`Configuration for the built-in ${id} provider.`,
+		),
+	]),
 ) as Record<BuiltinProviderId, typeof builtinProviderBlockSchema>;
 
 function optionalBuiltinBlock(
@@ -471,9 +648,20 @@ function validateCustomProviderNames(value: unknown, ctx: z.RefinementCtx): unkn
 export const providersMapSchema = z
 	.object({
 		...builtinProviderKeys,
-		default: defaultBlockSchema.optional(),
+		default: defaultBlockSchema
+			.describe("Baseline applied to every provider that does not set the same key itself.")
+			.optional(),
 		custom: z
-			.preprocess(validateCustomProviderNames, z.record(z.string(), customProviderEntrySchema))
+			.preprocess(
+				validateCustomProviderNames,
+				z.record(
+					z.string().describe("Name of your choosing, also used as the display name."),
+					customProviderEntrySchema,
+				),
+			)
+			.describe(
+				"Providers you declare yourself, keyed by a name of your choosing. Available on Node-backed surfaces (Standalone, Desktop, RStudio, and the Terminal); Positron does not expose custom providers.",
+			)
 			.optional(),
 	})
 	.strict();
@@ -509,9 +697,18 @@ export const providersConfigSchema = z.preprocess(
 	validateUnsafeObjectKeys,
 	z
 		.object({
-			$schema: z.string().optional(),
-			version: z.literal(1).optional(),
-			providers: providersMapSchema.optional(),
+			$schema: z
+				.string()
+				.describe(
+					"Path or URL of the JSON Schema for this file. Editors use it for validation and autocomplete.",
+				)
+				.optional(),
+			version: z.literal(1).describe("Version of this config format. Always 1.").optional(),
+			providers: providersMapSchema
+				.describe(
+					"Provider configuration, keyed by built-in provider id, plus the reserved `default` and `custom` keys.",
+				)
+				.optional(),
 		})
 		.strict(),
 );
