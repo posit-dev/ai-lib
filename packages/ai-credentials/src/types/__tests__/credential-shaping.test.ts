@@ -69,21 +69,26 @@ describe("shapeCredentials — Snowflake host-over-account URL", () => {
 
 	// Standalone's Add-custom-provider form writes a flat `baseUrl` in custom-URL
 	// mode and structured host/account otherwise, into the same providers.json,
-	// so both shapes have to resolve. Structured stays preferred either way.
-	it("falls back to a flat baseUrl when there are no structured fields", () => {
-		const cfg = config({ getBaseUrl: () => "https://proxy.example.com/cortex/v1" });
-		expect(shapeCredentials("snowflake-cortex", SNOWFLAKE, "tok", cfg)).toMatchObject({
-			baseUrl: "https://proxy.example.com/cortex/v1",
-		});
-	});
-
-	it("prefers structured fields over a flat baseUrl", () => {
+	// so both shapes have to resolve. When both are present the flat form wins,
+	// matching the Node catalog paths (`conn.baseUrl ?? derive(conn)`), so one
+	// providers.json can't route different hosts to different endpoints.
+	it("falls back to structured fields when there is no flat baseUrl", () => {
 		const cfg = config({
-			getBaseUrl: () => "https://stale.example.com/cortex/v1",
+			getBaseUrl: () => undefined,
 			getSnowflake: () => ({ host: "h.snowflakecomputing.com" }),
 		});
 		expect(shapeCredentials("snowflake-cortex", SNOWFLAKE, "tok", cfg)).toMatchObject({
 			baseUrl: "https://h.snowflakecomputing.com/api/v2/cortex/v1",
+		});
+	});
+
+	it("prefers a flat baseUrl over structured fields when both are present", () => {
+		const cfg = config({
+			getBaseUrl: () => "https://proxy.example.com/cortex/v1",
+			getSnowflake: () => ({ host: "h.snowflakecomputing.com" }),
+		});
+		expect(shapeCredentials("snowflake-cortex", SNOWFLAKE, "tok", cfg)).toMatchObject({
+			baseUrl: "https://proxy.example.com/cortex/v1",
 		});
 	});
 });

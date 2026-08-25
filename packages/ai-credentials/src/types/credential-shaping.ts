@@ -198,19 +198,23 @@ export function shapeCredentials(
 			let baseUrl: string | undefined;
 			switch (mapping.structuredBaseUrl ?? BUILTIN_STRUCTURED_BASE_URL[mapping.authProviderId]) {
 				case "snowflake": {
-					// Snowflake URL is built from host (preferred, for private-link/RCR) or
-					// account name, then a flat `baseUrl` as written. Structured wins so a
-					// stale URL can't shadow it, but the flat form has to resolve too: it is
-					// what standalone's Add-custom-provider form writes in custom-URL mode,
-					// it is the only shape that can express a non-standard Cortex path, and
-					// the other hosts already honour it (`conn.baseUrl ?? derive(conn)`).
-					const snowflake = config.getSnowflake(target);
-					if (snowflake?.host) {
+					// A flat `baseUrl` wins over the structured fields — the same
+					// precedence as the Node catalog paths
+					// (`conn.baseUrl ?? deriveSnowflakeBaseUrl(conn)`), so one
+					// providers.json can't route different hosts to different
+					// endpoints. The flat form is what standalone's
+					// Add-custom-provider form writes in custom-URL mode, and the
+					// only shape that can express a non-standard Cortex path.
+					// Otherwise the URL is built from host (preferred, for
+					// private-link/RCR) or account name.
+					const flat = config.getBaseUrl(target) || undefined;
+					const snowflake = flat ? undefined : config.getSnowflake(target);
+					if (flat) {
+						baseUrl = flat;
+					} else if (snowflake?.host) {
 						baseUrl = buildSnowflakeCortexUrlFromHost(snowflake.host);
 					} else if (snowflake?.account) {
 						baseUrl = buildSnowflakeCortexUrl(snowflake.account);
-					} else {
-						baseUrl = config.getBaseUrl(target) || undefined;
 					}
 					break;
 				}
