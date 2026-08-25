@@ -530,6 +530,34 @@ describe("connect chat routing", () => {
 		expect(chats.anthropic).not.toHaveBeenCalled();
 	});
 
+	it("keeps unstamped routing available for interleaved credential sessions", async () => {
+		stubDiscoveryFetch();
+		const registry = new ProviderRegistry(logger);
+		registerConnectProvider(registry, logger);
+		const firstSession = credentials;
+		const secondSession = { ...credentials, apiKey: "tok-other-user" };
+
+		await registry.getModelsForProvider("connect", firstSession);
+		await registry.getModelsForProvider("connect", secondSession);
+		// This is a model-cache hit for the first session. Routing state must
+		// remain available without forcing another network discovery.
+		await registry.getModelsForProvider("connect", firstSession);
+
+		const firstClient = registry.getClientForProvider("connect", firstSession)!;
+		await firstClient.chat({
+			model: `${ANTHROPIC_PREFIX}/claude-3-haiku-20240307`,
+			messages: [],
+			cancellationToken,
+		});
+
+		expect(chats.anthropic).toHaveBeenCalledWith(
+			expect.objectContaining({
+				model: "claude-3-haiku-20240307",
+				baseUrl: ANTHROPIC_GATEWAY,
+			}),
+		);
+	});
+
 	it("drops integrations deleted on the server at the next discovery", async () => {
 		stubDiscoveryFetch();
 		const registry = new ProviderRegistry(logger);

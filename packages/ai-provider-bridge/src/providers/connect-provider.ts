@@ -68,6 +68,7 @@ const VIEWER_AUTH_TYPE = "Viewer";
 const DEFAULT_STS_REGION = "us-east-1";
 const INTEGRATIONS_PATH = "/__api__/v1/oauth/integrations";
 const ANTHROPIC_VERSION_HEADER = "2023-06-01";
+const CONNECT_CACHE_MAX_ENTRIES = 32;
 
 /** One allowlisted integration, shaped from Connect's integrations endpoint. */
 export interface ConnectIntegration {
@@ -246,24 +247,64 @@ export function shapeConnectIntegrations(
 // ---------------------------------------------------------------------------
 
 /**
- * Integrations from the most recent discovery, replaced wholesale each time
- * so deleted or re-pointed integrations cannot linger. Chat consults it only
- * for user-configured models that carry no discovery stamp (no `baseUrl`);
- * stamped models route from the gateway URL alone, so a reset cache
- * (re-registration, process restart) never strands them. `credentialKey`
- * records which server AND token populated it, since one `ProviderRegistry`
- * can be called with different credentials over time (e.g. distinct user
- * sessions against the same server) and this cache must never answer a
- * lookup for credentials that did not write it.
+ * Credential-scoped routing facts for unstamped configured models. Entries
+ * use the same bound and FIFO policy as the model cache, and clear with it.
  */
-interface ConnectIntegrationCache {
-	credentialKey?: string;
-	readonly byPrefix: Map<string, ConnectIntegration>;
+class ConnectIntegrationCache {
+	private readonly entries = new Map<string, ReadonlyMap<string, ConnectIntegration>>();
+	private generation = 0;
+
+	currentGeneration(): number {
+		return this.generation;
+	}
+
+	replace(
+		credentialKey: string,
+		integrations: readonly ConnectIntegration[],
+		startedInGeneration: number,
+	): void {
+		if (this.generation !== startedInGeneration) return;
+		this.entries.delete(credentialKey);
+		this.entries.set(
+			credentialKey,
+			new Map(integrations.map((integration) => [integration.idPrefix, integration])),
+		);
+		while (this.entries.size > CONNECT_CACHE_MAX_ENTRIES) {
+			const oldestKey = this.entries.keys().next().value;
+			if (oldestKey === undefined) break;
+			this.entries.delete(oldestKey);
+		}
+	}
+
+	get(credentialKey: string, prefix: string): ConnectIntegration | undefined {
+		return this.entries.get(credentialKey)?.get(prefix);
+	}
+
+	findByGuid(credentialKey: string, guid: string): ConnectIntegration | undefined {
+		for (const integration of this.entries.get(credentialKey)?.values() ?? []) {
+			if (integration.guid === guid) return integration;
+		}
+		return undefined;
+	}
+
+	clear(): void {
+		this.generation += 1;
+		this.entries.clear();
+	}
 }
 
-/** Identifies which credentials populated a cache: the server plus the token. */
-function connectCredentialKey(connectUrl: string, credentials: ApiKeyCredentials): string {
-	return `${connectUrl} ${credentials.apiKey}`;
+/** Opaque fingerprint identifying the server and token that populated an entry. */
+async function connectCredentialKey(
+	connectUrl: string,
+	credentials: ApiKeyCredentials,
+): Promise<string> {
+	const input = new TextEncoder().encode(`${connectUrl} ${credentials.apiKey}`);
+	const digest = new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", input));
+	let fingerprint = "";
+	for (const byte of digest) {
+		fingerprint += byte.toString(16).padStart(2, "0");
+	}
+	return fingerprint;
 }
 
 function resolveTemplates(
@@ -403,7 +444,7 @@ function createConnectModelFetcher(
 	cache: ConnectIntegrationCache,
 	callbacks?: ConnectProviderCallbacks,
 ) {
-	return createCachedModelFetcher<ApiKeyCredentials>({
+	const fetcher = createCachedModelFetcher<ApiKeyCredentials>({
 		providerId,
 		// The token AND the Connect server URL must both be present; without a
 		// baseUrl there is nothing to discover against (Snowflake pattern).
@@ -413,19 +454,14 @@ function createConnectModelFetcher(
 		// integrations THIS token can see.
 		cacheKey: (credentials) =>
 			connectCredentialKey(credentials.baseUrl!.replace(/\/+$/, ""), credentials),
+		maxCacheEntries: CONNECT_CACHE_MAX_ENTRIES,
 		fetchFresh: async (credentials, signal) => {
+			const cacheGeneration = cache.currentGeneration();
 			const connectUrl = credentials.baseUrl!.replace(/\/+$/, "");
+			const credentialKey = await connectCredentialKey(connectUrl, credentials);
 			const templates = resolveTemplates(callbacks?.templates?.(), logger);
 			const records = await fetchIntegrationRecords(connectUrl, credentials, signal);
 			const integrations = shapeConnectIntegrations(records, connectUrl, templates);
-			// Replace the cache wholesale: deleted or re-pointed integrations must
-			// not linger, and entries must never outlive the server (or
-			// credentials) they came from.
-			cache.credentialKey = connectCredentialKey(connectUrl, credentials);
-			cache.byPrefix.clear();
-			for (const integration of integrations) {
-				cache.byPrefix.set(integration.idPrefix, integration);
-			}
 
 			if (!callbacks && integrations.some((integration) => integration.template === "aws")) {
 				logger.warn(
@@ -459,11 +495,22 @@ function createConnectModelFetcher(
 					}
 				}),
 			);
-			return modelLists.flat();
+			const models = modelLists.flat();
+			if (signal.aborted) {
+				throw signal.reason ?? new Error("Connect model discovery was aborted");
+			}
+			cache.replace(credentialKey, integrations, cacheGeneration);
+			return models;
 		},
 		fallbackModels: [],
 		logger,
 	});
+	const clearModelCache = fetcher.clearCache;
+	fetcher.clearCache = () => {
+		cache.clear();
+		clearModelCache?.();
+	};
+	return fetcher;
 }
 
 // ---------------------------------------------------------------------------
@@ -549,13 +596,10 @@ class ConnectClient implements ModelClient {
 						`but the provider now points at ${connectUrl}. Refresh the model list and try again.`,
 				);
 			}
-			integration = this.resolveIntegration(parsed, prefix);
+			integration = await this.resolveIntegration(parsed, prefix);
 		} else {
-			const credentialKey = connectCredentialKey(connectUrl, this.credentials);
-			const cached =
-				prefix && this.cache.credentialKey === credentialKey
-					? this.cache.byPrefix.get(prefix)
-					: undefined;
+			const credentialKey = await connectCredentialKey(connectUrl, this.credentials);
+			const cached = prefix ? this.cache.get(credentialKey, prefix) : undefined;
 			if (!cached) {
 				throw new Error(
 					`Connect provider has no gateway base URL for model "${params.model}". ` +
@@ -611,16 +655,13 @@ class ConnectClient implements ModelClient {
 	 * from these same credentials, else synthesize one from the stamp so
 	 * routing survives an empty, replaced, or foreign-credential cache.
 	 */
-	private resolveIntegration(
+	private async resolveIntegration(
 		parsed: { connectUrl: string; template: string; guid: string },
 		prefix: string | undefined,
-	): ConnectIntegration {
-		const credentialKey = connectCredentialKey(parsed.connectUrl, this.credentials);
-		if (this.cache.credentialKey === credentialKey) {
-			for (const cached of this.cache.byPrefix.values()) {
-				if (cached.guid === parsed.guid) return cached;
-			}
-		}
+	): Promise<ConnectIntegration> {
+		const credentialKey = await connectCredentialKey(parsed.connectUrl, this.credentials);
+		const cached = this.cache.findByGuid(credentialKey, parsed.guid);
+		if (cached) return cached;
 		return {
 			idPrefix: prefix ?? `connect-${parsed.guid}`,
 			guid: parsed.guid,
@@ -722,7 +763,7 @@ export function registerConnectProvider(
 	// Shared between the fetcher (writer) and the client (reader) so chat can
 	// resolve user-configured models that carry no discovery stamp; stamped
 	// models route from their gateway URL alone.
-	const cache: ConnectIntegrationCache = { byPrefix: new Map() };
+	const cache = new ConnectIntegrationCache();
 	registry.registerModelFetcher(
 		"connect",
 		createConnectModelFetcher("connect", logger, cache, callbacks),

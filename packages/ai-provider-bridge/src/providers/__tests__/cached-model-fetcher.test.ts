@@ -76,6 +76,80 @@ describe("createCachedModelFetcher — fetchFresh variant", () => {
 	});
 });
 
+describe("createCachedModelFetcher — credential partitions", () => {
+	afterEach(() => {
+		vi.clearAllMocks();
+	});
+
+	function keyedFetcher(overrides?: {
+		ttl?: number;
+		maxCacheEntries?: number;
+		fetchFresh?: (credentials: ApiKeyCredentials) => Promise<ModelInfo[]>;
+	}) {
+		const fetchFresh =
+			overrides?.fetchFresh ??
+			vi.fn(async (creds: ApiKeyCredentials) => [model(`fresh-${creds.apiKey}`)]);
+		const fetcher = createCachedModelFetcher<ApiKeyCredentials>({
+			providerId: "test-provider",
+			hasCredentials: (creds) => Boolean(creds.apiKey),
+			cacheKey: async (creds) => `fingerprint-${creds.apiKey}`,
+			fetchFresh,
+			fallbackModels: [model("fallback")],
+			ttl: overrides?.ttl ?? 60_000,
+			maxCacheEntries: overrides?.maxCacheEntries ?? 32,
+			logger,
+		});
+		return { fetcher, fetchFresh };
+	}
+
+	it("partitions model lists by an asynchronous credential fingerprint", async () => {
+		const { fetcher, fetchFresh } = keyedFetcher();
+		const first = { ...credentials, apiKey: "first" };
+		const second = { ...credentials, apiKey: "second" };
+
+		expect((await fetcher(first)).map((entry) => entry.id)).toEqual(["fresh-first"]);
+		expect((await fetcher(second)).map((entry) => entry.id)).toEqual(["fresh-second"]);
+		expect((await fetcher(first)).map((entry) => entry.id)).toEqual(["fresh-first"]);
+		expect(fetchFresh).toHaveBeenCalledTimes(2);
+	});
+
+	it("keeps stale fallback inside its credential partition", async () => {
+		const failing = new Set<string>();
+		const { fetcher } = keyedFetcher({
+			ttl: 0,
+			fetchFresh: async (creds) => {
+				if (failing.has(creds.apiKey)) throw new Error("unavailable");
+				return [model(`fresh-${creds.apiKey}`)];
+			},
+		});
+		const first = { ...credentials, apiKey: "first" };
+		const second = { ...credentials, apiKey: "second" };
+
+		await fetcher(first);
+		await fetcher(second);
+		failing.add("first");
+
+		expect((await fetcher(first)).map((entry) => entry.id)).toEqual(["fresh-first"]);
+	});
+
+	it("clears every partition and evicts the oldest entry at the configured bound", async () => {
+		const { fetcher, fetchFresh } = keyedFetcher({ maxCacheEntries: 2 });
+		const first = { ...credentials, apiKey: "first" };
+		const second = { ...credentials, apiKey: "second" };
+		const third = { ...credentials, apiKey: "third" };
+
+		await fetcher(first);
+		await fetcher(second);
+		await fetcher(third);
+		await fetcher(first);
+		expect(fetchFresh).toHaveBeenCalledTimes(4);
+
+		fetcher.clearCache?.();
+		await fetcher(second);
+		expect(fetchFresh).toHaveBeenCalledTimes(5);
+	});
+});
+
 describe("createCachedModelFetcher — discovery deadline", () => {
 	afterEach(() => {
 		vi.useRealTimers();
