@@ -385,49 +385,80 @@ describe("createPositronBackend", () => {
 	});
 
 	describe("providers.custom entries", () => {
-		const CUSTOM_ID = "Acme Gateway";
+		// The shape the Positron host composes for `providers.custom`: every
+		// entry shares ONE authentication provider and is identified by a single
+		// scope — the entry id. So `providerId !== authProviderId`, and the
+		// configKey derived from the shared authProviderId is the same for every
+		// entry; only the logical provider id tells two entries apart.
+		const CUSTOM_AUTH_PROVIDER_ID = "positron-custom-provider";
+		const ACME = "Acme Gateway";
+		const CONTOSO = "Contoso Gateway";
 
-		/**
-		 * The shape a host composes for `providers.custom`: the auth provider id is
-		 * the entry id itself, so the mapping is derived rather than tabled.
-		 */
 		function customMappings(ids: readonly string[]): () => ProviderMap {
 			return () =>
 				Object.fromEntries(
-					ids.map((id) => [id, { authProviderId: id, scopes: [], credentialType: "apikey" }]),
+					ids.map((id) => [
+						id,
+						{
+							authProviderId: CUSTOM_AUTH_PROVIDER_ID,
+							scopes: [id],
+							credentialType: "apikey" as const,
+						},
+					]),
 				);
 		}
 
-		it("resolves a custom entry through an auth provider named for the entry", async () => {
-			mockGetSession.mockResolvedValue(makeSession("custom-key"));
+		it("resolves each entry by scope, with shaping keyed on the entry id", async () => {
+			// Two entries behind one auth provider: the session lookup must pass
+			// the entry's scope, and config reads must key on the logical
+			// providerId — keyed on the shared authProviderId/configKey instead,
+			// both entries would resolve the same (or no) baseUrl.
+			mockGetSession.mockImplementation(async (_id: string, scopes: string[]) =>
+				makeSession(`key-for-${scopes[0]}`),
+			);
 			const backend = makeBackend(
 				{
 					getBaseUrl: ({ providerId }) =>
-						providerId === CUSTOM_ID ? "https://gw.acme.test" : undefined,
+						providerId === ACME
+							? "https://gw.acme.test"
+							: providerId === CONTOSO
+								? "https://gw.contoso.test"
+								: undefined,
 				},
-				customMappings([CUSTOM_ID]),
+				customMappings([ACME, CONTOSO]),
 			);
 
-			await expect(backend.getCredentials(CUSTOM_ID)).resolves.toEqual({
+			await expect(backend.getCredentials(ACME)).resolves.toEqual({
 				type: "apikey",
-				apiKey: "custom-key",
+				apiKey: "key-for-Acme Gateway",
 				baseUrl: "https://gw.acme.test",
 				customHeaders: undefined,
 			});
-			expect(mockGetSession).toHaveBeenCalledWith(CUSTOM_ID, [], { silent: true });
+			await expect(backend.getCredentials(CONTOSO)).resolves.toEqual({
+				type: "apikey",
+				apiKey: "key-for-Contoso Gateway",
+				baseUrl: "https://gw.contoso.test",
+				customHeaders: undefined,
+			});
+			expect(mockGetSession).toHaveBeenNthCalledWith(1, CUSTOM_AUTH_PROVIDER_ID, [ACME], {
+				silent: true,
+			});
+			expect(mockGetSession).toHaveBeenNthCalledWith(2, CUSTOM_AUTH_PROVIDER_ID, [CONTOSO], {
+				silent: true,
+			});
 		});
 
-		it("fires a credential change for a custom entry's auth provider", async () => {
-			const backend = makeBackend({}, customMappings([CUSTOM_ID]));
+		it("fans a session change on the shared auth provider out to every entry", () => {
+			const backend = makeBackend({}, customMappings([ACME, CONTOSO]));
 			const seen: string[][] = [];
 			backend.onDidChangeCredentials((ids) => seen.push(ids));
 
-			sessionChangeHook.callback?.({ provider: { id: CUSTOM_ID } });
+			sessionChangeHook.callback?.({ provider: { id: CUSTOM_AUTH_PROVIDER_ID } });
 
-			expect(seen).toEqual([[CUSTOM_ID]]);
+			expect(seen).toEqual([[ACME, CONTOSO]]);
 		});
 
-		it("notifies a custom entry that appeared after the backend was built", async () => {
+		it("notifies a custom entry that appeared after the backend was built", () => {
 			// The map is read per lookup, not captured at construction, so an entry
 			// added later is still reachable.
 			const known: string[] = [];
@@ -435,11 +466,11 @@ describe("createPositronBackend", () => {
 			const seen: string[][] = [];
 			backend.onDidChangeCredentials((ids) => seen.push(ids));
 
-			sessionChangeHook.callback?.({ provider: { id: "Late Entry" } });
+			sessionChangeHook.callback?.({ provider: { id: CUSTOM_AUTH_PROVIDER_ID } });
 			expect(seen).toEqual([]);
 
 			known.push("Late Entry");
-			sessionChangeHook.callback?.({ provider: { id: "Late Entry" } });
+			sessionChangeHook.callback?.({ provider: { id: CUSTOM_AUTH_PROVIDER_ID } });
 			expect(seen).toEqual([["Late Entry"]]);
 		});
 	});
