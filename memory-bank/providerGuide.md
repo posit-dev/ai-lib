@@ -252,6 +252,23 @@ New providers should support the `customHeaders` field from `ApiKeyCredentials`.
 
 See `src/custom-headers.ts` for the shared filtering/merging utilities.
 
+## Ambient-Cloud-Credential Providers (Vertex, Foundry Entra)
+
+Providers whose auth comes from a cloud CLI / ambient identity (no stored
+secret) carry a credential type with **no secret material** and let the cloud
+SDK own the token lifecycle:
+
+- `GoogleCloudCredentials` (`google-cloud`) — google-auth-library resolves ADC.
+- `AzureEntraCredentials` (`azure-entra`) — `baseUrl` + required `scope` +
+  optional `tenantId`/`customHeaders`. `src/model-clients/azure-entra-token.ts`
+  caches `getBearerTokenProvider(new DefaultAzureCredential(...), scope)` per
+  scope+tenant (the SDK caches tokens per credential instance, so the cache is
+  required, not optional) and normalizes chain failures into an actionable
+  "run `az login`" error. The Foundry client factory composes the bearer
+  injection **around** `createOpenAICompatibleFetch` (which keeps owning
+  additive `customHeaders` and request/stream normalization) rather than
+  replacing it.
+
 ## Common Pitfalls
 
 - **Don't modify the registry class** -- Use the plugin pattern (`registerModelFetcher` / `registerClientFactory`)

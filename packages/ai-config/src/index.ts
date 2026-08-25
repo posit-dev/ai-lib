@@ -35,6 +35,8 @@ export type {
 
 // --- Schema ----------------------------------------------------------------
 export {
+	azureAuthModeSchema,
+	azureConfigSchema,
 	customModelSchema,
 	customProviderEntrySchema,
 	providersConfigFragmentSchema,
@@ -48,6 +50,7 @@ export {
 	MODEL_ROUTING_FIELD_NAMES,
 } from "./types.js";
 export type {
+	AzureAuthMode,
 	BuiltinProviderBlock,
 	CustomModel,
 	CustomProviderId,
@@ -62,6 +65,7 @@ export type {
 	ProvidersConfig,
 	ProvidersMap,
 	ResolvedConnection,
+	ResolvedConnectionFieldSource,
 	ResolvedConnectionProvenance,
 	ResolvedConnectionValueProvenance,
 	ResolvedModelInfo,
@@ -135,6 +139,8 @@ export {
 	BEDROCK_DEFAULTS,
 	GOOGLE_VERTEX_DEFAULTS,
 	LMSTUDIO_DEFAULTS,
+	MS_FOUNDRY_DEFAULT_SCOPE,
+	MS_FOUNDRY_DEFAULTS,
 	OLLAMA_DEFAULTS,
 	POSIT_AI_DEFAULTS,
 	PROVIDER_CONNECTION_DEFAULTS,

@@ -115,6 +115,13 @@ export function mintCustomProviderId(id: string): CustomProviderId {
 // Resolved provider catalog
 // ---------------------------------------------------------------------------
 
+/**
+ * Microsoft Entra ID auth mode for the built-in `ms-foundry` provider.
+ * `"apikey"` is the back-compat default; `"entra"` acquires tokens at
+ * runtime via `@azure/identity` (DefaultAzureCredential) and stores nothing.
+ */
+export type AzureAuthMode = "apikey" | "entra";
+
 /** Connection config resolved from a provider block. */
 export interface ResolvedConnection {
 	baseUrl?: string;
@@ -124,6 +131,7 @@ export interface ResolvedConnection {
 	endpoints?: Partial<Record<Protocol, string>>;
 	positaiLogin?: { host?: string; clientId?: string; scope?: string };
 	aws?: { region?: string; profile?: string };
+	azure?: { authMode?: AzureAuthMode; scope?: string; tenantId?: string };
 	googleCloud?: { project?: string; location?: string };
 	snowflake?: { account?: string; host?: string; home?: string; connectionName?: string };
 	databricks?: { host?: string };
@@ -137,6 +145,22 @@ export interface ResolvedConnection {
  * ambient connection-env layer is the only source of that value.
  */
 export type ResolvedConnectionValueProvenance = "configuration" | "environment";
+
+/**
+ * Origin of a single resolved connection field, fine-grained enough for a
+ * configuration form to decide per-field editability.
+ *
+ * - `"user"` — the mutable user layer (or non-enforced legacy settings)
+ *   supplies the effective value; the control stays editable.
+ * - `"enforced"` — an admin-enforced overlay supplies the effective value;
+ *   the user layer cannot override it, so the control is read-only.
+ * - `"environment"` — a connection env var supplies the effective value;
+ *   env ranks above the user layer, so the control is read-only.
+ * - `"default"` — no source sets the field; the effective value is a
+ *   built-in or `POSIT_AI_PROVIDERS_DEFAULT` default, which a user write
+ *   overrides, so the control stays editable.
+ */
+export type ResolvedConnectionFieldSource = "user" | "enforced" | "environment" | "default";
 
 /**
  * Provenance retained for connection fields whose origin affects consumers.
@@ -155,6 +179,21 @@ export interface ResolvedConnectionProvenance {
 			readonly valueAfterUserClear: string | undefined;
 		};
 	};
+	/**
+	 * Per-field sources for the UI-managed Microsoft Foundry connection
+	 * fields. Computed only for the built-in `ms-foundry` provider, so a
+	 * configure form can disable each individually pinned control without
+	 * re-deriving source precedence from resolved values. `authMode` and
+	 * `scope` always resolve (built-in defaults), so their source is always
+	 * present; `baseUrl`/`tenantId` are absent when no layer sets them.
+	 */
+	readonly azure?: {
+		readonly authMode?: ResolvedConnectionFieldSource;
+		readonly scope?: ResolvedConnectionFieldSource;
+		readonly tenantId?: ResolvedConnectionFieldSource;
+	};
+	/** Source of the resolved `baseUrl` — computed for `ms-foundry` only. */
+	readonly baseUrl?: ResolvedConnectionFieldSource;
 }
 
 /**

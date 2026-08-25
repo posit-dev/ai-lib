@@ -503,6 +503,77 @@ describe("resolveProviderCatalog — enforced beats connection env", () => {
 	});
 });
 
+describe("resolveProviderCatalog — ms-foundry field provenance", () => {
+	it("reports built-in defaults for authMode/scope when no source sets them", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [source("user", { providers: {} })],
+			envVars: {},
+		});
+		const provenance = find(catalog, "ms-foundry")?.connectionProvenance;
+		expect(provenance?.azure?.authMode).toBe("default");
+		expect(provenance?.azure?.scope).toBe("default");
+		expect(provenance?.azure?.tenantId).toBeUndefined();
+		expect(provenance?.baseUrl).toBeUndefined();
+		// The resolved connection carries the defaulted values.
+		const azure = find(catalog, "ms-foundry")?.connection.azure;
+		expect(azure?.authMode).toBe("apikey");
+		expect(azure?.scope).toBe("https://cognitiveservices.azure.com/.default");
+	});
+
+	it("attributes each field to the highest-precedence source that sets it", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("enforced", {
+					providers: { "ms-foundry": { azure: { authMode: "entra" } } },
+				}),
+				source("user", {
+					providers: {
+						"ms-foundry": {
+							baseUrl: "https://user.openai.azure.com/openai/v1",
+							azure: { authMode: "apikey", tenantId: "user-tenant" },
+						},
+					},
+				}),
+				source("default", {
+					providers: { "ms-foundry": { azure: { scope: "https://ai.azure.com/.default" } } },
+				}),
+			],
+			envVars: { MS_FOUNDRY_ENTRA_SCOPE: "https://env-scope.example.com/.default" },
+		});
+		const provenance = find(catalog, "ms-foundry")?.connectionProvenance;
+		// enforced pins authMode; env pins scope (env beats user/default);
+		// baseUrl and tenantId come from the user layer.
+		expect(provenance?.azure?.authMode).toBe("enforced");
+		expect(provenance?.azure?.scope).toBe("environment");
+		expect(provenance?.azure?.tenantId).toBe("user");
+		expect(provenance?.baseUrl).toBe("user");
+		// And the resolved values follow the same precedence.
+		const conn = find(catalog, "ms-foundry")?.connection;
+		expect(conn?.azure?.authMode).toBe("entra");
+		expect(conn?.azure?.scope).toBe("https://env-scope.example.com/.default");
+		expect(conn?.azure?.tenantId).toBe("user-tenant");
+		expect(conn?.baseUrl).toBe("https://user.openai.azure.com/openai/v1");
+	});
+
+	it("treats legacy-positron-enforced as enforced and legacy-positron as user", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("legacy-positron-enforced", {
+					providers: { "ms-foundry": { baseUrl: "https://legacy-enforced.example.com" } },
+				}),
+				source("legacy-positron", {
+					providers: { "ms-foundry": { azure: { tenantId: "legacy-tenant" } } },
+				}),
+				source("user", { providers: {} }),
+			],
+			envVars: {},
+		});
+		const provenance = find(catalog, "ms-foundry")?.connectionProvenance;
+		expect(provenance?.baseUrl).toBe("enforced");
+		expect(provenance?.azure?.tenantId).toBe("user");
+	});
+});
+
 describe("resolveProviderCatalog — snowflake + legacy vertex env vars", () => {
 	it("folds SNOWFLAKE_* env vars into snowflake-cortex connection", () => {
 		const catalog = resolveProviderCatalog({

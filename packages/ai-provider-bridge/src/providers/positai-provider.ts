@@ -176,8 +176,11 @@ export function registerPositAiProvider(
 							"image/webp",
 							"application/pdf",
 						],
-						// No blanket maxOutputTokens: each model family declares its own
-						// in its capability entry; otherwise the server default applies.
+						// Fallback maxOutputTokens for models whose capability entry omits
+						// one: without it no max_tokens is sent and the server applies its
+						// own (much smaller) default. Explicit per-model values in the
+						// capabilities spread below take precedence.
+						maxOutputTokens: 16_384,
 						...capabilities,
 						// API-sourced context length takes precedence over inferred capabilities
 						maxContextLength: model.max_context_length ?? capabilities?.maxContextLength ?? 200000,

@@ -25,6 +25,7 @@ export type { ResolvedProviderId };
 export type {
 	ApiKeyCredentials,
 	AwsCredentials,
+	AzureEntraCredentials,
 	GoogleCloudCredentials,
 	LocalCredentials,
 	OAuthCredentials,
@@ -289,6 +290,14 @@ export const NOTIFICATION_ACTIONS = {
 	 * Handler should open the Posit AI setup page
 	 */
 	POSIT_AI_COMPLETE_SETUP: "posit-ai-complete-setup",
+
+	/**
+	 * Reconnect a provider whose credentials expired - triggered instead of
+	 * REFRESH_MODELS on hosts with a graphical configuration overlay.
+	 * Handler should open the configuration overlay and start an in-app
+	 * credential refresh for the notification's providerId.
+	 */
+	RECONNECT_PROVIDER: "reconnect-provider",
 } as const;
 
 /**
