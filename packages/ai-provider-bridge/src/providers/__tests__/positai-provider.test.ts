@@ -2,24 +2,11 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-/**
- * Interface-level tests for Phase 4 protocol routing behavior.
- *
- * These verify the specific regressions the Phase 4 fixes target:
- * - Posit AI protocol mapping (unsupported protocols suppressed, vendor preserved)
- * - LM Studio rejecting unsupported protocols
- * - Vertex explicit Anthropic protocol using global location
- */
-
 import { describe, expect, it, vi } from "vitest";
 
-import { getEffectiveLocation, isVertexAnthropicModel } from "../model-clients/GoogleVertexClient";
-import { LMStudioClient } from "../model-clients/LMStudioClient";
-import type { ModelClientChatParams } from "../model-clients/ModelClient";
-import { registerPositAiProvider } from "../providers/positai-provider";
-import { ProviderRegistry } from "../providers/ProviderRegistry";
-import type { Logger, ModelInfo, ProviderCredentials } from "../types";
-import type { CancellationToken } from "../types";
+import type { Logger, ProviderCredentials } from "../../types";
+import { registerPositAiProvider } from "../positai-provider";
+import { ProviderRegistry } from "../ProviderRegistry";
 
 function createMockLogger(): Logger {
 	return {
@@ -31,16 +18,39 @@ function createMockLogger(): Logger {
 	};
 }
 
-function createMockCancellationToken(): CancellationToken {
-	return {
-		isCancellationRequested: false,
-		onCancellationRequested: () => ({ dispose: () => {} }),
-	};
+const OAUTH_CREDENTIALS = {
+	type: "oauth",
+	accessToken: "test-token",
+} as ProviderCredentials;
+
+function createModelsResponse(
+	ids: string[],
+	protocol: string = "openai-chat-completions",
+): Response {
+	return new Response(
+		JSON.stringify({
+			chat: ids.map((id) => ({
+				id,
+				display_name: id,
+				endpoints: [{ path: "/openai/v1", protocol }],
+				max_context_length: 200_000,
+			})),
+		}),
+		{ status: 200 },
+	);
 }
 
-// ---------------------------------------------------------------------------
-// Posit AI protocol mapping
-// ---------------------------------------------------------------------------
+async function fetchModels(ids: string[], protocol?: string) {
+	const logger = createMockLogger();
+	const registry = new ProviderRegistry(logger);
+	registerPositAiProvider(registry, "https://api.posit.cloud", "test/1.0", logger);
+
+	vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(createModelsResponse(ids, protocol));
+
+	const models = await registry.getModelsForProvider("positai", OAUTH_CREDENTIALS);
+	vi.restoreAllMocks();
+	return models;
+}
 
 describe("Posit AI protocol mapping", () => {
 	it("maps anthropic-messages protocol and sets vendor to anthropic", async () => {
@@ -145,62 +155,22 @@ describe("Posit AI protocol mapping", () => {
 	});
 });
 
-// ---------------------------------------------------------------------------
-// LM Studio protocol guard
-// ---------------------------------------------------------------------------
-
-describe("LMStudioClient protocol guard", () => {
-	it("rejects openai-responses protocol", async () => {
-		const client = new LMStudioClient("http://localhost:1234/v1");
-
-		const params: ModelClientChatParams = {
-			model: "some-model",
-			messages: [],
-			cancellationToken: createMockCancellationToken(),
-			protocol: "openai-responses",
-		};
-
-		await expect(client.chat(params)).rejects.toThrow(
-			/Unsupported protocol for LM Studio.*openai-responses/,
-		);
+describe("Posit AI maxOutputTokens fallback", () => {
+	it("applies the fallback maxOutputTokens to a model with no capability entry", async () => {
+		const models = await fetchModels(["some-org/unknown-model"]);
+		expect(models).toHaveLength(1);
+		expect(models[0]?.maxOutputTokens).toBe(16_384);
 	});
 
-	it("rejects anthropic-messages protocol", async () => {
-		const client = new LMStudioClient("http://localhost:1234/v1");
-
-		const params: ModelClientChatParams = {
-			model: "some-model",
-			messages: [],
-			cancellationToken: createMockCancellationToken(),
-			protocol: "anthropic-messages",
-		};
-
-		await expect(client.chat(params)).rejects.toThrow(
-			/Unsupported protocol for LM Studio.*anthropic-messages/,
-		);
-	});
-});
-
-// ---------------------------------------------------------------------------
-// Vertex location heuristic with explicit protocol
-// ---------------------------------------------------------------------------
-
-describe("GoogleVertexClient location heuristic", () => {
-	it("routes recognized Anthropic model IDs to global via model-ID heuristic", () => {
-		// Baseline: recognized model IDs already go to global
-		expect(isVertexAnthropicModel("claude-sonnet-4-6")).toBe(true);
-		expect(getEffectiveLocation("claude-sonnet-4-6", "us-central1")).toBe("global");
+	it("applies the fallback maxOutputTokens to GLM-5.2, whose capability entry omits it", async () => {
+		const models = await fetchModels(["zai-org/GLM-5.2"]);
+		expect(models).toHaveLength(1);
+		expect(models[0]?.maxOutputTokens).toBe(16_384);
 	});
 
-	it("routes unrecognized model IDs to configured location", () => {
-		// A model ID that doesn't match the anthropic pattern
-		expect(isVertexAnthropicModel("my-custom-model")).toBe(false);
-		expect(getEffectiveLocation("my-custom-model", "us-central1")).toBe("us-central1");
+	it("lets an explicit capability-entry maxOutputTokens take precedence (Kimi K3)", async () => {
+		const models = await fetchModels(["moonshotai/Kimi-K3"]);
+		expect(models).toHaveLength(1);
+		expect(models[0]?.maxOutputTokens).toBe(131_072);
 	});
-
-	// The actual location-with-protocol behavior is tested indirectly:
-	// GoogleVertexClient.createModel is private, so we verify the exported
-	// helpers produce the right inputs and trust that createModel's
-	// `useAnthropicApi && protocol === "anthropic-messages"` → "global" branch
-	// is covered by the type-checked implementation.
 });

@@ -9,13 +9,14 @@
  * shape are exercised end-to-end.
  */
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { existsSync } from "node:fs";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { SingleFileStore } from "../../store/index.js";
+import {
+	createSingleFileStoreFixture,
+	type SingleFileStoreFixture,
+} from "../../../tests/helpers/single-file-store-fixture.js";
 import { storageKeyFor } from "../../types/index.js";
 import type { AuthMethodDescriptor } from "../StoreBackend.js";
 import { createStoreBackend } from "../StoreBackend.js";
@@ -35,16 +36,16 @@ function resolveAuthMethod(id: string): AuthMethodDescriptor | undefined {
 }
 
 describe("createStoreBackend", () => {
-	let dir: string;
-	let store: SingleFileStore;
+	let fixture: SingleFileStoreFixture;
+	let store: SingleFileStoreFixture["store"];
 
 	beforeEach(() => {
-		dir = mkdtempSync(join(tmpdir(), "aicred-"));
-		store = new SingleFileStore({ filePath: join(dir, "data.json") });
+		fixture = createSingleFileStoreFixture("aicred-");
+		store = fixture.store;
 	});
 
 	afterEach(() => {
-		rmSync(dir, { recursive: true, force: true });
+		fixture.cleanup();
 	});
 
 	describe("getCredentials — store then env then null", () => {
@@ -701,13 +702,15 @@ describe("createStoreBackend", () => {
  * credentials only reads, never rewrites the file.
  */
 describe("createStoreBackend — legacy data.json byte-compatibility", () => {
-	let dir: string;
+	let fixture: SingleFileStoreFixture;
 
 	beforeEach(() => {
-		dir = mkdtempSync(join(tmpdir(), "aicred-compat-"));
+		fixture = createSingleFileStoreFixture("aicred-compat-");
 	});
 	afterEach(() => {
-		rmSync(dir, { recursive: true, force: true });
+		const { directory } = fixture;
+		fixture.cleanup();
+		expect(existsSync(directory)).toBe(false);
 	});
 
 	// A representative pre-existing store: one record per auth method, no version
@@ -747,12 +750,15 @@ describe("createStoreBackend — legacy data.json byte-compatibility", () => {
 	);
 
 	it("reads legacy records via the tolerant Zod schema without rewriting the file", async () => {
-		const filePath = join(dir, "data.json");
-		writeFileSync(filePath, LEGACY_JSON);
-		const before = readFileSync(filePath);
+		const before = Buffer.from(LEGACY_JSON);
+		fixture.writeBytes(before);
+		expect(fixture.readBytes().equals(before)).toBe(true);
 
-		const store = new SingleFileStore({ filePath });
-		const backend = createStoreBackend({ store, resolveAuthMethod, env: {} });
+		const backend = createStoreBackend({
+			store: fixture.store,
+			resolveAuthMethod,
+			env: {},
+		});
 
 		// Existing records parse and resolve to runtime credentials.
 		expect(await backend.getCredentials("anthropic")).toEqual({
@@ -773,7 +779,7 @@ describe("createStoreBackend — legacy data.json byte-compatibility", () => {
 		expect(await backend.getCredentials("positai")).toBeNull();
 
 		// The file is byte-identical after all reads (no migration, no re-serialize).
-		const after = readFileSync(filePath);
+		const after = fixture.readBytes();
 		expect(after.equals(before)).toBe(true);
 	});
 });

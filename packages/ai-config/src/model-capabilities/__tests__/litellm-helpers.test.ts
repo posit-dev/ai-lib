@@ -4,19 +4,104 @@
 
 import { describe, expect, it } from "vitest";
 
-import { classifyLitellmModel, getLitellmModelCapabilities } from "../litellm-helpers.js";
+import {
+	classifyLitellmModel,
+	getLitellmModelCapabilities,
+	type LitellmModelClassification,
+	type LitellmModelClassificationInput,
+} from "../litellm-helpers.js";
+
+type ModelIdCase = {
+	name: string;
+	id: string;
+};
+
+const CLAUDE_DELEGATION_CASES = [
+	{ name: "bare future Claude id", id: "claude-opus-5" },
+	{ name: "Anthropic-prefixed Claude id", id: "anthropic/claude-sonnet-5-20251101" },
+	{
+		name: "Bedrock-prefixed Claude id",
+		id: "bedrock/us.anthropic.claude-sonnet-4-6-20251001-v1:0",
+	},
+] satisfies readonly ModelIdCase[];
+
+const UNRECOGNIZED_UPSTREAM_CASES = [
+	{ name: "Gemini upstream", id: "gemini/gemini-2.5-flash" },
+	{ name: "Ollama upstream", id: "ollama_chat/qwen3-coder:30b" },
+	{ name: "unqualified GPT OSS id", id: "gpt-oss" },
+] satisfies readonly ModelIdCase[];
+
+const FUTURE_OPENAI_CASES = [
+	{ name: "future GPT id", id: "openai/gpt-6-mini" },
+	{ name: "o3 id", id: "openai/o3" },
+	{ name: "o4 Mini id", id: "openai/o4-mini" },
+] satisfies readonly ModelIdCase[];
+
+type UnderlyingClassificationCase = {
+	name: string;
+	input: LitellmModelClassificationInput;
+	expected: LitellmModelClassification;
+};
+
+const UNDERLYING_CLASSIFICATION_CASES = [
+	{
+		name: "Claude underlying id",
+		input: {
+			alias: "fast-model",
+			underlyingModel: "anthropic/claude-haiku-4-5",
+			litellmProvider: "anthropic",
+		},
+		expected: { family: "claude", capabilityModelId: "anthropic/claude-haiku-4-5" },
+	},
+	{
+		name: "OpenAI underlying id",
+		input: {
+			alias: "smart-model",
+			underlyingModel: "openai/gpt-5-mini",
+			litellmProvider: "openai",
+		},
+		expected: { family: "openai", capabilityModelId: "openai/gpt-5-mini" },
+	},
+	{
+		name: "other underlying id",
+		input: {
+			alias: "flash",
+			underlyingModel: "gemini/gemini-2.5-flash",
+			litellmProvider: "gemini",
+		},
+		expected: { family: "other", capabilityModelId: "gemini/gemini-2.5-flash" },
+	},
+] satisfies readonly UnderlyingClassificationCase[];
+
+type AliasFallbackCase = {
+	name: string;
+	input: LitellmModelClassificationInput;
+	expected: LitellmModelClassification;
+};
+
+const ALIAS_FALLBACK_CASES = [
+	{
+		name: "an omitted underlying id",
+		input: { alias: "claude-haiku-4-5" },
+		expected: { family: "claude", capabilityModelId: "claude-haiku-4-5" },
+	},
+	{
+		name: "a null underlying id",
+		input: { alias: "gpt-5-mini", underlyingModel: null },
+		expected: { family: "openai", capabilityModelId: "gpt-5-mini" },
+	},
+	{
+		name: "an empty underlying id",
+		input: { alias: "totally-custom", underlyingModel: "" },
+		expected: { family: "other", capabilityModelId: "totally-custom" },
+	},
+] satisfies readonly AliasFallbackCase[];
 
 describe("getLitellmModelCapabilities", () => {
-	it("delegates Claude-family ids to the Anthropic table", () => {
-		for (const id of [
-			"claude-opus-5",
-			"anthropic/claude-sonnet-5-20251101",
-			"bedrock/us.anthropic.claude-sonnet-4-6-20251001-v1:0",
-		]) {
-			const caps = getLitellmModelCapabilities(id);
-			expect(caps, id).toBeDefined();
-			expect(caps?.thinkingEffortLevels, id).toBeDefined();
-		}
+	it.each(CLAUDE_DELEGATION_CASES)("delegates a $name to the Anthropic table", ({ id }) => {
+		const caps = getLitellmModelCapabilities(id);
+		expect(caps).toBeDefined();
+		expect(caps?.thinkingEffortLevels).toBeDefined();
 	});
 
 	it("recognizes provider-prefixed Claude ids without an anthropic segment", () => {
@@ -31,37 +116,18 @@ describe("getLitellmModelCapabilities", () => {
 		expect(caps?.maxInputTokens).toBe((caps?.maxContextLength ?? 0) - (caps?.maxOutputTokens ?? 0));
 	});
 
-	it("returns undefined for unrecognized upstreams", () => {
-		expect(getLitellmModelCapabilities("gemini/gemini-2.5-flash")).toBeUndefined();
-		expect(getLitellmModelCapabilities("ollama_chat/qwen3-coder:30b")).toBeUndefined();
-		expect(getLitellmModelCapabilities("gpt-oss")).toBeUndefined();
+	it.each(UNRECOGNIZED_UPSTREAM_CASES)("returns undefined for a $name", ({ id }) => {
+		expect(getLitellmModelCapabilities(id)).toBeUndefined();
 	});
 });
 
 describe("classifyLitellmModel", () => {
-	it("classifies by the underlying model id when present", () => {
-		expect(
-			classifyLitellmModel({
-				alias: "fast-model",
-				underlyingModel: "anthropic/claude-haiku-4-5",
-				litellmProvider: "anthropic",
-			}),
-		).toEqual({ family: "claude", capabilityModelId: "anthropic/claude-haiku-4-5" });
-		expect(
-			classifyLitellmModel({
-				alias: "smart-model",
-				underlyingModel: "openai/gpt-5-mini",
-				litellmProvider: "openai",
-			}),
-		).toEqual({ family: "openai", capabilityModelId: "openai/gpt-5-mini" });
-		expect(
-			classifyLitellmModel({
-				alias: "flash",
-				underlyingModel: "gemini/gemini-2.5-flash",
-				litellmProvider: "gemini",
-			}),
-		).toEqual({ family: "other", capabilityModelId: "gemini/gemini-2.5-flash" });
-	});
+	it.each(UNDERLYING_CLASSIFICATION_CASES)(
+		"classifies by the $name when present",
+		({ input, expected }) => {
+			expect(classifyLitellmModel(input)).toEqual(expected);
+		},
+	);
 
 	it("does not let a deceptive alias override the underlying id", () => {
 		// Alias looks like an OpenAI model, upstream is not OpenAI.
@@ -102,32 +168,21 @@ describe("classifyLitellmModel", () => {
 		).toBe("openai");
 	});
 
-	it("recognizes future GPT and o-series ids independently of the capability table", () => {
-		for (const underlyingModel of ["openai/gpt-6-mini", "openai/o3", "openai/o4-mini"]) {
+	it.each(FUTURE_OPENAI_CASES)(
+		"recognizes a $name independently of the capability table",
+		({ id }) => {
 			expect(
 				classifyLitellmModel({
 					alias: "future-model",
-					underlyingModel,
+					underlyingModel: id,
 					litellmProvider: "openai",
 				}).family,
-				underlyingModel,
 			).toBe("openai");
-		}
-	});
+		},
+	);
 
-	it("falls back to the alias only when the entry has no underlying id", () => {
-		expect(classifyLitellmModel({ alias: "claude-haiku-4-5" })).toEqual({
-			family: "claude",
-			capabilityModelId: "claude-haiku-4-5",
-		});
-		expect(classifyLitellmModel({ alias: "gpt-5-mini", underlyingModel: null })).toEqual({
-			family: "openai",
-			capabilityModelId: "gpt-5-mini",
-		});
-		expect(classifyLitellmModel({ alias: "totally-custom", underlyingModel: "" })).toEqual({
-			family: "other",
-			capabilityModelId: "totally-custom",
-		});
+	it.each(ALIAS_FALLBACK_CASES)("falls back to the alias for $name", ({ input, expected }) => {
+		expect(classifyLitellmModel(input)).toEqual(expected);
 	});
 
 	it("lets provider metadata veto an OpenAI-looking alias when the underlying id is absent", () => {

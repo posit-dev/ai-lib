@@ -44,3 +44,8 @@ export interface LoggerLike {
 export interface Disposable {
 	dispose(): void;
 }
+
+/** A file watcher that can be awaited until it is listening for changes. */
+export interface WatchHandle extends Disposable {
+	readonly ready: Promise<void>;
+}

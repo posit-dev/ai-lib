@@ -15,6 +15,7 @@ const { resolveBedrockTransport } = vi.hoisted(() => ({
 
 vi.mock("../../providers/bedrock-transport", () => ({ resolveBedrockTransport }));
 
+import { createRawFetchCapture } from "../../../tests/helpers/raw-fetch-capture";
 import type { CancellationToken } from "../../types";
 import { BedrockClient } from "../BedrockClient";
 
@@ -120,17 +121,17 @@ describe("Bedrock Mantle wire requests", () => {
 		let requestBody: Record<string, unknown> | undefined;
 		let authorization: string | null = null;
 		process.env.AWS_BEARER_TOKEN_BEDROCK = "stale-bearer-token";
-		vi.stubGlobal(
-			"fetch",
-			vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+		const fetchCapture = createRawFetchCapture(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
 				requestBody = JSON.parse(String(init?.body));
 				authorization = new Headers(init?.headers).get("authorization");
 				return new Response("data: [DONE]\n\n", {
 					status: 200,
 					headers: { "content-type": "text/event-stream" },
 				});
-			}),
+			},
 		);
+		vi.stubGlobal("fetch", fetchCapture.mock);
 
 		await consumeIgnoringNetworkFailure(
 			client.chat({
@@ -158,16 +159,16 @@ describe("Bedrock Mantle wire requests", () => {
 
 	it("serializes GPT-5.6 cache options and a structured tool-result breakpoint", async () => {
 		let requestBody: Record<string, unknown> | undefined;
-		vi.stubGlobal(
-			"fetch",
-			vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+		const fetchCapture = createRawFetchCapture(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
 				requestBody = JSON.parse(String(init?.body));
 				return new Response("data: [DONE]\n\n", {
 					status: 200,
 					headers: { "content-type": "text/event-stream" },
 				});
-			}),
+			},
 		);
+		vi.stubGlobal("fetch", fetchCapture.mock);
 
 		const messages = markedContinuationMessages();
 		await consumeIgnoringNetworkFailure(
@@ -222,16 +223,16 @@ describe("Bedrock Mantle wire requests", () => {
 		expect(sessionId).toHaveLength(73);
 
 		const capturedKeys: unknown[] = [];
-		vi.stubGlobal(
-			"fetch",
-			vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+		const fetchCapture = createRawFetchCapture(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
 				capturedKeys.push(JSON.parse(String(init?.body)).prompt_cache_key);
 				return new Response("data: [DONE]\n\n", {
 					status: 200,
 					headers: { "content-type": "text/event-stream" },
 				});
-			}),
+			},
 		);
+		vi.stubGlobal("fetch", fetchCapture.mock);
 
 		for (let turn = 0; turn < 2; turn++) {
 			await consumeIgnoringNetworkFailure(
@@ -256,16 +257,16 @@ describe("Bedrock Mantle wire requests", () => {
 
 	it("keeps explicit mode but strips key and markers without session metadata", async () => {
 		let requestBody: Record<string, unknown> | undefined;
-		vi.stubGlobal(
-			"fetch",
-			vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+		const fetchCapture = createRawFetchCapture(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
 				requestBody = JSON.parse(String(init?.body));
 				return new Response("data: [DONE]\n\n", {
 					status: 200,
 					headers: { "content-type": "text/event-stream" },
 				});
-			}),
+			},
 		);
+		vi.stubGlobal("fetch", fetchCapture.mock);
 
 		const messages = markedContinuationMessages();
 		await consumeIgnoringNetworkFailure(
@@ -289,16 +290,16 @@ describe("Bedrock Mantle wire requests", () => {
 
 	it("vetoes the opt-in on the Chat route: no cache fields, no markers on the wire", async () => {
 		let requestBody: Record<string, unknown> | undefined;
-		vi.stubGlobal(
-			"fetch",
-			vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+		const fetchCapture = createRawFetchCapture(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
 				requestBody = JSON.parse(String(init?.body));
 				return new Response("data: [DONE]\n\n", {
 					status: 200,
 					headers: { "content-type": "text/event-stream" },
 				});
-			}),
+			},
 		);
+		vi.stubGlobal("fetch", fetchCapture.mock);
 
 		const messages = markedContinuationMessages();
 		await consumeIgnoringNetworkFailure(
@@ -324,16 +325,16 @@ describe("Bedrock Mantle wire requests", () => {
 
 	it("keeps gpt-oss on Chat Completions with system roles and reasoning_effort", async () => {
 		let requestBody: Record<string, unknown> | undefined;
-		vi.stubGlobal(
-			"fetch",
-			vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+		const fetchCapture = createRawFetchCapture(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
 				requestBody = JSON.parse(String(init?.body));
 				return new Response("data: [DONE]\n\n", {
 					status: 200,
 					headers: { "content-type": "text/event-stream" },
 				});
-			}),
+			},
 		);
+		vi.stubGlobal("fetch", fetchCapture.mock);
 
 		await consumeIgnoringNetworkFailure(
 			client.chat({
@@ -361,16 +362,16 @@ describe("Bedrock Mantle wire requests", () => {
 
 	it("keeps supported tool-result images native on Responses", async () => {
 		let requestBody: { input?: unknown[] } | undefined;
-		vi.stubGlobal(
-			"fetch",
-			vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+		const fetchCapture = createRawFetchCapture(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
 				requestBody = JSON.parse(String(init?.body));
 				return new Response("data: [DONE]\n\n", {
 					status: 200,
 					headers: { "content-type": "text/event-stream" },
 				});
-			}),
+			},
 		);
+		vi.stubGlobal("fetch", fetchCapture.mock);
 
 		await consumeIgnoringNetworkFailure(
 			client.chat({
@@ -444,16 +445,16 @@ describe("Bedrock Mantle wire requests", () => {
 		"serializes %s %s effort %s as %s",
 		async (model, protocol, thinkingEffort, wireEffort) => {
 			let requestBody: { reasoning?: { effort?: string }; reasoning_effort?: string } | undefined;
-			vi.stubGlobal(
-				"fetch",
-				vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+			const fetchCapture = createRawFetchCapture(
+				async (_input: RequestInfo | URL, init?: RequestInit) => {
 					requestBody = JSON.parse(String(init?.body));
 					return new Response("data: [DONE]\n\n", {
 						status: 200,
 						headers: { "content-type": "text/event-stream" },
 					});
-				}),
+				},
 			);
+			vi.stubGlobal("fetch", fetchCapture.mock);
 
 			await consumeIgnoringNetworkFailure(
 				client.chat({
@@ -485,16 +486,16 @@ describe("Bedrock Mantle wire requests", () => {
 		"transforms Chat tool-result images when supportsImages=%s",
 		async (supportsImages, expectsFollowUpImage) => {
 			let requestBody: Record<string, unknown> | undefined;
-			vi.stubGlobal(
-				"fetch",
-				vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+			const fetchCapture = createRawFetchCapture(
+				async (_input: RequestInfo | URL, init?: RequestInit) => {
 					requestBody = JSON.parse(String(init?.body));
 					return new Response("data: [DONE]\n\n", {
 						status: 200,
 						headers: { "content-type": "text/event-stream" },
 					});
-				}),
+				},
 			);
+			vi.stubGlobal("fetch", fetchCapture.mock);
 
 			await consumeIgnoringNetworkFailure(
 				client.chat({

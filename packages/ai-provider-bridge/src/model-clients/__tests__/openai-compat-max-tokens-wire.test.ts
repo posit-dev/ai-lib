@@ -4,6 +4,10 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import {
+	createRawFetchCapture,
+	type RawFetchCapture,
+} from "../../../tests/helpers/raw-fetch-capture";
 import { createOpenAICompatibleFetch } from "../openai-compat-fetch";
 
 /**
@@ -15,25 +19,28 @@ import { createOpenAICompatibleFetch } from "../openai-compat-fetch";
  */
 describe("createOpenAICompatibleFetch — max_tokens rename", () => {
 	afterEach(() => {
+		vi.unstubAllGlobals();
 		vi.restoreAllMocks();
 	});
 
-	function mockFetch() {
-		const spy = vi
-			.spyOn(globalThis, "fetch")
-			.mockResolvedValue(new Response("{}", { headers: { "content-type": "application/json" } }));
-		return spy;
+	function mockFetch(): RawFetchCapture {
+		const capture = createRawFetchCapture(
+			async () => new Response("{}", { headers: { "content-type": "application/json" } }),
+		);
+		vi.stubGlobal("fetch", capture.mock);
+		return capture;
 	}
 
 	async function sentBody(
 		fetchFn: ReturnType<typeof createOpenAICompatibleFetch>,
-		spy: ReturnType<typeof mockFetch>,
+		capture: RawFetchCapture,
 	) {
 		await fetchFn("https://example.invalid/chat/completions", {
 			method: "POST",
 			body: JSON.stringify({ model: "m", max_tokens: 16384 }),
 		});
-		return JSON.parse(spy.mock.calls[0]?.[1]?.body as string);
+		const [, init] = capture.single();
+		return JSON.parse(init?.body as string);
 	}
 
 	it("renames by default, preserving behavior for other providers", async () => {

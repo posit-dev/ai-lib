@@ -5,6 +5,7 @@
 import { mintCustomProviderId } from "ai-config";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { createRawFetchCapture } from "../../../tests/helpers/raw-fetch-capture";
 import type { ModelClientChatParams } from "../../model-clients/ModelClient";
 import type { CancellationToken, Logger } from "../../types";
 import { registerCustomLitellmProvider, registerLitellmProvider } from "../litellm-provider";
@@ -101,18 +102,14 @@ describe("litellm client factory", () => {
 			apiKey: "sk-test",
 		},
 	): Promise<CapturedRequest> {
-		const requests: CapturedRequest[] = [];
-		const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-			const url =
-				typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-			const headers = new Headers(input instanceof Request ? input.headers : init?.headers);
-			requests.push({ url, headers });
-			return new Response(JSON.stringify({ error: { message: "stop here" } }), {
-				status: 400,
-				headers: { "content-type": "application/json" },
-			});
-		});
-		vi.stubGlobal("fetch", fetchMock);
+		const fetchCapture = createRawFetchCapture(
+			async () =>
+				new Response(JSON.stringify({ error: { message: "stop here" } }), {
+					status: 400,
+					headers: { "content-type": "application/json" },
+				}),
+		);
+		vi.stubGlobal("fetch", fetchCapture.mock);
 
 		const registry = new ProviderRegistry(logger);
 		registerLitellmProvider(registry, logger);
@@ -136,8 +133,12 @@ describe("litellm client factory", () => {
 		} catch {
 			// Expected — only the captured request matters.
 		}
-		expect(requests.length).toBeGreaterThan(0);
-		return requests[0];
+		expect(fetchCapture.calls.length).toBeGreaterThan(0);
+		const [input, init] = fetchCapture.call(0);
+		return {
+			url: typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+			headers: new Headers(input instanceof Request ? input.headers : init?.headers),
+		};
 	}
 
 	it("dispatches anthropic-messages (and undefined) to the Anthropic delegate", async () => {

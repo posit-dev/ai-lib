@@ -7,6 +7,7 @@
  */
 
 import type { SourcedConfigIssue } from "../config-issue.js";
+import type { Disposable as ConfigDisposable } from "../config-source.js";
 import type { LegacySettingsReader } from "../legacy-positron-settings/translate.js";
 import type { LoggerLike, ResolvedProvider } from "../types.js";
 
@@ -110,6 +111,17 @@ export interface MutateConfigOptions {
  * same legacy layers are folded into both the load and watch paths.
  */
 export type WatchCatalogOptions = LoadCatalogOptions;
+
+/**
+ * Handle returned by `watchResolvedProviderCatalog()`.
+ *
+ * It remains a `Disposable` and additively exposes completion of the initial
+ * snapshot load so callers can synchronize mutations with watcher readiness.
+ */
+export interface WatchCatalogHandle extends ConfigDisposable {
+	/** Settles after the initial catalog snapshot has been loaded. */
+	readonly ready: Promise<void>;
+}
 
 // ---------------------------------------------------------------------------
 // Watch events

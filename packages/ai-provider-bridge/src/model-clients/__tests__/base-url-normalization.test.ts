@@ -57,15 +57,17 @@ interface ClientCase {
 	factory: ReturnType<typeof vi.fn>;
 }
 
-const CASES: Record<string, ClientCase> = {
-	Anthropic: {
+const CLIENT_CASES: readonly (ClientCase & { name: string })[] = [
+	{
+		name: "Anthropic",
 		host: "https://api.anthropic.com",
 		versioned: "https://api.anthropic.com/v1",
 		construct: (baseUrl) => new AnthropicClient({ apiKey: "sk-test" }, baseUrl),
 		model: "claude-opus-4-8",
 		factory: createAnthropic,
 	},
-	OpenAI: {
+	{
+		name: "OpenAI",
 		host: "https://api.openai.com",
 		versioned: "https://api.openai.com/v1",
 		construct: (baseUrl) =>
@@ -77,16 +79,65 @@ const CASES: Record<string, ClientCase> = {
 		model: "gpt-5.4",
 		factory: createOpenAI,
 	},
-	Gemini: {
+	{
+		name: "Gemini",
 		host: "https://generativelanguage.googleapis.com",
 		versioned: "https://generativelanguage.googleapis.com/v1beta",
 		construct: (baseUrl) => new GeminiClient("sk-test", baseUrl),
 		model: "gemini-2.5-pro",
 		factory: createGoogleGenerativeAI,
 	},
-};
+];
 
-describe.each(Object.entries(CASES))("%s base URL pass-through", (_name, c) => {
+interface BaseUrlPassThroughCase {
+	/** Test name describing the source and expected URL behavior. */
+	name: string;
+	/** Construct the client with the source appropriate for this case. */
+	construct: (client: ClientCase) => ModelClient;
+	/** Per-request URL; omitted to preserve the no-request-override path. */
+	requestBaseUrl?: (client: ClientCase) => string;
+	/** URL expected at the SDK boundary; undefined preserves the SDK default. */
+	expectedBaseUrl: (client: ClientCase) => string | undefined;
+}
+
+const BASE_URL_PASS_THROUGH_CASES: readonly BaseUrlPassThroughCase[] = [
+	{
+		name: "passes a per-request bare host straight through, unchanged",
+		construct: (client) => client.construct(),
+		requestBaseUrl: (client) => client.host,
+		expectedBaseUrl: (client) => client.host,
+	},
+	{
+		name: "passes a bare host supplied at construction time straight through, unchanged",
+		construct: (client) => client.construct(client.host),
+		expectedBaseUrl: (client) => client.host,
+	},
+	{
+		name: "prefers the per-request base URL over the constructor value",
+		construct: (client) => client.construct(client.versioned),
+		requestBaseUrl: () => "https://my-proxy.example/gateway",
+		expectedBaseUrl: () => "https://my-proxy.example/gateway",
+	},
+	{
+		name: "leaves an already-versioned host untouched",
+		construct: (client) => client.construct(),
+		requestBaseUrl: (client) => client.versioned,
+		expectedBaseUrl: (client) => client.versioned,
+	},
+	{
+		name: "passes a custom URL with a trailing slash through byte-for-byte",
+		construct: (client) => client.construct(),
+		requestBaseUrl: () => "https://my-proxy.example/gateway/",
+		expectedBaseUrl: () => "https://my-proxy.example/gateway/",
+	},
+	{
+		name: "omits baseURL entirely when none is configured (SDK keeps its default)",
+		construct: (client) => client.construct(),
+		expectedBaseUrl: () => undefined,
+	},
+];
+
+describe.each(CLIENT_CASES)("$name base URL pass-through", (c) => {
 	const params = (overrides?: Partial<ModelClientChatParams>): ModelClientChatParams => ({
 		model: c.model,
 		messages: [],
@@ -99,34 +150,12 @@ describe.each(Object.entries(CASES))("%s base URL pass-through", (_name, c) => {
 		c.factory.mockClear();
 	});
 
-	it("passes a per-request bare host straight through, unchanged", async () => {
-		await c.construct().chat(params({ baseUrl: c.host }));
-		expect(baseUrlPassedTo(c.factory)).toBe(c.host);
-	});
+	it.each(BASE_URL_PASS_THROUGH_CASES)("$name", async (testCase) => {
+		const requestBaseUrl = testCase.requestBaseUrl?.(c);
+		const chatParams =
+			requestBaseUrl === undefined ? params() : params({ baseUrl: requestBaseUrl });
 
-	it("passes a bare host supplied at construction time straight through, unchanged", async () => {
-		await c.construct(c.host).chat(params());
-		expect(baseUrlPassedTo(c.factory)).toBe(c.host);
-	});
-
-	it("prefers the per-request base URL over the constructor value", async () => {
-		await c.construct(c.versioned).chat(params({ baseUrl: "https://my-proxy.example/gateway" }));
-		expect(baseUrlPassedTo(c.factory)).toBe("https://my-proxy.example/gateway");
-	});
-
-	it("leaves an already-versioned host untouched", async () => {
-		await c.construct().chat(params({ baseUrl: c.versioned }));
-		expect(baseUrlPassedTo(c.factory)).toBe(c.versioned);
-	});
-
-	it("passes a custom URL with a trailing slash through byte-for-byte", async () => {
-		const custom = "https://my-proxy.example/gateway/";
-		await c.construct().chat(params({ baseUrl: custom }));
-		expect(baseUrlPassedTo(c.factory)).toBe(custom);
-	});
-
-	it("omits baseURL entirely when none is configured (SDK keeps its default)", async () => {
-		await c.construct().chat(params());
-		expect(baseUrlPassedTo(c.factory)).toBeUndefined();
+		await testCase.construct(c).chat(chatParams);
+		expect(baseUrlPassedTo(c.factory)).toBe(testCase.expectedBaseUrl(c));
 	});
 });

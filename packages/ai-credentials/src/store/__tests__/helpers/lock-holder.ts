@@ -36,8 +36,15 @@ async function main() {
 		});
 	});
 
-	// Signal that we've released the lock
-	process.send?.("lock-released");
+	// Signal only after the lock is released, then close IPC so the child exits.
+	await new Promise<void>((resolve) => {
+		if (!process.send || !process.connected) {
+			resolve();
+			return;
+		}
+		process.send("lock-released", undefined, undefined, () => resolve());
+	});
+	process.disconnect();
 }
 
 main().catch((error) => {

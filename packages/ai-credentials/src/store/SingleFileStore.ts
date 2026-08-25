@@ -33,7 +33,7 @@ import * as path from "path";
 import { watch as chokidarWatch, type FSWatcher } from "chokidar";
 import lockfile from "proper-lockfile";
 
-import type { Disposable, LoggerLike, SingleFileStoreConfig } from "./types.js";
+import type { LoggerLike, SingleFileStoreConfig, WatchHandle } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Lock options for cross-process locking
@@ -163,19 +163,36 @@ export class SingleFileStore {
 	// ========================================================================
 
 	/**
-	 * Watch the store file for changes. Returns a `Disposable` that stops
-	 * watching when `dispose()` is called.
+	 * Watch the store file for changes. The returned handle remains compatible
+	 * with `Disposable`; its `ready` promise resolves once chokidar is listening.
 	 *
 	 * Uses chokidar with `awaitWriteFinish` to correctly handle the atomic
 	 * write pattern (temp file + rename). Fires on both `change` and `add`
 	 * events since the rename may appear as an add.
 	 *
 	 * @param handler - Called when the store file is modified externally.
-	 * @returns Disposable that stops the watcher.
+	 * @returns Watch handle that exposes readiness and stops the watcher on disposal.
 	 */
-	watch(handler: () => void): Disposable {
+	watch(handler: () => void): WatchHandle {
 		let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 		let disposed = false;
+		let watcher: FSWatcher | undefined;
+		let readySettled = false;
+		let resolveReady!: () => void;
+		let rejectReady!: (error: unknown) => void;
+
+		const ready = new Promise<void>((resolve, reject) => {
+			resolveReady = () => {
+				if (readySettled) return;
+				readySettled = true;
+				resolve();
+			};
+			rejectReady = (error) => {
+				if (readySettled) return;
+				readySettled = true;
+				reject(error);
+			};
+		});
 
 		const debouncedHandler = () => {
 			if (disposed) return;
@@ -186,13 +203,12 @@ export class SingleFileStore {
 			}, 200);
 		};
 
-		let watcher: FSWatcher | undefined;
-
-		// Ensure the file exists before starting the watcher.
-		// Catch initialization failures so the promise rejection is never unhandled.
 		void this.ensureFileExists()
 			.then(() => {
-				if (disposed) return;
+				if (disposed) {
+					resolveReady();
+					return;
+				}
 
 				watcher = chokidarWatch(this.filePath, {
 					persistent: true,
@@ -203,30 +219,37 @@ export class SingleFileStore {
 					},
 				});
 
-				// Use 'all' event and filter to handle both 'change' and 'add' events
-				// (atomic writes use temp file + rename, which may emit 'add' instead of 'change')
+				// Atomic renames may be reported as an add instead of a change.
 				watcher.on("all", (eventName) => {
 					if (eventName === "change" || eventName === "add") {
 						debouncedHandler();
 					}
 				});
-
+				watcher.once("ready", () => {
+					this.logger?.debug(`[SingleFileStore] Started watching: ${this.filePath}`);
+					resolveReady();
+				});
 				watcher.on("error", (error) => {
 					this.logger?.warn(`[SingleFileStore] File watcher error: ${error}`);
+					rejectReady(error);
 				});
-
-				this.logger?.debug(`[SingleFileStore] Started watching: ${this.filePath}`);
 			})
-			.catch((error) => {
-				this.logger?.warn(
-					`[SingleFileStore] Failed to initialize file watcher for ${this.filePath}: ${error instanceof Error ? error.message : String(error)}`,
-				);
-			});
+			.catch(rejectReady);
+
+		// Keep initialization failures handled for callers that only use the
+		// Disposable API, while preserving rejection for callers awaiting ready.
+		void ready.catch((error) => {
+			this.logger?.warn(
+				`[SingleFileStore] Failed to initialize file watcher for ${this.filePath}: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		});
 
 		return {
+			ready,
 			dispose: () => {
 				disposed = true;
 				if (debounceTimer) clearTimeout(debounceTimer);
+				resolveReady();
 				void watcher?.close();
 			},
 		};

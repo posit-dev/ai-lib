@@ -3,15 +3,13 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { promises as fs } from "fs";
-import * as os from "os";
-import * as path from "path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createConfigFileFixture } from "../../tests/helpers/config-file-fixture.js";
+import type { ConfigFileFixture } from "../../tests/helpers/config-file-fixture.js";
 import { loadProviderCatalogReport, loadResolvedProviderCatalog } from "../node/load-catalog.js";
-import { mutateProvidersConfig } from "../node/mutate-config.js";
-import { parseJsonc } from "../node/parse-jsonc.js";
-import type { ProvidersConfig, ResolvedProvider } from "../types.js";
+import type { ResolvedProvider } from "../types.js";
 import { BUILTIN_PROVIDER_IDS } from "../vocabulary.js";
 
 // ---------------------------------------------------------------------------
@@ -22,12 +20,6 @@ const mockLogger = {
 	debug: vi.fn(),
 	warn: vi.fn(),
 };
-
-async function writeConfig(dir: string, config: ProvidersConfig): Promise<string> {
-	const configPath = path.join(dir, "providers.json");
-	await fs.writeFile(configPath, JSON.stringify(config, null, 2));
-	return configPath;
-}
 
 function findProvider(
 	catalog: readonly ResolvedProvider[],
@@ -41,16 +33,18 @@ function findProvider(
 // ---------------------------------------------------------------------------
 
 describe("loadResolvedProviderCatalog", () => {
-	let tempDir: string;
+	let fixture: ConfigFileFixture;
+	let configPath: string;
 
 	beforeEach(async () => {
-		tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-config-test-"));
+		fixture = await createConfigFileFixture();
+		configPath = fixture.configPath;
 		vi.clearAllMocks();
 		vi.unstubAllEnvs();
 	});
 
 	afterEach(async () => {
-		await fs.rm(tempDir, { recursive: true, force: true });
+		await fixture.cleanup();
 	});
 
 	// ========================================================================
@@ -80,8 +74,7 @@ describe("loadResolvedProviderCatalog", () => {
 				["providers", "custom", "gateway"],
 			],
 		] as const)("reports a raw unsafe key at the %s", async (_name, raw, issuePath) => {
-			const configPath = path.join(tempDir, "providers.json");
-			await fs.writeFile(configPath, raw);
+			await fixture.writeRawJsonc(raw);
 
 			const report = await loadProviderCatalogReport({
 				configPath,
@@ -99,9 +92,7 @@ describe("loadResolvedProviderCatalog", () => {
 		});
 
 		it("reports a raw unsafe custom-provider key without losing valid siblings", async () => {
-			const configPath = path.join(tempDir, "providers.json");
-			await fs.writeFile(
-				configPath,
+			await fixture.writeRawJsonc(
 				'{"providers":{"anthropic":{"baseUrl":"https://anthropic.example.com"},"custom":{"__proto__":{"type":"openai-compatible"}}}}',
 			);
 
@@ -123,9 +114,7 @@ describe("loadResolvedProviderCatalog", () => {
 		});
 
 		it("keeps valid provider blocks when an unknown provider key is present", async () => {
-			const configPath = path.join(tempDir, "providers.json");
-			await fs.writeFile(
-				configPath,
+			await fixture.writeRawJsonc(
 				JSON.stringify({
 					providers: {
 						anthropic: { baseUrl: "https://anthropic.example.com" },
@@ -154,9 +143,7 @@ describe("loadResolvedProviderCatalog", () => {
 		});
 
 		it("loads comments and trailing commas from providers.json", async () => {
-			const configPath = path.join(tempDir, "providers.json");
-			await fs.writeFile(
-				configPath,
+			await fixture.writeRawJsonc(
 				`{
 					// Keep the staging endpoint explicit.
 					"providers": {
@@ -182,7 +169,7 @@ describe("loadResolvedProviderCatalog", () => {
 
 		it("should return all built-in providers when file is missing", async () => {
 			const catalog = await loadResolvedProviderCatalog({
-				configPath: path.join(tempDir, "nonexistent.json"),
+				configPath,
 				logger: mockLogger,
 			});
 
@@ -192,7 +179,7 @@ describe("loadResolvedProviderCatalog", () => {
 		});
 
 		it("should return all built-in providers for empty config", async () => {
-			const configPath = await writeConfig(tempDir, {});
+			await fixture.writeTypedConfig({});
 
 			const catalog = await loadResolvedProviderCatalog({
 				configPath,
@@ -209,7 +196,7 @@ describe("loadResolvedProviderCatalog", () => {
 
 	describe("enablement resolution", () => {
 		it("user per-provider enabled overrides default", async () => {
-			const configPath = await writeConfig(tempDir, {
+			await fixture.writeTypedConfig({
 				providers: {
 					default: { enabled: false },
 					anthropic: { enabled: true },
@@ -226,7 +213,7 @@ describe("loadResolvedProviderCatalog", () => {
 		});
 
 		it("user default disables providers without per-provider blocks", async () => {
-			const configPath = await writeConfig(tempDir, {
+			await fixture.writeTypedConfig({
 				providers: {
 					default: { enabled: false },
 				},
@@ -247,7 +234,7 @@ describe("loadResolvedProviderCatalog", () => {
 
 	describe("enforcement", () => {
 		it("enforced per-provider enabled overrides user config", async () => {
-			const configPath = await writeConfig(tempDir, {
+			await fixture.writeTypedConfig({
 				providers: {
 					anthropic: { enabled: true },
 				},
@@ -272,7 +259,7 @@ describe("loadResolvedProviderCatalog", () => {
 		});
 
 		it("enforced connection config overrides user config", async () => {
-			const configPath = await writeConfig(tempDir, {
+			await fixture.writeTypedConfig({
 				providers: {
 					anthropic: { baseUrl: "https://user.example.com" },
 				},
@@ -299,7 +286,7 @@ describe("loadResolvedProviderCatalog", () => {
 		});
 
 		it("invalid enforced env var is ignored with warning", async () => {
-			const configPath = await writeConfig(tempDir, {});
+			await fixture.writeTypedConfig({});
 
 			vi.stubEnv("TEST_ENFORCED", "not valid json{{{");
 
@@ -316,7 +303,7 @@ describe("loadResolvedProviderCatalog", () => {
 		});
 
 		it("keeps an invalid env fragment all-or-nothing and reports its source", async () => {
-			const configPath = await writeConfig(tempDir, {
+			await fixture.writeTypedConfig({
 				providers: { anthropic: { baseUrl: "https://user.example.com" } },
 			});
 			const report = await loadProviderCatalogReport({
@@ -345,7 +332,7 @@ describe("loadResolvedProviderCatalog", () => {
 		});
 
 		it("ignores an env fragment containing an unsafe custom provider name", async () => {
-			const configPath = await writeConfig(tempDir, {
+			await fixture.writeTypedConfig({
 				providers: { anthropic: { baseUrl: "https://user.example.com" } },
 			});
 			const report = await loadProviderCatalogReport({
@@ -376,7 +363,7 @@ describe("loadResolvedProviderCatalog", () => {
 			// An admin can enforce `providers.custom.my-gateway.enabled = false`
 			// without repeating the required `type` field, as long as the user
 			// config already defines the full custom entry.
-			const configPath = await writeConfig(tempDir, {
+			await fixture.writeTypedConfig({
 				providers: {
 					custom: {
 						"my-gateway": {
@@ -415,7 +402,7 @@ describe("loadResolvedProviderCatalog", () => {
 			// If the enforced fragment introduces a custom provider without `type`
 			// and the user config doesn't define it either, the merged result is
 			// invalid. The enforced fragment should be ignored with a warning.
-			const configPath = await writeConfig(tempDir, {
+			await fixture.writeTypedConfig({
 				providers: {
 					anthropic: { enabled: true },
 				},
@@ -453,7 +440,7 @@ describe("loadResolvedProviderCatalog", () => {
 
 	describe("default env layer", () => {
 		it("default layer applies when user file is silent", async () => {
-			const configPath = await writeConfig(tempDir, {});
+			await fixture.writeTypedConfig({});
 
 			vi.stubEnv("TEST_DEFAULT", JSON.stringify({ providers: { default: { enabled: false } } }));
 
@@ -467,7 +454,7 @@ describe("loadResolvedProviderCatalog", () => {
 		});
 
 		it("user file overrides the default layer", async () => {
-			const configPath = await writeConfig(tempDir, {
+			await fixture.writeTypedConfig({
 				providers: { anthropic: { enabled: true } },
 			});
 
@@ -486,7 +473,7 @@ describe("loadResolvedProviderCatalog", () => {
 		});
 
 		it("enforced still wins over the default layer", async () => {
-			const configPath = await writeConfig(tempDir, {});
+			await fixture.writeTypedConfig({});
 
 			vi.stubEnv("TEST_DEFAULT", JSON.stringify({ providers: { anthropic: { enabled: true } } }));
 			vi.stubEnv("TEST_ENFORCED", JSON.stringify({ providers: { anthropic: { enabled: false } } }));
@@ -508,7 +495,7 @@ describe("loadResolvedProviderCatalog", () => {
 
 	describe("client kind mapping", () => {
 		it("should map bedrock to aws client kind", async () => {
-			const configPath = await writeConfig(tempDir, {});
+			await fixture.writeTypedConfig({});
 
 			const catalog = await loadResolvedProviderCatalog({
 				configPath,
@@ -519,7 +506,7 @@ describe("loadResolvedProviderCatalog", () => {
 		});
 
 		it("should map snowflake-cortex to snowflake client kind", async () => {
-			const configPath = await writeConfig(tempDir, {});
+			await fixture.writeTypedConfig({});
 
 			const catalog = await loadResolvedProviderCatalog({
 				configPath,
@@ -530,7 +517,7 @@ describe("loadResolvedProviderCatalog", () => {
 		});
 
 		it("should use identity mapping for providers where id matches client kind", async () => {
-			const configPath = await writeConfig(tempDir, {});
+			await fixture.writeTypedConfig({});
 
 			const catalog = await loadResolvedProviderCatalog({
 				configPath,
@@ -550,7 +537,7 @@ describe("loadResolvedProviderCatalog", () => {
 
 	describe("connection defaults", () => {
 		it("should apply built-in defaults for positai", async () => {
-			const configPath = await writeConfig(tempDir, {});
+			await fixture.writeTypedConfig({});
 
 			const catalog = await loadResolvedProviderCatalog({
 				configPath,
@@ -563,7 +550,7 @@ describe("loadResolvedProviderCatalog", () => {
 		});
 
 		it("should apply built-in defaults for ollama", async () => {
-			const configPath = await writeConfig(tempDir, {});
+			await fixture.writeTypedConfig({});
 
 			const catalog = await loadResolvedProviderCatalog({
 				configPath,
@@ -575,7 +562,7 @@ describe("loadResolvedProviderCatalog", () => {
 		});
 
 		it("user config should override defaults", async () => {
-			const configPath = await writeConfig(tempDir, {
+			await fixture.writeTypedConfig({
 				providers: {
 					ollama: { endpoint: "http://custom:11434" },
 				},
@@ -596,7 +583,7 @@ describe("loadResolvedProviderCatalog", () => {
 
 	describe("custom providers", () => {
 		it("should include custom providers in the catalog", async () => {
-			const configPath = await writeConfig(tempDir, {
+			await fixture.writeTypedConfig({
 				providers: {
 					custom: {
 						"my-gateway": {
@@ -623,7 +610,7 @@ describe("loadResolvedProviderCatalog", () => {
 		});
 
 		it("custom providers respect enablement", async () => {
-			const configPath = await writeConfig(tempDir, {
+			await fixture.writeTypedConfig({
 				providers: {
 					default: { enabled: false },
 					custom: {
@@ -651,7 +638,7 @@ describe("loadResolvedProviderCatalog", () => {
 
 	describe("model policy", () => {
 		it("should carry model policy on provider entries", async () => {
-			const configPath = await writeConfig(tempDir, {
+			await fixture.writeTypedConfig({
 				providers: {
 					anthropic: {
 						models: {
@@ -685,8 +672,7 @@ describe("loadResolvedProviderCatalog", () => {
 
 	describe("validation errors", () => {
 		it("should degrade gracefully on invalid JSON", async () => {
-			const configPath = path.join(tempDir, "providers.json");
-			await fs.writeFile(configPath, "not valid json{{{");
+			await fixture.writeRawJsonc("not valid json{{{");
 
 			const catalog = await loadResolvedProviderCatalog({
 				configPath,
@@ -698,8 +684,7 @@ describe("loadResolvedProviderCatalog", () => {
 		});
 
 		it("should degrade gracefully on schema violation", async () => {
-			const configPath = path.join(tempDir, "providers.json");
-			await fs.writeFile(configPath, JSON.stringify({ version: 99 }));
+			await fixture.writeRawJsonc(JSON.stringify({ version: 99 }));
 
 			const catalog = await loadResolvedProviderCatalog({
 				configPath,
@@ -713,9 +698,7 @@ describe("loadResolvedProviderCatalog", () => {
 		it("should degrade gracefully on a forbidden connection subsection", async () => {
 			// `anthropic.aws` is rejected by the tightened per-key schema. The whole
 			// user file is invalid and must fall back to defaults, not hard-crash.
-			const configPath = path.join(tempDir, "providers.json");
-			await fs.writeFile(
-				configPath,
+			await fixture.writeRawJsonc(
 				JSON.stringify({ providers: { anthropic: { aws: { region: "us-east-1" } } } }),
 			);
 
@@ -736,10 +719,9 @@ describe("loadResolvedProviderCatalog", () => {
 
 	describe("whole-source failures", () => {
 		it("reports a syntax error as an error-severity issue with line and column", async () => {
-			const configPath = path.join(tempDir, "providers.json");
 			// Missing comma after the `providers` block: the parser reports
 			// CommaExpected at the `"version"` token on line 3.
-			await fs.writeFile(configPath, '{\n  "providers": {}\n  "version": 1\n}\n');
+			await fixture.writeRawJsonc('{\n  "providers": {}\n  "version": 1\n}\n');
 
 			const report = await loadProviderCatalogReport({
 				configPath,
@@ -756,8 +738,7 @@ describe("loadResolvedProviderCatalog", () => {
 		});
 
 		it("reports line 1 for a single-line syntax error", async () => {
-			const configPath = path.join(tempDir, "providers.json");
-			await fs.writeFile(configPath, "{ bad");
+			await fixture.writeRawJsonc("{ bad");
 
 			const report = await loadProviderCatalogReport({
 				configPath,
@@ -775,13 +756,9 @@ describe("loadResolvedProviderCatalog", () => {
 			["CRLF", "\r\n"],
 			["CR-only", "\r"],
 		] as const)("reports the correct line and column with %s line endings", async (_name, eol) => {
-			const configPath = path.join(tempDir, "providers.json");
 			// Missing comma after the `providers` block: CommaExpected at the
 			// `"version"` token on line 3, regardless of line-ending style.
-			await fs.writeFile(
-				configPath,
-				["{", '  "providers": {}', '  "version": 1', "}", ""].join(eol),
-			);
+			await fixture.writeRawJsonc(["{", '  "providers": {}', '  "version": 1', "}", ""].join(eol));
 
 			const report = await loadProviderCatalogReport({
 				configPath,
@@ -796,7 +773,7 @@ describe("loadResolvedProviderCatalog", () => {
 		});
 
 		it("reports an unreadable file as an error-severity issue", async () => {
-			const configPath = await writeConfig(tempDir, {});
+			await fixture.writeTypedConfig({});
 			const readError = Object.assign(new Error("permission denied"), { code: "EACCES" });
 			const readSpy = vi.spyOn(fs, "readFile").mockRejectedValueOnce(readError);
 
@@ -816,7 +793,7 @@ describe("loadResolvedProviderCatalog", () => {
 		});
 
 		it("reports an unparseable env fragment as an error-severity issue", async () => {
-			const configPath = await writeConfig(tempDir, {});
+			await fixture.writeTypedConfig({});
 
 			const report = await loadProviderCatalogReport({
 				configPath,
@@ -850,7 +827,7 @@ describe("loadResolvedProviderCatalog", () => {
 			// anthropic's and openai's. Both providers must resolve in the initial
 			// catalog — the load path reads the legacy layers, not just the watch
 			// path.
-			const configPath = await writeConfig(tempDir, {
+			await fixture.writeTypedConfig({
 				providers: { openai: { baseUrl: "https://user-openai.example.com" } },
 			});
 
@@ -874,7 +851,7 @@ describe("loadResolvedProviderCatalog", () => {
 		});
 
 		it("legacyPositronEnforcedSettings folds the enforced env layer into the initial load (above user), without a reader", async () => {
-			const configPath = await writeConfig(tempDir, {
+			await fixture.writeTypedConfig({
 				providers: { anthropic: { baseUrl: "https://user.example.com" } },
 			});
 
@@ -898,7 +875,7 @@ describe("loadResolvedProviderCatalog", () => {
 			// Migrated Positron hosts drop the reader but keep the enforced flag;
 			// pre-migration hosts pass both. A reader must therefore never smuggle
 			// the enforced layer in (the pre-split behavior).
-			const configPath = await writeConfig(tempDir, {
+			await fixture.writeTypedConfig({
 				providers: { anthropic: { baseUrl: "https://user.example.com" } },
 			});
 
@@ -919,7 +896,7 @@ describe("loadResolvedProviderCatalog", () => {
 		});
 
 		it("options absent → neither legacy layer (even with the env var set)", async () => {
-			const configPath = await writeConfig(tempDir, { providers: {} });
+			await fixture.writeTypedConfig({ providers: {} });
 
 			const catalog = await loadResolvedProviderCatalog({
 				configPath,
@@ -936,7 +913,7 @@ describe("loadResolvedProviderCatalog", () => {
 		});
 
 		it("a reader with nothing set contributes no layer", async () => {
-			const configPath = await writeConfig(tempDir, { providers: {} });
+			await fixture.writeTypedConfig({ providers: {} });
 
 			const catalog = await loadResolvedProviderCatalog({
 				configPath,
@@ -949,7 +926,7 @@ describe("loadResolvedProviderCatalog", () => {
 		});
 
 		it("returns recurring legacy issues on every read until the setting is fixed", async () => {
-			const configPath = await writeConfig(tempDir, {});
+			await fixture.writeTypedConfig({});
 			let values: Record<string, unknown> = { "authentication.anthropic.baseUrl": 42 };
 			const reader = {
 				get: (key: string) => values[key],
@@ -973,343 +950,5 @@ describe("loadResolvedProviderCatalog", () => {
 			values = {};
 			expect((await loadProviderCatalogReport(opts)).issues).toEqual([]);
 		});
-	});
-});
-
-// ===========================================================================
-// mutateProvidersConfig
-// ===========================================================================
-
-describe("mutateProvidersConfig", () => {
-	let tempDir: string;
-
-	beforeEach(async () => {
-		tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-config-mutate-"));
-		vi.clearAllMocks();
-	});
-
-	afterEach(async () => {
-		vi.restoreAllMocks();
-		await fs.rm(tempDir, { recursive: true, force: true });
-	});
-
-	it("should create a new config file from empty", async () => {
-		const configPath = path.join(tempDir, "providers.json");
-
-		await mutateProvidersConfig(
-			(current) => ({
-				...current,
-				providers: {
-					...current.providers,
-					anthropic: { baseUrl: "https://custom.example.com" },
-				},
-			}),
-			{ configPath, logger: mockLogger },
-		);
-
-		const raw = JSON.parse(await fs.readFile(configPath, "utf-8"));
-		expect(raw.providers.anthropic.baseUrl).toBe("https://custom.example.com");
-	});
-
-	it("should preserve existing config when mutating", async () => {
-		const configPath = await writeConfig(tempDir, {
-			providers: {
-				anthropic: { baseUrl: "https://existing.example.com" },
-			},
-		});
-
-		await mutateProvidersConfig(
-			(current) => ({
-				...current,
-				providers: {
-					...current.providers,
-					openai: { baseUrl: "https://openai-custom.example.com" },
-				},
-			}),
-			{ configPath, logger: mockLogger },
-		);
-
-		const raw = JSON.parse(await fs.readFile(configPath, "utf-8"));
-		expect(raw.providers.anthropic.baseUrl).toBe("https://existing.example.com");
-		expect(raw.providers.openai.baseUrl).toBe("https://openai-custom.example.com");
-	});
-
-	it("preserves comments and formatting outside changed paths", async () => {
-		const configPath = path.join(tempDir, "providers.json");
-		await fs.writeFile(
-			configPath,
-			`{
-				// Keep this provider comment.
-				"providers": {
-					"anthropic": {
-						/* Keep this value comment. */
-						"baseUrl": "https://existing.example.com",
-					},
-					"openai": { "enabled": true },
-					"gemini": { "enabled": true },
-				},
-			}`,
-		);
-
-		await mutateProvidersConfig(
-			(current) => ({
-				...current,
-				providers: {
-					...current.providers,
-					anthropic: {
-						...current.providers?.anthropic,
-						baseUrl: "https://changed.example.com",
-						models: { allow: ["claude-new"] },
-					},
-					openai: undefined,
-					gemini: undefined,
-					deepseek: { enabled: false },
-					bedrock: { enabled: false },
-				},
-			}),
-			{ configPath, logger: mockLogger },
-		);
-
-		const written = await fs.readFile(configPath, "utf-8");
-		const parsed = parseJsonc(written) as ProvidersConfig;
-		expect(parsed.providers?.anthropic?.baseUrl).toBe("https://changed.example.com");
-		expect(parsed.providers?.anthropic?.models?.allow).toEqual(["claude-new"]);
-		expect(parsed.providers?.openai).toBeUndefined();
-		expect(parsed.providers?.gemini).toBeUndefined();
-		expect(parsed.providers?.deepseek?.enabled).toBe(false);
-		expect(parsed.providers?.bedrock?.enabled).toBe(false);
-		expect(written).toContain("Keep this provider comment");
-		expect(written).toContain("Keep this value comment");
-	});
-
-	it("preserves the next provider's leading comment when deleting the first provider", async () => {
-		const configPath = path.join(tempDir, "providers.json");
-		await fs.writeFile(
-			configPath,
-			`{
-  "providers": {
-    "openai": { "enabled": true }, // keep the Anthropic explanation
-    "anthropic": { "enabled": true }
-  }
-}`,
-		);
-
-		await mutateProvidersConfig(
-			(current) => ({
-				...current,
-				providers: {
-					...current.providers,
-					openai: undefined,
-				},
-			}),
-			{ configPath, logger: mockLogger },
-		);
-
-		const written = await fs.readFile(configPath, "utf-8");
-		expect(parseJsonc(written)).toEqual({
-			providers: { anthropic: { enabled: true } },
-		});
-		expect(written).toContain("// keep the Anthropic explanation");
-	});
-
-	it("does not write for a value-identical mutation", async () => {
-		const configPath = path.join(tempDir, "providers.json");
-		const original = '{\n  // unchanged\n  "providers": { "anthropic": { "enabled": true } }\n}\n';
-		await fs.writeFile(configPath, original);
-		const rename = vi.spyOn(fs, "rename");
-
-		await mutateProvidersConfig((current) => ({ ...current }), { configPath, logger: mockLogger });
-
-		expect(rename).not.toHaveBeenCalled();
-		expect(await fs.readFile(configPath, "utf-8")).toBe(original);
-	});
-
-	it("detects an in-place same-reference mutation", async () => {
-		const configPath = path.join(tempDir, "providers.json");
-		await fs.writeFile(
-			configPath,
-			'{\n  // retained\n  "providers": { "anthropic": { "enabled": true } }\n}\n',
-		);
-
-		await mutateProvidersConfig(
-			(current) => {
-				current.providers ??= {};
-				current.providers.anthropic = { enabled: false };
-				return current;
-			},
-			{ configPath, logger: mockLogger },
-		);
-
-		const written = await fs.readFile(configPath, "utf-8");
-		expect(parseJsonc(written)).toMatchObject({ providers: { anthropic: { enabled: false } } });
-		expect(written).toContain("// retained");
-	});
-
-	it("rejects edits to a duplicate-key path without changing the file", async () => {
-		const configPath = path.join(tempDir, "providers.json");
-		const original = `{
-  "providers": {
-    "anthropic": {
-      "enabled": true,
-      "enabled": false
-    }
-  }
-}`;
-		await fs.writeFile(configPath, original);
-
-		await expect(
-			mutateProvidersConfig(
-				(current) => ({
-					...current,
-					providers: {
-						...current.providers,
-						anthropic: { ...current.providers?.anthropic, enabled: true },
-					},
-				}),
-				{ configPath, logger: mockLogger },
-			),
-		).rejects.toThrow(/duplicate key path providers\.anthropic\.enabled is ambiguous/);
-		expect(await fs.readFile(configPath, "utf-8")).toBe(original);
-	});
-
-	it("aborts on syntax-invalid content without changing the file", async () => {
-		const configPath = path.join(tempDir, "providers.json");
-		const original = '{\n  // unfinished edit\n  "providers": {\n';
-		await fs.writeFile(configPath, original);
-		const mutator = vi.fn((current: ProvidersConfig) => current);
-
-		const mutation = mutateProvidersConfig(mutator, { configPath, logger: mockLogger });
-		await expect(mutation).rejects.toThrow(`Cannot mutate ${configPath}`);
-		await expect(mutation).rejects.toThrow("Mutation aborted until the file is fixed");
-
-		expect(mutator).not.toHaveBeenCalled();
-		expect(await fs.readFile(configPath, "utf-8")).toBe(original);
-	});
-
-	it("aborts on schema-invalid content without changing the file", async () => {
-		const configPath = path.join(tempDir, "providers.json");
-		const original = '{\n  "version": 99\n}\n';
-		await fs.writeFile(configPath, original);
-		const mutator = vi.fn((current: ProvidersConfig) => current);
-
-		const mutation = mutateProvidersConfig(mutator, { configPath, logger: mockLogger });
-		await expect(mutation).rejects.toThrow(`Cannot mutate ${configPath}`);
-		await expect(mutation).rejects.toThrow("Mutation aborted until the file is fixed");
-
-		expect(mutator).not.toHaveBeenCalled();
-		expect(await fs.readFile(configPath, "utf-8")).toBe(original);
-	});
-
-	it("names an unknown provider key and leaves the file byte-for-byte untouched", async () => {
-		const configPath = path.join(tempDir, "providers.json");
-		const bytes = `{"providers":{"anthropic":{"enabled":true},"mystery-provider":{}}}\n`;
-		await fs.writeFile(configPath, bytes);
-
-		await expect(mutateProvidersConfig((current) => current, { configPath })).rejects.toThrow(
-			/mystery-provider/,
-		);
-		expect(await fs.readFile(configPath, "utf-8")).toBe(bytes);
-	});
-
-	it("rejects a raw unsafe custom-provider key without changing the file", async () => {
-		const configPath = path.join(tempDir, "providers.json");
-		const bytes =
-			'{\n  "providers": {\n    "custom": {\n      "__proto__": { "type": "openai-compatible" }\n    }\n  }\n}\n';
-		await fs.writeFile(configPath, bytes);
-		const mutator = vi.fn((current: ProvidersConfig) => current);
-
-		await expect(mutateProvidersConfig(mutator, { configPath })).rejects.toThrow(/__proto__/);
-		expect(mutator).not.toHaveBeenCalled();
-		expect(await fs.readFile(configPath, "utf-8")).toBe(bytes);
-	});
-
-	it("aborts when the config cannot be read without changing the file", async () => {
-		const configPath = await writeConfig(tempDir, {
-			providers: { anthropic: { enabled: true } },
-		});
-		const original = await fs.readFile(configPath, "utf-8");
-		const readError = Object.assign(new Error("permission denied"), { code: "EACCES" });
-		const readSpy = vi.spyOn(fs, "readFile").mockRejectedValueOnce(readError);
-		const mutator = vi.fn((current: ProvidersConfig) => current);
-
-		await expect(
-			mutateProvidersConfig(mutator, { configPath, logger: mockLogger }),
-		).rejects.toThrow(
-			`[ai-config] Cannot mutate ${configPath}: permission denied. Mutation aborted until the file is fixed.`,
-		);
-
-		readSpy.mockRestore();
-		expect(mutator).not.toHaveBeenCalled();
-		expect(await fs.readFile(configPath, "utf-8")).toBe(original);
-	});
-
-	it("should reject invalid mutations", async () => {
-		const configPath = await writeConfig(tempDir, {});
-
-		await expect(
-			mutateProvidersConfig(() => ({ version: 99 }) as unknown as ProvidersConfig, {
-				configPath,
-				logger: mockLogger,
-			}),
-		).rejects.toThrow("Mutated config is invalid");
-	});
-
-	it("should serialize concurrent mutations", async () => {
-		const configPath = await writeConfig(tempDir, {});
-
-		// Run 5 concurrent mutations
-		await Promise.all([
-			mutateProvidersConfig(
-				(c) => ({ ...c, providers: { ...c.providers, anthropic: { enabled: true } } }),
-				{ configPath, logger: mockLogger },
-			),
-			mutateProvidersConfig(
-				(c) => ({ ...c, providers: { ...c.providers, openai: { enabled: true } } }),
-				{ configPath, logger: mockLogger },
-			),
-			mutateProvidersConfig(
-				(c) => ({ ...c, providers: { ...c.providers, gemini: { enabled: true } } }),
-				{ configPath, logger: mockLogger },
-			),
-			mutateProvidersConfig(
-				(c) => ({ ...c, providers: { ...c.providers, bedrock: { enabled: true } } }),
-				{ configPath, logger: mockLogger },
-			),
-			mutateProvidersConfig(
-				(c) => ({ ...c, providers: { ...c.providers, deepseek: { enabled: true } } }),
-				{ configPath, logger: mockLogger },
-			),
-		]);
-
-		const raw = JSON.parse(await fs.readFile(configPath, "utf-8"));
-		expect(raw.providers.anthropic.enabled).toBe(true);
-		expect(raw.providers.openai.enabled).toBe(true);
-		expect(raw.providers.gemini.enabled).toBe(true);
-		expect(raw.providers.bedrock.enabled).toBe(true);
-		expect(raw.providers.deepseek.enabled).toBe(true);
-	});
-
-	it("should perform atomic writes (no partial state)", async () => {
-		const configPath = await writeConfig(tempDir, {
-			providers: { anthropic: { baseUrl: "https://original.example.com" } },
-		});
-
-		await mutateProvidersConfig(
-			(c) => ({
-				...c,
-				providers: {
-					...c.providers,
-					anthropic: { baseUrl: "https://updated.example.com" },
-				},
-			}),
-			{ configPath, logger: mockLogger },
-		);
-
-		// No temp files should remain
-		const files = await fs.readdir(tempDir);
-		expect(files.filter((f) => f.includes(".tmp"))).toHaveLength(0);
-
-		const raw = JSON.parse(await fs.readFile(configPath, "utf-8"));
-		expect(raw.providers.anthropic.baseUrl).toBe("https://updated.example.com");
 	});
 });

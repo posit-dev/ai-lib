@@ -25,6 +25,7 @@ const { resolveBedrockTransport } = vi.hoisted(() => ({
 
 vi.mock("../../providers/bedrock-transport", () => ({ resolveBedrockTransport }));
 
+import { createRawFetchCapture } from "../../../tests/helpers/raw-fetch-capture";
 import type { CancellationToken } from "../../types";
 import { AnthropicClient } from "../AnthropicClient";
 import { BedrockClient } from "../BedrockClient";
@@ -100,18 +101,41 @@ function cacheControlPaths(value: unknown, path = ""): string[] {
 	return paths;
 }
 
+function successfulAnthropicStreamResponse(): Response {
+	const events = [
+		{
+			type: "message_start",
+			message: {
+				id: "msg_test",
+				model: "claude-sonnet-4-5",
+				role: "assistant",
+				content: [],
+				stop_reason: null,
+				stop_sequence: null,
+				usage: { input_tokens: 1, output_tokens: 0 },
+			},
+		},
+		{
+			type: "message_delta",
+			delta: { stop_reason: "end_turn", stop_sequence: null },
+			usage: { output_tokens: 0 },
+		},
+		{ type: "message_stop" },
+	];
+	const body = events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("");
+	return new Response(body, {
+		status: 200,
+		headers: { "content-type": "text/event-stream" },
+	});
+}
+
 function stubFetchCapture(): { body: () => Record<string, unknown> } {
 	let requestBody: Record<string, unknown> | undefined;
-	vi.stubGlobal(
-		"fetch",
-		vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-			requestBody = JSON.parse(String(init?.body));
-			return new Response("", {
-				status: 200,
-				headers: { "content-type": "text/event-stream" },
-			});
-		}),
-	);
+	const capture = createRawFetchCapture(async (_input: RequestInfo | URL, init?: RequestInit) => {
+		requestBody = JSON.parse(String(init?.body));
+		return successfulAnthropicStreamResponse();
+	});
+	vi.stubGlobal("fetch", capture.mock);
 	return {
 		body: () => {
 			if (!requestBody) throw new Error("request was not captured");
@@ -120,17 +144,10 @@ function stubFetchCapture(): { body: () => Record<string, unknown> } {
 	};
 }
 
-async function consumeIgnoringStreamFailure(
-	streamPromise: Promise<AsyncIterable<unknown>>,
-): Promise<void> {
-	try {
-		const stream = await streamPromise;
-		for await (const _part of stream) {
-			// Drain the minimal mocked event stream.
-		}
-	} catch {
-		// The mocked stream is minimal; stream errors are fine — we only care
-		// about the serialized request body.
+async function consumeStream(streamPromise: Promise<AsyncIterable<unknown>>): Promise<void> {
+	const stream = await streamPromise;
+	for await (const _part of stream) {
+		// Drain the successful mocked event stream.
 	}
 }
 
@@ -170,7 +187,7 @@ describe("AnthropicClient classifier cache breakpoints", () => {
 	it("serializes the breakpoints on the marked transcript blocks, leaving header and evaluation unmarked", async () => {
 		const capture = stubFetchCapture();
 
-		await consumeIgnoringStreamFailure(
+		await consumeStream(
 			client.chat({
 				model: "claude-sonnet-4-5",
 				messages: classifierShapedMessages(),
@@ -194,7 +211,7 @@ describe("BedrockClient Anthropic-route classifier cache breakpoints", () => {
 	it("serializes the breakpoints on the marked transcript blocks on the InvokeModel transport", async () => {
 		const capture = stubFetchCapture();
 
-		await consumeIgnoringStreamFailure(
+		await consumeStream(
 			client.chat({
 				model: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
 				messages: classifierShapedMessages(),

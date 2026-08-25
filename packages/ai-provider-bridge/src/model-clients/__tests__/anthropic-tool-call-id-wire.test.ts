@@ -13,6 +13,7 @@
 import type { ModelMessage } from "ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { createRawFetchCapture } from "../../../tests/helpers/raw-fetch-capture";
 import { registerAnthropicProvider } from "../../providers/anthropic-provider";
 import { ProviderRegistry } from "../../providers/ProviderRegistry";
 import type { CancellationToken, Logger } from "../../types";
@@ -32,6 +33,41 @@ const logger: Logger = {
 };
 
 const ANTHROPIC_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
+
+function successfulAnthropicStreamResponse(): Response {
+	const events = [
+		{
+			type: "message_start",
+			message: {
+				id: "msg_test",
+				model: "claude-haiku-4-5",
+				role: "assistant",
+				content: [],
+				stop_reason: null,
+				stop_sequence: null,
+				usage: { input_tokens: 1, output_tokens: 0 },
+			},
+		},
+		{
+			type: "message_delta",
+			delta: { stop_reason: "end_turn", stop_sequence: null },
+			usage: { output_tokens: 0 },
+		},
+		{ type: "message_stop" },
+	];
+	const body = events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("");
+	return new Response(body, {
+		status: 200,
+		headers: { "content-type": "text/event-stream" },
+	});
+}
+
+async function consumeStream(streamPromise: Promise<AsyncIterable<unknown>>): Promise<void> {
+	const stream = await streamPromise;
+	for await (const _part of stream) {
+		// Drain the successful mocked event stream.
+	}
+}
 
 /** Kimi K3 history: `ls:0` repeats across turns (counter resets per turn). */
 function kimiHistory(): ModelMessage[] {
@@ -93,30 +129,19 @@ describe("PositAiClient Anthropic-wire tool-call ID sanitization", () => {
 
 	it("sends only pattern-conforming, unique, paired tool IDs", async () => {
 		let requestBody: Record<string, unknown> | undefined;
-		vi.stubGlobal(
-			"fetch",
-			vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-				requestBody = JSON.parse(String(init?.body));
-				return new Response("", {
-					status: 200,
-					headers: { "content-type": "text/event-stream" },
-				});
-			}),
-		);
+		const capture = createRawFetchCapture(async (_input: RequestInfo | URL, init?: RequestInit) => {
+			requestBody = JSON.parse(String(init?.body));
+			return successfulAnthropicStreamResponse();
+		});
+		vi.stubGlobal("fetch", capture.mock);
 
-		try {
-			const stream = await client.chat({
+		await consumeStream(
+			client.chat({
 				model: "claude-haiku-4-5",
 				messages: kimiHistory(),
 				cancellationToken,
-			});
-			for await (const _part of stream) {
-				// Drain the (empty) mocked event stream.
-			}
-		} catch {
-			// The mocked stream is minimal; stream errors are fine — we only
-			// care about the serialized request body.
-		}
+			}),
+		);
 
 		expect(requestBody).toBeDefined();
 		const { useIds, resultIds } = collectToolIds(requestBody!);
@@ -152,29 +177,16 @@ describe("registered AnthropicClient sanitizer observability", () => {
 		});
 		if (!client) throw new Error("expected registered Anthropic client");
 
-		vi.stubGlobal(
-			"fetch",
-			vi.fn(
-				async () =>
-					new Response("", {
-						status: 200,
-						headers: { "content-type": "text/event-stream" },
-					}),
-			),
-		);
+		const capture = createRawFetchCapture(async () => successfulAnthropicStreamResponse());
+		vi.stubGlobal("fetch", capture.mock);
 
-		try {
-			const stream = await client.chat({
+		await consumeStream(
+			client.chat({
 				model: "claude-haiku-4-5",
 				messages: kimiHistory(),
 				cancellationToken,
-			});
-			for await (const _part of stream) {
-				// Drain the (empty) mocked event stream.
-			}
-		} catch {
-			// The mocked stream is minimal; stream errors are unrelated to warning routing.
-		}
+			}),
+		);
 
 		expect(warningLogger.warn.mock.calls.flat().join(" ")).toContain("ls:0");
 	});

@@ -192,32 +192,32 @@ function removeRecordRequiredFields(schema: JSONSchema): JSONSchema {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+function serializeProvidersSchema(): string {
+	const jsonSchema = z.toJSONSchema(providersConfigSchema);
+
+	let cleanedSchema = removeDefaultFieldsFromRequired(jsonSchema);
+	cleanedSchema = removeRecordRequiredFields(cleanedSchema);
+
+	const schemaWithMetadata = {
+		...cleanedSchema,
+		$id: "https://posit.co/schemas/providers.schema.json",
+		$schema: "http://json-schema.org/draft-07/schema#",
+		title: "Posit AI Provider Configuration",
+		description:
+			"Configuration file for AI provider connections, enablement, and model overrides. " +
+			"See https://github.com/posit-dev/assistant for documentation.",
+	};
+
+	return JSON.stringify(sortKeysDeep(schemaWithMetadata), null, 2) + "\n";
+}
+
 async function generateSchema() {
 	console.log("🔧 Generating providers.schema.json from Zod schema...");
 
 	try {
-		const jsonSchema = z.toJSONSchema(providersConfigSchema);
-
-		let cleanedSchema = removeDefaultFieldsFromRequired(jsonSchema);
-		cleanedSchema = removeRecordRequiredFields(cleanedSchema);
-
-		const schemaWithMetadata = {
-			...cleanedSchema,
-			$id: "https://posit.co/schemas/providers.schema.json",
-			$schema: "http://json-schema.org/draft-07/schema#",
-			title: "Posit AI Provider Configuration",
-			description:
-				"Configuration file for AI provider connections, enablement, and model overrides. " +
-				"See https://github.com/posit-dev/assistant for documentation.",
-		};
-
 		const outputPath = path.resolve(__dirname, "../providers.schema.json");
 
-		await fs.writeFile(
-			outputPath,
-			JSON.stringify(sortKeysDeep(schemaWithMetadata), null, 2) + "\n",
-			"utf-8",
-		);
+		await fs.writeFile(outputPath, serializeProvidersSchema(), "utf-8");
 
 		console.log(`✅ providers.schema.json generated: ${outputPath}`);
 	} catch (error) {
@@ -233,4 +233,4 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 	});
 }
 
-export { generateSchema };
+export { generateSchema, serializeProvidersSchema };
