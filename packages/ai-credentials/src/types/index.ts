@@ -23,7 +23,12 @@ export type {
 } from "./credentials.js";
 
 export { CONFIG_KEY_OVERRIDES, shapeCredentials } from "./credential-shaping.js";
-export type { AuthProviderMapping, CredentialConfig } from "./credential-shaping.js";
+export type {
+	AuthProviderMapping,
+	CredentialConfig,
+	CredentialConfigTarget,
+	StructuredBaseUrlSource,
+} from "./credential-shaping.js";
 
 export type { Logger } from "./logger.js";
 

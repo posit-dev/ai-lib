@@ -27,15 +27,40 @@ import {
 } from "./utils.js";
 
 /**
+ * Which structured connection fields a provider builds its base URL from, for
+ * the providers that don't use a plain `baseUrl`.
+ */
+export type StructuredBaseUrlSource = "snowflake" | "databricks";
+
+/**
  * Maps a provider to its auth extension registration and credential type.
- * Subset of the full mapping — shaping only needs these two fields.
+ * Subset of the full mapping — shaping only needs these fields.
  */
 export interface AuthProviderMapping {
 	authProviderId: string;
 	scopes: string[];
 	fallbackScopes?: string[][];
 	credentialType: "apikey" | "oauth" | "aws-credentials" | "google-cloud";
+	/**
+	 * Set for `providers.custom` entries whose base URL comes from structured
+	 * fields. Built-in providers are recognized by their auth provider id
+	 * ({@link BUILTIN_STRUCTURED_BASE_URL}); a custom entry's id is the user's
+	 * chosen name, so its mapping has to say so.
+	 */
+	structuredBaseUrl?: StructuredBaseUrlSource;
 }
+
+/**
+ * Built-in providers whose `apikey` base URL is derived from structured
+ * connection fields rather than a plain `baseUrl`.
+ *
+ * Kept here rather than in the injected mapping so hosts that hand-build
+ * mappings for built-ins keep their derivation.
+ */
+const BUILTIN_STRUCTURED_BASE_URL: Record<string, StructuredBaseUrlSource | undefined> = {
+	"snowflake-cortex": "snowflake",
+	databricks: "databricks",
+};
 
 /**
  * Auth provider ID -> VS Code settings config section.
@@ -48,38 +73,74 @@ export const CONFIG_KEY_OVERRIDES: Record<string, string> = {
 };
 
 /**
+ * Which provider a {@link CredentialConfig} read is for.
+ *
+ * Two fields because the two jobs need different keys, and only one of them is
+ * unique:
+ *
+ * - `providerId` is the identity. A built-in provider id or a `providers.custom`
+ *   entry id, and the two spaces can't collide because custom names reserve
+ *   every built-in id. Catalog-backed adapters answer from this.
+ * - `configKey` is the settings namespace (`authentication.<configKey>.*`) that
+ *   settings-backed adapters read. It is **not** unique: `snowflake-cortex`
+ *   derives the configKey `snowflake`, which is itself a legal custom entry
+ *   name, so a reader that identifies a provider by configKey alone will hand a
+ *   custom entry the built-in's connection.
+ *
+ * Passed as an object rather than two string parameters so the two can't be
+ * transposed silently.
+ */
+export interface CredentialConfigTarget {
+	readonly providerId: string;
+	readonly configKey: string;
+}
+
+/**
  * Reads the provider-extra config that shaping needs, abstracted over the
  * config source. Hosts inject catalog-backed adapters (reading the resolved
  * provider catalog's connection fields); Positron's renderer adapter reads its
  * own `IConfigurationService`. The shaper owns *which* keys to read (via
- * `configKey`) so neither caller has to.
+ * {@link CredentialConfigTarget}) so neither caller has to.
+ *
+ * Every reader must answer for the requested provider only. A `providers.custom`
+ * entry has its own connection, so a host serving custom entries cannot answer
+ * from a fixed built-in provider: a named `type: "aws"` entry would inherit
+ * `bedrock`'s region.
  */
 export interface CredentialConfig {
 	/** `authentication.<configKey>.baseUrl` (the shaper normalizes empty -> undefined). */
-	getBaseUrl(configKey: string): string | undefined;
+	getBaseUrl(target: CredentialConfigTarget): string | undefined;
 	/** `authentication.<configKey>.customHeaders`. */
-	getCustomHeaders(configKey: string): Record<string, string> | undefined;
+	getCustomHeaders(target: CredentialConfigTarget): Record<string, string> | undefined;
 	/** AWS region/profile, from the resolved catalog's `connection.aws`. */
-	getAws(): { region?: string; profile?: string } | undefined;
+	getAws(target: CredentialConfigTarget): { region?: string; profile?: string } | undefined;
 	/** Snowflake host/account (`authentication.snowflake.credentials`, env on the bridge side). */
-	getSnowflake(): { host?: string; account?: string } | undefined;
+	getSnowflake(target: CredentialConfigTarget): { host?: string; account?: string } | undefined;
 	/** Databricks workspace host (`authentication.databricks.credentials`, env on the bridge side). */
-	getDatabricks(): { host?: string } | undefined;
+	getDatabricks(target: CredentialConfigTarget): { host?: string } | undefined;
 }
 
 /**
  * Shape an already-resolved auth token into {@link ProviderCredentials}, or
  * `null` when the token cannot yield usable credentials (malformed JSON, missing
  * required fields). The mapping supplies the credential type and the auth
- * provider id (from which the settings `configKey` is derived); `config` reads
- * the provider-extra settings.
+ * provider id (from which the settings `configKey` is derived); `providerId`
+ * identifies which provider is being resolved, since the derived configKey does
+ * not (see {@link CredentialConfigTarget}); `config` reads the provider-extra
+ * settings.
  */
 export function shapeCredentials(
-	mapping: Pick<AuthProviderMapping, "authProviderId" | "credentialType">,
+	providerId: string,
+	mapping: Pick<AuthProviderMapping, "authProviderId" | "credentialType" | "structuredBaseUrl">,
 	rawToken: string,
 	config: CredentialConfig,
 	logger?: Logger,
 ): ProviderCredentials | null {
+	const target: CredentialConfigTarget = {
+		providerId,
+		configKey: CONFIG_KEY_OVERRIDES[mapping.authProviderId] ?? mapping.authProviderId,
+	};
+
 	switch (mapping.credentialType) {
 		case "oauth":
 			return { type: "oauth", accessToken: rawToken };
@@ -122,7 +183,7 @@ export function shapeCredentials(
 				return null;
 			}
 			// Region is not in the session -- the adapter resolves settings/env, default us-east-1.
-			const aws = config.getAws();
+			const aws = config.getAws(target);
 			return {
 				type: "aws-credentials",
 				region: aws?.region || "us-east-1",
@@ -134,31 +195,45 @@ export function shapeCredentials(
 		}
 
 		case "apikey": {
-			const configKey = CONFIG_KEY_OVERRIDES[mapping.authProviderId] ?? mapping.authProviderId;
-
 			let baseUrl: string | undefined;
-			if (mapping.authProviderId === "snowflake-cortex") {
-				// Snowflake URL is built from host (preferred, for private-link/RCR) or account name.
-				const snowflake = config.getSnowflake();
-				if (snowflake?.host) {
-					baseUrl = buildSnowflakeCortexUrlFromHost(snowflake.host);
-				} else if (snowflake?.account) {
-					baseUrl = buildSnowflakeCortexUrl(snowflake.account);
+			switch (mapping.structuredBaseUrl ?? BUILTIN_STRUCTURED_BASE_URL[mapping.authProviderId]) {
+				case "snowflake": {
+					// A flat `baseUrl` wins over the structured fields — the same
+					// precedence as the Node catalog paths
+					// (`conn.baseUrl ?? deriveSnowflakeBaseUrl(conn)`), so one
+					// providers.json can't route different hosts to different
+					// endpoints. The flat form is what standalone's
+					// Add-custom-provider form writes in custom-URL mode, and the
+					// only shape that can express a non-standard Cortex path.
+					// Otherwise the URL is built from host (preferred, for
+					// private-link/RCR) or account name.
+					const flat = config.getBaseUrl(target) || undefined;
+					const snowflake = flat ? undefined : config.getSnowflake(target);
+					if (flat) {
+						baseUrl = flat;
+					} else if (snowflake?.host) {
+						baseUrl = buildSnowflakeCortexUrlFromHost(snowflake.host);
+					} else if (snowflake?.account) {
+						baseUrl = buildSnowflakeCortexUrl(snowflake.account);
+					}
+					break;
 				}
-			} else if (mapping.authProviderId === "databricks") {
-				// Databricks workspace host, with env fallback for managed environments
-				// (e.g. Posit Workbench injecting DATABRICKS_HOST into sessions).
-				const databricks = config.getDatabricks();
-				if (databricks?.host) {
-					baseUrl = normalizeDatabricksHost(databricks.host);
+				case "databricks": {
+					// Databricks workspace host, with env fallback for managed environments
+					// (e.g. Posit Workbench injecting DATABRICKS_HOST into sessions).
+					const databricks = config.getDatabricks(target);
+					if (databricks?.host) {
+						baseUrl = normalizeDatabricksHost(databricks.host);
+					}
+					break;
 				}
-			} else {
-				baseUrl = config.getBaseUrl(configKey) || undefined;
+				default:
+					baseUrl = config.getBaseUrl(target) || undefined;
 			}
 
 			// customHeaders share the `authentication.<configKey>` namespace with
 			// baseUrl. Empty objects normalize to undefined to match the pipeline.
-			const customHeadersRaw = config.getCustomHeaders(configKey);
+			const customHeadersRaw = config.getCustomHeaders(target);
 			const customHeaders =
 				customHeadersRaw && Object.keys(customHeadersRaw).length > 0 ? customHeadersRaw : undefined;
 

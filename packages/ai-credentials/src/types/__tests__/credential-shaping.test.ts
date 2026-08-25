@@ -48,7 +48,7 @@ function config(overrides: Partial<CredentialConfig> = {}): CredentialConfig {
 describe("shapeCredentials — Snowflake host-over-account URL", () => {
 	it("builds the URL from host, not account, when both are present", () => {
 		const config = fakeConfig({ host: "h.snowflakecomputing.com", account: "org-acct" });
-		expect(shapeCredentials(SNOWFLAKE, "tok", config)).toMatchObject({
+		expect(shapeCredentials("snowflake-cortex", SNOWFLAKE, "tok", config)).toMatchObject({
 			type: "apikey",
 			baseUrl: "https://h.snowflakecomputing.com/api/v2/cortex/v1",
 		});
@@ -56,14 +56,39 @@ describe("shapeCredentials — Snowflake host-over-account URL", () => {
 
 	it("falls back to account when only account is present", () => {
 		const config = fakeConfig({ account: "org-acct" });
-		expect(shapeCredentials(SNOWFLAKE, "tok", config)).toMatchObject({
+		expect(shapeCredentials("snowflake-cortex", SNOWFLAKE, "tok", config)).toMatchObject({
 			baseUrl: "https://org-acct.snowflakecomputing.com/api/v2/cortex/v1",
 		});
 	});
 
 	it("leaves the URL undefined when neither host nor account is present", () => {
-		expect(shapeCredentials(SNOWFLAKE, "tok", fakeConfig())).toMatchObject({
+		expect(shapeCredentials("snowflake-cortex", SNOWFLAKE, "tok", fakeConfig())).toMatchObject({
 			baseUrl: undefined,
+		});
+	});
+
+	// Standalone's Add-custom-provider form writes a flat `baseUrl` in custom-URL
+	// mode and structured host/account otherwise, into the same providers.json,
+	// so both shapes have to resolve. When both are present the flat form wins,
+	// matching the Node catalog paths (`conn.baseUrl ?? derive(conn)`), so one
+	// providers.json can't route different hosts to different endpoints.
+	it("falls back to structured fields when there is no flat baseUrl", () => {
+		const cfg = config({
+			getBaseUrl: () => undefined,
+			getSnowflake: () => ({ host: "h.snowflakecomputing.com" }),
+		});
+		expect(shapeCredentials("snowflake-cortex", SNOWFLAKE, "tok", cfg)).toMatchObject({
+			baseUrl: "https://h.snowflakecomputing.com/api/v2/cortex/v1",
+		});
+	});
+
+	it("prefers a flat baseUrl over structured fields when both are present", () => {
+		const cfg = config({
+			getBaseUrl: () => "https://proxy.example.com/cortex/v1",
+			getSnowflake: () => ({ host: "h.snowflakecomputing.com" }),
+		});
+		expect(shapeCredentials("snowflake-cortex", SNOWFLAKE, "tok", cfg)).toMatchObject({
+			baseUrl: "https://proxy.example.com/cortex/v1",
 		});
 	});
 });
@@ -79,7 +104,12 @@ describe("shapeCredentials — AWS credentials JSON", () => {
 
 	it("parses the JSON token and applies the configured region", () => {
 		expect(
-			shapeCredentials(AWS, awsToken, config({ getAws: () => ({ region: "eu-west-1" }) })),
+			shapeCredentials(
+				"bedrock",
+				AWS,
+				awsToken,
+				config({ getAws: () => ({ region: "eu-west-1" }) }),
+			),
 		).toEqual({
 			type: "aws-credentials",
 			region: "eu-west-1",
@@ -90,20 +120,24 @@ describe("shapeCredentials — AWS credentials JSON", () => {
 	});
 
 	it("defaults the region to us-east-1 when none is configured", () => {
-		expect(shapeCredentials(AWS, awsToken, config())).toMatchObject({ region: "us-east-1" });
+		expect(shapeCredentials("bedrock", AWS, awsToken, config())).toMatchObject({
+			region: "us-east-1",
+		});
 	});
 
 	it("returns null for a non-JSON token", () => {
-		expect(shapeCredentials(AWS, "not-json", config())).toBeNull();
+		expect(shapeCredentials("bedrock", AWS, "not-json", config())).toBeNull();
 	});
 
 	it("returns null when accessKeyId or secretAccessKey is missing", () => {
-		expect(shapeCredentials(AWS, JSON.stringify({ accessKeyId: "AKIA" }), config())).toBeNull();
+		expect(
+			shapeCredentials("bedrock", AWS, JSON.stringify({ accessKeyId: "AKIA" }), config()),
+		).toBeNull();
 	});
 
 	it("includes the configured profile", () => {
 		const cfg = config({ getAws: () => ({ region: "eu-west-1", profile: "work" }) });
-		expect(shapeCredentials(AWS, awsToken, cfg)).toMatchObject({
+		expect(shapeCredentials("bedrock", AWS, awsToken, cfg)).toMatchObject({
 			type: "aws-credentials",
 			region: "eu-west-1",
 			profile: "work",
@@ -114,7 +148,7 @@ describe("shapeCredentials — AWS credentials JSON", () => {
 describe("shapeCredentials — Google Cloud credentials JSON", () => {
 	it("parses project/location/token for a brokered token", () => {
 		const token = JSON.stringify({ project: "p", location: "us-central1", token: "gcp-tok" });
-		expect(shapeCredentials(GOOGLE, token, config())).toEqual({
+		expect(shapeCredentials("google-vertex", GOOGLE, token, config())).toEqual({
 			type: "google-cloud",
 			project: "p",
 			location: "us-central1",
@@ -124,7 +158,7 @@ describe("shapeCredentials — Google Cloud credentials JSON", () => {
 
 	it("omits accessToken for the ADC fallback when no token is present", () => {
 		const token = JSON.stringify({ project: "p", location: "us-central1" });
-		expect(shapeCredentials(GOOGLE, token, config())).toEqual({
+		expect(shapeCredentials("google-vertex", GOOGLE, token, config())).toEqual({
 			type: "google-cloud",
 			project: "p",
 			location: "us-central1",
@@ -132,22 +166,27 @@ describe("shapeCredentials — Google Cloud credentials JSON", () => {
 	});
 
 	it("returns null for a non-JSON token", () => {
-		expect(shapeCredentials(GOOGLE, "not-json", config())).toBeNull();
+		expect(shapeCredentials("google-vertex", GOOGLE, "not-json", config())).toBeNull();
 	});
 
 	it("returns null when project or location is missing", () => {
-		expect(shapeCredentials(GOOGLE, JSON.stringify({ project: "p" }), config())).toBeNull();
-		expect(shapeCredentials(GOOGLE, JSON.stringify({ location: "l" }), config())).toBeNull();
+		expect(
+			shapeCredentials("google-vertex", GOOGLE, JSON.stringify({ project: "p" }), config()),
+		).toBeNull();
+		expect(
+			shapeCredentials("google-vertex", GOOGLE, JSON.stringify({ location: "l" }), config()),
+		).toBeNull();
 	});
 });
 
 describe("shapeCredentials — apikey baseUrl + customHeaders", () => {
 	it("reads baseUrl and customHeaders under the provider configKey", () => {
 		const cfg = config({
-			getBaseUrl: (k) => (k === "anthropic" ? "https://proxy" : undefined),
-			getCustomHeaders: (k) => (k === "anthropic" ? { "x-tenancy": "t" } : undefined),
+			getBaseUrl: ({ configKey }) => (configKey === "anthropic" ? "https://proxy" : undefined),
+			getCustomHeaders: ({ configKey }) =>
+				configKey === "anthropic" ? { "x-tenancy": "t" } : undefined,
 		});
-		expect(shapeCredentials(ANTHROPIC, "sk", cfg)).toEqual({
+		expect(shapeCredentials("anthropic", ANTHROPIC, "sk", cfg)).toEqual({
 			type: "apikey",
 			apiKey: "sk",
 			baseUrl: "https://proxy",
@@ -157,16 +196,104 @@ describe("shapeCredentials — apikey baseUrl + customHeaders", () => {
 
 	it("normalizes an empty customHeaders object to undefined", () => {
 		expect(
-			shapeCredentials(ANTHROPIC, "sk", config({ getCustomHeaders: () => ({}) })),
+			shapeCredentials("anthropic", ANTHROPIC, "sk", config({ getCustomHeaders: () => ({}) })),
 		).toMatchObject({ customHeaders: undefined });
 	});
 
 	it("uses the authProviderId as configKey when no override exists (openai-api)", () => {
 		const cfg = config({
-			getCustomHeaders: (k) => (k === "openai-api" ? { "x-flag": "1" } : undefined),
+			getCustomHeaders: ({ configKey }) =>
+				configKey === "openai-api" ? { "x-flag": "1" } : undefined,
 		});
-		expect(shapeCredentials(OPENAI, "sk", cfg)).toMatchObject({
+		expect(shapeCredentials("openai", OPENAI, "sk", cfg)).toMatchObject({
 			customHeaders: { "x-flag": "1" },
+		});
+	});
+});
+
+// A `providers.custom` entry's id is the user's chosen name, so shaping can't
+// recognize it by id: the readers have to be told *which* provider is being
+// resolved, and structured base-URL derivation has to be declared on the
+// mapping. Without both, a named `type: "aws"` / `type: "snowflake"` entry
+// inherits bedrock's region or loses its Cortex URL.
+describe("shapeCredentials — providers.custom entries", () => {
+	const CUSTOM_AWS = {
+		authProviderId: "my-bedrock",
+		credentialType: "aws-credentials",
+	} as const;
+	const CUSTOM_SNOWFLAKE = {
+		authProviderId: "my-snow",
+		credentialType: "apikey",
+		structuredBaseUrl: "snowflake",
+	} as const;
+	const CUSTOM_GATEWAY = { authProviderId: "my-gateway", credentialType: "apikey" } as const;
+
+	const awsToken = JSON.stringify({ accessKeyId: "AKIA", secretAccessKey: "secret" });
+
+	it("asks getAws for the custom entry's own key, not the built-in bedrock one", () => {
+		const cfg = config({
+			getAws: ({ providerId }) =>
+				providerId === "my-bedrock" ? { region: "ca-central-1" } : { region: "us-west-2" },
+		});
+		expect(shapeCredentials("my-bedrock", CUSTOM_AWS, awsToken, cfg)).toMatchObject({
+			region: "ca-central-1",
+		});
+	});
+
+	it("derives the Cortex URL from the custom entry's own host", () => {
+		const cfg = config({
+			getSnowflake: ({ providerId }) =>
+				providerId === "my-snow" ? { host: "mine.snowflakecomputing.com" } : undefined,
+		});
+		expect(shapeCredentials("my-snow", CUSTOM_SNOWFLAKE, "tok", cfg)).toMatchObject({
+			baseUrl: "https://mine.snowflakecomputing.com/api/v2/cortex/v1",
+		});
+	});
+
+	it("resolves a custom entry's flat baseUrl when it has no structured fields", () => {
+		const cfg = config({
+			getBaseUrl: ({ providerId }) =>
+				providerId === "my-snow" ? "https://mine.example.com/api/v2/cortex/v1" : undefined,
+		});
+		expect(shapeCredentials("my-snow", CUSTOM_SNOWFLAKE, "tok", cfg)).toMatchObject({
+			baseUrl: "https://mine.example.com/api/v2/cortex/v1",
+		});
+	});
+
+	it("leaves a plain custom entry on the baseUrl path", () => {
+		// The declaration is what selects structured derivation: an entry that
+		// doesn't declare it must not pick up another provider's Snowflake config.
+		const cfg = config({
+			getBaseUrl: () => "https://gateway.example.com",
+			getSnowflake: () => ({ host: "someone-else.snowflakecomputing.com" }),
+		});
+		expect(shapeCredentials("my-gateway", CUSTOM_GATEWAY, "sk", cfg)).toMatchObject({
+			baseUrl: "https://gateway.example.com",
+		});
+	});
+
+	// A custom entry may legally be named `snowflake`, which is also the configKey
+	// `snowflake-cortex` derives. Two providers, one configKey: readers can only
+	// tell them apart by provider id.
+	it("distinguishes an entry named `snowflake` from the built-in snowflake-cortex", () => {
+		const NAMED_SNOWFLAKE = {
+			authProviderId: "snowflake",
+			credentialType: "apikey",
+			structuredBaseUrl: "snowflake",
+		} as const;
+		const hosts: Record<string, string> = {
+			snowflake: "mine.snowflakecomputing.com",
+			"snowflake-cortex": "corp.snowflakecomputing.com",
+		};
+		const cfg = config({
+			getSnowflake: ({ providerId }) => ({ host: hosts[providerId] }),
+		});
+
+		expect(shapeCredentials("snowflake", NAMED_SNOWFLAKE, "tok", cfg)).toMatchObject({
+			baseUrl: "https://mine.snowflakecomputing.com/api/v2/cortex/v1",
+		});
+		expect(shapeCredentials("snowflake-cortex", SNOWFLAKE, "tok", cfg)).toMatchObject({
+			baseUrl: "https://corp.snowflakecomputing.com/api/v2/cortex/v1",
 		});
 	});
 });

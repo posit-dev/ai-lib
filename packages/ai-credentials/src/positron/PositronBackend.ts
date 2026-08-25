@@ -49,8 +49,16 @@ export interface PositronBackend extends Backend {
 
 export interface CreatePositronBackendOptions {
 	logger: Logger;
-	/** Provider-id → auth mapping (the bridge's PROVIDER_MAP). */
-	providerMap: ProviderMap;
+	/**
+	 * Provider-id → auth mapping (the bridge's `PROVIDER_MAP`, plus whatever the
+	 * host adds for `providers.custom` entries).
+	 *
+	 * A getter, not a table: custom entry ids are user-chosen and come and go
+	 * while the process runs, so a table read once at construction would silently
+	 * stop resolving — and stop firing credential-change events — for anything
+	 * added afterwards.
+	 */
+	providerMap: () => ProviderMap;
 	/** CredentialConfig factory (the host injects its catalog-backed adapter). */
 	credentialConfigFactory: () => CredentialConfig;
 }
@@ -99,8 +107,6 @@ async function tryCreateSession(
 export function createPositronBackend(options: CreatePositronBackendOptions): PositronBackend {
 	const { logger, providerMap, credentialConfigFactory } = options;
 
-	const mappedProviderIds = Object.keys(providerMap).filter((id) => providerMap[id] !== undefined);
-
 	// Auth provider ids observed to time out waiting to register (i.e. not shipped
 	// in this host build). Cached for the process lifetime so the multi-second
 	// registration wait is NOT re-paid on every silent lookup — a conversation
@@ -120,6 +126,18 @@ export function createPositronBackend(options: CreatePositronBackendOptions): Po
 	// throws "No credentials available"). Correctness over shaving a one-time wait.
 	const unregisteredAuthProviders = new Set<string>();
 
+	// Per-auth-provider count of session changes seen, i.e. of "it registered"
+	// signals. A lookup records the count it started under and only caches its
+	// verdict if the count still matches, because the registration timeout is
+	// several seconds long and the provider can register inside that window: the
+	// event's `delete` would land first and the stale `add` after it, leaving the
+	// provider permanently unresolvable with no further event to recover it. That
+	// is the ordering a user hits when a `providers.custom` entry is added or
+	// first loaded at the same time as its auth provider registers.
+	const registrationSignals = new Map<string, number>();
+	const signalsFor = (authProviderId: string): number =>
+		registrationSignals.get(authProviderId) ?? 0;
+
 	async function trySilentSession(
 		authProviderId: string,
 		scopes: string[],
@@ -128,20 +146,25 @@ export function createPositronBackend(options: CreatePositronBackendOptions): Po
 		// for the full registration timeout again — skip the call entirely.
 		if (unregisteredAuthProviders.has(authProviderId)) return undefined;
 
+		const signalsAtStart = signalsFor(authProviderId);
 		try {
 			const session = await vscode.authentication.getSession(authProviderId, scopes, {
 				silent: true,
 			});
 			return session ?? undefined;
 		} catch (err) {
-			if (isProviderNotRegisteredError(err, authProviderId)) {
+			if (!isProviderNotRegisteredError(err, authProviderId)) {
+				logger.debug(
+					`[ai-credentials/positron] Auth session unavailable for ${authProviderId}: ${err}`,
+				);
+			} else if (signalsFor(authProviderId) !== signalsAtStart) {
+				logger.trace(
+					`[ai-credentials/positron] Auth provider ${authProviderId} registered while this lookup was in flight; not caching the verdict`,
+				);
+			} else {
 				unregisteredAuthProviders.add(authProviderId);
 				logger.trace(
 					`[ai-credentials/positron] Auth provider ${authProviderId} is not registered; skipping future silent lookups`,
-				);
-			} else {
-				logger.debug(
-					`[ai-credentials/positron] Auth session unavailable for ${authProviderId}: ${err}`,
 				);
 			}
 			return undefined;
@@ -152,7 +175,7 @@ export function createPositronBackend(options: CreatePositronBackendOptions): Po
 		providerId: string,
 		prompt: boolean,
 	): Promise<ProviderCredentials | null> {
-		const mapping = providerMap[providerId];
+		const mapping = providerMap()[providerId];
 		if (!mapping) return null;
 
 		const { authProviderId, scopes, fallbackScopes } = mapping;
@@ -171,21 +194,17 @@ export function createPositronBackend(options: CreatePositronBackendOptions): Po
 		}
 
 		if (!session) return null;
-		return shapeCredentials(mapping, session.accessToken, credentialConfigFactory(), logger);
+		return shapeCredentials(
+			providerId,
+			mapping,
+			session.accessToken,
+			credentialConfigFactory(),
+			logger,
+		);
 	}
 
 	// --- Credential change events -------------------------------------------
 	const emitter = new vscode.EventEmitter<string[]>();
-
-	// Reverse map: auth provider id -> logical provider ids.
-	const authToLogical = new Map<string, string[]>();
-	for (const logicalId of mappedProviderIds) {
-		const mapping = providerMap[logicalId];
-		if (!mapping) continue;
-		const list = authToLogical.get(mapping.authProviderId) ?? [];
-		list.push(logicalId);
-		authToLogical.set(mapping.authProviderId, list);
-	}
 
 	// The emitter fires ONLY on vscode auth session changes (login/logout).
 	//
@@ -199,10 +218,18 @@ export function createPositronBackend(options: CreatePositronBackendOptions): Po
 	// before the debounced rebuild lands.
 	const sessionSub = vscode.authentication.onDidChangeSessions((e) => {
 		// A session change means the provider is registered now: drop any stale
-		// "unregistered" verdict so silent lookups resume against it.
+		// "unregistered" verdict so silent lookups resume against it, and count the
+		// signal so a lookup still waiting on the registration timeout can't
+		// re-install the verdict when it finally rejects.
+		registrationSignals.set(e.provider.id, signalsFor(e.provider.id) + 1);
 		unregisteredAuthProviders.delete(e.provider.id);
-		const logicalIds = authToLogical.get(e.provider.id);
-		if (logicalIds) emitter.fire(logicalIds);
+		// Reverse lookup per event rather than an index built at construction, so a
+		// custom entry added after this backend was created still notifies.
+		const current = providerMap();
+		const logicalIds = Object.keys(current).filter(
+			(id) => current[id]?.authProviderId === e.provider.id,
+		);
+		if (logicalIds.length > 0) emitter.fire(logicalIds);
 	});
 
 	function onDidChangeCredentials(callback: (providerIds: string[]) => void): Disposable {

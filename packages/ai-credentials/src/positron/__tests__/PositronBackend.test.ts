@@ -51,6 +51,7 @@ vi.mock("vscode", () => ({
 
 const { createPositronBackend } = await import("../PositronBackend.js");
 import type { AuthProviderMapping, CredentialConfig } from "../../types/index.js";
+import type { ProviderMap } from "../PositronBackend.js";
 
 const PROVIDER_MAP: Record<string, AuthProviderMapping> = {
 	anthropic: { authProviderId: "anthropic-api", scopes: [], credentialType: "apikey" },
@@ -82,10 +83,13 @@ function testConfig(overrides: Partial<CredentialConfig> = {}): CredentialConfig
 	};
 }
 
-function makeBackend(configOverrides: Partial<CredentialConfig> = {}) {
+function makeBackend(
+	configOverrides: Partial<CredentialConfig> = {},
+	extraMappings?: () => ProviderMap,
+) {
 	return createPositronBackend({
 		logger,
-		providerMap: PROVIDER_MAP,
+		providerMap: () => ({ ...PROVIDER_MAP, ...extraMappings?.() }),
 		credentialConfigFactory: () => testConfig(configOverrides),
 	});
 }
@@ -203,7 +207,7 @@ describe("createPositronBackend", () => {
 		mockGetSession.mockResolvedValue(makeSession("databricks-bearer-token"));
 		const backend = makeBackend({
 			getDatabricks: () => ({ host: "https://adb-123.4.azuredatabricks.net" }),
-			getCustomHeaders: (configKey) =>
+			getCustomHeaders: ({ configKey }) =>
 				configKey === "databricks" ? { "x-databricks-use-coding-agent-mode": "true" } : undefined,
 		});
 
@@ -313,6 +317,31 @@ describe("createPositronBackend", () => {
 		expect(mockGetSession).toHaveBeenCalledTimes(2);
 	});
 
+	it("does not cache the verdict when the provider registers mid-lookup", async () => {
+		// The registration timeout is several seconds long, so the provider can
+		// register while a lookup is still waiting on it. The session change lands
+		// first and the rejection after, so caching on rejection would leave the
+		// provider permanently unresolvable with no further event to recover it.
+		let rejectFirst!: (err: Error) => void;
+		mockGetSession.mockReturnValueOnce(
+			new Promise((_resolve, reject) => {
+				rejectFirst = reject;
+			}),
+		);
+		const backend = makeBackend();
+		const firstLookup = backend.getCredentials("databricks");
+
+		sessionChangeHook.callback?.({ provider: { id: "databricks" } });
+		rejectFirst(NOT_REGISTERED);
+		expect(await firstLookup).toBeNull();
+
+		mockGetSession.mockResolvedValue(makeSession("databricks-bearer-token"));
+		expect(await backend.getCredentials("databricks")).toMatchObject({
+			apiKey: "databricks-bearer-token",
+		});
+		expect(mockGetSession).toHaveBeenCalledTimes(2);
+	});
+
 	it("logs the registration timeout at trace, not debug", async () => {
 		mockGetSession.mockRejectedValue(NOT_REGISTERED);
 		const backend = makeBackend();
@@ -341,8 +370,9 @@ describe("createPositronBackend", () => {
 	it("shapes baseUrl and customHeaders from the injected credential config", async () => {
 		mockGetSession.mockResolvedValue(makeSession("sk-ant"));
 		const backend = makeBackend({
-			getBaseUrl: (configKey) => (configKey === "anthropic" ? "https://proxy.example" : undefined),
-			getCustomHeaders: (configKey) =>
+			getBaseUrl: ({ configKey }) =>
+				configKey === "anthropic" ? "https://proxy.example" : undefined,
+			getCustomHeaders: ({ configKey }) =>
 				configKey === "anthropic" ? { "x-tenancy": "team-42" } : undefined,
 		});
 
@@ -351,6 +381,97 @@ describe("createPositronBackend", () => {
 			apiKey: "sk-ant",
 			baseUrl: "https://proxy.example",
 			customHeaders: { "x-tenancy": "team-42" },
+		});
+	});
+
+	describe("providers.custom entries", () => {
+		// The shape the Positron host composes for `providers.custom`: every
+		// entry shares ONE authentication provider and is identified by a single
+		// scope — the entry id. So `providerId !== authProviderId`, and the
+		// configKey derived from the shared authProviderId is the same for every
+		// entry; only the logical provider id tells two entries apart.
+		const CUSTOM_AUTH_PROVIDER_ID = "positron-custom-provider";
+		const ACME = "Acme Gateway";
+		const CONTOSO = "Contoso Gateway";
+
+		function customMappings(ids: readonly string[]): () => ProviderMap {
+			return () =>
+				Object.fromEntries(
+					ids.map((id) => [
+						id,
+						{
+							authProviderId: CUSTOM_AUTH_PROVIDER_ID,
+							scopes: [id],
+							credentialType: "apikey" as const,
+						},
+					]),
+				);
+		}
+
+		it("resolves each entry by scope, with shaping keyed on the entry id", async () => {
+			// Two entries behind one auth provider: the session lookup must pass
+			// the entry's scope, and config reads must key on the logical
+			// providerId — keyed on the shared authProviderId/configKey instead,
+			// both entries would resolve the same (or no) baseUrl.
+			mockGetSession.mockImplementation(async (_id: string, scopes: string[]) =>
+				makeSession(`key-for-${scopes[0]}`),
+			);
+			const backend = makeBackend(
+				{
+					getBaseUrl: ({ providerId }) =>
+						providerId === ACME
+							? "https://gw.acme.test"
+							: providerId === CONTOSO
+								? "https://gw.contoso.test"
+								: undefined,
+				},
+				customMappings([ACME, CONTOSO]),
+			);
+
+			await expect(backend.getCredentials(ACME)).resolves.toEqual({
+				type: "apikey",
+				apiKey: "key-for-Acme Gateway",
+				baseUrl: "https://gw.acme.test",
+				customHeaders: undefined,
+			});
+			await expect(backend.getCredentials(CONTOSO)).resolves.toEqual({
+				type: "apikey",
+				apiKey: "key-for-Contoso Gateway",
+				baseUrl: "https://gw.contoso.test",
+				customHeaders: undefined,
+			});
+			expect(mockGetSession).toHaveBeenNthCalledWith(1, CUSTOM_AUTH_PROVIDER_ID, [ACME], {
+				silent: true,
+			});
+			expect(mockGetSession).toHaveBeenNthCalledWith(2, CUSTOM_AUTH_PROVIDER_ID, [CONTOSO], {
+				silent: true,
+			});
+		});
+
+		it("fans a session change on the shared auth provider out to every entry", () => {
+			const backend = makeBackend({}, customMappings([ACME, CONTOSO]));
+			const seen: string[][] = [];
+			backend.onDidChangeCredentials((ids) => seen.push(ids));
+
+			sessionChangeHook.callback?.({ provider: { id: CUSTOM_AUTH_PROVIDER_ID } });
+
+			expect(seen).toEqual([[ACME, CONTOSO]]);
+		});
+
+		it("notifies a custom entry that appeared after the backend was built", () => {
+			// The map is read per lookup, not captured at construction, so an entry
+			// added later is still reachable.
+			const known: string[] = [];
+			const backend = makeBackend({}, customMappings(known));
+			const seen: string[][] = [];
+			backend.onDidChangeCredentials((ids) => seen.push(ids));
+
+			sessionChangeHook.callback?.({ provider: { id: CUSTOM_AUTH_PROVIDER_ID } });
+			expect(seen).toEqual([]);
+
+			known.push("Late Entry");
+			sessionChangeHook.callback?.({ provider: { id: CUSTOM_AUTH_PROVIDER_ID } });
+			expect(seen).toEqual([["Late Entry"]]);
 		});
 	});
 });
