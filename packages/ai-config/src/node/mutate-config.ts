@@ -14,13 +14,13 @@
  */
 
 import { promises as fs } from "fs";
-import { createRequire } from "module";
 import * as path from "path";
 import { isDeepStrictEqual } from "util";
 
 import lockfile from "proper-lockfile";
 
 import { editJsonc, normalizeJsonValue } from "../edit-jsonc.js";
+import { providersSchemaFileContents } from "../generated/providers-schema-source.js";
 import { PROVIDERS_CONFIG_VERSION } from "../index.js";
 import { providersConfigSchema } from "../schema.js";
 import type { ProvidersConfig } from "../types.js";
@@ -78,6 +78,11 @@ export async function mutateProvidersConfig(
 
 	await enqueue(configPath, async () => {
 		await performLockedMutation(configPath, mutator, logger);
+
+		// After the mutation, so it cannot perturb the read/write sequence above,
+		// and skipped entirely if the mutation failed (a broken config is not the
+		// moment to refresh an editor hint). Best-effort and idempotent.
+		await writeSchemaFile(configPath, logger);
 	});
 }
 
@@ -209,9 +214,9 @@ async function atomicWrite(configPath: string, text: string): Promise<void> {
  * where two concurrent callers both observe ENOENT and then one clobbers the
  * other's completed write with an empty `{}`.
  *
- * On file creation, seeds the file with `$schema` and `version` fields, and
- * best-effort copies `providers.schema.json` alongside the config file for
- * editor validation/autocomplete.
+ * On file creation, seeds the file with `$schema` and `version` fields. The
+ * sibling `providers.schema.json` is written by the caller on every mutation,
+ * not just on creation.
  *
  * @returns `true` if this call created the file (first write), `false` if
  * it already existed. The caller uses this to inject seed metadata into
@@ -240,31 +245,43 @@ async function raceSafeEnsureFile(
 			await fd.close();
 		}
 
-		// Best-effort: copy providers.schema.json alongside the config file.
-		// This enables editor validation/autocomplete. If it fails (missing
-		// file, permissions), log but don't fail — the schema hint is a
-		// nice-to-have, not a correctness requirement.
-		await copySchemaFile(configPath, logger);
 		return true;
 	}
 	return false;
 }
 
 /**
- * Best-effort copy of providers.schema.json from the ai-config package into
- * the same directory as the config file. Uses the package export to resolve
- * the source path.
+ * Best-effort write of providers.schema.json next to the config file, so
+ * editors can validate `providers.json` and show field descriptions on hover.
+ *
+ * The bytes are inlined at build time rather than resolved from the package.
+ * Consumers bundle ai-config and ship no `node_modules/ai-config`, so a runtime
+ * `require.resolve("ai-config/providers.schema.json")` throws in every packaged
+ * build — which silently left users with no schema at all.
+ *
+ * Runs on every mutation, not just on file creation, so an upgraded schema
+ * reaches existing installs instead of leaving them pinned to whatever shipped
+ * the day their config was first written. The content check keeps the common
+ * case free of a disk write.
+ *
+ * Deliberately outside the config lock, unlike everything else in this module:
+ * concurrent writers all write identical build-time bytes through an atomic
+ * temp+rename, so there is nothing for the lock to protect.
  */
-async function copySchemaFile(configPath: string, logger: LoggerLike | undefined): Promise<void> {
+async function writeSchemaFile(configPath: string, logger: LoggerLike | undefined): Promise<void> {
 	try {
-		// Resolve the schema file from the package export
-		const require = createRequire(import.meta.url);
-		const schemaSource = require.resolve("ai-config/providers.schema.json");
 		const schemaTarget = path.join(path.dirname(configPath), "providers.schema.json");
-		await fs.copyFile(schemaSource, schemaTarget);
-		logger?.debug("[ai-config] Copied providers.schema.json to config directory");
+		const contents = providersSchemaFileContents();
+
+		const existing = await fs.readFile(schemaTarget, "utf-8").catch(() => undefined);
+		if (existing === contents) {
+			return;
+		}
+
+		await atomicWrite(schemaTarget, contents);
+		logger?.debug("[ai-config] Wrote providers.schema.json to config directory");
 	} catch (error) {
-		logger?.warn(`[ai-config] Could not copy providers.schema.json: ${errorMessage(error)}`);
+		logger?.warn(`[ai-config] Could not write providers.schema.json: ${errorMessage(error)}`);
 	}
 }
 

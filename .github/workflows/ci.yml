@@ -28,15 +28,19 @@ jobs:
       - name: Build dependencies
         run: npm run build -w ai-config -w ai-credentials
 
-      # providers.schema.json is source-controlled and consumed directly by
-      # editors and the Assistant docs generator, so a stale commit is a real
-      # bug. Diff against HEAD rather than the working tree: `build` above
-      # already regenerated the file via ai-config's prebuild, so a
-      # working-tree comparison would always pass.
-      - name: Check providers.schema.json is up to date
+      # generate-schema emits two source-controlled artifacts from one source:
+      # providers.schema.json (the package export, read by editors and the
+      # Assistant docs generator) and src/generated/providers-schema-source.ts
+      # (the same bytes inlined, written next to the user's providers.json).
+      # A stale commit of either is a real bug. Diff against HEAD rather than
+      # the working tree: `build` above already regenerated both via
+      # ai-config's prebuild, so a working-tree comparison would always pass.
+      - name: Check generated schema artifacts are up to date
         run: |
           npm run generate-schema -w ai-config
-          git diff --exit-code HEAD -- packages/ai-config/providers.schema.json
+          git diff --exit-code HEAD -- \
+            packages/ai-config/providers.schema.json \
+            packages/ai-config/src/generated/providers-schema-source.ts
 
       - name: Type check
         run: npm run check-types -w ai-provider-bridge
