@@ -5607,6 +5607,25 @@
         "ms-foundry": {
           "additionalProperties": false,
           "properties": {
+            "azure": {
+              "additionalProperties": false,
+              "properties": {
+                "authMode": {
+                  "enum": [
+                    "apikey",
+                    "entra"
+                  ],
+                  "type": "string"
+                },
+                "scope": {
+                  "type": "string"
+                },
+                "tenantId": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
             "baseUrl": {
               "type": "string"
             },

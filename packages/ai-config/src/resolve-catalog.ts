@@ -26,8 +26,10 @@ import type { EnablementLayer } from "./resolve-enabled.js";
 import { providersConfigSchema } from "./schema.js";
 import type {
 	ProvidersConfigFragment,
+	BuiltinProviderBlock,
 	LoggerLike,
 	ProvidersConfig,
+	ResolvedConnectionFieldSource,
 	ResolvedConnectionProvenance,
 	ResolvedProvider,
 } from "./types.js";
@@ -248,6 +250,46 @@ function resolveConnectionProvenance(
 		} else if (hasEnvironmentEvidence) {
 			result.set("bedrock", { aws: { region: "environment" } });
 		}
+	}
+
+	// Microsoft Foundry: per-field sources for every UI-managed field, so a
+	// configure form can disable individually pinned controls. The source of
+	// the effective value is the highest-precedence kept source that sets the
+	// field (`kept` is ordered highest-first); when no source sets it, fields
+	// with a built-in default report "default" (overridable), the rest are
+	// absent.
+	{
+		const foundryBlock = (source: RankedConfigSource) => source.config.providers?.["ms-foundry"];
+		const fieldSource = (
+			read: (block: BuiltinProviderBlock | undefined) => unknown,
+			hasBuiltinDefault: boolean,
+		): ResolvedConnectionFieldSource | undefined => {
+			const source = kept.find((s) => read(foundryBlock(s)) !== undefined);
+			if (source) {
+				switch (source.kind) {
+					case "enforced":
+					case "legacy-positron-enforced": // PROVIDER-SETTINGS-MIGRATION(legacy-positron)
+						return "enforced";
+					case "env":
+						return "environment";
+					case "user":
+					case "legacy-positron": // PROVIDER-SETTINGS-MIGRATION(legacy-positron)
+						return "user";
+					case "default":
+						return "default";
+				}
+			}
+			return hasBuiltinDefault ? "default" : undefined;
+		};
+		const foundryProvenance: ResolvedConnectionProvenance = {
+			azure: {
+				authMode: fieldSource((block) => block?.azure?.authMode, true),
+				scope: fieldSource((block) => block?.azure?.scope, true),
+				tenantId: fieldSource((block) => block?.azure?.tenantId, false),
+			},
+			baseUrl: fieldSource((block) => block?.baseUrl, false),
+		};
+		result.set("ms-foundry", foundryProvenance);
 	}
 
 	const snowflakeConnectionName = config.providers?.["snowflake-cortex"]?.snowflake?.connectionName;

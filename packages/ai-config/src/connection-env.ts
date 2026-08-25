@@ -36,6 +36,7 @@ interface ConnectionEnvMapping {
 	endpoint?: EnvNames;
 	positaiLogin?: { host?: EnvNames; clientId?: EnvNames; scope?: EnvNames };
 	aws?: { region?: EnvNames; profile?: EnvNames };
+	azure?: { authMode?: EnvNames; scope?: EnvNames; tenantId?: EnvNames };
 	googleCloud?: { project?: EnvNames; location?: EnvNames };
 	snowflake?: { account?: EnvNames; host?: EnvNames; home?: EnvNames };
 	databricks?: { host?: EnvNames };
@@ -71,7 +72,14 @@ const CONNECTION_ENV_MAPPINGS: Partial<Record<BuiltinProviderId, ConnectionEnvMa
 		},
 	},
 	"openai-compatible": { baseUrl: "OPENAI_COMPATIBLE_BASE_URL" },
-	"ms-foundry": { baseUrl: "MS_FOUNDRY_BASE_URL" },
+	"ms-foundry": {
+		baseUrl: "MS_FOUNDRY_BASE_URL",
+		azure: {
+			authMode: "MS_FOUNDRY_AUTH_MODE",
+			scope: "MS_FOUNDRY_ENTRA_SCOPE",
+			tenantId: "MS_FOUNDRY_TENANT_ID",
+		},
+	},
 	"snowflake-cortex": {
 		baseUrl: "SNOWFLAKE_BASE_URL",
 		snowflake: { account: "SNOWFLAKE_ACCOUNT", host: "SNOWFLAKE_HOST", home: "SNOWFLAKE_HOME" },
@@ -123,6 +131,14 @@ export function readEnvConnectionConfig(
 
 		const aws = mapping.aws && readEnvSection(mapping.aws, envVars);
 		if (aws) block.aws = aws;
+
+		const azure = mapping.azure && readEnvSection(mapping.azure, envVars);
+		// Raw env strings flow through unvalidated here (same as every other
+		// env field); the merged result is validated against the full strict
+		// schema downstream, so an invalid MS_FOUNDRY_AUTH_MODE is reported and
+		// the env source dropped rather than silently accepted. The cast only
+		// narrows authMode's string to the enum the schema will re-check.
+		if (azure) block.azure = azure as BuiltinProviderBlock["azure"];
 
 		const googleCloud = mapping.googleCloud && readEnvSection(mapping.googleCloud, envVars);
 		if (googleCloud) block.googleCloud = googleCloud;

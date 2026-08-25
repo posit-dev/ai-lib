@@ -25,6 +25,7 @@ export type { ResolvedProviderId };
 export type {
 	ApiKeyCredentials,
 	AwsCredentials,
+	AzureEntraCredentials,
 	GoogleCloudCredentials,
 	LocalCredentials,
 	OAuthCredentials,
