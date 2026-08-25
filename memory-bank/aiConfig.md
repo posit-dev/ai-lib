@@ -219,6 +219,15 @@ distinguishable from ambient-only state. This lets auth-readiness policy stay
 conservative without forcing consumers to reconstruct ai-config's precedence
 stack.
 
+For the built-in `ms-foundry` provider it additionally records a per-field
+`ResolvedConnectionFieldSource` (`user` / `enforced` / `environment` /
+`default`) for every UI-managed field — `azure.authMode`, `azure.scope`,
+`azure.tenantId`, and `baseUrl` — so a configure form can disable each
+individually pinned control without re-deriving precedence from resolved
+values. The source is the highest-precedence kept source that sets the field;
+`authMode`/`scope` fall back to `"default"` (built-in defaults) when no source
+sets them, while `baseUrl`/`tenantId` are absent until some layer sets them.
+
 ### Model selection (`resolveModels`)
 
 `resolveModels(modelsBlock, discovered, providerConnection)` runs the per-provider

@@ -65,6 +65,7 @@ export type {
 	ProvidersConfig,
 	ProvidersMap,
 	ResolvedConnection,
+	ResolvedConnectionFieldSource,
 	ResolvedConnectionProvenance,
 	ResolvedConnectionValueProvenance,
 	ResolvedModelInfo,
