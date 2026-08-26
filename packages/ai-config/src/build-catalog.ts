@@ -58,6 +58,7 @@ const BUILTIN_CLIENT_KIND = {
 	databricks: "databricks",
 	litellm: "litellm",
 	portkey: "portkey",
+	connect: "connect",
 } as const satisfies Record<BuiltinProviderId, ClientKind>;
 
 /**

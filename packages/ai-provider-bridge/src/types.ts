@@ -58,6 +58,7 @@ export const PROVIDER_IDS = [
 	"databricks",
 	"litellm",
 	"portkey",
+	"connect",
 ] as const;
 
 /**

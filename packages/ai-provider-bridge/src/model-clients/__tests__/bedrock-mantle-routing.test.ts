@@ -141,6 +141,35 @@ describe("Bedrock Mantle protocol routing", () => {
 		expect(createBedrockMantle).not.toHaveBeenCalled();
 	});
 
+	it("honors an explicit baseUrl on the Converse and Anthropic routes", async () => {
+		await client.chat(
+			params({
+				model: "amazon.nova-pro",
+				protocol: "bedrock-converse",
+				baseUrl: "https://connect.example.com/__gateway__/bedrock/guid",
+			}),
+		);
+		expect(createAmazonBedrock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				baseURL: "https://connect.example.com/__gateway__/bedrock/guid",
+			}),
+		);
+
+		vi.clearAllMocks();
+		await client.chat(
+			params({
+				model: "anthropic.claude-sonnet-4-6",
+				protocol: "anthropic-messages",
+				baseUrl: "https://connect.example.com/__gateway__/bedrock/guid",
+			}),
+		);
+		expect(createBedrockAnthropic).toHaveBeenCalledWith(
+			expect.objectContaining({
+				baseURL: "https://connect.example.com/__gateway__/bedrock/guid",
+			}),
+		);
+	});
+
 	it("routes both runtime factories through the resolved FIPS host", async () => {
 		resolveBedrockTransport.mockResolvedValue({
 			useFipsEndpoint: true,
@@ -167,6 +196,113 @@ describe("Bedrock Mantle protocol routing", () => {
 			expect.objectContaining({
 				baseURL: "https://bedrock-runtime-fips.us-gov-west-1.amazonaws.com",
 			}),
+		);
+	});
+
+	it("rejects an explicit baseUrl override under FIPS by default", async () => {
+		resolveBedrockTransport.mockResolvedValue({
+			useFipsEndpoint: true,
+			runtimeBaseUrl: "https://bedrock-runtime-fips.us-gov-west-1.amazonaws.com",
+			mantleEnabled: false,
+		});
+		const fipsClient = new BedrockClient({
+			region: "us-gov-west-1",
+			accessKeyId: "key",
+			secretAccessKey: "secret",
+		});
+
+		await expect(
+			fipsClient.chat(
+				params({
+					model: "amazon.nova-pro",
+					protocol: "bedrock-converse",
+					baseUrl: "https://connect.example.com/__gateway__/bedrock/guid",
+				}),
+			),
+		).rejects.toThrow(/not permitted while AWS FIPS endpoints are enforced/);
+		expect(createAmazonBedrock).not.toHaveBeenCalled();
+	});
+
+	it("warns but proceeds when an explicit baseUrl overrides FIPS with allowBaseUrlUnderFips", async () => {
+		resolveBedrockTransport.mockResolvedValue({
+			useFipsEndpoint: true,
+			runtimeBaseUrl: "https://bedrock-runtime-fips.us-gov-west-1.amazonaws.com",
+			mantleEnabled: false,
+		});
+		const logger = {
+			info: vi.fn(),
+			warn: vi.fn(),
+			error: vi.fn(),
+			debug: vi.fn(),
+			trace: vi.fn(),
+		};
+		const fipsClient = new BedrockClient(
+			{
+				region: "us-gov-west-1",
+				accessKeyId: "key",
+				secretAccessKey: "secret",
+				allowBaseUrlUnderFips: true,
+			},
+			logger,
+		);
+
+		await fipsClient.chat(
+			params({
+				model: "amazon.nova-pro",
+				protocol: "bedrock-converse",
+				baseUrl: "https://connect.example.com/__gateway__/bedrock/guid",
+			}),
+		);
+
+		expect(createAmazonBedrock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				baseURL: "https://connect.example.com/__gateway__/bedrock/guid",
+			}),
+		);
+		expect(logger.warn).toHaveBeenCalledWith(
+			expect.stringContaining("overrides the FIPS runtime endpoint"),
+		);
+	});
+
+	it("forwards customHeaders to every factory route", async () => {
+		const customHeaders = { "x-proxy-token": "t" };
+		const headeredClient = new BedrockClient({
+			region: "us-east-2",
+			accessKeyId: "key",
+			secretAccessKey: "secret",
+			customHeaders,
+		});
+
+		await headeredClient.chat(params({ model: "amazon.nova-pro", protocol: "bedrock-converse" }));
+		expect(createAmazonBedrock).toHaveBeenCalledWith(
+			expect.objectContaining({ headers: customHeaders }),
+		);
+
+		await headeredClient.chat(
+			params({ model: "anthropic.claude-sonnet-4-6", protocol: "anthropic-messages" }),
+		);
+		expect(createBedrockAnthropic).toHaveBeenCalledWith(
+			expect.objectContaining({ headers: customHeaders }),
+		);
+
+		await headeredClient.chat(params({ model: "openai.gpt-5.5", protocol: "openai-chat" }));
+		expect(createBedrockMantle).toHaveBeenCalledWith(
+			expect.objectContaining({ headers: customHeaders }),
+		);
+	});
+
+	it("strips SDK-managed header names out of customHeaders before they reach the factory", async () => {
+		const headeredClient = new BedrockClient({
+			region: "us-east-2",
+			accessKeyId: "key",
+			secretAccessKey: "secret",
+			customHeaders: { Authorization: "should-not-leak", "x-proxy-token": "t" },
+		});
+
+		await headeredClient.chat(params({ model: "amazon.nova-pro", protocol: "bedrock-converse" }));
+
+		expect(createAmazonBedrock).toHaveBeenCalledWith(
+			expect.objectContaining({ headers: { "x-proxy-token": "t" } }),
 		);
 	});
 

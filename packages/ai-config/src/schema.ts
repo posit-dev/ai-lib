@@ -298,6 +298,7 @@ const BUILTIN_CONNECTION_SECTIONS = {
 	databricks: ["databricks"],
 	litellm: [],
 	portkey: [],
+	connect: [],
 } as const satisfies Record<BuiltinProviderId, readonly ConnectionSectionName[]>;
 
 /**

@@ -39,6 +39,24 @@ interface CachedModelFetcherCommonConfig<T extends ProviderCredentials = Provide
 	hasCredentials: (credentials: T) => boolean;
 
 	/**
+	 * Optional: partition the cache by credential identity rather than sharing
+	 * one entry across every call. Providers whose credentials can legitimately
+	 * change between calls to the same registered fetcher (e.g. Connect, where
+	 * `baseUrl` names a different server per credential set) should return a
+	 * stable opaque fingerprint of the parts of `T` that determine the fetched
+	 * model list. Never return a credential secret itself. Omitted means every
+	 * call shares one cache entry, matching prior behavior.
+	 */
+	cacheKey?: (credentials: T) => string | Promise<string>;
+
+	/**
+	 * Maximum credential-partitioned entries retained by this fetcher. The
+	 * oldest entry is evicted when the bound is exceeded. Defaults to 32 when
+	 * `cacheKey` is supplied and 1 otherwise.
+	 */
+	maxCacheEntries?: number;
+
+	/**
 	 * Optional: Enrich models with additional data after initial fetch
 	 * Useful for providers that need multiple API calls per model (e.g., Ollama /api/show)
 	 *
@@ -158,15 +176,32 @@ export type ClearableModelFetcher = ((credentials: ProviderCredentials) => Promi
  * `clearCache()` may still answer its own caller but must not repopulate a
  * newer cache generation.
  */
+const DEFAULT_CACHE_KEY = "__default__";
+const DEFAULT_MAX_KEYED_CACHE_ENTRIES = 32;
+
+interface CacheEntry {
+	models: ModelInfo[];
+	fetchedAt: number;
+}
+
 export function createCachedModelFetcher<T extends ProviderCredentials = ProviderCredentials>(
 	config: CachedModelFetcherConfig<T>,
 ): ClearableModelFetcher {
 	const TTL = config.ttl ?? DEFAULT_TTL;
 	const discoveryDeadlineMs = config.discoveryDeadlineMs ?? DEFAULT_DISCOVERY_DEADLINE_MS;
-	let lastFetch = 0;
-	let cachedModels: ModelInfo[] | null = null;
+	const maxCacheEntries =
+		config.maxCacheEntries ?? (config.cacheKey ? DEFAULT_MAX_KEYED_CACHE_ENTRIES : 1);
+	if (!Number.isInteger(maxCacheEntries) || maxCacheEntries < 1) {
+		throw new Error("maxCacheEntries must be a positive integer");
+	}
+	// Keyed by `config.cacheKey` (default: one shared entry, matching prior
+	// behavior) so credentials that resolve to different backends never share
+	// a cached model list. Insertion order supplies bounded FIFO eviction;
+	// refreshing an existing key moves it to the back.
+	const cache = new Map<string, CacheEntry>();
 	// Generation guard: a fetch that spans clearCache() may still answer its
 	// own caller, but must not repopulate the cache over a newer generation.
+	// Shared across keys — clearCache() invalidates the whole fetcher.
 	let generation = 0;
 
 	const fetcher: ClearableModelFetcher = async (
@@ -182,11 +217,14 @@ export function createCachedModelFetcher<T extends ProviderCredentials = Provide
 			return config.fallbackModels;
 		}
 
+		const cacheKey = config.cacheKey ? await config.cacheKey(typedCredentials) : DEFAULT_CACHE_KEY;
+		const cached = cache.get(cacheKey);
+
 		// Check cache freshness
 		const now = Date.now();
-		if (cachedModels && now - lastFetch < TTL) {
+		if (cached && now - cached.fetchedAt < TTL) {
 			config.logger.debug(`${logPrefix} Using cached models`);
-			return cachedModels;
+			return cached.models;
 		}
 
 		// One deadline covers the base request (or provider-owned fetchFresh)
@@ -258,8 +296,13 @@ export function createCachedModelFetcher<T extends ProviderCredentials = Provide
 			const freshModels = await Promise.race([discovery, deadline]);
 			if (generation === startedIn) {
 				// Update cache
-				lastFetch = now;
-				cachedModels = freshModels;
+				cache.delete(cacheKey);
+				cache.set(cacheKey, { models: freshModels, fetchedAt: now });
+				while (cache.size > maxCacheEntries) {
+					const oldestKey = cache.keys().next().value;
+					if (oldestKey === undefined) break;
+					cache.delete(oldestKey);
+				}
 				config.logger.info(`${logPrefix} Fetched ${freshModels.length} models from API`);
 			} else {
 				config.logger.debug(
@@ -272,9 +315,9 @@ export function createCachedModelFetcher<T extends ProviderCredentials = Provide
 			config.logger.warn(`${logPrefix} API fetch failed: ${errorMsg}, using fallback`);
 
 			// Return stale cache if available
-			if (cachedModels) {
+			if (cached) {
 				config.logger.debug(`${logPrefix} Returning stale cached models`);
-				return cachedModels;
+				return cached.models;
 			}
 
 			// Ultimate fallback
@@ -286,8 +329,7 @@ export function createCachedModelFetcher<T extends ProviderCredentials = Provide
 
 	fetcher.clearCache = () => {
 		generation += 1;
-		cachedModels = null;
-		lastFetch = 0;
+		cache.clear();
 	};
 
 	return fetcher;

@@ -13,6 +13,12 @@ export {
 	registerAnthropicProvider,
 	registerCustomAnthropicProvider,
 } from "./providers/anthropic-provider";
+export { registerConnectProvider, shapeConnectIntegrations } from "./providers/connect-provider";
+export type {
+	ConnectAwsCredentialResult,
+	ConnectIntegration,
+	ConnectProviderCallbacks,
+} from "./providers/connect-provider";
 export { registerCopilotProvider } from "./providers/copilot-provider";
 export { registerDatabricksProvider } from "./providers/databricks-provider";
 export {
