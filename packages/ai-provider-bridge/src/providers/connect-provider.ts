@@ -322,24 +322,34 @@ function resolveTemplates(
 	return configured.filter((template) => SUPPORTED_TEMPLATES.has(template));
 }
 
-async function fetchIntegrationRecords(
+/**
+ * Fetch the integrations visible to this API key and shape the allowlisted
+ * ones. Throws on HTTP failure or a non-array body. This is the canonical
+ * read of the integrations endpoint — discovery and host test probes both go
+ * through it so the path, auth convention, and validation cannot drift.
+ */
+export async function fetchConnectIntegrations(
 	connectUrl: string,
 	credentials: ApiKeyCredentials,
-	signal: AbortSignal,
-): Promise<unknown[]> {
+	templates: readonly string[],
+	signal?: AbortSignal,
+): Promise<ConnectIntegration[]> {
+	const baseUrl = connectUrl.replace(/\/+$/, "");
 	const headers = additiveHeaderRecord(
 		{ Authorization: `Key ${credentials.apiKey}` },
 		credentials.customHeaders,
 	);
-	const response = await fetch(`${connectUrl}${INTEGRATIONS_PATH}`, { headers, signal });
+	const response = await fetch(`${baseUrl}${INTEGRATIONS_PATH}`, { headers, signal });
 	if (!response.ok) {
-		throw new Error(`Connect integrations endpoint returned ${response.status}`);
+		throw new Error(
+			`Connect integrations endpoint returned ${response.status}: ${response.statusText}`,
+		);
 	}
 	const body: unknown = await response.json();
 	if (!Array.isArray(body)) {
 		throw new Error("Connect integrations response was not a JSON array");
 	}
-	return body;
+	return shapeConnectIntegrations(body, baseUrl, templates);
 }
 
 /**
@@ -460,8 +470,12 @@ function createConnectModelFetcher(
 			const connectUrl = credentials.baseUrl!.replace(/\/+$/, "");
 			const credentialKey = await connectCredentialKey(connectUrl, credentials);
 			const templates = resolveTemplates(callbacks?.templates?.(), logger);
-			const records = await fetchIntegrationRecords(connectUrl, credentials, signal);
-			const integrations = shapeConnectIntegrations(records, connectUrl, templates);
+			const integrations = await fetchConnectIntegrations(
+				connectUrl,
+				credentials,
+				templates,
+				signal,
+			);
 
 			if (!callbacks && integrations.some((integration) => integration.template === "aws")) {
 				logger.warn(
