@@ -120,11 +120,11 @@ describe("inferModelCapabilities", () => {
 		expect(kimiK3.maxOutputTokens).toBe(131_072);
 	});
 
-	it("omits requiresChatTemplateKwargs so the result fits a models.custom entry", () => {
+	it("omits openAiChatThinkingProfile so the result fits a models.custom entry", () => {
 		// The Gemma table sets this runtime-only flag, but the strict custom-model
 		// schema rejects it; inferModelCapabilities must not surface it.
 		const caps = inferModelCapabilities("positai", "google/gemma-4-27b-it");
-		expect(caps).not.toHaveProperty("requiresChatTemplateKwargs");
+		expect(caps).not.toHaveProperty("openAiChatThinkingProfile");
 	});
 
 	it("produces a spread that validates against the strict customModelSchema", () => {

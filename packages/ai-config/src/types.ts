@@ -232,6 +232,11 @@ export interface ResolvedProvider {
 // ModelInfoLike — local mirror of overridable ModelInfo fields
 // ---------------------------------------------------------------------------
 
+export type OpenAiChatThinkingProfile =
+	| "top-level-reasoning-effort"
+	| "chat-template-enable-thinking"
+	| "chat-template-deepseek";
+
 /**
  * Subset of bridge ModelInfo fields that `resolveModels` operates on.
  * Defined locally so the pure entry has no bridge dependency. At the
@@ -253,8 +258,7 @@ export interface ModelInfoLike {
 	supportedInputMediaTypes?: string[];
 	supportsWebSearch: boolean;
 	thinkingEffortLevels?: string[];
-	/** Whether the model requires vLLM-style `chat_template_kwargs` to enable thinking. */
-	requiresChatTemplateKwargs?: boolean;
+	openAiChatThinkingProfile?: OpenAiChatThinkingProfile;
 }
 
 /**

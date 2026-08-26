@@ -18,8 +18,8 @@
  */
 
 import type * as ai from "ai";
-import type { ResolvedProviderId } from "ai-config";
-export type { ResolvedProviderId };
+import type { OpenAiChatThinkingProfile, ResolvedProviderId } from "ai-config";
+export type { OpenAiChatThinkingProfile, ResolvedProviderId };
 
 // Credential types re-exported from ai-credentials/types (single source of truth)
 export type {
@@ -207,8 +207,7 @@ export interface ModelInfo {
 	 * for this model. */
 	supportsWebSearch: boolean;
 	thinkingEffortLevels?: string[];
-	/** Whether the model requires vLLM-style `chat_template_kwargs` to enable thinking. */
-	requiresChatTemplateKwargs?: boolean;
+	openAiChatThinkingProfile?: OpenAiChatThinkingProfile;
 	maxContextLength: number;
 }
 

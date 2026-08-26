@@ -100,7 +100,7 @@ function familyDefaults(providerId: string, modelId: string): Partial<InferredMo
 
 export type CompleteInferredModelCapabilities = Omit<
 	InferredModelCapabilities,
-	"requiresChatTemplateKwargs"
+	"openAiChatThinkingProfile"
 >;
 
 /**
@@ -119,7 +119,7 @@ export function completeCapabilities(
 		caps.supportedInputMediaTypes?.some((mediaType) => mediaType.startsWith("image/"))
 			? { ...caps, supportsImages: true }
 			: caps;
-	const { requiresChatTemplateKwargs: _drop, ...inferred } = withDerivedImageSupport;
+	const { openAiChatThinkingProfile: _drop, ...inferred } = withDerivedImageSupport;
 	return {
 		...inferred,
 		maxContextLength: inferred.maxContextLength ?? GENERIC_BASELINE.maxContextLength,
@@ -224,15 +224,15 @@ export function inferLitellmModelProfile(input: LitellmModelProfileInput): Litel
  * inference determined them.
  *
  * The result is shaped to spread directly into a `models.custom` entry, so it
- * excludes `requiresChatTemplateKwargs`: that flag is a runtime request-shaping
- * detail (it tells the vLLM client to send `chat_template_kwargs`), re-derived
- * from the model id at request time by the bridge's positai path, and it is not
- * a field the strict `customModelSchema` accepts. The capability tables still
- * carry it for that runtime use; it is dropped only here, at the migration seam.
+ * excludes `openAiChatThinkingProfile`: that value is a runtime request-shaping
+ * detail re-derived from the model id at request time by the bridge's positai
+ * path, and it is not a field the strict `customModelSchema` accepts. The
+ * capability tables still carry it for that runtime use; it is dropped only
+ * here, at the migration seam.
  */
 export function inferModelCapabilities(
 	providerId: string,
 	modelId: string,
-): Omit<InferredModelCapabilities, "requiresChatTemplateKwargs"> {
+): Omit<InferredModelCapabilities, "openAiChatThinkingProfile"> {
 	return completeCapabilities(familyDefaults(providerId, modelId));
 }
