@@ -10,7 +10,7 @@
  * `apikey`), and `baseUrl` is the Connect server URL. Discovery spends the
  * token on `GET {baseUrl}/__api__/v1/oauth/integrations`, keeps the
  * integrations whose `template` is allowlisted, and namespaces each
- * integration's models as `connect-<slug>/<modelId>` so one flat model list
+ * integration's models as `posit-connect-<slug>/<modelId>` so one flat model list
  * can route back to the right gateway.
  *
  * Chat routing is stateless for discovery-stamped models: the stamped gateway
@@ -73,7 +73,7 @@ const CONNECT_CACHE_MAX_ENTRIES = 32;
 /** One allowlisted integration, shaped from Connect's integrations endpoint. */
 export interface ConnectIntegration {
 	/**
-	 * The model-id namespace for this integration (`connect-<slug>`); every
+	 * The model-id namespace for this integration (`posit-connect-<slug>`); every
 	 * model it serves is listed as `<idPrefix>/<modelId>`. See
 	 * {@link mintIntegrationPrefix}.
 	 */
@@ -156,7 +156,7 @@ function slugify(input: string): string {
 
 /**
  * Derive a human-readable model-id prefix from the integration's admin-facing
- * name (e.g. `connect-anthropic-superuser-<guid>`), falling back to
+ * name (e.g. `posit-connect-anthropic-superuser-<guid>`), falling back to
  * description, then template, when the name is blank. The guid is always
  * embedded, so two integrations can never mint the same prefix regardless of
  * record order — chat routing keys on the stamped gateway URL regardless, but
@@ -169,7 +169,7 @@ function mintIntegrationPrefix(input: {
 	guid: string;
 }): string {
 	const slug = slugify(input.name) || slugify(input.description) || slugify(input.template);
-	return slug ? `connect-${slug}-${input.guid}` : `connect-${input.guid}`;
+	return slug ? `posit-connect-${slug}-${input.guid}` : `posit-connect-${input.guid}`;
 }
 
 /**
@@ -315,7 +315,7 @@ function resolveTemplates(
 	const unsupported = configured.filter((template) => !SUPPORTED_TEMPLATES.has(template));
 	if (unsupported.length > 0) {
 		logger.warn(
-			`[connect] Ignoring unsupported integration template(s): ${unsupported.join(", ")}; ` +
+			`[posit-connect] Ignoring unsupported integration template(s): ${unsupported.join(", ")}; ` +
 				`only ${[...SUPPORTED_TEMPLATES].join(", ")} can be shaped into models today.`,
 		);
 	}
@@ -479,7 +479,7 @@ function createConnectModelFetcher(
 
 			if (!callbacks && integrations.some((integration) => integration.template === "aws")) {
 				logger.warn(
-					"[connect] Skipping AWS-backed integrations: no AWS credential callback was provided, " +
+					"[posit-connect] Skipping AWS-backed integrations: no AWS credential callback was provided, " +
 						"so their gateway requests could never be signed.",
 				);
 			}
@@ -503,7 +503,7 @@ function createConnectModelFetcher(
 						if (signal.aborted) throw error;
 						const message = error instanceof Error ? error.message : String(error);
 						logger.warn(
-							`[connect] Model discovery failed for integration "${integrationLabel(integration)}": ${message}`,
+							`[posit-connect] Model discovery failed for integration "${integrationLabel(integration)}": ${message}`,
 						);
 						return [];
 					}
@@ -532,14 +532,14 @@ function createConnectModelFetcher(
 // ---------------------------------------------------------------------------
 
 /**
- * Split a namespaced `connect-<slug>/<modelId>` id on the FIRST `/` only —
+ * Split a namespaced `posit-connect-<slug>/<modelId>` id on the FIRST `/` only —
  * the minted prefix never contains one, but Bedrock model ids (ARNs) may.
- * A first segment that is not a minted `connect-` prefix (e.g. a raw ARN's
+ * A first segment that is not a minted `posit-connect-` prefix (e.g. a raw ARN's
  * `arn:aws:...`) leaves the whole id as the wire model.
  */
 function splitConnectModelId(model: string): { prefix?: string; wireModel: string } {
 	const separator = model.indexOf("/");
-	if (separator <= 0 || !model.slice(0, separator).startsWith("connect-")) {
+	if (separator <= 0 || !model.slice(0, separator).startsWith("posit-connect-")) {
 		return { wireModel: model };
 	}
 	return { prefix: model.slice(0, separator), wireModel: model.slice(separator + 1) };
@@ -677,7 +677,7 @@ class ConnectClient implements ModelClient {
 		const cached = this.cache.findByGuid(credentialKey, parsed.guid);
 		if (cached) return cached;
 		return {
-			idPrefix: prefix ?? `connect-${parsed.guid}`,
+			idPrefix: prefix ?? `posit-connect-${parsed.guid}`,
 			guid: parsed.guid,
 			template: parsed.template,
 			name: "",
@@ -731,7 +731,7 @@ class ConnectClient implements ModelClient {
 		const region = integration.region ?? aws.region;
 		if (integration.region && aws.region && integration.region !== aws.region) {
 			this.logger.warn(
-				`[connect] Integration "${integrationLabel(integration)}" declares sts_region ` +
+				`[posit-connect] Integration "${integrationLabel(integration)}" declares sts_region ` +
 					`${integration.region} but the minted credentials name ${aws.region}; signing with ${region}.`,
 			);
 		}
@@ -779,8 +779,11 @@ export function registerConnectProvider(
 	// models route from their gateway URL alone.
 	const cache = new ConnectIntegrationCache();
 	registry.registerModelFetcher(
-		"connect",
-		createConnectModelFetcher("connect", logger, cache, callbacks),
+		"posit-connect",
+		createConnectModelFetcher("posit-connect", logger, cache, callbacks),
 	);
-	registry.registerClientFactory("connect", createConnectClientFactory(logger, cache, callbacks));
+	registry.registerClientFactory(
+		"posit-connect",
+		createConnectClientFactory(logger, cache, callbacks),
+	);
 }

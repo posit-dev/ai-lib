@@ -36,7 +36,7 @@ export const BUILTIN_PROVIDER_IDS = [
 	"databricks",
 	"litellm",
 	"portkey",
-	"connect",
+	"posit-connect",
 ] as const;
 
 export type BuiltinProviderId = (typeof BUILTIN_PROVIDER_IDS)[number];
@@ -94,7 +94,7 @@ export const CLIENT_KIND_VALUES = [
 	"databricks",
 	"litellm",
 	"portkey",
-	"connect",
+	"posit-connect",
 ] as const;
 
 export type ClientKind = (typeof CLIENT_KIND_VALUES)[number];

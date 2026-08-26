@@ -96,7 +96,7 @@ const CONNECTION_ENV_MAPPINGS: Partial<Record<BuiltinProviderId, ConnectionEnvMa
 	portkey: { baseUrl: "PORTKEY_BASE_URL" },
 	// The Connect server root URL (NOT a gateway route); integration discovery
 	// and the per-integration gateway routes are both derived from it.
-	connect: { baseUrl: "POSIT_CONNECT_URL" },
+	"posit-connect": { baseUrl: "POSIT_CONNECT_URL" },
 };
 
 // ---------------------------------------------------------------------------
