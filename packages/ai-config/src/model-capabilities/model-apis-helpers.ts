@@ -52,8 +52,8 @@ const MODEL_APIS_CAPABILITIES: Record<string, Partial<ModelInfo>> = {
 		supportsToolResultImages: false,
 		supportedInputMediaTypes: [],
 		maxOutputTokens: 384_000,
-		maxContextLength: 200_000,
-		maxInputTokens: 200_000,
+		maxContextLength: 250_000,
+		maxInputTokens: 250_000,
 	},
 };
 

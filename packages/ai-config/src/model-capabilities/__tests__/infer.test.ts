@@ -123,8 +123,8 @@ describe("inferModelCapabilities", () => {
 		expect(deepSeek.family).toBe("deepseek-v4");
 		expect(deepSeek.thinkingEffortLevels).toEqual(["off", "low", "high", "max"]);
 		expect(deepSeek.supportsImages).toBe(false);
-		expect(deepSeek.maxContextLength).toBe(200_000);
-		expect(deepSeek.maxInputTokens).toBe(200_000);
+		expect(deepSeek.maxContextLength).toBe(250_000);
+		expect(deepSeek.maxInputTokens).toBe(250_000);
 		expect(deepSeek.maxOutputTokens).toBe(384_000);
 	});
 
