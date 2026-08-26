@@ -467,6 +467,14 @@ describe("resolveProviderCatalog — enforced beats connection env", () => {
 		expect(find(catalog, "anthropic")?.connection.baseUrl).toBe("https://enforced.example.com");
 	});
 
+	it("maps POSIT_CONNECT_URL onto the posit-connect connection baseUrl", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [source("user", { providers: {} })],
+			envVars: { POSIT_CONNECT_URL: "https://connect.example.com" },
+		});
+		expect(find(catalog, "posit-connect")?.connection.baseUrl).toBe("https://connect.example.com");
+	});
+
 	it("env beats user/default when no enforced source pins the field", () => {
 		const catalog = resolveProviderCatalog({
 			sources: [
