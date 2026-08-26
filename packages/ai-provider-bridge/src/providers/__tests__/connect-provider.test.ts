@@ -45,8 +45,8 @@ const AWS_GUID = "bbbb2222-2222-2222-2222-222222222222";
 const ANTHROPIC_GATEWAY = `${CONNECT_URL}/__gateway__/anthropic/${ANTHROPIC_GUID}/v1`;
 const BEDROCK_GATEWAY = `${CONNECT_URL}/__gateway__/bedrock/${AWS_GUID}`;
 // Minted prefixes always embed the full guid; see mintIntegrationPrefix.
-const ANTHROPIC_PREFIX = `connect-anthropic-prod-${ANTHROPIC_GUID}`;
-const AWS_PREFIX = `connect-bedrock-team-${AWS_GUID}`;
+const ANTHROPIC_PREFIX = `posit-connect-anthropic-prod-${ANTHROPIC_GUID}`;
+const AWS_PREFIX = `posit-connect-bedrock-team-${AWS_GUID}`;
 
 const INTEGRATION_RECORDS = [
 	{
@@ -170,10 +170,10 @@ describe("shapeConnectIntegrations", () => {
 		// Two integrations sharing a name still mint distinct prefixes — the
 		// guid, not the slug, is what makes a prefix unique.
 		expect(shaped.map((integration) => integration.idPrefix)).toEqual([
-			"connect-anthropic-guid-one",
-			"connect-anthropic-guid-two",
-			"connect-fallback-desc-guid-three",
-			"connect-anthropic-guid-four",
+			"posit-connect-anthropic-guid-one",
+			"posit-connect-anthropic-guid-two",
+			"posit-connect-fallback-desc-guid-three",
+			"posit-connect-anthropic-guid-four",
 		]);
 	});
 });
@@ -187,7 +187,7 @@ describe("connect model fetcher", () => {
 
 	it("returns no models when the Connect server URL is missing", async () => {
 		const fetchMock = stubDiscoveryFetch();
-		const models = await registryWithProvider().getModelsForProvider("connect", {
+		const models = await registryWithProvider().getModelsForProvider("posit-connect", {
 			type: "apikey",
 			apiKey: "tok",
 		});
@@ -198,7 +198,7 @@ describe("connect model fetcher", () => {
 
 	it("returns no models for the wrong credential type", async () => {
 		stubDiscoveryFetch();
-		const models = await registryWithProvider().getModelsForProvider("connect", {
+		const models = await registryWithProvider().getModelsForProvider("posit-connect", {
 			type: "oauth",
 			accessToken: "tok",
 		});
@@ -211,7 +211,7 @@ describe("connect model fetcher", () => {
 		// Trailing slash on the configured URL must not produce double-slash requests.
 		const models = await registryWithProvider({
 			getAwsCredentials: vi.fn(),
-		}).getModelsForProvider("connect", {
+		}).getModelsForProvider("posit-connect", {
 			...credentials,
 			baseUrl: `${CONNECT_URL}/`,
 		});
@@ -232,7 +232,7 @@ describe("connect model fetcher", () => {
 		);
 		expect(anthropicModel).toMatchObject({
 			name: "Claude Sonnet 4.5 (Anthropic Prod)",
-			providerId: "connect",
+			providerId: "posit-connect",
 			vendor: "anthropic",
 			protocol: "anthropic-messages",
 			baseUrl: ANTHROPIC_GATEWAY,
@@ -254,7 +254,7 @@ describe("connect model fetcher", () => {
 		);
 		for (const model of bedrockModels) {
 			expect(model).toMatchObject({
-				providerId: "connect",
+				providerId: "posit-connect",
 				baseUrl: BEDROCK_GATEWAY,
 				supportsWebSearch: false,
 				protocol: "anthropic-messages",
@@ -266,7 +266,7 @@ describe("connect model fetcher", () => {
 
 	it("skips AWS-backed integrations and warns when no credential callback is provided", async () => {
 		stubDiscoveryFetch();
-		const models = await registryWithProvider().getModelsForProvider("connect", credentials);
+		const models = await registryWithProvider().getModelsForProvider("posit-connect", credentials);
 
 		expect(models.map((model) => model.id)).toEqual([
 			`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`,
@@ -280,7 +280,7 @@ describe("connect model fetcher", () => {
 		});
 		const models = await registryWithProvider({
 			getAwsCredentials: vi.fn(),
-		}).getModelsForProvider("connect", credentials);
+		}).getModelsForProvider("posit-connect", credentials);
 
 		expect(models.map((model) => model.id)).toEqual(
 			CONNECT_BEDROCK_MODEL_IDS.map((id) => `${AWS_PREFIX}/${id}`),
@@ -297,7 +297,7 @@ describe("connect model fetcher", () => {
 			templates: () => ["anthropic", "github"],
 		};
 		const models = await registryWithProvider(callbacks).getModelsForProvider(
-			"connect",
+			"posit-connect",
 			credentials,
 		);
 
@@ -326,7 +326,7 @@ describe("connect chat routing", () => {
 	) {
 		const registry = new ProviderRegistry(logger);
 		registerConnectProvider(registry, logger, callbacks);
-		const client = registry.getClientForProvider("connect", creds);
+		const client = registry.getClientForProvider("posit-connect", creds);
 		expect(client).not.toBeNull();
 		return client!;
 	}
@@ -338,8 +338,8 @@ describe("connect chat routing", () => {
 		stubDiscoveryFetch();
 		const registry = new ProviderRegistry(logger);
 		registerConnectProvider(registry, logger, callbacks);
-		await registry.getModelsForProvider("connect", creds);
-		const client = registry.getClientForProvider("connect", creds);
+		await registry.getModelsForProvider("posit-connect", creds);
+		const client = registry.getClientForProvider("posit-connect", creds);
 		expect(client).not.toBeNull();
 		return client!;
 	}
@@ -501,7 +501,7 @@ describe("connect chat routing", () => {
 
 		await expect(
 			client.chat({
-				model: "connect-nonexistent/claude-sonnet-4-5-20250929",
+				model: "posit-connect-nonexistent/claude-sonnet-4-5-20250929",
 				messages: [],
 				cancellationToken,
 			}),
@@ -515,10 +515,10 @@ describe("connect chat routing", () => {
 		stubDiscoveryFetch();
 		const registry = new ProviderRegistry(logger);
 		registerConnectProvider(registry, logger);
-		await registry.getModelsForProvider("connect", credentials);
+		await registry.getModelsForProvider("posit-connect", credentials);
 
 		const otherSession = { ...credentials, apiKey: "tok-other-user" };
-		const client = registry.getClientForProvider("connect", otherSession)!;
+		const client = registry.getClientForProvider("posit-connect", otherSession)!;
 
 		await expect(
 			client.chat({
@@ -537,13 +537,13 @@ describe("connect chat routing", () => {
 		const firstSession = credentials;
 		const secondSession = { ...credentials, apiKey: "tok-other-user" };
 
-		await registry.getModelsForProvider("connect", firstSession);
-		await registry.getModelsForProvider("connect", secondSession);
+		await registry.getModelsForProvider("posit-connect", firstSession);
+		await registry.getModelsForProvider("posit-connect", secondSession);
 		// This is a model-cache hit for the first session. Routing state must
 		// remain available without forcing another network discovery.
-		await registry.getModelsForProvider("connect", firstSession);
+		await registry.getModelsForProvider("posit-connect", firstSession);
 
-		const firstClient = registry.getClientForProvider("connect", firstSession)!;
+		const firstClient = registry.getClientForProvider("posit-connect", firstSession)!;
 		await firstClient.chat({
 			model: `${ANTHROPIC_PREFIX}/claude-3-haiku-20240307`,
 			messages: [],
@@ -562,8 +562,8 @@ describe("connect chat routing", () => {
 		stubDiscoveryFetch();
 		const registry = new ProviderRegistry(logger);
 		registerConnectProvider(registry, logger);
-		await registry.getModelsForProvider("connect", credentials);
-		const client = registry.getClientForProvider("connect", credentials)!;
+		await registry.getModelsForProvider("posit-connect", credentials);
+		const client = registry.getClientForProvider("posit-connect", credentials)!;
 
 		await client.chat({
 			model: `${ANTHROPIC_PREFIX}/claude-3-haiku-20240307`,
@@ -575,8 +575,8 @@ describe("connect chat routing", () => {
 		stubDiscoveryFetch({
 			[`${CONNECT_URL}/__api__/v1/oauth/integrations`]: () => json([]),
 		});
-		registry.clearModelCache("connect");
-		await registry.getModelsForProvider("connect", credentials);
+		registry.clearModelCache("posit-connect");
+		await registry.getModelsForProvider("posit-connect", credentials);
 
 		await expect(
 			client.chat({
@@ -671,7 +671,7 @@ describe("connect chat routing", () => {
 		expect(BedrockClient).toHaveBeenCalledWith(expect.objectContaining({ customHeaders }), logger);
 	});
 
-	it("leaves ids whose first segment is not a connect- prefix unsplit", async () => {
+	it("leaves ids whose first segment is not a posit-connect- prefix unsplit", async () => {
 		const arn =
 			"arn:aws:bedrock:us-west-2:123456789012:inference-profile/us.anthropic.claude-sonnet-4-5-20250929-v1:0";
 		const client = await clientAfterDiscovery({ getAwsCredentials: mintSuccess() });

@@ -210,6 +210,33 @@ const baseConnectionFields = {
 	models: modelsBlockSchema.optional(),
 };
 
+const GATEWAY_RESERVED_AUTH_HEADERS = {
+	litellm: new Set(["authorization", "x-api-key"]),
+	portkey: new Set(["authorization", "x-api-key", "x-portkey-api-key", "x-portkey-virtual-key"]),
+} as const satisfies Partial<Record<BuiltinProviderId, ReadonlySet<string>>>;
+
+function gatewayCustomHeadersSchema(providerId: BuiltinProviderId) {
+	const reserved =
+		providerId === "litellm"
+			? GATEWAY_RESERVED_AUTH_HEADERS.litellm
+			: providerId === "portkey"
+				? GATEWAY_RESERVED_AUTH_HEADERS.portkey
+				: undefined;
+	const schema = z.record(z.string(), z.string());
+	if (!reserved) return schema;
+	return schema.superRefine((headers, ctx) => {
+		for (const name of Object.keys(headers)) {
+			if (reserved.has(name.toLowerCase())) {
+				ctx.addIssue({
+					code: "custom",
+					message: `Authentication header "${name}" is reserved and cannot be set in customHeaders.`,
+					path: [name],
+				});
+			}
+		}
+	});
+}
+
 /**
  * The provider-specific connection sub-sections, keyed by section name. A
  * provider block carries only the sub-sections its capability map names.
@@ -263,8 +290,17 @@ function connectionSectionShape<S extends ConnectionSectionName>(
  * the per-built-in-key schemas and the custom discriminated-union variants —
  * a block accepts a sub-section only if its capability map names it.
  */
-function connectionBlockSchema<S extends ConnectionSectionName>(sections: readonly S[]) {
-	return z.object({ ...baseConnectionFields, ...connectionSectionShape(sections) }).strict();
+function connectionBlockSchema<S extends ConnectionSectionName>(
+	providerId: BuiltinProviderId,
+	sections: readonly S[],
+) {
+	return z
+		.object({
+			...baseConnectionFields,
+			customHeaders: gatewayCustomHeadersSchema(providerId).optional(),
+			...connectionSectionShape(sections),
+		})
+		.strict();
 }
 
 // ---------------------------------------------------------------------------
@@ -298,7 +334,7 @@ const BUILTIN_CONNECTION_SECTIONS = {
 	databricks: ["databricks"],
 	litellm: [],
 	portkey: [],
-	connect: [],
+	"posit-connect": [],
 } as const satisfies Record<BuiltinProviderId, readonly ConnectionSectionName[]>;
 
 /**
@@ -443,7 +479,10 @@ export const customProviderEntryFragmentSchema = z
  * so adding a built-in id cannot make those paths disagree.
  */
 export const builtinProviderBlockSchemas = Object.fromEntries(
-	BUILTIN_PROVIDER_IDS.map((id) => [id, connectionBlockSchema(BUILTIN_CONNECTION_SECTIONS[id])]),
+	BUILTIN_PROVIDER_IDS.map((id) => [
+		id,
+		connectionBlockSchema(id, BUILTIN_CONNECTION_SECTIONS[id]),
+	]),
 ) as Record<BuiltinProviderId, typeof builtinProviderBlockSchema>;
 
 function optionalBuiltinBlock(
