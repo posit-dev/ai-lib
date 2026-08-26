@@ -118,13 +118,21 @@ describe("inferModelCapabilities", () => {
 		expect(kimiK3.maxContextLength).toBe(250_000);
 		expect(kimiK3.maxInputTokens).toBe(250_000);
 		expect(kimiK3.maxOutputTokens).toBe(131_072);
+
+		const deepSeek = inferModelCapabilities("positai", "deepseek-ai/DeepSeek-V4-Flash-0731");
+		expect(deepSeek.family).toBe("deepseek-v4");
+		expect(deepSeek.thinkingEffortLevels).toEqual(["off", "low", "high", "max"]);
+		expect(deepSeek.supportsImages).toBe(false);
+		expect(deepSeek.maxContextLength).toBe(200_000);
+		expect(deepSeek.maxInputTokens).toBe(200_000);
+		expect(deepSeek.maxOutputTokens).toBe(384_000);
 	});
 
-	it("omits openAiChatThinkingProfile so the result fits a models.custom entry", () => {
+	it("omits requiresChatTemplateKwargs so the result fits a models.custom entry", () => {
 		// The Gemma table sets this runtime-only flag, but the strict custom-model
 		// schema rejects it; inferModelCapabilities must not surface it.
 		const caps = inferModelCapabilities("positai", "google/gemma-4-27b-it");
-		expect(caps).not.toHaveProperty("openAiChatThinkingProfile");
+		expect(caps).not.toHaveProperty("requiresChatTemplateKwargs");
 	});
 
 	it("produces a spread that validates against the strict customModelSchema", () => {

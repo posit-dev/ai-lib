@@ -7,8 +7,6 @@
  * Kept here to avoid depending on any consumer package.
  */
 
-import type { OpenAiChatThinkingProfile } from "./types";
-
 // ---------------------------------------------------------------------------
 // Thinking effort
 // ---------------------------------------------------------------------------
@@ -19,31 +17,32 @@ export function isThinkingEnabled(effort: string | undefined): boolean {
 }
 
 /**
- * Request-body fields for thinking on an OpenAI-chat-protocol model. The
- * capability-owned profile selects the provider's wire shape without model-id
- * inference in the client.
+ * Request-body fields that control thinking on an OpenAI-chat-protocol model.
  *
- * @returns Fields to merge into the request body, or `undefined` when the
- *          provider default should apply.
+ * Named effort levels (anything but the binary `"on"`) go out as the OpenAI-style
+ * top-level `reasoning_effort`. Binary-toggle models (`requiresChatTemplateKwargs`)
+ * take the vLLM-style `chat_template_kwargs` instead.
+ *
+ * @returns Fields to merge into the request body, or `undefined` when no
+ *          explicit thinking control is needed.
  */
 export function thinkingRequestFields(
 	effort: string | undefined,
-	profile: OpenAiChatThinkingProfile | undefined,
+	requiresChatTemplateKwargs: boolean,
+	modelId: string,
 ): Record<string, unknown> | undefined {
-	if (effort === undefined || profile === undefined) {
+	if (effort === "off" && modelId === "deepseek-ai/DeepSeek-V4-Flash-0731") {
+		return { reasoning_effort: "none" };
+	}
+	if (!isThinkingEnabled(effort)) {
 		return undefined;
 	}
-	if (profile === "top-level-reasoning-effort") {
-		return isThinkingEnabled(effort) ? { reasoning_effort: effort } : undefined;
+	if (effort !== "on") {
+		return { reasoning_effort: effort };
 	}
-	if (profile === "chat-template-enable-thinking") {
-		return effort === "on" ? { chat_template_kwargs: { enable_thinking: true } } : undefined;
-	}
-	return {
-		chat_template_kwargs: isThinkingEnabled(effort)
-			? { thinking: true, reasoning_effort: effort }
-			: { thinking: false },
-	};
+	return requiresChatTemplateKwargs
+		? { chat_template_kwargs: { enable_thinking: true } }
+		: undefined;
 }
 
 // ---------------------------------------------------------------------------

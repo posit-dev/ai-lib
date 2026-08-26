@@ -62,7 +62,6 @@ export type {
 	ModelInfoLike,
 	ModelOverride,
 	ModelsBlock,
-	OpenAiChatThinkingProfile,
 	ProvidersConfig,
 	ProvidersMap,
 	ResolvedConnection,

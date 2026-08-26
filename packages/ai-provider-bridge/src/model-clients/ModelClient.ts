@@ -9,13 +9,7 @@
 import type { ModelMessage } from "ai";
 
 import type { StepLogger } from "../StepLogger";
-import type {
-	AiToolWithJsonSchema,
-	CancellationToken,
-	LMStreamPart,
-	OpenAiChatThinkingProfile,
-	Protocol,
-} from "../types";
+import type { AiToolWithJsonSchema, CancellationToken, LMStreamPart, Protocol } from "../types";
 
 /**
  * Parameters for a chat request. Shared across all ModelClient implementations
@@ -40,8 +34,8 @@ export interface ModelClientChatParams {
 	contextLength?: number;
 	/** Whether provider-side web search should be enabled for this request. */
 	webSearchEnabled?: boolean;
-	/** Provider wire profile copied from ModelInfo; the receiving client owns serialization. */
-	openAiChatThinkingProfile?: OpenAiChatThinkingProfile;
+	/** Whether the model requires vLLM-style `chat_template_kwargs` to enable thinking. */
+	requiresChatTemplateKwargs?: boolean;
 	/**
 	 * Whether the target model accepts image input at all. Used to decide how
 	 * tool-result images are transformed for APIs that can't embed images in

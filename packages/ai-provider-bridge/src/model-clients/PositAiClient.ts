@@ -240,7 +240,8 @@ export class PositAiClient implements ModelClient {
 		} else if (normalizedProtocol === "openai-chat") {
 			const thinkingFields = thinkingRequestFields(
 				params.thinkingEffort,
-				params.openAiChatThinkingProfile,
+				params.requiresChatTemplateKwargs ?? false,
+				params.model,
 			);
 
 			// Use OpenAI-compatible provider with OAuth authentication

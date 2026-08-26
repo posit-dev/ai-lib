@@ -42,8 +42,9 @@ function normalizeGemmaModelId(modelId: string): string | undefined {
 /**
  * Infer Gemma model capabilities from a model ID.
  *
- * @returns A partial `ModelInfo` with family, thinking effort levels, and the
- *          vLLM thinking request profile, or `undefined` for non-Gemma models.
+ * @returns A partial `ModelInfo` with family, thinking effort levels, and
+ *          `requiresChatTemplateKwargs` for vLLM thinking support,
+ *          or `undefined` for non-Gemma models.
  */
 export function getGemmaModelCapabilities(modelId: string): Partial<ModelInfo> | undefined {
 	const normalized = normalizeGemmaModelId(modelId);
@@ -56,7 +57,7 @@ export function getGemmaModelCapabilities(modelId: string): Partial<ModelInfo> |
 	return {
 		family: rule?.family ?? "gemma",
 		thinkingEffortLevels: rule?.thinkingEffortLevels,
-		openAiChatThinkingProfile:
-			rule?.thinkingEffortLevels !== undefined ? "chat-template-enable-thinking" : undefined,
+		// Gemma 4 models served by vLLM require chat_template_kwargs to enable thinking
+		requiresChatTemplateKwargs: rule?.thinkingEffortLevels !== undefined,
 	};
 }

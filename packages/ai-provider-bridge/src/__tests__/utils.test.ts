@@ -12,34 +12,36 @@ import {
 } from "../utils";
 
 describe("thinkingRequestFields", () => {
-	it("omits fields when thinking or the request profile is unset", () => {
-		expect(thinkingRequestFields(undefined, "chat-template-deepseek")).toBeUndefined();
-		expect(thinkingRequestFields("high", undefined)).toBeUndefined();
+	it("returns undefined when thinking is off or unset", () => {
+		expect(thinkingRequestFields(undefined, true, "zai-org/GLM-5.2")).toBeUndefined();
+		expect(thinkingRequestFields("off", false, "moonshotai/Kimi-K3")).toBeUndefined();
 	});
 
-	it("maps named effort to a top-level reasoning_effort profile", () => {
-		expect(thinkingRequestFields("off", "top-level-reasoning-effort")).toBeUndefined();
-		expect(thinkingRequestFields("low", "top-level-reasoning-effort")).toEqual({
+	it("maps a named effort level to a top-level reasoning_effort", () => {
+		expect(thinkingRequestFields("low", false, "moonshotai/Kimi-K3")).toEqual({
 			reasoning_effort: "low",
 		});
-		expect(thinkingRequestFields("max", "top-level-reasoning-effort")).toEqual({
+		expect(thinkingRequestFields("max", false, "moonshotai/Kimi-K3")).toEqual({
 			reasoning_effort: "max",
 		});
 	});
 
-	it("maps binary on to the enable_thinking chat-template profile", () => {
-		expect(thinkingRequestFields("off", "chat-template-enable-thinking")).toBeUndefined();
-		expect(thinkingRequestFields("on", "chat-template-enable-thinking")).toEqual({
+	it("maps binary 'on' to chat_template_kwargs when the model requires it", () => {
+		expect(thinkingRequestFields("on", true, "zai-org/GLM-5.2")).toEqual({
 			chat_template_kwargs: { enable_thinking: true },
 		});
 	});
 
-	it("maps DeepSeek off and named efforts to its chat-template profile", () => {
-		expect(thinkingRequestFields("off", "chat-template-deepseek")).toEqual({
-			chat_template_kwargs: { thinking: false },
+	it("returns undefined for binary 'on' without the chat_template_kwargs flag", () => {
+		expect(thinkingRequestFields("on", false, "moonshotai/Kimi-K3")).toBeUndefined();
+	});
+
+	it("maps DeepSeek named and off efforts to top-level values", () => {
+		expect(thinkingRequestFields("high", false, "deepseek-ai/DeepSeek-V4-Flash-0731")).toEqual({
+			reasoning_effort: "high",
 		});
-		expect(thinkingRequestFields("high", "chat-template-deepseek")).toEqual({
-			chat_template_kwargs: { thinking: true, reasoning_effort: "high" },
+		expect(thinkingRequestFields("off", false, "deepseek-ai/DeepSeek-V4-Flash-0731")).toEqual({
+			reasoning_effort: "none",
 		});
 	});
 });

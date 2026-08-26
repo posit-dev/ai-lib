@@ -9,16 +9,17 @@ import type { InferredModelCapabilities as ModelInfo } from "../types.js";
  * endpoint, keyed by exact model ID as returned by the Posit AI /models
  * endpoint. Adding a Model APIs model is one entry here.
  *
- * Thinking streams back as `reasoning_content`, but its request shape varies:
- * binary vLLM toggles, top-level OpenAI-style effort, or DeepSeek's nested
- * thinking and effort fields. The request profile keeps that wire knowledge
- * with the capability entry rather than requiring model-id checks in clients.
+ * Thinking is off by default for these models and streams back as
+ * `reasoning_content`. Models with `requiresChatTemplateKwargs` expose a binary
+ * toggle via the vLLM-style `chat_template_kwargs: { enable_thinking: true }`
+ * request field; models with named effort levels take a top-level OpenAI-style
+ * `reasoning_effort` instead.
  */
 const MODEL_APIS_CAPABILITIES: Record<string, Partial<ModelInfo>> = {
 	"zai-org/GLM-5.2": {
 		family: "glm",
 		thinkingEffortLevels: ["off", "on"],
-		openAiChatThinkingProfile: "chat-template-enable-thinking",
+		requiresChatTemplateKwargs: true,
 		supportsImages: false,
 		supportsToolResultImages: false,
 		supportedInputMediaTypes: [],
@@ -28,7 +29,7 @@ const MODEL_APIS_CAPABILITIES: Record<string, Partial<ModelInfo>> = {
 	"moonshotai/Kimi-K2.7-Code": {
 		family: "kimi",
 		thinkingEffortLevels: ["off", "on"],
-		openAiChatThinkingProfile: "chat-template-enable-thinking",
+		requiresChatTemplateKwargs: true,
 		supportedInputMediaTypes: ["image/png", "image/jpeg", "image/gif", "image/webp"],
 		maxContextLength: 262_000,
 		maxInputTokens: 262_000,
@@ -36,7 +37,6 @@ const MODEL_APIS_CAPABILITIES: Record<string, Partial<ModelInfo>> = {
 	"moonshotai/Kimi-K3": {
 		family: "kimi",
 		thinkingEffortLevels: ["off", "low", "high", "max"],
-		openAiChatThinkingProfile: "top-level-reasoning-effort",
 		supportedInputMediaTypes: ["image/png", "image/jpeg", "image/gif", "image/webp"],
 		// Kimi K3's documented max output (Moonshot API's default
 		// max_completion_tokens).
@@ -48,7 +48,6 @@ const MODEL_APIS_CAPABILITIES: Record<string, Partial<ModelInfo>> = {
 	"deepseek-ai/DeepSeek-V4-Flash-0731": {
 		family: "deepseek-v4",
 		thinkingEffortLevels: ["off", "low", "high", "max"],
-		openAiChatThinkingProfile: "chat-template-deepseek",
 		supportsImages: false,
 		supportsToolResultImages: false,
 		supportedInputMediaTypes: [],
