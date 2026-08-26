@@ -167,6 +167,42 @@ describe("providersConfigSchema", () => {
 		expect(result.success).toBe(true);
 	});
 
+	it.each([
+		["litellm", "Authorization"],
+		["litellm", "X-API-Key"],
+		["portkey", "authorization"],
+		["portkey", "x-api-key"],
+		["portkey", "X-Portkey-API-Key"],
+		["portkey", "x-portkey-virtual-key"],
+	] as const)("rejects reserved %s authentication header %s", (providerId, headerName) => {
+		const result = providersConfigSchema.safeParse({
+			providers: {
+				[providerId]: { customHeaders: { [headerName]: "must-not-be-a-secret-channel" } },
+			},
+		});
+
+		expect(result.success).toBe(false);
+		if (!result.success) {
+			expect(result.error.issues).toEqual([
+				expect.objectContaining({
+					message: expect.stringContaining("reserved"),
+					path: ["providers", providerId, "customHeaders", headerName],
+				}),
+			]);
+		}
+	});
+
+	it("keeps non-secret LiteLLM and Portkey routing headers valid", () => {
+		const result = providersConfigSchema.safeParse({
+			providers: {
+				litellm: { customHeaders: { "x-tenant": "analytics" } },
+				portkey: { customHeaders: { "x-portkey-provider": "openai" } },
+			},
+		});
+
+		expect(result.success).toBe(true);
+	});
+
 	// --- Per-key / discriminated-union strictness ---
 
 	it("rejects a foreign connection section on a built-in provider (anthropic + aws)", () => {

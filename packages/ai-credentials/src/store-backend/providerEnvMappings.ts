@@ -88,7 +88,7 @@ export const PROVIDER_ENV_MAPPINGS: Record<string, ProviderEnvMapping> = {
 	},
 	// The standard Posit Connect API-key variable (rsconnect/connectapi
 	// convention); pairs with ai-config's POSIT_CONNECT_URL connection var.
-	connect: {
+	"posit-connect": {
 		apiKey: "CONNECT_API_KEY",
 	},
 };

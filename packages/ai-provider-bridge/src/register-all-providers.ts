@@ -95,7 +95,7 @@ const PROVIDER_REGISTRARS = {
 	databricks: registerDatabricksProvider,
 	litellm: registerLitellmProvider,
 	portkey: registerPortkeyProvider,
-	connect: (registry, logger, config) =>
+	"posit-connect": (registry, logger, config) =>
 		registerConnectProvider(registry, logger, config.connectCallbacks),
 } satisfies Record<ProviderId, ProviderRegistrar>;
 

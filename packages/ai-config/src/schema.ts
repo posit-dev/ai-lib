@@ -349,6 +349,18 @@ export const endpointsSchema = z.record(
 // ---------------------------------------------------------------------------
 
 /**
+ * Base `customHeaders` schema shared by every provider — the canonical
+ * description and per-key/value descriptions live here so
+ * {@link gatewayCustomHeadersSchema}'s reserved-header refinement for
+ * gateway providers cannot silently drop them.
+ */
+const customHeadersSchema = z
+	.record(z.string().describe("Header name."), z.string().describe("Header value."))
+	.describe(
+		"Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+	);
+
+/**
  * Connection fields shared by EVERY provider block (built-in and custom),
  * regardless of provider. Provider-specific capability sub-sections (`aws`,
  * `googleCloud`, `snowflake`, `positaiLogin`) are NOT here — they are attached
@@ -371,12 +383,7 @@ const baseConnectionFields = {
 			"Endpoint URL for a self-hosted provider such as Ollama or LM Studio, for example `http://localhost:11434`.",
 		)
 		.optional(),
-	customHeaders: z
-		.record(z.string().describe("Header name."), z.string().describe("Header value."))
-		.describe(
-			"Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
-		)
-		.optional(),
+	customHeaders: customHeadersSchema.optional(),
 	protocol: protocolSchema
 		.describe(
 			"API wire protocol for this provider. Set this only when the provider does not use its default protocol.",
@@ -391,6 +398,32 @@ const baseConnectionFields = {
 		.describe("Which models this provider offers, and how their metadata is filled in.")
 		.optional(),
 };
+
+const GATEWAY_RESERVED_AUTH_HEADERS = {
+	litellm: new Set(["authorization", "x-api-key"]),
+	portkey: new Set(["authorization", "x-api-key", "x-portkey-api-key", "x-portkey-virtual-key"]),
+} as const satisfies Partial<Record<BuiltinProviderId, ReadonlySet<string>>>;
+
+function gatewayCustomHeadersSchema(providerId: BuiltinProviderId) {
+	const reserved =
+		providerId === "litellm"
+			? GATEWAY_RESERVED_AUTH_HEADERS.litellm
+			: providerId === "portkey"
+				? GATEWAY_RESERVED_AUTH_HEADERS.portkey
+				: undefined;
+	if (!reserved) return customHeadersSchema;
+	return customHeadersSchema.superRefine((headers, ctx) => {
+		for (const name of Object.keys(headers)) {
+			if (reserved.has(name.toLowerCase())) {
+				ctx.addIssue({
+					code: "custom",
+					message: `Authentication header "${name}" is reserved and cannot be set in customHeaders.`,
+					path: [name],
+				});
+			}
+		}
+	});
+}
 
 /**
  * The provider-specific connection sub-sections, keyed by section name. A
@@ -445,8 +478,17 @@ function connectionSectionShape<S extends ConnectionSectionName>(
  * the per-built-in-key schemas and the custom discriminated-union variants —
  * a block accepts a sub-section only if its capability map names it.
  */
-function connectionBlockSchema<S extends ConnectionSectionName>(sections: readonly S[]) {
-	return z.object({ ...baseConnectionFields, ...connectionSectionShape(sections) }).strict();
+function connectionBlockSchema<S extends ConnectionSectionName>(
+	providerId: BuiltinProviderId,
+	sections: readonly S[],
+) {
+	return z
+		.object({
+			...baseConnectionFields,
+			customHeaders: gatewayCustomHeadersSchema(providerId).optional(),
+			...connectionSectionShape(sections),
+		})
+		.strict();
 }
 
 // ---------------------------------------------------------------------------
@@ -480,7 +522,7 @@ const BUILTIN_CONNECTION_SECTIONS = {
 	databricks: ["databricks"],
 	litellm: [],
 	portkey: [],
-	connect: [],
+	"posit-connect": [],
 } as const satisfies Record<BuiltinProviderId, readonly ConnectionSectionName[]>;
 
 /**
@@ -630,7 +672,7 @@ export const customProviderEntryFragmentSchema = z
 export const builtinProviderBlockSchemas = Object.fromEntries(
 	BUILTIN_PROVIDER_IDS.map((id) => [
 		id,
-		connectionBlockSchema(BUILTIN_CONNECTION_SECTIONS[id]).describe(
+		connectionBlockSchema(id, BUILTIN_CONNECTION_SECTIONS[id]).describe(
 			`Configuration for the built-in ${id} provider.`,
 		),
 	]),
