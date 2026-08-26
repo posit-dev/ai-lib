@@ -374,7 +374,7 @@ const baseConnectionFields = {
 	customHeaders: z
 		.record(z.string().describe("Header name."), z.string().describe("Header value."))
 		.describe(
-			"Extra HTTP headers sent with every request to this provider, for proxy tenancy or routing markers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+			"Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
 		)
 		.optional(),
 	protocol: protocolSchema
