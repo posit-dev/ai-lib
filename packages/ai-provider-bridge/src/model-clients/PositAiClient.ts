@@ -29,7 +29,7 @@ import {
 	isClaudeModel,
 	isThinkingEnabled,
 	joinPath,
-	thinkingRequestFields,
+	positAiThinkingRequestFields,
 } from "../utils";
 import {
 	convertAiSdkStreamToPlatform,
@@ -238,7 +238,8 @@ export class PositAiClient implements ModelClient {
 
 			return convertAiSdkStreamToPlatform(result.fullStream, cleanup);
 		} else if (normalizedProtocol === "openai-chat") {
-			const thinkingFields = thinkingRequestFields(
+			const thinkingFields = positAiThinkingRequestFields(
+				params.model,
 				params.thinkingEffort,
 				params.requiresChatTemplateKwargs ?? false,
 			);
