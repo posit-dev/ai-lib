@@ -159,7 +159,9 @@ describe("mutateProvidersConfig", () => {
 
 		await mutateProvidersConfig((current) => ({ ...current }), { configPath, logger: mockLogger });
 
-		expect(rename).not.toHaveBeenCalled();
+		// A mutation also refreshes the sibling providers.schema.json, so assert
+		// on the config file specifically rather than on rename as a whole.
+		expect(rename.mock.calls.filter(([, dest]) => dest === configPath)).toEqual([]);
 		expect(await fixture.readRaw()).toBe(original);
 	});
 
@@ -386,7 +388,10 @@ describe("mutateProvidersConfig first creation and seed boundaries", () => {
 			logger: mockLogger,
 		});
 
-		const written = await fs.readFile(path.join(fixture.directory, "providers.schema.json"), "utf-8");
+		const written = await fs.readFile(
+			path.join(fixture.directory, "providers.schema.json"),
+			"utf-8",
+		);
 		expect(written).toBe(providersSchemaFileContents());
 		expect(JSON.parse(written).properties).toHaveProperty("providers");
 	});

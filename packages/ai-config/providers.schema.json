@@ -96,13 +96,13 @@
                         "type": "integer"
                       },
                       "maxInputTokens": {
-                        "description": "Largest number of input tokens accepted in one request.",
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
-                        "description": "Largest number of tokens the model may generate in one response.",
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
@@ -202,13 +202,13 @@
                         "type": "integer"
                       },
                       "maxInputTokens": {
-                        "description": "Largest number of input tokens accepted in one request.",
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
-                        "description": "Largest number of tokens the model may generate in one response.",
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
@@ -386,13 +386,13 @@
                         "type": "integer"
                       },
                       "maxInputTokens": {
-                        "description": "Largest number of input tokens accepted in one request.",
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
-                        "description": "Largest number of tokens the model may generate in one response.",
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
@@ -492,13 +492,13 @@
                         "type": "integer"
                       },
                       "maxInputTokens": {
-                        "description": "Largest number of input tokens accepted in one request.",
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
-                        "description": "Largest number of tokens the model may generate in one response.",
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
@@ -579,30 +579,40 @@
         },
         "connect": {
           "additionalProperties": false,
+          "description": "Configuration for the built-in connect provider.",
           "properties": {
             "baseUrl": {
+              "description": "Base URL for the provider's API. Some providers need a version segment: `https://api.anthropic.com/v1` for Anthropic, `https://api.openai.com/v1` for OpenAI, and `https://generativelanguage.googleapis.com/v1beta` for Gemini. A bare host will fail for those.",
               "type": "string"
             },
             "customHeaders": {
               "additionalProperties": {
+                "description": "Header value.",
                 "type": "string"
               },
+              "description": "Extra HTTP headers sent with every request to this provider, for proxy tenancy or routing markers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
               "propertyNames": {
+                "description": "Header name.",
                 "type": "string"
               },
               "type": "object"
             },
             "enabled": {
+              "description": "Whether this provider is available. Set to false to hide it from the model picker.",
               "type": "boolean"
             },
             "endpoint": {
+              "description": "Endpoint URL for a self-hosted provider such as Ollama or LM Studio, for example `http://localhost:11434`.",
               "type": "string"
             },
             "endpoints": {
               "additionalProperties": {
+                "description": "Base URL to use for this protocol.",
                 "type": "string"
               },
+              "description": "Base URL overrides for one protocol at a time, keyed by protocol. Use this when every model on a protocol shares a path that the provider's other models do not.",
               "propertyNames": {
+                "description": "API wire protocol used to talk to a model. Set this only when a provider or model does not use its default protocol.",
                 "enum": [
                   "anthropic-messages",
                   "openai-chat",
@@ -617,47 +627,58 @@
             },
             "models": {
               "additionalProperties": false,
+              "description": "Which models this provider offers, and how their metadata is filled in.",
               "properties": {
                 "allow": {
+                  "description": "Model ids to offer. When this list is non-empty it is exclusive: no other model from this provider is offered.",
                   "items": {
                     "type": "string"
                   },
                   "type": "array"
                 },
                 "custom": {
+                  "description": "Models to declare yourself, for models the provider does not return from discovery.",
                   "items": {
                     "additionalProperties": false,
                     "properties": {
                       "baseUrl": {
+                        "description": "Base URL for this model only, overriding the provider's base URL.",
                         "type": "string"
                       },
                       "family": {
+                        "description": "Model family, used for grouping models and for selecting family-specific system prompt content.",
                         "type": "string"
                       },
                       "id": {
+                        "description": "Model id sent to the provider's API.",
                         "minLength": 1,
                         "type": "string"
                       },
                       "maxContextLength": {
+                        "description": "Total context window, in tokens.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxInputTokens": {
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "name": {
+                        "description": "Display name shown in the model picker.",
                         "minLength": 1,
                         "type": "string"
                       },
                       "protocol": {
+                        "description": "API wire protocol for this model, overriding the provider's protocol.",
                         "enum": [
                           "anthropic-messages",
                           "openai-chat",
@@ -669,24 +690,30 @@
                         "type": "string"
                       },
                       "supportedInputMediaTypes": {
+                        "description": "Media types the model accepts as input, such as `image/png`.",
                         "items": {
                           "type": "string"
                         },
                         "type": "array"
                       },
                       "supportsImages": {
+                        "description": "Whether the model accepts images as input.",
                         "type": "boolean"
                       },
                       "supportsToolResultImages": {
+                        "description": "Whether the model accepts images returned by a tool result.",
                         "type": "boolean"
                       },
                       "supportsTools": {
+                        "description": "Whether the model can call tools.",
                         "type": "boolean"
                       },
                       "supportsWebSearch": {
+                        "description": "Whether the model supports the provider's own web search.",
                         "type": "boolean"
                       },
                       "thinkingEffortLevels": {
+                        "description": "Thinking effort levels this model accepts. The set varies by model, for example `off`, `low`, `medium`, `high`, `xhigh`.",
                         "items": {
                           "type": "string"
                         },
@@ -707,12 +734,14 @@
                   "type": "array"
                 },
                 "deny": {
+                  "description": "Model ids to hide. Applied after `allow`, so a model listed in both is hidden.",
                   "items": {
                     "type": "string"
                   },
                   "type": "array"
                 },
                 "discovery": {
+                  "description": "Whether to ask the provider for its model list. `auto` discovers models from the provider; `off` offers only the models declared under `models.custom`.",
                   "enum": [
                     "auto",
                     "off"
@@ -724,30 +753,37 @@
                     "additionalProperties": false,
                     "properties": {
                       "baseUrl": {
+                        "description": "Base URL for this model only, overriding the provider's base URL.",
                         "type": "string"
                       },
                       "family": {
+                        "description": "Model family, used for grouping models and for selecting family-specific system prompt content.",
                         "type": "string"
                       },
                       "maxContextLength": {
+                        "description": "Total context window, in tokens.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxInputTokens": {
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "name": {
+                        "description": "Display name shown in the model picker.",
                         "type": "string"
                       },
                       "protocol": {
+                        "description": "API wire protocol for this model, overriding the provider's protocol.",
                         "enum": [
                           "anthropic-messages",
                           "openai-chat",
@@ -759,24 +795,30 @@
                         "type": "string"
                       },
                       "supportedInputMediaTypes": {
+                        "description": "Media types the model accepts as input, such as `image/png`.",
                         "items": {
                           "type": "string"
                         },
                         "type": "array"
                       },
                       "supportsImages": {
+                        "description": "Whether the model accepts images as input.",
                         "type": "boolean"
                       },
                       "supportsToolResultImages": {
+                        "description": "Whether the model accepts images returned by a tool result.",
                         "type": "boolean"
                       },
                       "supportsTools": {
+                        "description": "Whether the model can call tools.",
                         "type": "boolean"
                       },
                       "supportsWebSearch": {
+                        "description": "Whether the model supports the provider's own web search.",
                         "type": "boolean"
                       },
                       "thinkingEffortLevels": {
+                        "description": "Thinking effort levels this model accepts. The set varies by model, for example `off`, `low`, `medium`, `high`, `xhigh`.",
                         "items": {
                           "type": "string"
                         },
@@ -785,7 +827,9 @@
                     },
                     "type": "object"
                   },
+                  "description": "Metadata patches for models the provider already returns, keyed by model id. Only the fields you set are changed.",
                   "propertyNames": {
+                    "description": "Model id to patch.",
                     "type": "string"
                   },
                   "type": "object"
@@ -794,6 +838,7 @@
               "type": "object"
             },
             "protocol": {
+              "description": "API wire protocol for this provider. Set this only when the provider does not use its default protocol.",
               "enum": [
                 "anthropic-messages",
                 "openai-chat",
@@ -891,13 +936,13 @@
                         "type": "integer"
                       },
                       "maxInputTokens": {
-                        "description": "Largest number of input tokens accepted in one request.",
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
-                        "description": "Largest number of tokens the model may generate in one response.",
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
@@ -997,13 +1042,13 @@
                         "type": "integer"
                       },
                       "maxInputTokens": {
-                        "description": "Largest number of input tokens accepted in one request.",
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
-                        "description": "Largest number of tokens the model may generate in one response.",
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
@@ -1176,13 +1221,13 @@
                               "type": "integer"
                             },
                             "maxInputTokens": {
-                              "description": "Largest number of input tokens accepted in one request.",
+                              "description": "Maximum number of input tokens accepted in one request.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
                             },
                             "maxOutputTokens": {
-                              "description": "Largest number of tokens the model may generate in one response.",
+                              "description": "Maximum number of tokens the model may generate in one response.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
@@ -1282,13 +1327,13 @@
                               "type": "integer"
                             },
                             "maxInputTokens": {
-                              "description": "Largest number of input tokens accepted in one request.",
+                              "description": "Maximum number of input tokens accepted in one request.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
                             },
                             "maxOutputTokens": {
-                              "description": "Largest number of tokens the model may generate in one response.",
+                              "description": "Maximum number of tokens the model may generate in one response.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
@@ -1466,13 +1511,13 @@
                               "type": "integer"
                             },
                             "maxInputTokens": {
-                              "description": "Largest number of input tokens accepted in one request.",
+                              "description": "Maximum number of input tokens accepted in one request.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
                             },
                             "maxOutputTokens": {
-                              "description": "Largest number of tokens the model may generate in one response.",
+                              "description": "Maximum number of tokens the model may generate in one response.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
@@ -1572,13 +1617,13 @@
                               "type": "integer"
                             },
                             "maxInputTokens": {
-                              "description": "Largest number of input tokens accepted in one request.",
+                              "description": "Maximum number of input tokens accepted in one request.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
                             },
                             "maxOutputTokens": {
-                              "description": "Largest number of tokens the model may generate in one response.",
+                              "description": "Maximum number of tokens the model may generate in one response.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
@@ -1756,13 +1801,13 @@
                               "type": "integer"
                             },
                             "maxInputTokens": {
-                              "description": "Largest number of input tokens accepted in one request.",
+                              "description": "Maximum number of input tokens accepted in one request.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
                             },
                             "maxOutputTokens": {
-                              "description": "Largest number of tokens the model may generate in one response.",
+                              "description": "Maximum number of tokens the model may generate in one response.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
@@ -1862,13 +1907,13 @@
                               "type": "integer"
                             },
                             "maxInputTokens": {
-                              "description": "Largest number of input tokens accepted in one request.",
+                              "description": "Maximum number of input tokens accepted in one request.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
                             },
                             "maxOutputTokens": {
-                              "description": "Largest number of tokens the model may generate in one response.",
+                              "description": "Maximum number of tokens the model may generate in one response.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
@@ -2046,13 +2091,13 @@
                               "type": "integer"
                             },
                             "maxInputTokens": {
-                              "description": "Largest number of input tokens accepted in one request.",
+                              "description": "Maximum number of input tokens accepted in one request.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
                             },
                             "maxOutputTokens": {
-                              "description": "Largest number of tokens the model may generate in one response.",
+                              "description": "Maximum number of tokens the model may generate in one response.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
@@ -2152,13 +2197,13 @@
                               "type": "integer"
                             },
                             "maxInputTokens": {
-                              "description": "Largest number of input tokens accepted in one request.",
+                              "description": "Maximum number of input tokens accepted in one request.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
                             },
                             "maxOutputTokens": {
-                              "description": "Largest number of tokens the model may generate in one response.",
+                              "description": "Maximum number of tokens the model may generate in one response.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
@@ -2351,13 +2396,13 @@
                               "type": "integer"
                             },
                             "maxInputTokens": {
-                              "description": "Largest number of input tokens accepted in one request.",
+                              "description": "Maximum number of input tokens accepted in one request.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
                             },
                             "maxOutputTokens": {
-                              "description": "Largest number of tokens the model may generate in one response.",
+                              "description": "Maximum number of tokens the model may generate in one response.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
@@ -2457,13 +2502,13 @@
                               "type": "integer"
                             },
                             "maxInputTokens": {
-                              "description": "Largest number of input tokens accepted in one request.",
+                              "description": "Maximum number of input tokens accepted in one request.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
                             },
                             "maxOutputTokens": {
-                              "description": "Largest number of tokens the model may generate in one response.",
+                              "description": "Maximum number of tokens the model may generate in one response.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
@@ -2641,13 +2686,13 @@
                               "type": "integer"
                             },
                             "maxInputTokens": {
-                              "description": "Largest number of input tokens accepted in one request.",
+                              "description": "Maximum number of input tokens accepted in one request.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
                             },
                             "maxOutputTokens": {
-                              "description": "Largest number of tokens the model may generate in one response.",
+                              "description": "Maximum number of tokens the model may generate in one response.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
@@ -2747,13 +2792,13 @@
                               "type": "integer"
                             },
                             "maxInputTokens": {
-                              "description": "Largest number of input tokens accepted in one request.",
+                              "description": "Maximum number of input tokens accepted in one request.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
                             },
                             "maxOutputTokens": {
-                              "description": "Largest number of tokens the model may generate in one response.",
+                              "description": "Maximum number of tokens the model may generate in one response.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
@@ -2838,7 +2883,7 @@
                         "type": "string"
                       },
                       "connectionName": {
-                        "description": "Which connection from `connections.toml` to use. Node-backed surfaces only; Positron uses its own Snowflake sign-in.",
+                        "description": "Which connection from `connections.toml` to use. Ignored in Positron, which uses its own Snowflake sign-in.",
                         "type": "string"
                       },
                       "home": {
@@ -2969,13 +3014,13 @@
                               "type": "integer"
                             },
                             "maxInputTokens": {
-                              "description": "Largest number of input tokens accepted in one request.",
+                              "description": "Maximum number of input tokens accepted in one request.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
                             },
                             "maxOutputTokens": {
-                              "description": "Largest number of tokens the model may generate in one response.",
+                              "description": "Maximum number of tokens the model may generate in one response.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
@@ -3075,13 +3120,13 @@
                               "type": "integer"
                             },
                             "maxInputTokens": {
-                              "description": "Largest number of input tokens accepted in one request.",
+                              "description": "Maximum number of input tokens accepted in one request.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
                             },
                             "maxOutputTokens": {
-                              "description": "Largest number of tokens the model may generate in one response.",
+                              "description": "Maximum number of tokens the model may generate in one response.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
@@ -3259,13 +3304,13 @@
                               "type": "integer"
                             },
                             "maxInputTokens": {
-                              "description": "Largest number of input tokens accepted in one request.",
+                              "description": "Maximum number of input tokens accepted in one request.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
                             },
                             "maxOutputTokens": {
-                              "description": "Largest number of tokens the model may generate in one response.",
+                              "description": "Maximum number of tokens the model may generate in one response.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
@@ -3365,13 +3410,13 @@
                               "type": "integer"
                             },
                             "maxInputTokens": {
-                              "description": "Largest number of input tokens accepted in one request.",
+                              "description": "Maximum number of input tokens accepted in one request.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
                             },
                             "maxOutputTokens": {
-                              "description": "Largest number of tokens the model may generate in one response.",
+                              "description": "Maximum number of tokens the model may generate in one response.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
@@ -3549,13 +3594,13 @@
                               "type": "integer"
                             },
                             "maxInputTokens": {
-                              "description": "Largest number of input tokens accepted in one request.",
+                              "description": "Maximum number of input tokens accepted in one request.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
                             },
                             "maxOutputTokens": {
-                              "description": "Largest number of tokens the model may generate in one response.",
+                              "description": "Maximum number of tokens the model may generate in one response.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
@@ -3655,13 +3700,13 @@
                               "type": "integer"
                             },
                             "maxInputTokens": {
-                              "description": "Largest number of input tokens accepted in one request.",
+                              "description": "Maximum number of input tokens accepted in one request.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
                             },
                             "maxOutputTokens": {
-                              "description": "Largest number of tokens the model may generate in one response.",
+                              "description": "Maximum number of tokens the model may generate in one response.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
@@ -3839,13 +3884,13 @@
                               "type": "integer"
                             },
                             "maxInputTokens": {
-                              "description": "Largest number of input tokens accepted in one request.",
+                              "description": "Maximum number of input tokens accepted in one request.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
                             },
                             "maxOutputTokens": {
-                              "description": "Largest number of tokens the model may generate in one response.",
+                              "description": "Maximum number of tokens the model may generate in one response.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
@@ -3945,13 +3990,13 @@
                               "type": "integer"
                             },
                             "maxInputTokens": {
-                              "description": "Largest number of input tokens accepted in one request.",
+                              "description": "Maximum number of input tokens accepted in one request.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
                             },
                             "maxOutputTokens": {
-                              "description": "Largest number of tokens the model may generate in one response.",
+                              "description": "Maximum number of tokens the model may generate in one response.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
@@ -4129,13 +4174,13 @@
                               "type": "integer"
                             },
                             "maxInputTokens": {
-                              "description": "Largest number of input tokens accepted in one request.",
+                              "description": "Maximum number of input tokens accepted in one request.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
                             },
                             "maxOutputTokens": {
-                              "description": "Largest number of tokens the model may generate in one response.",
+                              "description": "Maximum number of tokens the model may generate in one response.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
@@ -4235,13 +4280,13 @@
                               "type": "integer"
                             },
                             "maxInputTokens": {
-                              "description": "Largest number of input tokens accepted in one request.",
+                              "description": "Maximum number of input tokens accepted in one request.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
                             },
                             "maxOutputTokens": {
-                              "description": "Largest number of tokens the model may generate in one response.",
+                              "description": "Maximum number of tokens the model may generate in one response.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
@@ -4419,13 +4464,13 @@
                               "type": "integer"
                             },
                             "maxInputTokens": {
-                              "description": "Largest number of input tokens accepted in one request.",
+                              "description": "Maximum number of input tokens accepted in one request.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
                             },
                             "maxOutputTokens": {
-                              "description": "Largest number of tokens the model may generate in one response.",
+                              "description": "Maximum number of tokens the model may generate in one response.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
@@ -4525,13 +4570,13 @@
                               "type": "integer"
                             },
                             "maxInputTokens": {
-                              "description": "Largest number of input tokens accepted in one request.",
+                              "description": "Maximum number of input tokens accepted in one request.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
                             },
                             "maxOutputTokens": {
-                              "description": "Largest number of tokens the model may generate in one response.",
+                              "description": "Maximum number of tokens the model may generate in one response.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
@@ -4709,13 +4754,13 @@
                               "type": "integer"
                             },
                             "maxInputTokens": {
-                              "description": "Largest number of input tokens accepted in one request.",
+                              "description": "Maximum number of input tokens accepted in one request.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
                             },
                             "maxOutputTokens": {
-                              "description": "Largest number of tokens the model may generate in one response.",
+                              "description": "Maximum number of tokens the model may generate in one response.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
@@ -4815,13 +4860,13 @@
                               "type": "integer"
                             },
                             "maxInputTokens": {
-                              "description": "Largest number of input tokens accepted in one request.",
+                              "description": "Maximum number of input tokens accepted in one request.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
                             },
                             "maxOutputTokens": {
-                              "description": "Largest number of tokens the model may generate in one response.",
+                              "description": "Maximum number of tokens the model may generate in one response.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
@@ -4999,13 +5044,13 @@
                               "type": "integer"
                             },
                             "maxInputTokens": {
-                              "description": "Largest number of input tokens accepted in one request.",
+                              "description": "Maximum number of input tokens accepted in one request.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
                             },
                             "maxOutputTokens": {
-                              "description": "Largest number of tokens the model may generate in one response.",
+                              "description": "Maximum number of tokens the model may generate in one response.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
@@ -5105,13 +5150,13 @@
                               "type": "integer"
                             },
                             "maxInputTokens": {
-                              "description": "Largest number of input tokens accepted in one request.",
+                              "description": "Maximum number of input tokens accepted in one request.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
                             },
                             "maxOutputTokens": {
-                              "description": "Largest number of tokens the model may generate in one response.",
+                              "description": "Maximum number of tokens the model may generate in one response.",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991,
                               "type": "integer"
@@ -5200,7 +5245,7 @@
               }
             ]
           },
-          "description": "Providers you declare yourself, keyed by a name of your choosing. Available on Node-backed surfaces (Standalone, Desktop, RStudio, and the Terminal); Positron does not expose custom providers.",
+          "description": "Providers you declare yourself, keyed by a name of your choosing.",
           "propertyNames": {
             "description": "Name of your choosing, also used as the display name.",
             "type": "string"
@@ -5302,13 +5347,13 @@
                         "type": "integer"
                       },
                       "maxInputTokens": {
-                        "description": "Largest number of input tokens accepted in one request.",
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
-                        "description": "Largest number of tokens the model may generate in one response.",
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
@@ -5408,13 +5453,13 @@
                         "type": "integer"
                       },
                       "maxInputTokens": {
-                        "description": "Largest number of input tokens accepted in one request.",
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
-                        "description": "Largest number of tokens the model may generate in one response.",
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
@@ -5577,13 +5622,13 @@
                         "type": "integer"
                       },
                       "maxInputTokens": {
-                        "description": "Largest number of input tokens accepted in one request.",
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
-                        "description": "Largest number of tokens the model may generate in one response.",
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
@@ -5683,13 +5728,13 @@
                         "type": "integer"
                       },
                       "maxInputTokens": {
-                        "description": "Largest number of input tokens accepted in one request.",
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
-                        "description": "Largest number of tokens the model may generate in one response.",
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
@@ -5863,13 +5908,13 @@
                         "type": "integer"
                       },
                       "maxInputTokens": {
-                        "description": "Largest number of input tokens accepted in one request.",
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
-                        "description": "Largest number of tokens the model may generate in one response.",
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
@@ -5969,13 +6014,13 @@
                         "type": "integer"
                       },
                       "maxInputTokens": {
-                        "description": "Largest number of input tokens accepted in one request.",
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
-                        "description": "Largest number of tokens the model may generate in one response.",
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
@@ -6153,13 +6198,13 @@
                         "type": "integer"
                       },
                       "maxInputTokens": {
-                        "description": "Largest number of input tokens accepted in one request.",
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
-                        "description": "Largest number of tokens the model may generate in one response.",
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
@@ -6259,13 +6304,13 @@
                         "type": "integer"
                       },
                       "maxInputTokens": {
-                        "description": "Largest number of input tokens accepted in one request.",
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
-                        "description": "Largest number of tokens the model may generate in one response.",
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
@@ -6428,13 +6473,13 @@
                         "type": "integer"
                       },
                       "maxInputTokens": {
-                        "description": "Largest number of input tokens accepted in one request.",
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
-                        "description": "Largest number of tokens the model may generate in one response.",
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
@@ -6534,13 +6579,13 @@
                         "type": "integer"
                       },
                       "maxInputTokens": {
-                        "description": "Largest number of input tokens accepted in one request.",
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
-                        "description": "Largest number of tokens the model may generate in one response.",
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
@@ -6703,13 +6748,13 @@
                         "type": "integer"
                       },
                       "maxInputTokens": {
-                        "description": "Largest number of input tokens accepted in one request.",
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
-                        "description": "Largest number of tokens the model may generate in one response.",
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
@@ -6809,13 +6854,13 @@
                         "type": "integer"
                       },
                       "maxInputTokens": {
-                        "description": "Largest number of input tokens accepted in one request.",
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
-                        "description": "Largest number of tokens the model may generate in one response.",
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
@@ -6900,8 +6945,10 @@
           "properties": {
             "azure": {
               "additionalProperties": false,
+              "description": "Microsoft Entra ID connection settings for the built-in ms-foundry provider.",
               "properties": {
                 "authMode": {
+                  "description": "How to authenticate: `apikey` (default, back-compat) or `entra` for Microsoft Entra ID sign-in.",
                   "enum": [
                     "apikey",
                     "entra"
@@ -6909,9 +6956,11 @@
                   "type": "string"
                 },
                 "scope": {
+                  "description": "OAuth scope requested when acquiring a Microsoft Entra ID token.",
                   "type": "string"
                 },
                 "tenantId": {
+                  "description": "Microsoft Entra ID tenant to authenticate against. Uses the default tenant if unset.",
                   "type": "string"
                 }
               },
@@ -6997,13 +7046,13 @@
                         "type": "integer"
                       },
                       "maxInputTokens": {
-                        "description": "Largest number of input tokens accepted in one request.",
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
-                        "description": "Largest number of tokens the model may generate in one response.",
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
@@ -7103,13 +7152,13 @@
                         "type": "integer"
                       },
                       "maxInputTokens": {
-                        "description": "Largest number of input tokens accepted in one request.",
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
-                        "description": "Largest number of tokens the model may generate in one response.",
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
@@ -7272,13 +7321,13 @@
                         "type": "integer"
                       },
                       "maxInputTokens": {
-                        "description": "Largest number of input tokens accepted in one request.",
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
-                        "description": "Largest number of tokens the model may generate in one response.",
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
@@ -7378,13 +7427,13 @@
                         "type": "integer"
                       },
                       "maxInputTokens": {
-                        "description": "Largest number of input tokens accepted in one request.",
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
-                        "description": "Largest number of tokens the model may generate in one response.",
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
@@ -7547,13 +7596,13 @@
                         "type": "integer"
                       },
                       "maxInputTokens": {
-                        "description": "Largest number of input tokens accepted in one request.",
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
-                        "description": "Largest number of tokens the model may generate in one response.",
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
@@ -7653,13 +7702,13 @@
                         "type": "integer"
                       },
                       "maxInputTokens": {
-                        "description": "Largest number of input tokens accepted in one request.",
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
-                        "description": "Largest number of tokens the model may generate in one response.",
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
@@ -7822,13 +7871,13 @@
                         "type": "integer"
                       },
                       "maxInputTokens": {
-                        "description": "Largest number of input tokens accepted in one request.",
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
-                        "description": "Largest number of tokens the model may generate in one response.",
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
@@ -7928,13 +7977,13 @@
                         "type": "integer"
                       },
                       "maxInputTokens": {
-                        "description": "Largest number of input tokens accepted in one request.",
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
-                        "description": "Largest number of tokens the model may generate in one response.",
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
@@ -8097,13 +8146,13 @@
                         "type": "integer"
                       },
                       "maxInputTokens": {
-                        "description": "Largest number of input tokens accepted in one request.",
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
-                        "description": "Largest number of tokens the model may generate in one response.",
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
@@ -8203,13 +8252,13 @@
                         "type": "integer"
                       },
                       "maxInputTokens": {
-                        "description": "Largest number of input tokens accepted in one request.",
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
-                        "description": "Largest number of tokens the model may generate in one response.",
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
@@ -8372,13 +8421,13 @@
                         "type": "integer"
                       },
                       "maxInputTokens": {
-                        "description": "Largest number of input tokens accepted in one request.",
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
-                        "description": "Largest number of tokens the model may generate in one response.",
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
@@ -8478,13 +8527,13 @@
                         "type": "integer"
                       },
                       "maxInputTokens": {
-                        "description": "Largest number of input tokens accepted in one request.",
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
-                        "description": "Largest number of tokens the model may generate in one response.",
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
@@ -8647,13 +8696,13 @@
                         "type": "integer"
                       },
                       "maxInputTokens": {
-                        "description": "Largest number of input tokens accepted in one request.",
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
-                        "description": "Largest number of tokens the model may generate in one response.",
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
@@ -8753,13 +8802,13 @@
                         "type": "integer"
                       },
                       "maxInputTokens": {
-                        "description": "Largest number of input tokens accepted in one request.",
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
-                        "description": "Largest number of tokens the model may generate in one response.",
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
@@ -8941,13 +8990,13 @@
                         "type": "integer"
                       },
                       "maxInputTokens": {
-                        "description": "Largest number of input tokens accepted in one request.",
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
-                        "description": "Largest number of tokens the model may generate in one response.",
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
@@ -9047,13 +9096,13 @@
                         "type": "integer"
                       },
                       "maxInputTokens": {
-                        "description": "Largest number of input tokens accepted in one request.",
+                        "description": "Maximum number of input tokens accepted in one request.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
                       },
                       "maxOutputTokens": {
-                        "description": "Largest number of tokens the model may generate in one response.",
+                        "description": "Maximum number of tokens the model may generate in one response.",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991,
                         "type": "integer"
@@ -9138,7 +9187,7 @@
                   "type": "string"
                 },
                 "connectionName": {
-                  "description": "Which connection from `connections.toml` to use. Node-backed surfaces only; Positron uses its own Snowflake sign-in.",
+                  "description": "Which connection from `connections.toml` to use. Ignored in Positron, which uses its own Snowflake sign-in.",
                   "type": "string"
                 },
                 "home": {

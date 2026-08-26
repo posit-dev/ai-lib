@@ -68,13 +68,13 @@ export const modelOverrideSchema = z
 			.number()
 			.int()
 			.positive()
-			.describe("Largest number of input tokens accepted in one request.")
+			.describe("Maximum number of input tokens accepted in one request.")
 			.optional(),
 		maxOutputTokens: z
 			.number()
 			.int()
 			.positive()
-			.describe("Largest number of tokens the model may generate in one response.")
+			.describe("Maximum number of tokens the model may generate in one response.")
 			.optional(),
 		protocol: protocolSchema
 			.describe("API wire protocol for this model, overriding the provider's protocol.")
@@ -135,13 +135,13 @@ export const customModelSchema = z
 			.number()
 			.int()
 			.positive()
-			.describe("Largest number of input tokens accepted in one request.")
+			.describe("Maximum number of input tokens accepted in one request.")
 			.optional(),
 		maxOutputTokens: z
 			.number()
 			.int()
 			.positive()
-			.describe("Largest number of tokens the model may generate in one response.")
+			.describe("Maximum number of tokens the model may generate in one response.")
 			.optional(),
 		protocol: protocolSchema
 			.describe("API wire protocol for this model, overriding the provider's protocol.")
@@ -265,11 +265,24 @@ export const azureAuthModeSchema = z.enum(["apikey", "entra"]);
  */
 export const azureConfigSchema = z
 	.object({
-		authMode: azureAuthModeSchema.optional(),
-		scope: z.string().optional(),
-		tenantId: z.string().optional(),
+		authMode: azureAuthModeSchema
+			.describe(
+				"How to authenticate: `apikey` (default, back-compat) or `entra` for Microsoft Entra ID sign-in.",
+			)
+			.optional(),
+		scope: z
+			.string()
+			.describe("OAuth scope requested when acquiring a Microsoft Entra ID token.")
+			.optional(),
+		tenantId: z
+			.string()
+			.describe(
+				"Microsoft Entra ID tenant to authenticate against. Uses the default tenant if unset.",
+			)
+			.optional(),
 	})
-	.strict();
+	.strict()
+	.describe("Microsoft Entra ID connection settings for the built-in ms-foundry provider.");
 
 export const snowflakeConfigSchema = z
 	.object({
@@ -301,7 +314,7 @@ export const snowflakeConfigSchema = z
 		connectionName: z
 			.string()
 			.describe(
-				"Which connection from `connections.toml` to use. Node-backed surfaces only; Positron uses its own Snowflake sign-in.",
+				"Which connection from `connections.toml` to use. Ignored in Positron, which uses its own Snowflake sign-in.",
 			)
 			.optional(),
 	})
@@ -659,9 +672,7 @@ export const providersMapSchema = z
 					customProviderEntrySchema,
 				),
 			)
-			.describe(
-				"Providers you declare yourself, keyed by a name of your choosing. Available on Node-backed surfaces (Standalone, Desktop, RStudio, and the Terminal); Positron does not expose custom providers.",
-			)
+			.describe("Providers you declare yourself, keyed by a name of your choosing.")
 			.optional(),
 	})
 	.strict();
