@@ -17,23 +17,19 @@ export function isThinkingEnabled(effort: string | undefined): boolean {
 }
 
 /**
- * Request-body fields that control thinking on an OpenAI-chat-protocol model.
+ * Request-body fields that enable thinking on an OpenAI-chat-protocol model.
  *
  * Named effort levels (anything but the binary `"on"`) go out as the OpenAI-style
  * top-level `reasoning_effort`. Binary-toggle models (`requiresChatTemplateKwargs`)
  * take the vLLM-style `chat_template_kwargs` instead.
  *
- * @returns Fields to merge into the request body, or `undefined` when no
- *          explicit thinking control is needed.
+ * @returns Fields to merge into the request body, or `undefined` when thinking
+ *          is off or the model has no way to enable it.
  */
 export function thinkingRequestFields(
 	effort: string | undefined,
 	requiresChatTemplateKwargs: boolean,
-	modelId: string,
 ): Record<string, unknown> | undefined {
-	if (effort === "off" && modelId === "deepseek-ai/DeepSeek-V4-Flash-0731") {
-		return { reasoning_effort: "none" };
-	}
 	if (!isThinkingEnabled(effort)) {
 		return undefined;
 	}
@@ -43,6 +39,17 @@ export function thinkingRequestFields(
 	return requiresChatTemplateKwargs
 		? { chat_template_kwargs: { enable_thinking: true } }
 		: undefined;
+}
+
+export function positAiThinkingRequestFields(
+	modelId: string,
+	effort: string | undefined,
+	requiresChatTemplateKwargs: boolean,
+): Record<string, unknown> | undefined {
+	if (modelId === "deepseek-ai/DeepSeek-V4-Flash-0731" && effort === "off") {
+		return { reasoning_effort: "none" };
+	}
+	return thinkingRequestFields(effort, requiresChatTemplateKwargs);
 }
 
 // ---------------------------------------------------------------------------

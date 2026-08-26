@@ -8,41 +8,42 @@ import {
 	buildSnowflakeCortexUrl,
 	buildSnowflakeCortexUrlFromHost,
 	normalizeProviderBaseUrl,
+	positAiThinkingRequestFields,
 	thinkingRequestFields,
 } from "../utils";
 
 describe("thinkingRequestFields", () => {
 	it("returns undefined when thinking is off or unset", () => {
-		expect(thinkingRequestFields(undefined, true, "zai-org/GLM-5.2")).toBeUndefined();
-		expect(thinkingRequestFields("off", false, "moonshotai/Kimi-K3")).toBeUndefined();
+		expect(thinkingRequestFields(undefined, true)).toBeUndefined();
+		expect(thinkingRequestFields("off", true)).toBeUndefined();
 	});
 
 	it("maps a named effort level to a top-level reasoning_effort", () => {
-		expect(thinkingRequestFields("low", false, "moonshotai/Kimi-K3")).toEqual({
-			reasoning_effort: "low",
-		});
-		expect(thinkingRequestFields("max", false, "moonshotai/Kimi-K3")).toEqual({
-			reasoning_effort: "max",
-		});
+		expect(thinkingRequestFields("low", false)).toEqual({ reasoning_effort: "low" });
+		expect(thinkingRequestFields("max", false)).toEqual({ reasoning_effort: "max" });
 	});
 
 	it("maps binary 'on' to chat_template_kwargs when the model requires it", () => {
-		expect(thinkingRequestFields("on", true, "zai-org/GLM-5.2")).toEqual({
+		expect(thinkingRequestFields("on", true)).toEqual({
 			chat_template_kwargs: { enable_thinking: true },
 		});
 	});
 
 	it("returns undefined for binary 'on' without the chat_template_kwargs flag", () => {
-		expect(thinkingRequestFields("on", false, "moonshotai/Kimi-K3")).toBeUndefined();
+		expect(thinkingRequestFields("on", false)).toBeUndefined();
 	});
+});
 
-	it("maps DeepSeek named and off efforts to top-level values", () => {
-		expect(thinkingRequestFields("high", false, "deepseek-ai/DeepSeek-V4-Flash-0731")).toEqual({
-			reasoning_effort: "high",
-		});
-		expect(thinkingRequestFields("off", false, "deepseek-ai/DeepSeek-V4-Flash-0731")).toEqual({
+describe("positAiThinkingRequestFields", () => {
+	it("maps DeepSeek off to none and reuses named efforts", () => {
+		expect(
+			positAiThinkingRequestFields("deepseek-ai/DeepSeek-V4-Flash-0731", "off", false),
+		).toEqual({
 			reasoning_effort: "none",
 		});
+		expect(
+			positAiThinkingRequestFields("deepseek-ai/DeepSeek-V4-Flash-0731", "high", false),
+		).toEqual({ reasoning_effort: "high" });
 	});
 });
 
