@@ -9,6 +9,7 @@
 import type { SourcedConfigIssue } from "../config-issue.js";
 import type { Disposable as ConfigDisposable } from "../config-source.js";
 import type { LegacySettingsReader } from "../legacy-positron-settings/translate.js";
+import type { ProviderConfigSource } from "../resolve-catalog.js";
 import type { LoggerLike, ResolvedProvider } from "../types.js";
 
 // Re-export the pure logger type so node consumers can import it from here.
@@ -88,6 +89,16 @@ export interface LoadCatalogOptions {
 	 * stale legacy setting the migration copied it from.
 	 */
 	readonly legacyPositronEnforcedSettings?: boolean;
+
+	/**
+	 * Optional transform applied to every loaded source (file, env fragments,
+	 * legacy) before resolution. Supports counterfactual ("what-if") queries —
+	 * e.g. a clear-confirmation flow re-resolving the catalog without the
+	 * user-layer leaves a disconnect would remove — while reusing the exact
+	 * source options (paths, env vars, legacy channels) of the live load.
+	 * Load-path only; watch paths never apply it.
+	 */
+	readonly transformSource?: (source: ProviderConfigSource) => ProviderConfigSource;
 }
 
 /**
