@@ -71,10 +71,13 @@ interface UserRouting {
 /** No user-configured routing — discovered models start with this. */
 const NO_USER_ROUTING: UserRouting = { protocol: undefined, baseUrl: undefined };
 
-/** A model paired with its user-configured routing (pipeline-internal). */
+type PipelineEntrySource = "discovered" | "custom";
+
+/** A model paired with its source and user-configured routing (pipeline-internal). */
 interface PipelineEntry {
 	model: ModelInfoLike;
 	userRouting: UserRouting;
+	source: PipelineEntrySource;
 }
 
 /**
@@ -93,17 +96,29 @@ export function resolveModels(
 	discovered: readonly ModelInfoLike[],
 	providerConnection?: ResolvedConnection,
 ): ResolvedModelInfo[] {
+	return resolveModelEntries(modelsBlock, discovered).map((e) =>
+		attachRouting(e.model, e.userRouting, providerConnection),
+	);
+}
+
+function resolveModelEntries(
+	modelsBlock: ModelsBlock | undefined,
+	discovered: readonly ModelInfoLike[],
+): PipelineEntry[] {
 	if (!modelsBlock) {
 		// No models block — pass through discovered models with routing resolved.
 		// Discovered protocol is built-in inference only (lowest precedence).
-		return discovered.map((m) => attachRouting(m, NO_USER_ROUTING, providerConnection));
+		return discovered.map((m) => ({
+			model: m,
+			userRouting: NO_USER_ROUTING,
+			source: "discovered",
+		}));
 	}
 
 	// 1. Discovery gate
-	const base: PipelineEntry[] =
-		modelsBlock.discovery === "off"
-			? []
-			: discovered.map((m) => ({ model: m, userRouting: NO_USER_ROUTING }));
+	const base: PipelineEntry[] = isModelDiscoveryEnabled(modelsBlock)
+		? discovered.map((m) => ({ model: m, userRouting: NO_USER_ROUTING, source: "discovered" }))
+		: [];
 
 	// 2. Add custom models (protocol/baseUrl are user-configured)
 	const customs = modelsBlock.custom;
@@ -112,10 +127,15 @@ export function resolveModels(
 			base.push({
 				model: customModelToModelInfo(custom),
 				userRouting: { protocol: custom.protocol, baseUrl: custom.baseUrl },
+				source: "custom",
 			});
 		}
 	}
 
+	return applyModelPolicy(modelsBlock, base);
+}
+
+function applyModelPolicy(modelsBlock: ModelsBlock, base: PipelineEntry[]): PipelineEntry[] {
 	// 3. Apply overrides (protocol/baseUrl from overrides are user-configured)
 	const overrides = modelsBlock.overrides;
 	if (overrides) {
@@ -145,8 +165,61 @@ export function resolveModels(
 		result = result.filter((e) => !denySet.has(e.model.id));
 	}
 
-	// 6. Resolve routing for each surviving model
-	return result.map((e) => attachRouting(e.model, e.userRouting, providerConnection));
+	return result;
+}
+
+/**
+ * Whether a provider should query runtime discovery for models.
+ */
+export function isModelDiscoveryEnabled(modelsBlock: ModelsBlock | undefined): boolean {
+	return modelsBlock?.discovery !== "off";
+}
+
+/**
+ * Resolve a provider's final model ids after discovery policy, custom models,
+ * overrides, allow, and deny are applied.
+ */
+export function resolveModelIds(
+	modelsBlock: ModelsBlock | undefined,
+	discoveredModelIds: readonly string[],
+): string[] {
+	return resolveModels(
+		modelsBlock,
+		discoveredModelIds.map((id) => modelIdToModelInfo(id)),
+	).map((model) => model.id);
+}
+
+/**
+ * Filters discovered model rows through the same model resolver that handles
+ * providers.json allow/deny semantics. Custom declarations do not authorize a
+ * caller-provided row with the same id; use resolveModels for the complete list.
+ */
+export function filterDiscoveredModelsByPolicy<T>(
+	modelsBlock: ModelsBlock | undefined,
+	models: readonly T[],
+	getModelId: (model: T) => string,
+): T[] {
+	if (!modelsBlock) {
+		return [...models];
+	}
+
+	const resolvedDiscoveredIds = new Set(
+		resolveModelEntries(
+			modelsBlock,
+			models.map((model) => modelIdToModelInfo(getModelId(model))),
+		)
+			.filter((entry) => entry.source === "discovered")
+			.map((entry) => entry.model.id),
+	);
+	return models.filter((model) => resolvedDiscoveredIds.has(getModelId(model)));
+}
+
+/** Checks whether a raw provider model id survives complete model policy resolution. */
+export function isModelIdAllowedByPolicy(
+	modelsBlock: ModelsBlock | undefined,
+	modelId: string,
+): boolean {
+	return resolveModelIds(modelsBlock, [modelId]).includes(modelId);
 }
 
 /**
@@ -190,6 +263,18 @@ function attachRouting(
 	};
 }
 
+function modelIdToModelInfo(id: string): ModelInfoLike {
+	return {
+		id,
+		name: id,
+		maxContextLength: 0,
+		supportsTools: false,
+		supportsImages: false,
+		supportsToolResultImages: false,
+		supportsWebSearch: false,
+	};
+}
+
 /** Convert a custom model definition to a ModelInfoLike. */
 function customModelToModelInfo(custom: CustomModel): ModelInfoLike {
 	return {
@@ -225,6 +310,7 @@ function applyOverrideEntry(entry: PipelineEntry, override: ModelOverride): Pipe
 
 	return {
 		model,
+		source: entry.source,
 		userRouting: {
 			// Override routing takes precedence over any prior user routing
 			// (e.g. a custom model that also gets overridden).

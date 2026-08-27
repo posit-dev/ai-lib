@@ -4,6 +4,12 @@
 
 import { describe, it, expect } from "vitest";
 
+import {
+	filterDiscoveredModelsByPolicy,
+	isModelDiscoveryEnabled,
+	isModelIdAllowedByPolicy,
+	resolveModelIds,
+} from "../model-policy.js";
 import { resolveModels } from "../resolve-models.js";
 import type { ModelInfoLike, ModelsBlock, ResolvedConnection } from "../types.js";
 
@@ -397,5 +403,103 @@ describe("resolveModels", () => {
 		expect(result[0].name).toBe("Model A (patched)");
 		expect(result[0].resolvedProtocol).toBe("openai-chat");
 		expect(result[1].id).toBe("custom-1");
+	});
+});
+
+describe("model policy helpers", () => {
+	it("isModelDiscoveryEnabled treats discovery off as the only disabled state", () => {
+		expect([
+			isModelDiscoveryEnabled(undefined),
+			isModelDiscoveryEnabled({}),
+			isModelDiscoveryEnabled({ discovery: "auto" }),
+			isModelDiscoveryEnabled({ discovery: "off" }),
+		]).toEqual([true, true, true, false]);
+	});
+
+	it("resolveModelIds applies the complete resolver pipeline", () => {
+		const block: ModelsBlock = {
+			custom: [
+				{
+					id: "custom-1",
+					name: "Custom 1",
+					maxContextLength: 50000,
+					supportsTools: true,
+					supportsImages: false,
+					supportsToolResultImages: false,
+					supportsWebSearch: false,
+				},
+			],
+			allow: ["model-a", "model-b", "custom-1"],
+			deny: ["model-b"],
+		};
+
+		expect(resolveModelIds(block, ["model-a", "model-b", "model-c"])).toEqual([
+			"model-a",
+			"custom-1",
+		]);
+	});
+
+	it("filterDiscoveredModelsByPolicy preserves host model rows while applying allow and deny", () => {
+		const block: ModelsBlock = {
+			allow: ["model-a", "model-b"],
+			deny: ["model-b"],
+		};
+		const models = [
+			{ id: "model-a", label: "A" },
+			{ id: "model-b", label: "B" },
+			{ id: "model-c", label: "C" },
+		];
+
+		expect(filterDiscoveredModelsByPolicy(block, models, (model) => model.id)).toEqual([
+			{ id: "model-a", label: "A" },
+		]);
+	});
+
+	it("filterDiscoveredModelsByPolicy does not let custom models authorize discovered rows", () => {
+		const block: ModelsBlock = {
+			discovery: "off",
+			custom: [
+				{
+					id: "model-a",
+					name: "Custom Model A",
+					maxContextLength: 50000,
+					supportsTools: true,
+					supportsImages: false,
+					supportsToolResultImages: false,
+					supportsWebSearch: false,
+				},
+			],
+		};
+		const models = [{ id: "model-a", label: "Discovered A" }];
+
+		expect({
+			discoveredModels: filterDiscoveredModelsByPolicy(block, models, (model) => model.id),
+			resolvedIds: resolveModelIds(block, ["model-a"]),
+			modelAAllowed: isModelIdAllowedByPolicy(block, "model-a"),
+		}).toEqual({
+			discoveredModels: [],
+			resolvedIds: ["model-a"],
+			modelAAllowed: true,
+		});
+	});
+
+	it("isModelIdAllowedByPolicy checks the requested id, not unrelated custom declarations", () => {
+		const block: ModelsBlock = {
+			custom: [
+				{
+					id: "custom-1",
+					name: "Custom 1",
+					maxContextLength: 50000,
+					supportsTools: true,
+					supportsImages: false,
+					supportsToolResultImages: false,
+					supportsWebSearch: false,
+				},
+			],
+			allow: ["custom-1"],
+		};
+
+		expect(isModelIdAllowedByPolicy(block, "model-a")).toBe(false);
+		expect(isModelIdAllowedByPolicy(block, "custom-1")).toBe(true);
 	});
 });

@@ -153,7 +153,13 @@ export {
 } from "./defaults.js";
 
 // --- Resolution helpers (public) -------------------------------------------
-export { resolveModels } from "./resolve-models.js";
+export {
+	filterDiscoveredModelsByPolicy,
+	isModelDiscoveryEnabled,
+	isModelIdAllowedByPolicy,
+	resolveModelIds,
+	resolveModels,
+} from "./resolve-models.js";
 
 // --- Bare-host base URL correction ------------------------------------------
 export {
