@@ -58,9 +58,9 @@ export const modelOverrideSchema = z
 	.strict();
 
 /**
- * Complete model definition declared for a model discovery does NOT return, or
- * to replace metadata for a discovered model with the same id. Required fields
- * are enforced at schema time (strict) — see `custom` in the models block.
+ * Complete model definition declared for a model discovery does NOT return.
+ * Required fields enforced at schema time (strict) — see `custom` in the
+ * models block.
  */
 export const customModelSchema = z
 	.object({
@@ -88,7 +88,7 @@ export const customModelSchema = z
  * - `allow` — when non-empty, an EXCLUSIVE allowlist of model ids.
  * - `deny` — subtracted from candidates; always wins over `allow`.
  * - `overrides` — partial patches keyed by model id.
- * - `custom` — complete model definitions discovery does not return, or same-id replacements.
+ * - `custom` — complete model definitions discovery does not return.
  */
 export const modelsBlockSchema = z
 	.object({

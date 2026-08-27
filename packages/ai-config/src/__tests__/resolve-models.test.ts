@@ -88,44 +88,6 @@ describe("resolveModels", () => {
 		expect(result[3].id).toBe("extra");
 	});
 
-	it("custom models replace discovered models with the same id", () => {
-		const block: ModelsBlock = {
-			custom: [
-				{
-					id: "model-a",
-					name: "Custom Model A",
-					maxContextLength: 50000,
-					supportsTools: false,
-					supportsImages: true,
-					supportsToolResultImages: false,
-					supportsWebSearch: true,
-				},
-			],
-		};
-		const result = resolveModels(block, [
-			makeModel("model-a", {
-				name: "Discovered Model A",
-				family: "discovered-family",
-				maxInputTokens: 25000,
-				protocol: "openai",
-			}),
-			makeModel("model-b"),
-		]);
-
-		expect(result.map((m) => m.id)).toEqual(["model-a", "model-b"]);
-		expect(result[0]).toMatchObject({
-			id: "model-a",
-			name: "Custom Model A",
-			family: "discovered-family",
-			maxContextLength: 50000,
-			maxInputTokens: 25000,
-			supportsTools: false,
-			supportsImages: true,
-			supportsWebSearch: true,
-			resolvedProtocol: "openai-chat",
-		});
-	});
-
 	// --- Overrides ---
 
 	it("applies overrides to matching models", () => {
