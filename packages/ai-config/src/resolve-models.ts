@@ -176,8 +176,9 @@ export function isModelDiscoveryEnabled(modelsBlock: ModelsBlock | undefined): b
 }
 
 /**
- * Resolve a provider's final model ids after discovery policy, custom models,
- * overrides, allow, and deny are applied.
+ * Resolve a provider's final model ids from discovered ids plus custom models.
+ * `discovery: "off"` drops discovered ids only; custom models still participate
+ * before overrides, allow, and deny.
  */
 export function resolveModelIds(
 	modelsBlock: ModelsBlock | undefined,
