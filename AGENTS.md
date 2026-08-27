@@ -1,6 +1,6 @@
 # ai-lib
 
-This file provides guidance to AI agents working in the `ai-lib` repository (GitHub: `posit-dev/ai-provider-bridge`).
+This file provides guidance to AI agents working in the `ai-lib` repository (GitHub: `posit-dev/ai-lib`).
 
 ## Project Overview
 
