@@ -11,4 +11,9 @@
  */
 
 export { CONFIG_KEY_OVERRIDES, shapeCredentials } from "ai-credentials/types";
-export type { AuthProviderMapping, CredentialConfig } from "ai-credentials/types";
+export type {
+	AuthProviderMapping,
+	CredentialConfig,
+	CredentialConfigTarget,
+	StructuredBaseUrlSource,
+} from "ai-credentials/types";
