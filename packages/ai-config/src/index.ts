@@ -154,7 +154,6 @@ export {
 
 // --- Resolution helpers (public) -------------------------------------------
 export {
-	filterDiscoveredModelsByPolicy,
 	isModelDiscoveryEnabled,
 	isModelIdAllowedByPolicy,
 	resolveModelIds,

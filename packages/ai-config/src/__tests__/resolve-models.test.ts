@@ -5,7 +5,6 @@
 import { describe, it, expect } from "vitest";
 
 import {
-	filterDiscoveredModelsByPolicy,
 	isModelDiscoveryEnabled,
 	isModelIdAllowedByPolicy,
 	resolveModelIds,
@@ -87,6 +86,44 @@ describe("resolveModels", () => {
 		const result = resolveModels(block, discovered);
 		expect(result).toHaveLength(4);
 		expect(result[3].id).toBe("extra");
+	});
+
+	it("custom models replace discovered models with the same id", () => {
+		const block: ModelsBlock = {
+			custom: [
+				{
+					id: "model-a",
+					name: "Custom Model A",
+					maxContextLength: 50000,
+					supportsTools: false,
+					supportsImages: true,
+					supportsToolResultImages: false,
+					supportsWebSearch: true,
+				},
+			],
+		};
+		const result = resolveModels(block, [
+			makeModel("model-a", {
+				name: "Discovered Model A",
+				family: "discovered-family",
+				maxInputTokens: 25000,
+				protocol: "openai",
+			}),
+			makeModel("model-b"),
+		]);
+
+		expect(result.map((m) => m.id)).toEqual(["model-a", "model-b"]);
+		expect(result[0]).toMatchObject({
+			id: "model-a",
+			name: "Custom Model A",
+			family: "discovered-family",
+			maxContextLength: 50000,
+			maxInputTokens: 25000,
+			supportsTools: false,
+			supportsImages: true,
+			supportsWebSearch: true,
+			resolvedProtocol: "openai-chat",
+		});
 	});
 
 	// --- Overrides ---
@@ -437,50 +474,6 @@ describe("model policy helpers", () => {
 			"model-a",
 			"custom-1",
 		]);
-	});
-
-	it("filterDiscoveredModelsByPolicy preserves host model rows while applying allow and deny", () => {
-		const block: ModelsBlock = {
-			allow: ["model-a", "model-b"],
-			deny: ["model-b"],
-		};
-		const models = [
-			{ id: "model-a", label: "A" },
-			{ id: "model-b", label: "B" },
-			{ id: "model-c", label: "C" },
-		];
-
-		expect(filterDiscoveredModelsByPolicy(block, models, (model) => model.id)).toEqual([
-			{ id: "model-a", label: "A" },
-		]);
-	});
-
-	it("filterDiscoveredModelsByPolicy does not let custom models authorize discovered rows", () => {
-		const block: ModelsBlock = {
-			discovery: "off",
-			custom: [
-				{
-					id: "model-a",
-					name: "Custom Model A",
-					maxContextLength: 50000,
-					supportsTools: true,
-					supportsImages: false,
-					supportsToolResultImages: false,
-					supportsWebSearch: false,
-				},
-			],
-		};
-		const models = [{ id: "model-a", label: "Discovered A" }];
-
-		expect({
-			discoveredModels: filterDiscoveredModelsByPolicy(block, models, (model) => model.id),
-			resolvedIds: resolveModelIds(block, ["model-a"]),
-			modelAAllowed: isModelIdAllowedByPolicy(block, "model-a"),
-		}).toEqual({
-			discoveredModels: [],
-			resolvedIds: ["model-a"],
-			modelAAllowed: true,
-		});
 	});
 
 	it("isModelIdAllowedByPolicy checks the requested id, not unrelated custom declarations", () => {

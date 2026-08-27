@@ -10,7 +10,8 @@
  *
  * Pipeline:
  * 1. If `discovery === "off"`, discovered = [].
- * 2. Candidates = discovered + custom models.
+ * 2. Candidates = discovered + custom models, with custom models replacing
+ *    same-id discovered models.
  * 3. Apply overrides to matching candidates by id.
  * 4. If `allow` is non-empty, filter to only allowed ids (exclusive allowlist).
  * 5. Subtract `deny` (deny always wins).
@@ -71,13 +72,10 @@ interface UserRouting {
 /** No user-configured routing — discovered models start with this. */
 const NO_USER_ROUTING: UserRouting = { protocol: undefined, baseUrl: undefined };
 
-type PipelineEntrySource = "discovered" | "custom";
-
-/** A model paired with its source and user-configured routing (pipeline-internal). */
+/** A model paired with its user-configured routing (pipeline-internal). */
 interface PipelineEntry {
 	model: ModelInfoLike;
 	userRouting: UserRouting;
-	source: PipelineEntrySource;
 }
 
 /**
@@ -111,24 +109,25 @@ function resolveModelEntries(
 		return discovered.map((m) => ({
 			model: m,
 			userRouting: NO_USER_ROUTING,
-			source: "discovered",
 		}));
 	}
 
 	// 1. Discovery gate
 	const base: PipelineEntry[] = isModelDiscoveryEnabled(modelsBlock)
-		? discovered.map((m) => ({ model: m, userRouting: NO_USER_ROUTING, source: "discovered" }))
+		? discovered.map((m) => ({ model: m, userRouting: NO_USER_ROUTING }))
 		: [];
 
-	// 2. Add custom models (protocol/baseUrl are user-configured)
+	// 2. Add or replace with custom models (protocol/baseUrl are user-configured)
 	const customs = modelsBlock.custom;
 	if (customs) {
 		for (const custom of customs) {
-			base.push({
-				model: customModelToModelInfo(custom),
-				userRouting: { protocol: custom.protocol, baseUrl: custom.baseUrl },
-				source: "custom",
-			});
+			const index = base.findIndex((entry) => entry.model.id === custom.id);
+			const customEntry = customModelToEntry(custom, index === -1 ? undefined : base[index]);
+			if (index === -1) {
+				base.push(customEntry);
+			} else {
+				base[index] = customEntry;
+			}
 		}
 	}
 
@@ -188,31 +187,6 @@ export function resolveModelIds(
 		modelsBlock,
 		discoveredModelIds.map((id) => modelIdToModelInfo(id)),
 	).map((model) => model.id);
-}
-
-/**
- * Filters discovered model rows through the same model resolver that handles
- * providers.json allow/deny semantics. Custom declarations do not authorize a
- * caller-provided row with the same id; use resolveModels for the complete list.
- */
-export function filterDiscoveredModelsByPolicy<T>(
-	modelsBlock: ModelsBlock | undefined,
-	models: readonly T[],
-	getModelId: (model: T) => string,
-): T[] {
-	if (!modelsBlock) {
-		return [...models];
-	}
-
-	const resolvedDiscoveredIds = new Set(
-		resolveModelEntries(
-			modelsBlock,
-			models.map((model) => modelIdToModelInfo(getModelId(model))),
-		)
-			.filter((entry) => entry.source === "discovered")
-			.map((entry) => entry.model.id),
-	);
-	return models.filter((model) => resolvedDiscoveredIds.has(getModelId(model)));
 }
 
 /** Checks whether a raw provider model id survives complete model policy resolution. */
@@ -296,6 +270,37 @@ function customModelToModelInfo(custom: CustomModel): ModelInfoLike {
 	};
 }
 
+function customModelToEntry(
+	custom: CustomModel,
+	existing: PipelineEntry | undefined,
+): PipelineEntry {
+	return {
+		model: mergeDefinedModelInfo(existing?.model, customModelToModelInfo(custom)),
+		userRouting: {
+			protocol: custom.protocol ?? existing?.userRouting.protocol,
+			baseUrl: custom.baseUrl ?? existing?.userRouting.baseUrl,
+		},
+	};
+}
+
+function mergeDefinedModelInfo(
+	base: ModelInfoLike | undefined,
+	override: ModelInfoLike,
+): ModelInfoLike {
+	return {
+		...override,
+		family: override.family ?? base?.family,
+		maxInputTokens: override.maxInputTokens ?? base?.maxInputTokens,
+		maxOutputTokens: override.maxOutputTokens ?? base?.maxOutputTokens,
+		protocol: override.protocol ?? base?.protocol,
+		baseUrl: override.baseUrl ?? base?.baseUrl,
+		supportedInputMediaTypes: override.supportedInputMediaTypes ?? base?.supportedInputMediaTypes,
+		thinkingEffortLevels: override.thinkingEffortLevels ?? base?.thinkingEffortLevels,
+		requiresChatTemplateKwargs:
+			override.requiresChatTemplateKwargs ?? base?.requiresChatTemplateKwargs,
+	};
+}
+
 /**
  * Apply an override to a pipeline entry. Merges metadata onto the model and
  * promotes any routing fields (protocol, baseUrl) from the override into the
@@ -308,10 +313,8 @@ function applyOverrideEntry(entry: PipelineEntry, override: ModelOverride): Pipe
 			(model as Record<string, unknown>)[key] = value;
 		}
 	}
-
 	return {
 		model,
-		source: entry.source,
 		userRouting: {
 			// Override routing takes precedence over any prior user routing
 			// (e.g. a custom model that also gets overridden).
