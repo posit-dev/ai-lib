@@ -9,8 +9,8 @@ import {
 	isModelDiscoveryEnabled,
 	isModelIdAllowedByPolicy,
 	resolveModelIds,
-} from "../model-policy.js";
-import { resolveModels } from "../resolve-models.js";
+	resolveModels,
+} from "../index.js";
 import type { ModelInfoLike, ModelsBlock, ResolvedConnection } from "../types.js";
 
 function makeModel(id: string, overrides?: Partial<ModelInfoLike>): ModelInfoLike {

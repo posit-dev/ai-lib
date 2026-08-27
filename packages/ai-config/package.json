@@ -19,11 +19,6 @@
       "import": "./dist/edit-jsonc.js",
       "require": "./dist/edit-jsonc.js"
     },
-    "./model-policy": {
-      "types": "./dist/model-policy.d.ts",
-      "import": "./dist/model-policy.js",
-      "require": "./dist/model-policy.js"
-    },
     "./node": {
       "types": "./dist/node/index.d.ts",
       "import": "./dist/node/index.js",
