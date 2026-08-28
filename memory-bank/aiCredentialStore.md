@@ -27,13 +27,13 @@ store primitive and the package-wide invariants.
 
 ## Entrypoints
 
-| Entrypoint                     | Purpose                                                                                                | Browser-safe? |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------ | ------------- |
-| `ai-credentials`               | CredentialProvider factory, mutable credential contract, unified acquisition controller, OAuth helpers | Yes           |
-| `ai-credentials/types`         | Credential interfaces, `shapeCredentials()`, `AuthProviderMapping`, `Logger`                           | **Yes**       |
-| `ai-credentials/store`         | `SingleFileStore` class, `createDefaultStore`, `getDefaultStorePath`, store types                      | No (Node FS)  |
-| `ai-credentials/store-backend` | Credential-aware store/env resolver, disk schema, transactions                                         | No (Node FS)  |
-| `ai-credentials/positron`      | `vscode.authentication` backend                                                                        | No (VS Code)  |
+| Entrypoint                     | Purpose                                                                                                | Browser-safe?      |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------ | ------------------ |
+| `ai-credentials`               | CredentialProvider factory, mutable credential contract, unified acquisition controller, OAuth helpers | Yes                |
+| `ai-credentials/types`         | Credential interfaces, `shapeCredentials()`, `AuthProviderMapping`, `Logger`                           | **Yes**            |
+| `ai-credentials/store`         | `SingleFileStore` class, `createDefaultStore`, `getDefaultStorePath`, store types                      | No (Node FS)       |
+| `ai-credentials/store-backend` | Credential-aware store/env resolver, disk schema, transactions over injected `StoreBackendStorage`     | No (`process.env`) |
+| `ai-credentials/positron`      | `vscode.authentication` backend                                                                        | No (VS Code)       |
 
 ### Store-backed credential mutation
 
@@ -41,8 +41,9 @@ Store-backed consumers receive `MutableCredentialProvider`, whose
 `mutateCredentials()` operation owns credential replacement and clearing behind
 the backend seam. Its AWS-specific `update-aws` mutation updates region/profile
 while handling manual keys with an explicit `preserve`, `replace`, or `clear`
-mode. The backend re-reads and writes the record under the store's cross-process
-lock, so a non-secret settings edit cannot race with another credential writer
+mode. The backend re-reads and writes the record under the injected storage's
+`withLock` (cross-process when backed by `SingleFileStore`), so a non-secret
+settings edit cannot race with another credential writer
 and silently erase stored keys. `preserve` fails closed when the current record
 does not contain a complete access-key/secret-key pair; callers must explicitly
 choose `clear` to switch to the AWS credential chain.
@@ -82,6 +83,13 @@ OAuth tokens, API keys).
 own credential meaning.** The separate `/store-backend` entrypoint owns tolerant
 credential parsing, source normalization, environment precedence, status, and
 compare-and-commit OAuth transactions. Values in `/store` remain fully generic.
+The backend consumes storage through the `StoreBackendStorage` interface defined in
+`/store-backend` (`get`/`set`/`withLock`/`watch`); `SingleFileStore` satisfies it
+structurally, and non-file backings (e.g. VS Code SecretStorage) can be injected.
+`withLock`'s lock scope is the backing's contract: OAuth compare-and-write and AWS
+preserve mutations are read-modify-write transactions that require exclusion against
+every writer of the same keys, so weaker backings (in-process mutex) are only safe
+for whole-record API-key replace/clear configurations.
 
 ```ts
 import { createDefaultStore, getDefaultStorePath } from "ai-credentials/store";

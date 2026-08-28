@@ -17,7 +17,6 @@ import type {
 	CredentialStatus,
 	Disposable,
 } from "../CredentialProvider.js";
-import type { SingleFileStore } from "../store/index.js";
 import type { Logger, ProviderCredentials, TokenData } from "../types/index.js";
 import { normalizeDatabricksHost, requireBareAuthHost, storageKeyFor } from "../types/index.js";
 import { resolveCredentialsFromEnv } from "./envCredentialResolver.js";
@@ -26,13 +25,37 @@ import {
 	type StoredProviderCredentials,
 } from "./StoredProviderCredentials.js";
 
+/**
+ * Storage backing consumed by `createStoreBackend`.
+ *
+ * `SingleFileStore` (`ai-credentials/store`) satisfies this interface
+ * structurally, but any backing with atomic per-key writes can serve it —
+ * e.g. VS Code `SecretStorage` in an extension host.
+ *
+ * Lock-scope contract: `withLock` must serialize its critical section
+ * against **every** writer of the same keys. The backend's OAuth acquisition
+ * (generation compare-and-write) and AWS `preserve` mutations are
+ * read-modify-write transactions that are only correct under that exclusion.
+ * A backing that cannot provide it — e.g. an in-process mutex over a
+ * per-window secret store — is only safe for configurations limited to
+ * whole-record writes: API-key `replace`/`clear`, with no
+ * `oauthConfigForProvider` and no AWS mutations.
+ */
+export interface StoreBackendStorage {
+	get<T>(key: string): Promise<T | undefined>;
+	set<T>(key: string, value: T): Promise<void>;
+	withLock<T>(fn: () => Promise<T>): Promise<T>;
+	/** Invoke `handler` whenever any stored value may have changed. */
+	watch(handler: () => void): Disposable;
+}
+
 export interface AuthMethodDescriptor {
 	authMethodId: string;
 	apiKeyOptional?: boolean;
 }
 
 export interface CreateStoreBackendOptions {
-	store: SingleFileStore;
+	store: StoreBackendStorage;
 	resolveAuthMethod(providerId: string): AuthMethodDescriptor | undefined;
 	awsConnectionForProvider?: (
 		providerId: string,
