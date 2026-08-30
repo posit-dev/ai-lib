@@ -244,7 +244,10 @@ export function withRawHttpLogging(
 	if (!outputDir) {
 		return undefined;
 	}
-	const underlying = fetchFn ?? globalThis.fetch;
+	// Resolve the global fetch per call so test doubles installed after the
+	// wrapper is created are honored.
+	const underlying =
+		fetchFn ?? ((...args: Parameters<typeof globalThis.fetch>) => globalThis.fetch(...args));
 	const provider = sanitizeForFilename(context.provider);
 	const model = sanitizeForFilename(context.model);
 

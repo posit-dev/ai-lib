@@ -35,7 +35,10 @@ function mapReasoningEffort(effort: string): string {
  * At some point in the future, @ai-sdk/deepseek may expose `reasoning_effort`
  * directly, at which point this wrapper can be removed.
  */
-function createFetchWithReasoningEffort(effort: string): typeof globalThis.fetch {
+function createFetchWithReasoningEffort(
+	effort: string,
+	delegate: typeof globalThis.fetch,
+): typeof globalThis.fetch {
 	const reasoningEffort = mapReasoningEffort(effort);
 	return async (input: string | URL | globalThis.Request, init?: RequestInit) => {
 		if (init?.body && typeof init.body === "string") {
@@ -47,7 +50,7 @@ function createFetchWithReasoningEffort(effort: string): typeof globalThis.fetch
 				// Not JSON — pass through unchanged
 			}
 		}
-		return globalThis.fetch(input, init);
+		return delegate(input, init);
 	};
 }
 
@@ -67,14 +70,15 @@ export class DeepSeekClient implements ModelClient {
 		const thinkingOn = isThinkingEnabled(params.thinkingEffort);
 
 		const headers = safeSdkCustomHeaders(this.customHeaders);
-		const baseFetch = thinkingOn
-			? createFetchWithReasoningEffort(params.thinkingEffort!)
-			: undefined;
-		const loggedFetch = withRawHttpLogging(baseFetch, {
+		// Raw HTTP logging sits innermost (wrapping the global fetch) so the log
+		// records the final wire request after the reasoning_effort injection.
+		const loggedFetch = withRawHttpLogging(undefined, {
 			provider: "deepseek",
 			model: params.model,
 		});
-		const effectiveFetch = loggedFetch ?? baseFetch;
+		const effectiveFetch = thinkingOn
+			? createFetchWithReasoningEffort(params.thinkingEffort!, loggedFetch ?? globalThis.fetch)
+			: loggedFetch;
 		const provider = createDeepSeek({
 			apiKey: this.apiKey,
 			...(effectiveBaseUrl && { baseURL: effectiveBaseUrl }),

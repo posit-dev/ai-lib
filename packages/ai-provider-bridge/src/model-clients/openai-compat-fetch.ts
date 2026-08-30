@@ -136,6 +136,12 @@ export interface OpenAICompatibleFetchOptions {
 	 * only usual.
 	 */
 	readonly renameMaxTokens?: boolean;
+	/**
+	 * Delegate fetch the transforms run on top of. Defaults to the global
+	 * fetch. Pass a raw-HTTP-logging fetch here so the logger observes the
+	 * physical wire call inside these transforms.
+	 */
+	readonly fetch?: typeof globalThis.fetch;
 }
 
 /**
@@ -190,7 +196,9 @@ export function createOpenAICompatibleFetch(
 			}
 		}
 
-		const response = await globalThis.fetch(url, modifiedInit);
+		// Read the delegate per call so test doubles installed after
+		// construction are honored (same late binding as the global default).
+		const response = await (options?.fetch ?? globalThis.fetch)(url, modifiedInit);
 
 		// Only transform streaming responses (SSE)
 		const contentType = response.headers.get("content-type") || "";

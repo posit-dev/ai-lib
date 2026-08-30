@@ -46,6 +46,7 @@ import { withRawHttpLogging } from "./raw-http-logging";
 function createAuthenticatedFetch(
 	accessToken: string,
 	logger: Logger,
+	delegate: typeof globalThis.fetch,
 	customHeaders?: Record<string, string>,
 	onCreditsDepleted?: () => void,
 	onAgreementRequired?: () => void,
@@ -84,7 +85,7 @@ function createAuthenticatedFetch(
 		logger.trace("[PositAiClient] Headers:", JSON.stringify(headerObj, null, 2));
 		logger.trace("[PositAiClient] Body:", options?.body);
 
-		const response = await globalThis.fetch(url, {
+		const response = await delegate(url, {
 			...options,
 			headers,
 		});
@@ -177,19 +178,21 @@ export class PositAiClient implements ModelClient {
 			}
 		};
 
+		// Raw HTTP logging sits innermost (wrapping the global fetch) so the log
+		// reflects the final wire request after the auth rewrite below (auth
+		// header values are redacted in the log files).
+		const wireFetch =
+			withRawHttpLogging(undefined, { provider: "positai", model: params.model }) ??
+			globalThis.fetch;
 		// Create custom fetch with OAuth Bearer authentication and headers
 		const authenticatedFetch = createAuthenticatedFetch(
 			this.accessToken,
 			this.logger,
+			wireFetch,
 			headers,
 			onCreditsDepleted,
 			onAgreementRequired,
 		);
-		// Raw HTTP logging wraps the authenticated fetch so the log reflects the
-		// final wire request (auth headers are redacted in the log files).
-		const loggedFetch =
-			withRawHttpLogging(authenticatedFetch, { provider: "positai", model: params.model }) ??
-			authenticatedFetch;
 
 		// Create abort controller with cleanup to prevent EventEmitter memory leaks
 		const { abortController, cleanup } = createAbortControllerFromToken(params.cancellationToken);
@@ -211,7 +214,7 @@ export class PositAiClient implements ModelClient {
 			const provider = createAnthropic({
 				apiKey: this.accessToken, // Required for SDK initialization, not used in header
 				baseURL: joinPath(effectiveBaseUrl, "/anthropic/v1"),
-				fetch: loggedFetch,
+				fetch: authenticatedFetch,
 			});
 			const model = provider(params.model);
 
@@ -254,7 +257,7 @@ export class PositAiClient implements ModelClient {
 			const provider = createOpenAICompatible({
 				name: "positai",
 				baseURL: joinPath(effectiveBaseUrl, "/openai/v1"),
-				fetch: loggedFetch,
+				fetch: authenticatedFetch,
 				...(thinkingFields && {
 					transformRequestBody: (body: Record<string, unknown>) => ({
 						...body,

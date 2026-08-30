@@ -225,14 +225,20 @@ export class SnowflakeClient implements ModelClient {
 		baseUrl: string,
 	): Promise<AsyncIterable<LMStreamPart>> {
 		const headers = safeSdkCustomHeaders(this.customHeaders);
-		const baseFetch = this.isSessionAuth
-			? createSnowflakeSessionFetch(this.token, globalThis.fetch, this.sessionRefresh)
-			: undefined;
-		const loggedFetch = withRawHttpLogging(baseFetch, {
+		// Raw HTTP logging sits innermost (wrapping the global fetch) so the log
+		// records each physical call after the session-auth rewrite — including
+		// the retry after a session-token refresh.
+		const loggedFetch = withRawHttpLogging(undefined, {
 			provider: "snowflake-cortex",
 			model: params.model,
 		});
-		const effectiveFetch = loggedFetch ?? baseFetch;
+		const effectiveFetch = this.isSessionAuth
+			? createSnowflakeSessionFetch(
+					this.token,
+					loggedFetch ?? globalThis.fetch,
+					this.sessionRefresh,
+				)
+			: loggedFetch;
 		const provider = this.isSessionAuth
 			? createAnthropic({
 					// Auth is applied by the session fetch wrapper; this placeholder key
@@ -304,21 +310,29 @@ export class SnowflakeClient implements ModelClient {
 		// The compat fetch applies OpenAI-spec fix-ups. For session auth we keep a
 		// non-empty apiKey so it does NOT strip the Authorization header, and wrap
 		// it so the outer fetch installs the `Snowflake Token=` header last.
-		const compatFetch = this.isSessionAuth
-			? createOpenAICompatibleFetch("Snowflake", "session-auth", this.customHeaders)
-			: createOpenAICompatibleFetch("Snowflake", this.token, this.customHeaders);
-		const baseFetch = this.isSessionAuth
-			? createSnowflakeSessionFetch(this.token, compatFetch, this.sessionRefresh)
-			: compatFetch;
-		const loggedFetch =
-			withRawHttpLogging(baseFetch, {
+		// Raw HTTP logging sits innermost (wrapping the global fetch) so the log
+		// records the wire request after compat transforms and session-auth
+		// rewrites, the raw SSE before compat rewrites, and each physical call
+		// of a session-refresh retry.
+		const wireFetch =
+			withRawHttpLogging(undefined, {
 				provider: "snowflake-cortex",
 				model: params.model,
-			}) ?? baseFetch;
+			}) ?? globalThis.fetch;
+		const compatFetch = this.isSessionAuth
+			? createOpenAICompatibleFetch("Snowflake", "session-auth", this.customHeaders, {
+					fetch: wireFetch,
+				})
+			: createOpenAICompatibleFetch("Snowflake", this.token, this.customHeaders, {
+					fetch: wireFetch,
+				});
+		const effectiveFetch = this.isSessionAuth
+			? createSnowflakeSessionFetch(this.token, compatFetch, this.sessionRefresh)
+			: compatFetch;
 		const provider = createOpenAI({
 			apiKey: this.token || "sk-placeholder",
 			baseURL: baseUrl,
-			fetch: loggedFetch,
+			fetch: effectiveFetch,
 		});
 		const model = provider.chat(params.model);
 
