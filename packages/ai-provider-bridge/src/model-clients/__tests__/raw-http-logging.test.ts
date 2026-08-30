@@ -441,6 +441,43 @@ describe("withRawHttpLogging", () => {
 		expect(res.body.toString("utf8")).toContain("[error: boom]");
 	});
 
+	it("logs an error marker when the response stream fails with undefined", async () => {
+		process.env[ENV_VAR] = workDir;
+		const encoder = new TextEncoder();
+		let pulls = 0;
+		const source = new ReadableStream<Uint8Array>({
+			pull(controller) {
+				pulls++;
+				if (pulls === 1) {
+					controller.enqueue(encoder.encode('data: {"delta":"a"}\n\n'));
+				} else {
+					// Legal per the Streams API: erroring without a reason makes
+					// pending reads reject with undefined.
+					controller.error();
+				}
+			},
+		});
+		const wrapped = withRawHttpLogging(async () => new Response(source, { status: 200 }), {
+			provider: "test",
+			model: "m",
+		});
+
+		const response = await wrapped!("https://api.example.com/v1/chat", {
+			method: "POST",
+			body: "{}",
+		});
+		const reader = response.body!.getReader();
+		await reader.read();
+		// The consumer sees the stream fail, with an undefined rejection.
+		await expect(reader.read()).rejects.toBeUndefined();
+
+		await waitForPair();
+		const res = splitMessage(readPair(workDir).response);
+		expect(res.body.toString("utf8")).toContain('"delta":"a"');
+		// The failure must not be logged as a clean completion.
+		expect(res.body.toString("utf8")).toContain("[error: undefined]");
+	});
+
 	it("does not mutate or break a frozen RequestInit with a stream body", async () => {
 		process.env[ENV_VAR] = workDir;
 		let received: string | undefined;
@@ -464,36 +501,35 @@ describe("withRawHttpLogging", () => {
 		expect(req.body.toString("utf8")).toBe("request-bytes");
 	});
 
-	it("snapshots the selected typed-array bytes before later request processing", async () => {
+	it("logs the bytes sent on the wire, not a live view of the caller's buffer", async () => {
 		process.env[ENV_VAR] = workDir;
 		const backing = new Uint8Array([0xaa, 1, 2, 0xbb]);
 		const body = backing.subarray(1, 3);
-		const headers: Record<string, string> = {};
-		Object.defineProperty(headers, "x-mutate-body", {
-			enumerable: true,
-			get() {
-				backing.fill(9);
-				return "true";
-			},
-		});
-		let received: BodyInit | null | undefined;
+		let wireBytes: number[] | undefined;
 		const underlying: typeof globalThis.fetch = async (_input, init) => {
-			received = init?.body;
+			// Snapshot the bytes exactly as the delegate sends them...
+			wireBytes = [...(init?.body as Uint8Array)];
+			// ...then mutate the caller's backing buffer, as later request
+			// processing may. The log must reflect the sent bytes, not this
+			// later state — a capture that retained a live view of the shared
+			// buffer instead of copying would record 9s here.
+			backing.fill(9);
 			return new Response("ok");
 		};
 		const wrapped = withRawHttpLogging(underlying, { provider: "test", model: "m" });
 
 		const response = await wrapped!("https://api.example.com/upload", {
 			method: "POST",
-			headers,
 			body,
 		});
 		expect(await response.text()).toBe("ok");
-		expect(received).toBe(body);
+		// The delegate received the original view over the selected range.
+		expect(wireBytes).toEqual([1, 2]);
 
 		await waitForPair();
 		const req = splitMessage(readPair(workDir).request);
-		expect([...req.body]).toEqual([1, 2]);
+		// The logged body is identical to the bytes modeled as sent.
+		expect([...req.body]).toEqual(wireBytes);
 	});
 
 	it("passes through a bodyful keepalive Request when stream capture is incompatible", async () => {
@@ -551,6 +587,84 @@ describe("withRawHttpLogging", () => {
 		await waitForPair();
 		const req = splitMessage(readPair(workDir).request);
 		expect(req.body.toString("utf8")).toContain("[body omitted:");
+	});
+
+	it("logs partial request bytes plus an error marker when the upload stream fails", async () => {
+		process.env[ENV_VAR] = workDir;
+		const encoder = new TextEncoder();
+		let pulls = 0;
+		const source = new ReadableStream<Uint8Array>({
+			pull(controller) {
+				pulls++;
+				if (pulls === 1) {
+					controller.enqueue(encoder.encode("request-chunk"));
+				} else {
+					controller.error(new Error("upload failed"));
+				}
+			},
+		});
+		const underlying: typeof globalThis.fetch = async (_input, init) => {
+			if (!(init?.body instanceof ReadableStream)) {
+				throw new Error("Expected a streaming request body");
+			}
+			const reader = init.body.getReader();
+			await reader.read();
+			await reader.read();
+			return new Response("unreachable");
+		};
+		const wrapped = withRawHttpLogging(underlying, { provider: "test", model: "m" });
+
+		await expect(
+			wrapped!("https://api.example.com/upload", { method: "POST", body: source }),
+		).rejects.toThrow("upload failed");
+
+		await waitForPair();
+		const pair = readPair(workDir);
+		const req = splitMessage(pair.request);
+		expect(req.body.toString("utf8")).toContain("request-chunk");
+		expect(req.body.toString("utf8")).toContain("[error: upload failed]");
+		expect(splitMessage(pair.response).body.toString("utf8")).toContain("[error: upload failed]");
+	});
+
+	it("logs an error marker when the upload stream fails with undefined", async () => {
+		process.env[ENV_VAR] = workDir;
+		const encoder = new TextEncoder();
+		let pulls = 0;
+		const source = new ReadableStream<Uint8Array>({
+			pull(controller) {
+				pulls++;
+				if (pulls === 1) {
+					controller.enqueue(encoder.encode("request-chunk"));
+				} else {
+					// Legal per the Streams API: erroring without a reason makes
+					// pending reads reject with undefined.
+					controller.error();
+				}
+			},
+		});
+		const underlying: typeof globalThis.fetch = async (_input, init) => {
+			if (!(init?.body instanceof ReadableStream)) {
+				throw new Error("Expected a streaming request body");
+			}
+			const reader = init.body.getReader();
+			await reader.read();
+			await reader.read();
+			return new Response("unreachable");
+		};
+		const wrapped = withRawHttpLogging(underlying, { provider: "test", model: "m" });
+
+		// The upload failure propagates to the caller as an undefined rejection.
+		await expect(
+			wrapped!("https://api.example.com/upload", { method: "POST", body: source }),
+		).rejects.toBeUndefined();
+
+		await waitForPair();
+		const pair = readPair(workDir);
+		const req = splitMessage(pair.request);
+		expect(req.body.toString("utf8")).toContain("request-chunk");
+		// The failure must not be logged as a clean completion.
+		expect(req.body.toString("utf8")).toContain("[error: undefined]");
+		expect(splitMessage(pair.response).body.toString("utf8")).toContain("[error: undefined]");
 	});
 
 	it("publishes a request marker when fetch rejects without consuming a stream body", async () => {
@@ -615,6 +729,7 @@ describe("withRawHttpLogging", () => {
 		expect(req.head).toContain("POST /upload HTTP/1.1");
 		expect(req.body.toString("utf8")).toContain("chunk1");
 		expect(req.body.toString("utf8")).not.toContain("chunk100");
+		expect(req.body.toString("utf8")).toContain("[error: stream cancelled by consumer]");
 	});
 
 	it("preserves response url, redirected, and type metadata", async () => {

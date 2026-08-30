@@ -31,7 +31,9 @@ import type * as NodeFs from "node:fs";
  *   Fetch API hides exact wire order/casing), blank line, then the body
  *   byte-for-byte as sent. A body that exists but cannot be captured safely
  *   (e.g. a keepalive or no-cors Request) is replaced with a
- *   `[body omitted: ...]` marker so the log never implies an empty body.
+ *   `[body omitted: ...]` marker so the log never implies an empty body. If a
+ *   request stream fails or is cancelled, partial bytes plus an `[error: ...]`
+ *   marker are recorded.
  * - `...-response.http`: status line, headers, blank line, then the body
  *   byte-for-byte as received (SSE chunks concatenated verbatim). Written when
  *   the body stream completes; on error or cancellation, whatever bytes
@@ -138,15 +140,30 @@ function redactHeaders(headers: Headers): string[] {
 }
 
 /**
+ * Terminal state of a recorded stream. A discriminated union rather than an
+ * optional error value because the Streams API permits `controller.error()`
+ * with no argument, in which case reads reject with `undefined` — a value an
+ * optional `error` field cannot distinguish from a clean completion.
+ */
+type StreamTerminal = { kind: "complete" } | { kind: "error"; error: unknown };
+
+/**
  * Result of capturing a request body. `immediate` is set when the bytes are
  * available synchronously (the common case: the AI SDK sends JSON strings).
  * `pending` is set for stream bodies, where the bytes only become available
- * as the underlying fetch consumes the stream. `omittedReason` is set when a
- * body exists but could not be captured, so the log records a marker instead
- * of a misleading empty body.
+ * as the underlying fetch consumes the stream. Its result retains the
+ * terminal stream state so partial bytes are not mistaken for a complete
+ * body. `omittedReason` is set when a body exists but could not be captured,
+ * so the log records a marker instead of a misleading empty body.
  */
+interface PendingCapturedBodyResult {
+	body: Buffer;
+	omittedReason?: string;
+	terminal: StreamTerminal;
+}
+
 interface PendingCapturedBody {
-	pending: Promise<{ body: Buffer; omittedReason?: string }>;
+	pending: Promise<PendingCapturedBodyResult>;
 	finalize: (omittedReason: string) => void;
 }
 
@@ -174,21 +191,21 @@ interface CapturedRequest {
  * Reads are pull-through — no eager draining — so backpressure propagates to
  * the source and the log branch can never buffer ahead of the consumer.
  * Cancellation is forwarded to the source. `onFinish` fires exactly once with
- * the accumulated bytes, plus an error when the stream failed or was
- * cancelled.
+ * the accumulated bytes and the terminal state: complete, or error when the
+ * stream failed or was cancelled.
  */
 function recordPassThrough(
 	source: ReadableStream<Uint8Array>,
-	onFinish: (body: Buffer, error?: unknown) => void,
-): { stream: ReadableStream<Uint8Array>; finish: (error?: unknown) => void } {
+	onFinish: (body: Buffer, terminal: StreamTerminal) => void,
+): { stream: ReadableStream<Uint8Array>; finish: (terminal: StreamTerminal) => void } {
 	const chunks: Buffer[] = [];
 	let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
 	let finished = false;
 	const getReader = () => (reader ??= source.getReader());
-	const finish = (error?: unknown) => {
+	const finish = (terminal: StreamTerminal) => {
 		if (!finished) {
 			finished = true;
-			onFinish(Buffer.concat(chunks), error);
+			onFinish(Buffer.concat(chunks), terminal);
 		}
 	};
 	const stream = new ReadableStream<Uint8Array>(
@@ -198,13 +215,13 @@ function recordPassThrough(
 					const { done, value } = await getReader().read();
 					if (done) {
 						controller.close();
-						finish();
+						finish({ kind: "complete" });
 						return;
 					}
 					chunks.push(Buffer.from(value));
 					controller.enqueue(value);
 				} catch (error) {
-					finish(error);
+					finish({ kind: "error", error });
 					controller.error(error);
 				}
 			},
@@ -214,7 +231,7 @@ function recordPassThrough(
 				try {
 					await getReader().cancel(reason);
 				} finally {
-					finish(new Error("stream cancelled by consumer"));
+					finish({ kind: "error", error: new Error("stream cancelled by consumer") });
 				}
 			},
 		},
@@ -229,18 +246,22 @@ function captureRequestStream(source: ReadableStream<Uint8Array>): {
 	body: PendingCapturedBody;
 	stream: ReadableStream<Uint8Array>;
 } {
-	let resolveDone!: (result: { body: Buffer; omittedReason?: string }) => void;
-	const pending = new Promise<{ body: Buffer; omittedReason?: string }>((resolve) => {
+	let resolveDone!: (result: PendingCapturedBodyResult) => void;
+	const pending = new Promise<PendingCapturedBodyResult>((resolve) => {
 		resolveDone = resolve;
 	});
 	let omittedReason: string | undefined;
-	const recorded = recordPassThrough(source, (body) => resolveDone({ body, omittedReason }));
+	const recorded = recordPassThrough(source, (body, terminal) =>
+		resolveDone({ body, omittedReason, terminal }),
+	);
 	return {
 		body: {
 			pending,
 			finalize(reason) {
 				omittedReason = reason;
-				recorded.finish();
+				// The truncation is explained by the omittedReason marker; the
+				// recording itself ends without a stream error.
+				recorded.finish({ kind: "complete" });
 			},
 		},
 		stream: recorded.stream,
@@ -330,12 +351,20 @@ function captureRequestBody(
 	};
 }
 
+function formatErrorMarker(error: unknown): Buffer {
+	return Buffer.from(
+		`\n\n[error: ${error instanceof Error ? error.message : String(error)}]\n`,
+		"utf8",
+	);
+}
+
 function formatRequestFile(
 	method: string,
 	url: URL,
 	headers: Headers,
 	body: Buffer | undefined,
-	omittedReason?: string,
+	omittedReason: string | undefined,
+	terminal: StreamTerminal,
 ): Buffer {
 	const lines = [
 		`${method} ${url.pathname}${url.search} HTTP/1.1`,
@@ -346,6 +375,9 @@ function formatRequestFile(
 	const parts = [Buffer.from(lines.join("\n") + "\n", "utf8"), body ?? Buffer.alloc(0)];
 	if (omittedReason !== undefined) {
 		parts.push(Buffer.from(`\n\n[body omitted: ${omittedReason}]\n`, "utf8"));
+	}
+	if (terminal.kind === "error") {
+		parts.push(formatErrorMarker(terminal.error));
 	}
 	return Buffer.concat(parts);
 }
@@ -358,10 +390,10 @@ function formatRequestFile(
  */
 function captureResponseForLog(
 	response: Response,
-	onFinish: (body: Buffer, error?: unknown) => void,
+	onFinish: (body: Buffer, terminal: StreamTerminal) => void,
 ): Response {
 	if (!response.body) {
-		onFinish(Buffer.alloc(0));
+		onFinish(Buffer.alloc(0), { kind: "complete" });
 		return response;
 	}
 	const recorded = recordPassThrough(response.body, onFinish);
@@ -378,20 +410,15 @@ function captureResponseForLog(
 	return wrapped;
 }
 
-function formatResponseFile(response: Response, body: Buffer, error?: unknown): Buffer {
+function formatResponseFile(response: Response, body: Buffer, terminal: StreamTerminal): Buffer {
 	const lines = [
 		`HTTP/1.1 ${response.status} ${response.statusText}`.trimEnd(),
 		...redactHeaders(response.headers),
 		"",
 	];
 	const parts = [Buffer.from(lines.join("\n") + "\n", "utf8"), body];
-	if (error !== undefined) {
-		parts.push(
-			Buffer.from(
-				`\n\n[error: ${error instanceof Error ? error.message : String(error)}]\n`,
-				"utf8",
-			),
-		);
+	if (terminal.kind === "error") {
+		parts.push(formatErrorMarker(terminal.error));
 	}
 	return Buffer.concat(parts);
 }
@@ -479,20 +506,27 @@ export function withRawHttpLogging(
 				);
 			}
 			const resolvedUrl = url;
-			const writeRequest = (body: Buffer | undefined, omittedReason?: string) =>
+			const writeRequest = (
+				body: Buffer | undefined,
+				omittedReason: string | undefined,
+				terminal: StreamTerminal,
+			) =>
 				writeLogFile(
 					outputDir,
 					baseName,
 					"request",
-					formatRequestFile(method, resolvedUrl, requestHeaders, body, omittedReason),
+					formatRequestFile(method, resolvedUrl, requestHeaders, body, omittedReason, terminal),
 				);
 			if ("pending" in captured.body) {
 				finalizePendingRequest = captured.body.finalize;
-				void captured.body.pending.then(({ body, omittedReason }) =>
-					writeRequest(body, omittedReason),
+				void captured.body.pending.then(({ body, omittedReason, terminal }) =>
+					writeRequest(body, omittedReason, terminal),
 				);
 			} else {
-				writeRequest(captured.body.immediate, captured.body.omittedReason);
+				// Non-stream bodies have no terminal stream state.
+				writeRequest(captured.body.immediate, captured.body.omittedReason, {
+					kind: "complete",
+				});
 			}
 		} catch {
 			// Swallow: never let logging break the request.
@@ -511,10 +545,7 @@ export function withRawHttpLogging(
 					outputDir,
 					baseName,
 					"response",
-					Buffer.from(
-						`HTTP/1.1 0 ERROR\n\n[error: ${error instanceof Error ? error.message : String(error)}]\n`,
-						"utf8",
-					),
+					Buffer.concat([Buffer.from("HTTP/1.1 0 ERROR", "utf8"), formatErrorMarker(error)]),
 				);
 			} catch {
 				// Swallow.
@@ -527,9 +558,14 @@ export function withRawHttpLogging(
 		// file is written when the stream finishes with whatever bytes arrived.
 		try {
 			const original = response;
-			response = captureResponseForLog(response, (body, error) => {
+			response = captureResponseForLog(response, (body, terminal) => {
 				try {
-					writeLogFile(outputDir, baseName, "response", formatResponseFile(original, body, error));
+					writeLogFile(
+						outputDir,
+						baseName,
+						"response",
+						formatResponseFile(original, body, terminal),
+					);
 				} catch {
 					// Swallow.
 				}

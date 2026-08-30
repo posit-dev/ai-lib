@@ -233,7 +233,7 @@ controls (see `memory-bank/aiConfig.md`).
 | Path                                                                                                          | Behavior                                                                                                         |
 | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | Model discovery (`cached-model-fetcher.ts`)                                                                   | Additive only. Provider-built headers win on collision.                                                          |
-| OpenAI-compatible chat via `createOpenAICompatibleFetch`                                                      | Additive only. SDK-set headers win on collision.                                                                 |
+| OpenAI-compatible chat via `createOpenAICompatibleFetchMiddleware`                                            | Additive only. SDK-set headers win on collision.                                                                 |
 | Direct-SDK chat (Anthropic, OpenAI, Gemini, DeepSeek, OpenRouter, Snowflake-Anthropic, OpenAI-compatible-SDK) | Passed to AI SDK's `headers` option; spread **after** SDK headers, so `customHeaders` **clobbers** on collision. |
 
 Because the direct-SDK path clobbers, SDK-managed names (`Authorization`, `x-api-key`, `anthropic-version`, `Content-Type`) must NOT appear in `customHeaders` or auth/version negotiation breaks. The canonical contract lives at the `ApiKeyCredentials` JSDoc in `src/types.ts`.
