@@ -29,7 +29,9 @@ import type * as NodeFs from "node:fs";
  *
  * - `...-request.http`: request line, headers (best-effort reconstruction; the
  *   Fetch API hides exact wire order/casing), blank line, then the body
- *   byte-for-byte as sent.
+ *   byte-for-byte as sent. A body that exists but cannot be captured safely
+ *   (e.g. a keepalive or no-cors Request) is replaced with a
+ *   `[body omitted: ...]` marker so the log never implies an empty body.
  * - `...-response.http`: status line, headers, blank line, then the body
  *   byte-for-byte as received (SSE chunks concatenated verbatim). Written when
  *   the body stream completes; on error or cancellation, whatever bytes
@@ -139,9 +141,13 @@ function redactHeaders(headers: Headers): string[] {
  * Result of capturing a request body. `immediate` is set when the bytes are
  * available synchronously (the common case: the AI SDK sends JSON strings).
  * `pending` is set for stream bodies, where the bytes only become available
- * as the underlying fetch consumes the stream.
+ * as the underlying fetch consumes the stream. `omittedReason` is set when a
+ * body exists but could not be captured, so the log records a marker instead
+ * of a misleading empty body.
  */
-type CapturedBody = { immediate: Buffer | undefined } | { pending: Promise<Buffer> };
+type CapturedBody =
+	| { immediate: Buffer | undefined; omittedReason?: string }
+	| { pending: Promise<Buffer> };
 
 /** Result of capturing a request: the body bytes and what to pass on. */
 interface CapturedRequest {
@@ -238,7 +244,14 @@ function captureRequestBody(
 			const keepalive = init?.keepalive ?? input.keepalive;
 			const mode = init?.mode ?? input.mode;
 			if (keepalive || mode === "no-cors") {
-				return { body: { immediate: undefined }, input, init };
+				return {
+					body: {
+						immediate: undefined,
+						omittedReason: "keepalive/no-cors request cannot be rewritten with a capture body",
+					},
+					input,
+					init,
+				};
 			}
 
 			let resolveDone!: (body: Buffer) => void;
@@ -254,7 +267,14 @@ function captureRequestBody(
 			} catch {
 				// `recorded` has a zero high-water mark and has not locked the source,
 				// so falling back to the original Request is safe.
-				return { body: { immediate: undefined }, input, init };
+				return {
+					body: {
+						immediate: undefined,
+						omittedReason: "request could not be rewritten with a capture body",
+					},
+					input,
+					init,
+				};
 			}
 		}
 		return { body: { immediate: undefined }, input, init };
@@ -292,6 +312,7 @@ function formatRequestFile(
 	url: URL,
 	headers: Headers,
 	body: Buffer | undefined,
+	omittedReason?: string,
 ): Buffer {
 	const lines = [
 		`${method} ${url.pathname}${url.search} HTTP/1.1`,
@@ -299,7 +320,11 @@ function formatRequestFile(
 		...redactHeaders(headers),
 		"",
 	];
-	return Buffer.concat([Buffer.from(lines.join("\n") + "\n", "utf8"), body ?? Buffer.alloc(0)]);
+	const parts = [Buffer.from(lines.join("\n") + "\n", "utf8"), body ?? Buffer.alloc(0)];
+	if (omittedReason !== undefined) {
+		parts.push(Buffer.from(`\n\n[body omitted: ${omittedReason}]\n`, "utf8"));
+	}
+	return Buffer.concat(parts);
 }
 
 /**
@@ -430,17 +455,17 @@ export function withRawHttpLogging(
 				);
 			}
 			const resolvedUrl = url;
-			const writeRequest = (body: Buffer | undefined) =>
+			const writeRequest = (body: Buffer | undefined, omittedReason?: string) =>
 				writeLogFile(
 					outputDir,
 					baseName,
 					"request",
-					formatRequestFile(method, resolvedUrl, requestHeaders, body),
+					formatRequestFile(method, resolvedUrl, requestHeaders, body, omittedReason),
 				);
 			if ("pending" in captured.body) {
 				void captured.body.pending.then(writeRequest, () => writeRequest(undefined));
 			} else {
-				writeRequest(captured.body.immediate);
+				writeRequest(captured.body.immediate, captured.body.omittedReason);
 			}
 		} catch {
 			// Swallow: never let logging break the request.

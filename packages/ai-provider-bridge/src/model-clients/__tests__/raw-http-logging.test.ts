@@ -485,9 +485,10 @@ describe("withRawHttpLogging", () => {
 		await waitForPair();
 		const req = splitMessage(readPair(workDir).request);
 		expect(req.head).toContain("POST /upload HTTP/1.1");
-		// The request remains usable, but its body is omitted because a keepalive
-		// Request cannot be safely rewritten with a streaming capture body.
-		expect(req.body).toHaveLength(0);
+		// The request remains usable, but its body is replaced with a marker
+		// because a keepalive Request cannot be safely rewritten with a
+		// streaming capture body.
+		expect(req.body.toString("utf8")).toContain("[body omitted:");
 	});
 
 	it("captures a bodyful Request via pass-through: cancellation propagates, no runahead", async () => {
