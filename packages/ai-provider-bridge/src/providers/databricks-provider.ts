@@ -424,9 +424,11 @@ export function registerDatabricksProvider(registry: ProviderRegistry, logger: L
 			// Databricks strict-decodes the Chat Completions body: it requires
 			// `max_tokens` and answers 400 `unknown field "max_completion_tokens"`,
 			// so the shared wrapper's rename must be turned off here.
-			customFetch: createOpenAICompatibleFetch("Databricks", apiKey, customHeaders, {
-				renameMaxTokens: false,
-			}),
+			customFetch: (delegate) =>
+				createOpenAICompatibleFetch("Databricks", apiKey, customHeaders, {
+					renameMaxTokens: false,
+					fetch: delegate,
+				}),
 		});
 		const geminiClient = new GeminiGenerateContentClient(
 			{ authToken: apiKey },

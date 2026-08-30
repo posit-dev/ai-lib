@@ -158,7 +158,7 @@ async function captureRequest(options: {
 	const client = new OpenAIClient({
 		apiKey: "sk-test",
 		apiMode: options.apiMode,
-		customFetch: fetchCapture.mock,
+		customFetch: () => fetchCapture.mock,
 	});
 
 	try {

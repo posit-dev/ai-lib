@@ -53,6 +53,7 @@ vi.mock("../ai-sdk-helpers", () => ({
 		cleanup: vi.fn(),
 	})),
 	createStepLogger: vi.fn(() => undefined),
+	suppressAiSdkDefaultErrorLogging: vi.fn(),
 }));
 vi.mock("../tool-call-ids", () => ({
 	streamTextAnthropicWire: vi.fn(() => ({ fullStream: {} })),
@@ -62,6 +63,8 @@ import type { CancellationToken, Logger } from "../../types";
 import { DeepSeekClient } from "../DeepSeekClient";
 import { GeminiGenerateContentClient } from "../GeminiGenerateContentClient";
 import type { ModelClientChatParams } from "../ModelClient";
+import { createOpenAICompatibleFetch } from "../openai-compat-fetch";
+import { OpenAIClient } from "../OpenAIClient";
 import { PositAiClient } from "../PositAiClient";
 import { resetRawHttpLoggingForTests } from "../raw-http-logging";
 import { SnowflakeClient, type SnowflakeSessionRefresh } from "../SnowflakeClient";
@@ -326,6 +329,65 @@ describe("raw HTTP logging composition", () => {
 		const { head } = splitMessage(readLog(listBaseNames()[0]!, "request"));
 		expect(head).toContain("authorization: [REDACTED]");
 		expect(head).not.toContain("x-goog-api-key");
+	});
+
+	it("openai: logs beneath customFetch middleware (post-transform request, raw SSE)", async () => {
+		const rawChunk =
+			'data: {"id":"x","object":"chat.completion.chunk","created":0,"model":"m",' +
+			'"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1",' +
+			'"function":{"name":"noop","arguments":""}}]}}]}\n\n';
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse([rawChunk, "data: [DONE]\n\n"]));
+
+		// The customFetch contract shared by the OpenAI-compatible, Foundry,
+		// and Databricks provider factories.
+		await new OpenAIClient({
+			apiKey: "sk-test",
+			apiMode: "completions",
+			customFetch: (delegate) =>
+				createOpenAICompatibleFetch("Test", "sk-test", undefined, { fetch: delegate }),
+		}).chat(params("gpt-5.2"));
+		const sdkFetch = (createOpenAI.mock.calls[0]?.[0] as SdkOptions | undefined)?.fetch;
+		expect(sdkFetch).toBeDefined();
+
+		const response = await sdkFetch!("https://example.invalid/chat/completions", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				model: "gpt-5.2",
+				max_tokens: 128,
+				tools: [{ type: "function", function: { name: "noop", parameters: { type: "object" } } }],
+			}),
+		});
+		const seenByConsumer = await response.text();
+
+		await waitFor(() => pairsComplete(1));
+		const request = splitMessage(readLog(listBaseNames()[0]!, "request"));
+		// Post-transform: the compat middleware's rename is visible in the log.
+		expect(request.body).toContain('"max_completion_tokens":128');
+		expect(request.body).not.toContain('"max_tokens"');
+		// Raw SSE in the log; the consumer saw the compat fix-up.
+		expect(splitMessage(readLog(listBaseNames()[0]!, "response")).body).toContain('"arguments":""');
+		expect(seenByConsumer).toContain('"arguments":"{}"');
+	});
+
+	it("openai: empty-key route logs the request after the auth strip", async () => {
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse(["data: [DONE]\n\n"]));
+
+		await new OpenAIClient({ apiKey: "", apiMode: "completions" }).chat(params("local-model"));
+		const sdkFetch = (createOpenAI.mock.calls[0]?.[0] as SdkOptions | undefined)?.fetch;
+		expect(sdkFetch).toBeDefined();
+
+		// Drive as the SDK would: it sets Authorization from the placeholder key.
+		const response = await sdkFetch!("http://localhost:11434/v1/chat/completions", {
+			method: "POST",
+			headers: { authorization: "Bearer sk-placeholder", "content-type": "application/json" },
+			body: "{}",
+		});
+		await response.text();
+
+		await waitFor(() => pairsComplete(1));
+		const { head } = splitMessage(readLog(listBaseNames()[0]!, "request"));
+		expect(head).not.toContain("authorization");
 	});
 
 	it("gemini generateContent: api-key mode installs raw logging", async () => {

@@ -62,11 +62,15 @@ const openAICompatibleClientFactory: ClientFactory = (credentials) => {
 		apiKey: credentials.apiKey,
 		baseUrl: credentials.baseUrl?.trim(),
 		apiMode: "completions",
-		customFetch: createOpenAICompatibleFetch(
-			"OpenAI Compatible",
-			credentials.apiKey,
-			credentials.customHeaders,
-		),
+		customFetch: (delegate) =>
+			createOpenAICompatibleFetch(
+				"OpenAI Compatible",
+				credentials.apiKey,
+				credentials.customHeaders,
+				{
+					fetch: delegate,
+				},
+			),
 	});
 };
 

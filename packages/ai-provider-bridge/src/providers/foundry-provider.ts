@@ -61,22 +61,24 @@ const foundryClientFactory: ClientFactory = (credentials) => {
 		// from falling back to OPENAI_API_KEY; the custom fetch overwrites
 		// the Authorization header before the request leaves.
 		const tokenProvider = createAzureEntraTokenProvider(credentials.scope, credentials.tenantId);
-		const compatFetch = createOpenAICompatibleFetch(
-			"Foundry",
-			undefined,
-			credentials.customHeaders,
-		);
-		const entraFetch: typeof globalThis.fetch = async (url, init) => {
-			const token = await tokenProvider();
-			const headers = new Headers(init?.headers);
-			headers.set("Authorization", `Bearer ${token}`);
-			return compatFetch(url, { ...init, headers });
-		};
 		return new OpenAIClient({
 			apiKey: "entra-token-managed",
 			baseUrl: credentials.baseUrl,
 			apiMode: "completions",
-			customFetch: entraFetch,
+			customFetch: (delegate) => {
+				const compatFetch = createOpenAICompatibleFetch(
+					"Foundry",
+					undefined,
+					credentials.customHeaders,
+					{ fetch: delegate },
+				);
+				return async (url, init) => {
+					const token = await tokenProvider();
+					const headers = new Headers(init?.headers);
+					headers.set("Authorization", `Bearer ${token}`);
+					return compatFetch(url, { ...init, headers });
+				};
+			},
 		});
 	}
 	if (credentials.type !== "apikey") {
@@ -87,11 +89,10 @@ const foundryClientFactory: ClientFactory = (credentials) => {
 		apiKey: credentials.apiKey,
 		baseUrl: credentials.baseUrl,
 		apiMode: "completions",
-		customFetch: createOpenAICompatibleFetch(
-			"Foundry",
-			credentials.apiKey,
-			credentials.customHeaders,
-		),
+		customFetch: (delegate) =>
+			createOpenAICompatibleFetch("Foundry", credentials.apiKey, credentials.customHeaders, {
+				fetch: delegate,
+			}),
 	});
 };
 
