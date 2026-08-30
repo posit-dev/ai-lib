@@ -140,9 +140,30 @@ export interface OpenAICompatibleFetchOptions {
 }
 
 /**
+ * Create a custom fetch function that applies OpenAI-compatible transforms.
+ * This public compatibility API delegates to the global fetch at call time.
+ * Internal provider composition should use
+ * {@link createOpenAICompatibleFetchMiddleware} so the wire delegate is
+ * required explicitly.
+ */
+export function createOpenAICompatibleFetch(
+	providerName: string,
+	apiKey?: string,
+	customHeaders?: Record<string, string>,
+	options?: OpenAICompatibleFetchOptions,
+): FetchFn {
+	return createOpenAICompatibleFetchMiddleware(
+		providerName,
+		apiKey,
+		customHeaders,
+		options,
+	)((...args) => globalThis.fetch(...args));
+}
+
+/**
  * Create fetch middleware that applies OpenAI-compatible transforms around a
  * required wire delegate. Requiring the delegate makes transform → raw logger
- * → network ordering the only representable composition.
+ * → network ordering the only representable internal composition.
  *
  * @param providerName - Provider name for logging
  * @param apiKey - API key; when empty string, Authorization header is stripped
@@ -154,7 +175,7 @@ export interface OpenAICompatibleFetchOptions {
  *   by the OpenAI SDK is silently skipped.
  * @param options - Per-provider switches; see {@link OpenAICompatibleFetchOptions}.
  */
-export function createOpenAICompatibleFetch(
+export function createOpenAICompatibleFetchMiddleware(
 	providerName: string,
 	apiKey?: string,
 	customHeaders?: Record<string, string>,

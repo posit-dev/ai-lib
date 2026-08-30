@@ -63,7 +63,7 @@ import type { CancellationToken, Logger } from "../../types";
 import { DeepSeekClient } from "../DeepSeekClient";
 import { GeminiGenerateContentClient } from "../GeminiGenerateContentClient";
 import type { ModelClientChatParams } from "../ModelClient";
-import { createOpenAICompatibleFetch } from "../openai-compat-fetch";
+import { createOpenAICompatibleFetchMiddleware } from "../openai-compat-fetch";
 import { OpenAIClient } from "../OpenAIClient";
 import { PositAiClient } from "../PositAiClient";
 import { resetRawHttpLoggingForTests } from "../raw-http-logging";
@@ -345,7 +345,7 @@ describe("raw HTTP logging composition", () => {
 		await new OpenAIClient({
 			apiKey: "sk-test",
 			apiMode: "completions",
-			customFetch: createOpenAICompatibleFetch("Test", "sk-test"),
+			customFetch: createOpenAICompatibleFetchMiddleware("Test", "sk-test"),
 		}).chat(params("gpt-5.2"));
 		const sdkFetch = (createOpenAI.mock.calls[0]?.[0] as SdkOptions | undefined)?.fetch;
 		expect(sdkFetch).toBeDefined();

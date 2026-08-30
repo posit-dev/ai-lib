@@ -5,7 +5,7 @@
 import type { ResolvedProviderId } from "ai-config";
 
 import { createAzureEntraTokenProvider } from "../model-clients/azure-entra-token";
-import { createOpenAICompatibleFetch } from "../model-clients/openai-compat-fetch";
+import { createOpenAICompatibleFetchMiddleware } from "../model-clients/openai-compat-fetch";
 import { OpenAIClient } from "../model-clients/OpenAIClient";
 import type { Logger, ModelInfo, ProviderCredentials } from "../types";
 import type { ClientFactory, ProviderRegistry } from "./ProviderRegistry";
@@ -66,7 +66,7 @@ const foundryClientFactory: ClientFactory = (credentials) => {
 			baseUrl: credentials.baseUrl,
 			apiMode: "completions",
 			customFetch: (delegate) => {
-				const compatFetch = createOpenAICompatibleFetch(
+				const compatFetch = createOpenAICompatibleFetchMiddleware(
 					"Foundry",
 					undefined,
 					credentials.customHeaders,
@@ -88,7 +88,7 @@ const foundryClientFactory: ClientFactory = (credentials) => {
 		apiKey: credentials.apiKey,
 		baseUrl: credentials.baseUrl,
 		apiMode: "completions",
-		customFetch: createOpenAICompatibleFetch(
+		customFetch: createOpenAICompatibleFetchMiddleware(
 			"Foundry",
 			credentials.apiKey,
 			credentials.customHeaders,

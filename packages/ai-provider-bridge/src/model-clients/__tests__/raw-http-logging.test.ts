@@ -491,6 +491,57 @@ describe("withRawHttpLogging", () => {
 		expect(req.body.toString("utf8")).toContain("[body omitted:");
 	});
 
+	it.each([
+		["URLSearchParams", () => new URLSearchParams({ prompt: "hello" })],
+		["Blob", () => new Blob(["hello"])],
+		[
+			"FormData",
+			() => {
+				const body = new FormData();
+				body.set("prompt", "hello");
+				return body;
+			},
+		],
+	])("marks an uncaptured %s body instead of logging it as empty", async (_name, createBody) => {
+		process.env[ENV_VAR] = workDir;
+		const body = createBody();
+		let received: BodyInit | null | undefined;
+		const underlying: typeof globalThis.fetch = async (_input, init) => {
+			received = init?.body;
+			return new Response("ok");
+		};
+		const wrapped = withRawHttpLogging(underlying, { provider: "test", model: "m" });
+
+		const response = await wrapped!("https://api.example.com/upload", { method: "POST", body });
+		expect(await response.text()).toBe("ok");
+		expect(received).toBe(body);
+
+		await waitForPair();
+		const req = splitMessage(readPair(workDir).request);
+		expect(req.body.toString("utf8")).toContain("[body omitted:");
+	});
+
+	it("publishes a request marker when fetch rejects without consuming a stream body", async () => {
+		process.env[ENV_VAR] = workDir;
+		const underlying: typeof globalThis.fetch = async () => {
+			throw new Error("connection refused before upload");
+		};
+		const wrapped = withRawHttpLogging(underlying, { provider: "test", model: "m" });
+
+		await expect(
+			wrapped!("https://api.example.com/upload", {
+				method: "POST",
+				body: sseStream(["request-bytes"]),
+			}),
+		).rejects.toThrow("connection refused before upload");
+
+		await waitForFiles(1);
+		const requestFile = listFiles(workDir).find((file) => file.endsWith("-request.http"));
+		expect(requestFile).toBeDefined();
+		const req = splitMessage(readFileSync(join(workDir, requestFile!)));
+		expect(req.body.toString("utf8")).toContain("[body omitted:");
+	});
+
 	it("captures a bodyful Request via pass-through: cancellation propagates, no runahead", async () => {
 		process.env[ENV_VAR] = workDir;
 		const encoder = new TextEncoder();

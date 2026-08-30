@@ -145,9 +145,12 @@ function redactHeaders(headers: Headers): string[] {
  * body exists but could not be captured, so the log records a marker instead
  * of a misleading empty body.
  */
-type CapturedBody =
-	| { immediate: Buffer | undefined; omittedReason?: string }
-	| { pending: Promise<Buffer> };
+interface PendingCapturedBody {
+	pending: Promise<{ body: Buffer; omittedReason?: string }>;
+	finalize: (omittedReason: string) => void;
+}
+
+type CapturedBody = { immediate: Buffer | undefined; omittedReason?: string } | PendingCapturedBody;
 
 /** Result of capturing a request: the body bytes and what to pass on. */
 interface CapturedRequest {
@@ -177,7 +180,7 @@ interface CapturedRequest {
 function recordPassThrough(
 	source: ReadableStream<Uint8Array>,
 	onFinish: (body: Buffer, error?: unknown) => void,
-): ReadableStream<Uint8Array> {
+): { stream: ReadableStream<Uint8Array>; finish: (error?: unknown) => void } {
 	const chunks: Buffer[] = [];
 	let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
 	let finished = false;
@@ -188,7 +191,7 @@ function recordPassThrough(
 			onFinish(Buffer.concat(chunks), error);
 		}
 	};
-	return new ReadableStream<Uint8Array>(
+	const stream = new ReadableStream<Uint8Array>(
 		{
 			async pull(controller) {
 				try {
@@ -219,6 +222,29 @@ function recordPassThrough(
 		// consumer asks for bytes. This also keeps failed Request rewrites safe.
 		{ highWaterMark: 0 },
 	);
+	return { stream, finish };
+}
+
+function captureRequestStream(source: ReadableStream<Uint8Array>): {
+	body: PendingCapturedBody;
+	stream: ReadableStream<Uint8Array>;
+} {
+	let resolveDone!: (result: { body: Buffer; omittedReason?: string }) => void;
+	const pending = new Promise<{ body: Buffer; omittedReason?: string }>((resolve) => {
+		resolveDone = resolve;
+	});
+	let omittedReason: string | undefined;
+	const recorded = recordPassThrough(source, (body) => resolveDone({ body, omittedReason }));
+	return {
+		body: {
+			pending,
+			finalize(reason) {
+				omittedReason = reason;
+				recorded.finish();
+			},
+		},
+		stream: recorded.stream,
+	};
 }
 
 /**
@@ -254,18 +280,14 @@ function captureRequestBody(
 				};
 			}
 
-			let resolveDone!: (body: Buffer) => void;
-			const done = new Promise<Buffer>((resolve) => {
-				resolveDone = resolve;
-			});
-			const recorded = recordPassThrough(input.body, (accumulated) => resolveDone(accumulated));
+			const captured = captureRequestStream(input.body);
 			try {
 				// Rewrite the input with the recording body. `duplex: "half"` is
 				// required by undici for stream bodies.
-				const rewritten = new Request(input, { body: recorded, duplex: "half" });
-				return { body: { pending: done }, input: rewritten, init };
+				const rewritten = new Request(input, { body: captured.stream, duplex: "half" });
+				return { body: captured.body, input: rewritten, init };
 			} catch {
-				// `recorded` has a zero high-water mark and has not locked the source,
+				// The captured stream has a zero high-water mark and has not locked the source,
 				// so falling back to the original Request is safe.
 				return {
 					body: {
@@ -295,16 +317,17 @@ function captureRequestBody(
 		};
 	}
 	if (body instanceof ReadableStream) {
-		let resolveDone!: (body: Buffer) => void;
-		const done = new Promise<Buffer>((resolve) => {
-			resolveDone = resolve;
-		});
-		const recorded = recordPassThrough(body, (accumulated) => resolveDone(accumulated));
-		return { body: { pending: done }, input, init: { ...init, body: recorded } };
+		const captured = captureRequestStream(body);
+		return { body: captured.body, input, init: { ...init, body: captured.stream } };
 	}
 	// URLSearchParams, FormData, Blob, etc. — not produced by the AI SDK;
-	// skip capture rather than risk disturbing the request.
-	return { body: { immediate: undefined }, input, init };
+	// preserve the body and mark the capture omission rather than risk changing
+	// fetch's serialization or multipart boundary.
+	return {
+		body: { immediate: undefined, omittedReason: "body type cannot be captured safely" },
+		input,
+		init,
+	};
 }
 
 function formatRequestFile(
@@ -342,7 +365,7 @@ function captureResponseForLog(
 		return response;
 	}
 	const recorded = recordPassThrough(response.body, onFinish);
-	const wrapped = new Response(recorded, {
+	const wrapped = new Response(recorded.stream, {
 		status: response.status,
 		statusText: response.statusText,
 		headers: response.headers,
@@ -427,6 +450,7 @@ export function withRawHttpLogging(
 		// stream finishes for stream bodies.
 		let fetchInput = input;
 		let fetchInit = init;
+		let finalizePendingRequest: ((omittedReason: string) => void) | undefined;
 		try {
 			const captured = captureRequestBody(input, init);
 			fetchInput = captured.input;
@@ -463,7 +487,10 @@ export function withRawHttpLogging(
 					formatRequestFile(method, resolvedUrl, requestHeaders, body, omittedReason),
 				);
 			if ("pending" in captured.body) {
-				void captured.body.pending.then(writeRequest, () => writeRequest(undefined));
+				finalizePendingRequest = captured.body.finalize;
+				void captured.body.pending.then(({ body, omittedReason }) =>
+					writeRequest(body, omittedReason),
+				);
 			} else {
 				writeRequest(captured.body.immediate, captured.body.omittedReason);
 			}
@@ -475,6 +502,9 @@ export function withRawHttpLogging(
 		try {
 			response = await underlying(fetchInput, fetchInit);
 		} catch (error) {
+			// If fetch failed before consuming a streaming upload, publish the
+			// request half without reading or cancelling the caller's source.
+			finalizePendingRequest?.("request stream did not finish before fetch failed");
 			// Record the transport-level failure, then rethrow.
 			try {
 				writeLogFile(

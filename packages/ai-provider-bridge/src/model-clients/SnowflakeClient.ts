@@ -26,7 +26,7 @@ import {
 	createStepLogger,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
-import { createOpenAICompatibleFetch } from "./openai-compat-fetch";
+import { createOpenAICompatibleFetchMiddleware } from "./openai-compat-fetch";
 import { withRawHttpLogging } from "./raw-http-logging";
 
 /**
@@ -319,7 +319,7 @@ export class SnowflakeClient implements ModelClient {
 				provider: "snowflake-cortex",
 				model: params.model,
 			}) ?? globalThis.fetch;
-		const compatFetch = createOpenAICompatibleFetch(
+		const compatFetch = createOpenAICompatibleFetchMiddleware(
 			"Snowflake",
 			this.isSessionAuth ? "session-auth" : this.token,
 			this.customHeaders,
