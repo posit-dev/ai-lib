@@ -90,21 +90,15 @@ function fakeSseFetch(chunks: string[]): typeof globalThis.fetch {
 }
 
 /**
- * Wait until `count` log files exist and all have content (writes are async,
- * so existence alone races the read).
+ * Wait until `count` log files exist. Log files are published via
+ * temp-file-plus-rename, so an existing `.http` file holds complete contents.
  */
 async function waitForFiles(count: number): Promise<void> {
 	const deadline = Date.now() + 5000;
 	for (;;) {
 		const files = listFiles(workDir).filter((f) => f.endsWith(".http"));
 		if (files.length >= count) {
-			try {
-				if (files.every((f) => readFileSync(join(workDir, f)).length > 0)) {
-					return;
-				}
-			} catch {
-				// File vanished between listing and reading — keep waiting.
-			}
+			return;
 		}
 		if (Date.now() > deadline) {
 			throw new Error(`Timed out waiting for ${count} log files, found: ${files.join(", ")}`);
@@ -438,6 +432,72 @@ describe("withRawHttpLogging", () => {
 		await waitForPair();
 		const req = splitMessage(readPair(workDir).request);
 		expect(req.body.toString("utf8")).toBe("request-bytes");
+	});
+
+	it("captures a bodyful Request via pass-through: cancellation propagates, no runahead", async () => {
+		process.env[ENV_VAR] = workDir;
+		const encoder = new TextEncoder();
+		let sourceCancelled = false;
+		let produced = 0;
+		const bodyStream = new ReadableStream<Uint8Array>({
+			pull(controller) {
+				produced++;
+				if (produced <= 100) {
+					controller.enqueue(encoder.encode(`chunk${produced}\n`));
+				}
+			},
+			cancel() {
+				sourceCancelled = true;
+			},
+		});
+		// The underlying fetch reads one chunk of the upload, then cancels.
+		const underlying: typeof globalThis.fetch = async (input) => {
+			const reader = (input as Request).body!.getReader();
+			await reader.read();
+			await reader.cancel();
+			return new Response("ok");
+		};
+		const wrapped = withRawHttpLogging(underlying, { provider: "test", model: "m" });
+
+		const request = new Request("https://api.example.com/upload", {
+			method: "POST",
+			body: bodyStream,
+			duplex: "half",
+		});
+		const response = await wrapped!(request);
+		expect(await response.text()).toBe("ok");
+
+		// Cancellation flowed through the recording pass-through to the source,
+		// which never produced beyond a handful of chunks.
+		expect(sourceCancelled).toBe(true);
+		expect(produced).toBeLessThanOrEqual(5);
+
+		await waitForPair();
+		const req = splitMessage(readPair(workDir).request);
+		expect(req.head).toContain("POST /upload HTTP/1.1");
+		expect(req.body.toString("utf8")).toContain("chunk1");
+		expect(req.body.toString("utf8")).not.toContain("chunk100");
+	});
+
+	it("preserves response url, redirected, and type metadata", async () => {
+		process.env[ENV_VAR] = workDir;
+		const network = new Response(sseStream(["data: [DONE]\n\n"]), { status: 200 });
+		// Simulate the metadata a real fetch response carries.
+		Object.defineProperty(network, "url", { value: "https://api.example.com/v1/chat" });
+		Object.defineProperty(network, "redirected", { value: true });
+		Object.defineProperty(network, "type", { value: "cors" });
+		const wrapped = withRawHttpLogging(async () => network, { provider: "test", model: "m" });
+
+		const response = await wrapped!("https://api.example.com/v1/chat", {
+			method: "POST",
+			body: "{}",
+		});
+		expect(response.url).toBe("https://api.example.com/v1/chat");
+		expect(response.redirected).toBe(true);
+		expect(response.type).toBe("cors");
+		expect(response.status).toBe(200);
+		await response.text();
+		await waitForPair();
 	});
 
 	it("survives logging failures without breaking the response", async () => {

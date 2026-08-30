@@ -19,8 +19,11 @@
  * 2. Explicit override: the `PA_RAW_HTTP_LOG_DIR` environment variable. When
  *    set, the directory is created automatically and logging is always on.
  *
- * Output: two files per HTTP call sharing a `{timestamp}-{provider}-{model}-{seq}`
- * base name:
+ * Output: two files per HTTP call sharing a
+ * `{timestamp}-{provider}-{model}-{nonce}-{seq}` base name (the nonce makes
+ * the name unique across processes sharing a directory). Files are published
+ * via temp-file-plus-rename, so an existing `.http` file always holds
+ * complete contents.
  *
  * - `...-request.http`: request line, headers (best-effort reconstruction; the
  *   Fetch API hides exact wire order/casing), blank line, then the body
@@ -68,8 +71,8 @@ let sequence = 0;
  */
 const processNonce =
 	typeof globalThis.crypto?.randomUUID === "function"
-		? globalThis.crypto.randomUUID().slice(0, 8)
-		: Math.random().toString(36).slice(2, 10);
+		? globalThis.crypto.randomUUID()
+		: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
 /**
  * Register the late-binding output directory. Called once at startup by
@@ -138,9 +141,15 @@ function redactHeaders(headers: Headers): string[] {
  */
 type CapturedBody = { immediate: Buffer | undefined } | { pending: Promise<Buffer> };
 
-/** Result of capturing a request: the body bytes and the init to pass on. */
+/** Result of capturing a request: the body bytes and what to pass on. */
 interface CapturedRequest {
 	body: CapturedBody;
+	/**
+	 * The input the underlying fetch must be called with. Identical to the
+	 * caller's input unless a bodyful Request had to be rewritten with a
+	 * recording body — the caller's Request is never mutated.
+	 */
+	input: string | URL | Request;
 	/**
 	 * The init the underlying fetch must be called with. Identical to the
 	 * caller's init unless the body had to be wrapped for capture, in which
@@ -205,7 +214,8 @@ function recordPassThrough(
  * - string/Buffer/TypedArray/ArrayBuffer bodies are copied directly.
  * - ReadableStream bodies are wrapped in a recording pass-through placed in a
  *   *copy* of the init (the caller's init is never mutated).
- * - Request-object bodies are cloned before the original is consumed.
+ * - Request-object bodies get the same pass-through via a rewritten Request
+ *   (the caller's Request is never mutated).
  */
 function captureRequestBody(
 	input: string | URL | Request,
@@ -214,23 +224,28 @@ function captureRequestBody(
 	const body = init?.body;
 	if (body === null || body === undefined) {
 		if (input instanceof Request && input.body !== null) {
-			const clone = input.clone();
-			return {
-				body: { pending: clone.arrayBuffer().then((buf) => Buffer.from(buf)) },
-				init,
-			};
+			let resolveDone!: (body: Buffer) => void;
+			const done = new Promise<Buffer>((resolve) => {
+				resolveDone = resolve;
+			});
+			const recorded = recordPassThrough(input.body, (accumulated) => resolveDone(accumulated));
+			// Rewrite the input with the recording body. `duplex: "half"` is
+			// required by undici for stream bodies.
+			const rewritten = new Request(input, { body: recorded, duplex: "half" });
+			return { body: { pending: done }, input: rewritten, init };
 		}
-		return { body: { immediate: undefined }, init };
+		return { body: { immediate: undefined }, input, init };
 	}
 	if (typeof body === "string") {
-		return { body: { immediate: Buffer.from(body, "utf8") }, init };
+		return { body: { immediate: Buffer.from(body, "utf8") }, input, init };
 	}
 	if (body instanceof ArrayBuffer) {
-		return { body: { immediate: Buffer.from(body) }, init };
+		return { body: { immediate: Buffer.from(body) }, input, init };
 	}
 	if (ArrayBuffer.isView(body)) {
 		return {
 			body: { immediate: Buffer.from(body.buffer, body.byteOffset, body.byteLength) },
+			input,
 			init,
 		};
 	}
@@ -240,11 +255,11 @@ function captureRequestBody(
 			resolveDone = resolve;
 		});
 		const recorded = recordPassThrough(body, (accumulated) => resolveDone(accumulated));
-		return { body: { pending: done }, init: { ...init, body: recorded } };
+		return { body: { pending: done }, input, init: { ...init, body: recorded } };
 	}
 	// URLSearchParams, FormData, Blob, etc. — not produced by the AI SDK;
 	// skip capture rather than risk disturbing the request.
-	return { body: { immediate: undefined }, init };
+	return { body: { immediate: undefined }, input, init };
 }
 
 function formatRequestFile(
@@ -277,11 +292,17 @@ function captureResponseForLog(
 		return response;
 	}
 	const recorded = recordPassThrough(response.body, onFinish);
-	return new Response(recorded, {
+	const wrapped = new Response(recorded, {
 		status: response.status,
 		statusText: response.statusText,
 		headers: response.headers,
 	});
+	// The Response constructor cannot set url/redirected/type; shadow them so
+	// the wrapper preserves the original fetch metadata.
+	Object.defineProperty(wrapped, "url", { value: response.url });
+	Object.defineProperty(wrapped, "redirected", { value: response.redirected });
+	Object.defineProperty(wrapped, "type", { value: response.type });
+	return wrapped;
 }
 
 function formatResponseFile(response: Response, body: Buffer, error?: unknown): Buffer {
@@ -304,8 +325,15 @@ function formatResponseFile(response: Response, body: Buffer, error?: unknown): 
 
 function writeLogFile(outputDir: string, baseName: string, suffix: string, contents: Buffer): void {
 	// Forward slash works on Windows for fs calls; avoids importing node:path.
-	nodeFs?.writeFile(`${outputDir}/${baseName}-${suffix}.http`, contents, () => {
+	const finalPath = `${outputDir}/${baseName}-${suffix}.http`;
+	// Publish via temp file + rename: an existing final path always holds
+	// complete contents, so log viewers and tests can poll for existence.
+	nodeFs?.writeFile(`${finalPath}.tmp`, contents, (error) => {
 		// Errors are swallowed by design: logging must never break a request.
+		if (error) {
+			return;
+		}
+		nodeFs.rename(`${finalPath}.tmp`, finalPath, () => {});
 	});
 }
 
@@ -314,6 +342,12 @@ function writeLogFile(outputDir: string, baseName: string, suffix: string, conte
  * log directory. Returns undefined when logging is disabled, so callers can
  * conditionally spread the result into provider options without changing
  * behavior in the common case.
+ *
+ * The returned fetch narrows the Response contract slightly: the response is
+ * a wrapper preserving status, statusText, headers, body, url, redirected,
+ * and type, but its headers are a fresh (mutable) Headers object rather than
+ * the original guard. Callers that only consume status/headers/body — the AI
+ * SDK included — are unaffected.
  *
  * @param fetchFn - The fetch the client would otherwise use (may be undefined
  *   to wrap the global fetch).
@@ -341,9 +375,11 @@ export function withRawHttpLogging(
 		// pass-through so the SDK's bytes are undisturbed) and write the
 		// request file — immediately for already-available bodies, when the
 		// stream finishes for stream bodies.
+		let fetchInput = input;
 		let fetchInit = init;
 		try {
 			const captured = captureRequestBody(input, init);
+			fetchInput = captured.input;
 			fetchInit = captured.init;
 			// Fetch defaults to GET when neither the Request nor init say
 			// otherwise.
@@ -387,7 +423,7 @@ export function withRawHttpLogging(
 
 		let response: Response;
 		try {
-			response = await underlying(input, fetchInit);
+			response = await underlying(fetchInput, fetchInit);
 		} catch (error) {
 			// Record the transport-level failure, then rethrow.
 			try {

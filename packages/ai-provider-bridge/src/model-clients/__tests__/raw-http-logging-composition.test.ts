@@ -146,7 +146,10 @@ function splitMessage(contents: Buffer): { head: string; body: string } {
 	};
 }
 
-/** True when `count` pairs exist and every file has content (writes are async). */
+/**
+ * True when `count` pairs exist. Log files are published via
+ * temp-file-plus-rename, so an existing `.http` file holds complete contents.
+ */
 function pairsComplete(count: number): boolean {
 	const bases = listBaseNames();
 	if (bases.length !== count) {
@@ -154,10 +157,9 @@ function pairsComplete(count: number): boolean {
 	}
 	return bases.every((base) => {
 		try {
-			return (
-				readFileSync(join(workDir, `${base}-request.http`)).length > 0 &&
-				readFileSync(join(workDir, `${base}-response.http`)).length > 0
-			);
+			readFileSync(join(workDir, `${base}-request.http`));
+			readFileSync(join(workDir, `${base}-response.http`));
+			return true;
 		} catch {
 			return false;
 		}
