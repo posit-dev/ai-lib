@@ -107,9 +107,10 @@ function resolveOutputDir(): string | undefined {
 	const envDir = process.env[ENV_VAR];
 	if (envDir) {
 		// Idempotent: recreates the directory if it was deleted mid-session
-		// and picks up env-var changes between calls.
+		// and picks up env-var changes between calls. Bodies are unredacted
+		// (prompts, tool output), so the directory is owner-only.
 		try {
-			nodeFs.mkdirSync(envDir, { recursive: true });
+			nodeFs.mkdirSync(envDir, { recursive: true, mode: 0o700 });
 		} catch {
 			return undefined;
 		}
@@ -428,7 +429,9 @@ function writeLogFile(outputDir: string, baseName: string, suffix: string, conte
 	const finalPath = `${outputDir}/${baseName}-${suffix}.http`;
 	// Publish via temp file + rename: an existing final path always holds
 	// complete contents, so log viewers and tests can poll for existence.
-	nodeFs?.writeFile(`${finalPath}.tmp`, contents, (error) => {
+	// Owner-only mode: bodies are deliberately unredacted (prompts, source,
+	// tool output), and rename preserves the temp file's mode.
+	nodeFs?.writeFile(`${finalPath}.tmp`, contents, { mode: 0o600 }, (error) => {
 		// Errors are swallowed by design: logging must never break a request.
 		if (error) {
 			return;

@@ -9,6 +9,7 @@ import {
 	readFileSync,
 	readdirSync,
 	rmSync,
+	statSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -159,6 +160,39 @@ describe("withRawHttpLogging", () => {
 		process.env[ENV_VAR] = second;
 		expect(withRawHttpLogging(undefined, { provider: "test", model: "m" })).toBeDefined();
 		expect(existsSync(second)).toBe(true);
+	});
+
+	it("creates the env directory and log files owner-only", async () => {
+		if (process.platform === "win32") return; // POSIX permission bits don't apply
+		const logDir = join(workDir, "env-logs-perms");
+		process.env[ENV_VAR] = logDir;
+		const wrapped = withRawHttpLogging(fakeSseFetch(["data: [DONE]\n\n"]), {
+			provider: "test",
+			model: "m",
+		});
+		const response = await wrapped!("https://api.example.com/v1/chat", {
+			method: "POST",
+			body: "{}",
+		});
+		await response.arrayBuffer();
+
+		// Log files publish asynchronously via temp-file-plus-rename.
+		const deadline = Date.now() + 5000;
+		for (;;) {
+			const files = existsSync(logDir) ? listFiles(logDir).filter((f) => f.endsWith(".http")) : [];
+			if (files.length >= 2) break;
+			if (Date.now() > deadline) {
+				throw new Error("Timed out waiting for log files");
+			}
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		}
+
+		// Bodies are unredacted (prompts, tool output), so both the
+		// auto-created directory and the log files are owner-only.
+		expect(statSync(logDir).mode & 0o777).toBe(0o700);
+		for (const f of listFiles(logDir).filter((f) => f.endsWith(".http"))) {
+			expect(statSync(join(logDir, f)).mode & 0o777).toBe(0o600);
+		}
 	});
 
 	it("writes request and response files with byte-identical bodies", async () => {
