@@ -464,6 +464,38 @@ describe("withRawHttpLogging", () => {
 		expect(req.body.toString("utf8")).toBe("request-bytes");
 	});
 
+	it("snapshots the selected typed-array bytes before later request processing", async () => {
+		process.env[ENV_VAR] = workDir;
+		const backing = new Uint8Array([0xaa, 1, 2, 0xbb]);
+		const body = backing.subarray(1, 3);
+		const headers: Record<string, string> = {};
+		Object.defineProperty(headers, "x-mutate-body", {
+			enumerable: true,
+			get() {
+				backing.fill(9);
+				return "true";
+			},
+		});
+		let received: BodyInit | null | undefined;
+		const underlying: typeof globalThis.fetch = async (_input, init) => {
+			received = init?.body;
+			return new Response("ok");
+		};
+		const wrapped = withRawHttpLogging(underlying, { provider: "test", model: "m" });
+
+		const response = await wrapped!("https://api.example.com/upload", {
+			method: "POST",
+			headers,
+			body,
+		});
+		expect(await response.text()).toBe("ok");
+		expect(received).toBe(body);
+
+		await waitForPair();
+		const req = splitMessage(readPair(workDir).request);
+		expect([...req.body]).toEqual([1, 2]);
+	});
+
 	it("passes through a bodyful keepalive Request when stream capture is incompatible", async () => {
 		process.env[ENV_VAR] = workDir;
 		let received: string | undefined;
@@ -535,10 +567,8 @@ describe("withRawHttpLogging", () => {
 			}),
 		).rejects.toThrow("connection refused before upload");
 
-		await waitForFiles(1);
-		const requestFile = listFiles(workDir).find((file) => file.endsWith("-request.http"));
-		expect(requestFile).toBeDefined();
-		const req = splitMessage(readFileSync(join(workDir, requestFile!)));
+		await waitForPair();
+		const req = splitMessage(readPair(workDir).request);
 		expect(req.body.toString("utf8")).toContain("[body omitted:");
 	});
 
