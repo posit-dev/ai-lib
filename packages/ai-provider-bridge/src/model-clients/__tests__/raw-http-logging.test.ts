@@ -2,7 +2,15 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	readdirSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -76,33 +84,22 @@ function fakeSseFetch(chunks: string[]): typeof globalThis.fetch {
 			headers: {
 				"content-type": "text/event-stream",
 				"anthropic-ratelimit-tokens-remaining": "19999",
+				"set-cookie": "session=abc123; HttpOnly",
 			},
 		});
 }
 
-async function settle(): Promise<void> {
-	// Allow background file writes to complete.
-	for (let i = 0; i < 50; i++) {
-		await new Promise((resolve) => setTimeout(resolve, 10));
-	}
-}
-
 /**
- * Wait until a request/response pair exists and both files have content
- * (writes are async, so existence alone races the read).
+ * Wait until `count` log files exist and all have content (writes are async,
+ * so existence alone races the read).
  */
-async function waitForPair(): Promise<void> {
+async function waitForFiles(count: number): Promise<void> {
 	const deadline = Date.now() + 5000;
 	for (;;) {
-		const files = listFiles(workDir);
-		const requestFile = files.find((f) => f.endsWith("-request.http"));
-		const responseFile = files.find((f) => f.endsWith("-response.http"));
-		if (requestFile && responseFile) {
+		const files = listFiles(workDir).filter((f) => f.endsWith(".http"));
+		if (files.length >= count) {
 			try {
-				if (
-					readFileSync(join(workDir, requestFile)).length > 0 &&
-					readFileSync(join(workDir, responseFile)).length > 0
-				) {
+				if (files.every((f) => readFileSync(join(workDir, f)).length > 0)) {
 					return;
 				}
 			} catch {
@@ -110,10 +107,15 @@ async function waitForPair(): Promise<void> {
 			}
 		}
 		if (Date.now() > deadline) {
-			throw new Error(`Timed out waiting for log pair, found: ${files.join(", ")}`);
+			throw new Error(`Timed out waiting for ${count} log files, found: ${files.join(", ")}`);
 		}
 		await new Promise((resolve) => setTimeout(resolve, 10));
 	}
+}
+
+/** Wait until the request/response pair has been fully written. */
+async function waitForPair(): Promise<void> {
+	await waitForFiles(2);
 }
 
 describe("withRawHttpLogging", () => {
@@ -147,6 +149,24 @@ describe("withRawHttpLogging", () => {
 		expect(withRawHttpLogging(undefined, { provider: "test", model: "m" })).toBeDefined();
 	});
 
+	it("recreates a deleted env dir and follows env var changes between calls", () => {
+		const first = join(workDir, "env-logs");
+		process.env[ENV_VAR] = first;
+		expect(withRawHttpLogging(undefined, { provider: "test", model: "m" })).toBeDefined();
+		expect(existsSync(first)).toBe(true);
+
+		// Deleted after first use: the next call recreates it.
+		rmSync(first, { recursive: true, force: true });
+		expect(withRawHttpLogging(undefined, { provider: "test", model: "m" })).toBeDefined();
+		expect(existsSync(first)).toBe(true);
+
+		// Changed after first use: the new directory is created.
+		const second = join(workDir, "env-logs-2");
+		process.env[ENV_VAR] = second;
+		expect(withRawHttpLogging(undefined, { provider: "test", model: "m" })).toBeDefined();
+		expect(existsSync(second)).toBe(true);
+	});
+
 	it("writes request and response files with byte-identical bodies", async () => {
 		process.env[ENV_VAR] = workDir;
 		const requestBody = JSON.stringify({ prompt: "héllo wörld ✨", n: 1 });
@@ -172,7 +192,7 @@ describe("withRawHttpLogging", () => {
 		});
 		// Consume the SDK-visible stream.
 		const seenByConsumer = Buffer.from(await response.arrayBuffer());
-		await settle();
+		await waitForPair();
 
 		const { request, response: responseFile } = readPair(workDir);
 
@@ -204,24 +224,30 @@ describe("withRawHttpLogging", () => {
 				authorization: "Bearer sk-secret",
 				"x-api-key": "secret2",
 				"x-custom-auth-token": "secret3",
+				cookie: "session=secret4",
 				"content-type": "application/json",
 			},
 			body: "sk-secret stays in the body verbatim",
 		});
 		await response.arrayBuffer();
-		await settle();
+		await waitForPair();
 
 		const { head } = splitMessage(readPair(workDir).request);
 		expect(head).toContain("authorization: [REDACTED]");
 		expect(head).toContain("x-api-key: [REDACTED]");
 		expect(head).toContain("x-custom-auth-token: [REDACTED]");
+		// Cookies carry reusable session credentials and must be redacted.
+		expect(head).toContain("cookie: [REDACTED]");
 		expect(head).toContain("content-type: application/json");
 		expect(head).not.toContain("sk-secret");
+		expect(head).not.toContain("secret4");
 
 		// Rate-limit style headers mentioning "tokens" are not credentials.
 		const resHead = splitMessage(readPair(workDir).response).head;
 		expect(resHead).toContain("content-type: text/event-stream");
 		expect(resHead).toContain("anthropic-ratelimit-tokens-remaining: 19999");
+		expect(resHead).toContain("set-cookie: [REDACTED]");
+		expect(resHead).not.toContain("session=abc123");
 
 		// Bodies are never redacted.
 		const { body } = splitMessage(readPair(workDir).request);
@@ -236,10 +262,33 @@ describe("withRawHttpLogging", () => {
 		});
 		const response = await wrapped!("https://api.example.com/", { method: "POST", body: "{}" });
 		await response.arrayBuffer();
-		await settle();
+		await waitForPair();
 
 		const files = listFiles(workDir);
 		expect(files.some((f) => f.includes("my-provider") && f.includes("a-b-c"))).toBe(true);
+	});
+
+	it("logs GET by default, honoring Request and init method overrides", async () => {
+		process.env[ENV_VAR] = workDir;
+		const wrapped = withRawHttpLogging(fakeSseFetch(["data: [DONE]\n\n"]), {
+			provider: "test",
+			model: "m",
+		});
+
+		// URL-string call with no init: Fetch sends GET.
+		await (await wrapped!("https://api.example.com/a")).text();
+		// Request object: its method wins.
+		await (await wrapped!(new Request("https://api.example.com/b", { method: "PUT" }))).text();
+		// init.method overrides the default.
+		await (await wrapped!("https://api.example.com/c", { method: "POST", body: "{}" })).text();
+
+		await waitForFiles(6);
+		const heads = listFiles(workDir)
+			.filter((f) => f.endsWith("-request.http"))
+			.map((f) => splitMessage(readFileSync(join(workDir, f))).head);
+		expect(heads.some((h) => h.includes("GET /a HTTP/1.1"))).toBe(true);
+		expect(heads.some((h) => h.includes("PUT /b HTTP/1.1"))).toBe(true);
+		expect(heads.some((h) => h.includes("POST /c HTTP/1.1"))).toBe(true);
 	});
 
 	it("writes a response file with an error marker when fetch throws", async () => {
@@ -251,7 +300,7 @@ describe("withRawHttpLogging", () => {
 		await expect(
 			wrapped!("https://api.example.com/", { method: "POST", body: "{}" }),
 		).rejects.toThrow("connection refused");
-		await settle();
+		await waitForPair();
 
 		const files = listFiles(workDir);
 		const responseFile = files.find((f) => f.endsWith("-response.http"));

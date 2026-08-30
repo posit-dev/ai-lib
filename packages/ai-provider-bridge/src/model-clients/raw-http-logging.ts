@@ -56,11 +56,20 @@ const nodeFs =
  * rate-limit headers like `anthropic-ratelimit-tokens-remaining` survive.
  */
 const SENSITIVE_HEADER_PATTERN =
-	/authorization|api[-_]?key|secret|x-amz-security-token|(?:^|[-_])token$/i;
+	/authorization|api[-_]?key|secret|x-amz-security-token|(?:^|[-_])token$|cookie/i;
 
 let configuredOutputDir: string | undefined;
-let envDirCreated = false;
 let sequence = 0;
+
+/**
+ * Process-unique filename component: multiple Assistant/RStudio/TUI processes
+ * can share one log directory, and millisecond timestamps plus a
+ * process-local sequence would collide between them.
+ */
+const processNonce =
+	typeof globalThis.crypto?.randomUUID === "function"
+		? globalThis.crypto.randomUUID().slice(0, 8)
+		: Math.random().toString(36).slice(2, 10);
 
 /**
  * Register the late-binding output directory. Called once at startup by
@@ -74,7 +83,6 @@ export function configureRawHttpLogging(config: { outputDir: string }): void {
 /** Test hook: reset module state between tests. */
 export function resetRawHttpLoggingForTests(): void {
 	configuredOutputDir = undefined;
-	envDirCreated = false;
 	sequence = 0;
 }
 
@@ -89,13 +97,12 @@ function resolveOutputDir(): string | undefined {
 	}
 	const envDir = process.env[ENV_VAR];
 	if (envDir) {
-		if (!envDirCreated) {
-			try {
-				nodeFs.mkdirSync(envDir, { recursive: true });
-				envDirCreated = true;
-			} catch {
-				return undefined;
-			}
+		// Idempotent: recreates the directory if it was deleted mid-session
+		// and picks up env-var changes between calls.
+		try {
+			nodeFs.mkdirSync(envDir, { recursive: true });
+		} catch {
+			return undefined;
 		}
 		return envDir;
 	}
@@ -328,7 +335,7 @@ export function withRawHttpLogging(
 	const model = sanitizeForFilename(context.model);
 
 	return async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
-		const baseName = `${timestamp()}-${provider}-${model}-${sequence++}`;
+		const baseName = `${timestamp()}-${provider}-${model}-${processNonce}-${sequence++}`;
 
 		// Capture the request (wrapping stream bodies in a recording
 		// pass-through so the SDK's bytes are undisturbed) and write the
@@ -338,7 +345,9 @@ export function withRawHttpLogging(
 		try {
 			const captured = captureRequestBody(input, init);
 			fetchInit = captured.init;
-			let method = "POST";
+			// Fetch defaults to GET when neither the Request nor init say
+			// otherwise.
+			let method = "GET";
 			let url: URL | undefined;
 			let requestHeaders = new Headers();
 			if (input instanceof Request) {

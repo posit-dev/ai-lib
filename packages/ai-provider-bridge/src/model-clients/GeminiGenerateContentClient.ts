@@ -43,6 +43,7 @@ import {
 	createStepLogger,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
+import { withRawHttpLogging } from "./raw-http-logging";
 
 /**
  * How this client authenticates to the `generateContent` surface.
@@ -93,14 +94,12 @@ const FALLBACK_EFFORT = "medium";
  * If it turns out to be required, send an explicit placeholder here instead
  * of deleting the header.
  */
-export function createBearerAuthFetch(authToken: string): FetchFunction {
+export function createBearerAuthFetch(authToken: string, delegate: FetchFunction): FetchFunction {
 	return (input, init) => {
 		const headers = new Headers(init?.headers);
 		headers.delete("x-goog-api-key");
 		headers.set("Authorization", `Bearer ${authToken}`);
-		// Read `globalThis.fetch` per call so test doubles installed after
-		// construction are honored.
-		return globalThis.fetch(input, { ...init, headers });
+		return delegate(input, { ...init, headers });
 	};
 }
 
@@ -275,10 +274,20 @@ export class GeminiGenerateContentClient implements ModelClient {
 		// owns `Authorization` and the required `apiKey` becomes a placeholder
 		// the middleware strips. API-key mode: the SDK's native scheme, no
 		// middleware.
+		// Raw HTTP logging sits innermost (wrapping the global fetch) so the
+		// log records the final wire request — beneath the bearer rewrite in
+		// bearer mode.
+		const loggedFetch = withRawHttpLogging(undefined, {
+			provider: "gemini",
+			model: params.model,
+		});
 		const authSettings: { apiKey: string; fetch?: FetchFunction } =
 			"authToken" in this.auth
-				? { apiKey: PLACEHOLDER_API_KEY, fetch: createBearerAuthFetch(this.auth.authToken) }
-				: { apiKey: this.auth.apiKey };
+				? {
+						apiKey: PLACEHOLDER_API_KEY,
+						fetch: createBearerAuthFetch(this.auth.authToken, loggedFetch ?? globalThis.fetch),
+					}
+				: { apiKey: this.auth.apiKey, ...(loggedFetch && { fetch: loggedFetch }) };
 		const provider = createGoogleGenerativeAI({
 			...authSettings,
 			...(effectiveBaseUrl && { baseURL: effectiveBaseUrl }),

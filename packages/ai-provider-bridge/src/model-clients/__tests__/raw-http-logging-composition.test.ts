@@ -11,19 +11,38 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // SDK factories are mocked so we can grab the fetch each client installs and
 // drive it the way the SDK would. `vi.hoisted` lets these mocks exist before
 // the hoisted `vi.mock` factories run.
-const { createDeepSeek, createAnthropic, createOpenAI, createOpenAICompatible } = vi.hoisted(
-	() => ({
-		createDeepSeek: vi.fn(() => ({ chat: vi.fn(() => ({})) })),
-		createAnthropic: vi.fn(() => vi.fn(() => ({}))),
-		createOpenAI: vi.fn(() => ({ chat: vi.fn(() => ({})) })),
-		createOpenAICompatible: vi.fn(() => ({ chatModel: vi.fn(() => ({})) })),
-	}),
-);
+const {
+	createDeepSeek,
+	createAnthropic,
+	createOpenAI,
+	createOpenAICompatible,
+	createGoogleGenerativeAI,
+} = vi.hoisted(() => ({
+	createDeepSeek: vi.fn(() => ({ chat: vi.fn(() => ({})) })),
+	createAnthropic: vi.fn(() => vi.fn(() => ({}))),
+	createOpenAI: vi.fn(() => ({ chat: vi.fn(() => ({})) })),
+	createOpenAICompatible: vi.fn(() => ({ chatModel: vi.fn(() => ({})) })),
+	createGoogleGenerativeAI: vi.fn(() => vi.fn(() => ({}))),
+}));
 
 vi.mock("@ai-sdk/deepseek", () => ({ createDeepSeek }));
 vi.mock("@ai-sdk/anthropic", () => ({ createAnthropic }));
 vi.mock("@ai-sdk/openai", () => ({ createOpenAI }));
 vi.mock("@ai-sdk/openai-compatible", () => ({ createOpenAICompatible }));
+vi.mock("@ai-sdk/google", () => ({ createGoogleGenerativeAI }));
+// The variant profile gate needs a known model; stub the lookup.
+vi.mock("ai-config", async (importOriginal) => ({
+	...(await importOriginal<Record<string, unknown>>()),
+	getGeminiGenerateContentProfile: vi.fn(() => ({
+		variant: "2.5-pro",
+		thinking: {
+			control: "budget",
+			canDisable: false,
+			budgets: { low: 2048, medium: 8192, high: 32_768 },
+		},
+		thinkingEffortLevels: ["low", "medium", "high"],
+	})),
+}));
 vi.mock("ai", () => ({ streamText: vi.fn(() => ({ fullStream: {} })) }));
 // Bypass the stream-conversion + abort plumbing; we only care about the fetch
 // wrapper each client installs.
@@ -41,6 +60,7 @@ vi.mock("../tool-call-ids", () => ({
 
 import type { CancellationToken, Logger } from "../../types";
 import { DeepSeekClient } from "../DeepSeekClient";
+import { GeminiGenerateContentClient } from "../GeminiGenerateContentClient";
 import type { ModelClientChatParams } from "../ModelClient";
 import { PositAiClient } from "../PositAiClient";
 import { resetRawHttpLoggingForTests } from "../raw-http-logging";
@@ -64,6 +84,7 @@ beforeEach(() => {
 	createAnthropic.mockClear();
 	createOpenAI.mockClear();
 	createOpenAICompatible.mockClear();
+	createGoogleGenerativeAI.mockClear();
 });
 
 afterEach(() => {
@@ -281,5 +302,50 @@ describe("raw HTTP logging composition", () => {
 		// fix-up (arguments "" → "{}" for the no-arg tool).
 		expect(splitMessage(readLog(second!, "response")).body).toContain('"arguments":""');
 		expect(seenByConsumer).toContain('"arguments":"{}"');
+	});
+
+	it("gemini generateContent: bearer mode logs beneath the bearer rewrite", async () => {
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse(["data: [DONE]\n\n"]));
+
+		await new GeminiGenerateContentClient({ authToken: "tok-123" }).chat(params("gemini-2.5-pro"));
+		const sdkFetch = (createGoogleGenerativeAI.mock.calls[0]?.[0] as SdkOptions | undefined)?.fetch;
+		expect(sdkFetch).toBeDefined();
+
+		// Drive the installed fetch as the SDK would (SDK sets x-goog-api-key).
+		const response = await sdkFetch!(
+			"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent",
+			{
+				method: "POST",
+				headers: { "x-goog-api-key": "placeholder", "content-type": "application/json" },
+				body: "{}",
+			},
+		);
+		await response.text();
+
+		await waitFor(() => pairsComplete(1));
+		const { head } = splitMessage(readLog(listBaseNames()[0]!, "request"));
+		expect(head).toContain("authorization: [REDACTED]");
+		expect(head).not.toContain("x-goog-api-key");
+	});
+
+	it("gemini generateContent: api-key mode installs raw logging", async () => {
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse(["data: [DONE]\n\n"]));
+
+		await new GeminiGenerateContentClient({ apiKey: "real-key" }).chat(params("gemini-2.5-pro"));
+		const sdkFetch = (createGoogleGenerativeAI.mock.calls[0]?.[0] as SdkOptions | undefined)?.fetch;
+		expect(sdkFetch).toBeDefined();
+
+		const response = await sdkFetch!(
+			"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent",
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: "{}",
+			},
+		);
+		await response.text();
+
+		await waitFor(() => pairsComplete(1));
+		expect(listBaseNames().length).toBe(1);
 	});
 });
