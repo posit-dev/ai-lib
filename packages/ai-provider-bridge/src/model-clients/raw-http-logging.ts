@@ -2,6 +2,8 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
+import type * as NodeFs from "node:fs";
+
 /**
  * Raw HTTP request/response logging
  *
@@ -50,7 +52,7 @@ const ENV_VAR = "PA_RAW_HTTP_LOG_DIR";
  */
 const nodeFs =
 	typeof process !== "undefined"
-		? (process.getBuiltinModule?.("node:fs") as typeof import("node:fs") | undefined)
+		? (process.getBuiltinModule?.("node:fs") as typeof NodeFs | undefined)
 		: undefined;
 
 /**
@@ -171,40 +173,46 @@ function recordPassThrough(
 	onFinish: (body: Buffer, error?: unknown) => void,
 ): ReadableStream<Uint8Array> {
 	const chunks: Buffer[] = [];
-	const reader = source.getReader();
+	let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
 	let finished = false;
+	const getReader = () => (reader ??= source.getReader());
 	const finish = (error?: unknown) => {
 		if (!finished) {
 			finished = true;
 			onFinish(Buffer.concat(chunks), error);
 		}
 	};
-	return new ReadableStream<Uint8Array>({
-		async pull(controller) {
-			try {
-				const { done, value } = await reader.read();
-				if (done) {
-					controller.close();
-					finish();
-					return;
+	return new ReadableStream<Uint8Array>(
+		{
+			async pull(controller) {
+				try {
+					const { done, value } = await getReader().read();
+					if (done) {
+						controller.close();
+						finish();
+						return;
+					}
+					chunks.push(Buffer.from(value));
+					controller.enqueue(value);
+				} catch (error) {
+					finish(error);
+					controller.error(error);
 				}
-				chunks.push(Buffer.from(value));
-				controller.enqueue(value);
-			} catch (error) {
-				finish(error);
-				controller.error(error);
-			}
+			},
+			async cancel(reason) {
+				// Record partial bytes even when source cancellation rejects, but
+				// preserve that source failure for the caller.
+				try {
+					await getReader().cancel(reason);
+				} finally {
+					finish(new Error("stream cancelled by consumer"));
+				}
+			},
 		},
-		async cancel(reason) {
-			// Forward cancellation to the source, then record what arrived.
-			try {
-				await reader.cancel(reason);
-			} catch {
-				// Swallow: logging must never break the request.
-			}
-			finish(new Error("stream cancelled by consumer"));
-		},
-	});
+		// Prevent the wrapper from pulling (and locking) the source until its
+		// consumer asks for bytes. This also keeps failed Request rewrites safe.
+		{ highWaterMark: 0 },
+	);
 }
 
 /**
@@ -224,15 +232,30 @@ function captureRequestBody(
 	const body = init?.body;
 	if (body === null || body === undefined) {
 		if (input instanceof Request && input.body !== null) {
+			// Fetch forbids streaming bodies for keepalive and no-cors requests.
+			// Preserve a valid caller-owned Request and omit body capture rather
+			// than rewriting it into an invalid one.
+			const keepalive = init?.keepalive ?? input.keepalive;
+			const mode = init?.mode ?? input.mode;
+			if (keepalive || mode === "no-cors") {
+				return { body: { immediate: undefined }, input, init };
+			}
+
 			let resolveDone!: (body: Buffer) => void;
 			const done = new Promise<Buffer>((resolve) => {
 				resolveDone = resolve;
 			});
 			const recorded = recordPassThrough(input.body, (accumulated) => resolveDone(accumulated));
-			// Rewrite the input with the recording body. `duplex: "half"` is
-			// required by undici for stream bodies.
-			const rewritten = new Request(input, { body: recorded, duplex: "half" });
-			return { body: { pending: done }, input: rewritten, init };
+			try {
+				// Rewrite the input with the recording body. `duplex: "half"` is
+				// required by undici for stream bodies.
+				const rewritten = new Request(input, { body: recorded, duplex: "half" });
+				return { body: { pending: done }, input: rewritten, init };
+			} catch {
+				// `recorded` has a zero high-water mark and has not locked the source,
+				// so falling back to the original Request is safe.
+				return { body: { immediate: undefined }, input, init };
+			}
 		}
 		return { body: { immediate: undefined }, input, init };
 	}
@@ -240,11 +263,13 @@ function captureRequestBody(
 		return { body: { immediate: Buffer.from(body, "utf8") }, input, init };
 	}
 	if (body instanceof ArrayBuffer) {
-		return { body: { immediate: Buffer.from(body) }, input, init };
+		return { body: { immediate: Buffer.from(new Uint8Array(body)) }, input, init };
 	}
 	if (ArrayBuffer.isView(body)) {
 		return {
-			body: { immediate: Buffer.from(body.buffer, body.byteOffset, body.byteLength) },
+			body: {
+				immediate: Buffer.from(new Uint8Array(body.buffer, body.byteOffset, body.byteLength)),
+			},
 			input,
 			init,
 		};

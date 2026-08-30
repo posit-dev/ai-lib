@@ -340,6 +340,36 @@ describe("withRawHttpLogging", () => {
 		expect(res.body.toString("utf8")).toContain("[error: stream cancelled by consumer]");
 	});
 
+	it("preserves a source cancellation rejection while logging partial bytes", async () => {
+		process.env[ENV_VAR] = workDir;
+		const encoder = new TextEncoder();
+		const source = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(encoder.encode('data: {"delta":"a"}\n\n'));
+			},
+			cancel() {
+				throw new Error("source cancel failed");
+			},
+		});
+		const wrapped = withRawHttpLogging(async () => new Response(source, { status: 200 }), {
+			provider: "test",
+			model: "m",
+		});
+
+		const response = await wrapped!("https://api.example.com/v1/chat", {
+			method: "POST",
+			body: "{}",
+		});
+		const reader = response.body!.getReader();
+		await reader.read();
+		await expect(reader.cancel()).rejects.toThrow("source cancel failed");
+
+		await waitForPair();
+		const res = splitMessage(readPair(workDir).response);
+		expect(res.body.toString("utf8")).toContain('"delta":"a"');
+		expect(res.body.toString("utf8")).toContain("[error: stream cancelled by consumer]");
+	});
+
 	it("does not buffer ahead of a slow consumer", async () => {
 		process.env[ENV_VAR] = workDir;
 		const encoder = new TextEncoder();
@@ -432,6 +462,32 @@ describe("withRawHttpLogging", () => {
 		await waitForPair();
 		const req = splitMessage(readPair(workDir).request);
 		expect(req.body.toString("utf8")).toBe("request-bytes");
+	});
+
+	it("passes through a bodyful keepalive Request when stream capture is incompatible", async () => {
+		process.env[ENV_VAR] = workDir;
+		let received: string | undefined;
+		const underlying: typeof globalThis.fetch = async (input) => {
+			received = await (input as Request).text();
+			return new Response("ok");
+		};
+		const wrapped = withRawHttpLogging(underlying, { provider: "test", model: "m" });
+		const request = new Request("https://api.example.com/upload", {
+			method: "POST",
+			body: "request-bytes",
+			keepalive: true,
+		});
+
+		const response = await wrapped!(request);
+		expect(await response.text()).toBe("ok");
+		expect(received).toBe("request-bytes");
+
+		await waitForPair();
+		const req = splitMessage(readPair(workDir).request);
+		expect(req.head).toContain("POST /upload HTTP/1.1");
+		// The request remains usable, but its body is omitted because a keepalive
+		// Request cannot be safely rewritten with a streaming capture body.
+		expect(req.body).toHaveLength(0);
 	});
 
 	it("captures a bodyful Request via pass-through: cancellation propagates, no runahead", async () => {

@@ -70,8 +70,7 @@ const foundryClientFactory: ClientFactory = (credentials) => {
 					"Foundry",
 					undefined,
 					credentials.customHeaders,
-					{ fetch: delegate },
-				);
+				)(delegate);
 				return async (url, init) => {
 					const token = await tokenProvider();
 					const headers = new Headers(init?.headers);
@@ -89,10 +88,11 @@ const foundryClientFactory: ClientFactory = (credentials) => {
 		apiKey: credentials.apiKey,
 		baseUrl: credentials.baseUrl,
 		apiMode: "completions",
-		customFetch: (delegate) =>
-			createOpenAICompatibleFetch("Foundry", credentials.apiKey, credentials.customHeaders, {
-				fetch: delegate,
-			}),
+		customFetch: createOpenAICompatibleFetch(
+			"Foundry",
+			credentials.apiKey,
+			credentials.customHeaders,
+		),
 	});
 };
 

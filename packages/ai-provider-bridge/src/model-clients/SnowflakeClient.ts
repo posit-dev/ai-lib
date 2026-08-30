@@ -319,13 +319,11 @@ export class SnowflakeClient implements ModelClient {
 				provider: "snowflake-cortex",
 				model: params.model,
 			}) ?? globalThis.fetch;
-		const compatFetch = this.isSessionAuth
-			? createOpenAICompatibleFetch("Snowflake", "session-auth", this.customHeaders, {
-					fetch: wireFetch,
-				})
-			: createOpenAICompatibleFetch("Snowflake", this.token, this.customHeaders, {
-					fetch: wireFetch,
-				});
+		const compatFetch = createOpenAICompatibleFetch(
+			"Snowflake",
+			this.isSessionAuth ? "session-auth" : this.token,
+			this.customHeaders,
+		)(wireFetch);
 		const effectiveFetch = this.isSessionAuth
 			? createSnowflakeSessionFetch(this.token, compatFetch, this.sessionRefresh)
 			: compatFetch;

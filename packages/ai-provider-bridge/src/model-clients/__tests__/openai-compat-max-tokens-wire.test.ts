@@ -32,9 +32,10 @@ describe("createOpenAICompatibleFetch — max_tokens rename", () => {
 	}
 
 	async function sentBody(
-		fetchFn: ReturnType<typeof createOpenAICompatibleFetch>,
+		middleware: ReturnType<typeof createOpenAICompatibleFetch>,
 		capture: RawFetchCapture,
 	) {
+		const fetchFn = middleware(capture.mock);
 		await fetchFn("https://example.invalid/chat/completions", {
 			method: "POST",
 			body: JSON.stringify({ model: "m", max_tokens: 16384 }),

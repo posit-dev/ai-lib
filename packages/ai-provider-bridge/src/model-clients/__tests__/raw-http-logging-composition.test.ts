@@ -345,8 +345,7 @@ describe("raw HTTP logging composition", () => {
 		await new OpenAIClient({
 			apiKey: "sk-test",
 			apiMode: "completions",
-			customFetch: (delegate) =>
-				createOpenAICompatibleFetch("Test", "sk-test", undefined, { fetch: delegate }),
+			customFetch: createOpenAICompatibleFetch("Test", "sk-test"),
 		}).chat(params("gpt-5.2"));
 		const sdkFetch = (createOpenAI.mock.calls[0]?.[0] as SdkOptions | undefined)?.fetch;
 		expect(sdkFetch).toBeDefined();
