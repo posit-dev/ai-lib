@@ -27,8 +27,8 @@
  *   byte-for-byte as sent.
  * - `...-response.http`: status line, headers, blank line, then the body
  *   byte-for-byte as received (SSE chunks concatenated verbatim). Written when
- *   the body stream completes; on error, whatever bytes arrived plus an
- *   `[error: ...]` marker.
+ *   the body stream completes; on error or cancellation, whatever bytes
+ *   arrived plus an `[error: ...]` marker.
  *
  * Credential-bearing header values (authorization, api-key, token, secret,
  * etc.) are replaced with `[REDACTED]`. Bodies are never modified.
@@ -131,59 +131,113 @@ function redactHeaders(headers: Headers): string[] {
  */
 type CapturedBody = { immediate: Buffer | undefined } | { pending: Promise<Buffer> };
 
+/** Result of capturing a request: the body bytes and the init to pass on. */
+interface CapturedRequest {
+	body: CapturedBody;
+	/**
+	 * The init the underlying fetch must be called with. Identical to the
+	 * caller's init unless the body had to be wrapped for capture, in which
+	 * case this is a copy — the caller's object is never mutated.
+	 */
+	init: RequestInit | undefined;
+}
+
+/**
+ * Wrap a stream so each chunk is recorded as the real consumer pulls it.
+ * Reads are pull-through — no eager draining — so backpressure propagates to
+ * the source and the log branch can never buffer ahead of the consumer.
+ * Cancellation is forwarded to the source. `onFinish` fires exactly once with
+ * the accumulated bytes, plus an error when the stream failed or was
+ * cancelled.
+ */
+function recordPassThrough(
+	source: ReadableStream<Uint8Array>,
+	onFinish: (body: Buffer, error?: unknown) => void,
+): ReadableStream<Uint8Array> {
+	const chunks: Buffer[] = [];
+	const reader = source.getReader();
+	let finished = false;
+	const finish = (error?: unknown) => {
+		if (!finished) {
+			finished = true;
+			onFinish(Buffer.concat(chunks), error);
+		}
+	};
+	return new ReadableStream<Uint8Array>({
+		async pull(controller) {
+			try {
+				const { done, value } = await reader.read();
+				if (done) {
+					controller.close();
+					finish();
+					return;
+				}
+				chunks.push(Buffer.from(value));
+				controller.enqueue(value);
+			} catch (error) {
+				finish(error);
+				controller.error(error);
+			}
+		},
+		async cancel(reason) {
+			// Forward cancellation to the source, then record what arrived.
+			try {
+				await reader.cancel(reason);
+			} catch {
+				// Swallow: logging must never break the request.
+			}
+			finish(new Error("stream cancelled by consumer"));
+		},
+	});
+}
+
 /**
  * Best-effort extraction of the request body as raw bytes, without disturbing
  * the body that will be passed to the underlying fetch.
  *
  * - string/Buffer/TypedArray/ArrayBuffer bodies are copied directly.
- * - ReadableStream bodies are tee'd: `init.body` is replaced with one branch
- *   and the other is buffered in the background for the log.
+ * - ReadableStream bodies are wrapped in a recording pass-through placed in a
+ *   *copy* of the init (the caller's init is never mutated).
  * - Request-object bodies are cloned before the original is consumed.
  */
 function captureRequestBody(
 	input: string | URL | Request,
 	init: RequestInit | undefined,
-): CapturedBody {
+): CapturedRequest {
 	const body = init?.body;
 	if (body === null || body === undefined) {
 		if (input instanceof Request && input.body !== null) {
 			const clone = input.clone();
 			return {
-				pending: clone.arrayBuffer().then((buf) => Buffer.from(buf)),
+				body: { pending: clone.arrayBuffer().then((buf) => Buffer.from(buf)) },
+				init,
 			};
 		}
-		return { immediate: undefined };
+		return { body: { immediate: undefined }, init };
 	}
 	if (typeof body === "string") {
-		return { immediate: Buffer.from(body, "utf8") };
+		return { body: { immediate: Buffer.from(body, "utf8") }, init };
 	}
 	if (body instanceof ArrayBuffer) {
-		return { immediate: Buffer.from(body) };
+		return { body: { immediate: Buffer.from(body) }, init };
 	}
 	if (ArrayBuffer.isView(body)) {
-		return { immediate: Buffer.from(body.buffer, body.byteOffset, body.byteLength) };
+		return {
+			body: { immediate: Buffer.from(body.buffer, body.byteOffset, body.byteLength) },
+			init,
+		};
 	}
 	if (body instanceof ReadableStream) {
-		const [forFetch, forLog] = body.tee();
-		init!.body = forFetch;
-		return {
-			pending: (async () => {
-				const chunks: Buffer[] = [];
-				const reader = forLog.getReader();
-				for (;;) {
-					const { done, value } = await reader.read();
-					if (done) {
-						break;
-					}
-					chunks.push(Buffer.from(value));
-				}
-				return Buffer.concat(chunks);
-			})(),
-		};
+		let resolveDone!: (body: Buffer) => void;
+		const done = new Promise<Buffer>((resolve) => {
+			resolveDone = resolve;
+		});
+		const recorded = recordPassThrough(body, (accumulated) => resolveDone(accumulated));
+		return { body: { pending: done }, init: { ...init, body: recorded } };
 	}
 	// URLSearchParams, FormData, Blob, etc. — not produced by the AI SDK;
 	// skip capture rather than risk disturbing the request.
-	return { immediate: undefined };
+	return { body: { immediate: undefined }, init };
 }
 
 function formatRequestFile(
@@ -199,6 +253,28 @@ function formatRequestFile(
 		"",
 	];
 	return Buffer.concat([Buffer.from(lines.join("\n") + "\n", "utf8"), body ?? Buffer.alloc(0)]);
+}
+
+/**
+ * Wrap a response so its body is recorded as the real consumer pulls it
+ * (cancellation and backpressure propagate to the network stream). `onFinish`
+ * fires when the stream completes, fails, or is cancelled — with whatever
+ * bytes arrived. Responses without a body finish immediately.
+ */
+function captureResponseForLog(
+	response: Response,
+	onFinish: (body: Buffer, error?: unknown) => void,
+): Response {
+	if (!response.body) {
+		onFinish(Buffer.alloc(0));
+		return response;
+	}
+	const recorded = recordPassThrough(response.body, onFinish);
+	return new Response(recorded, {
+		status: response.status,
+		statusText: response.statusText,
+		headers: response.headers,
+	});
 }
 
 function formatResponseFile(response: Response, body: Buffer, error?: unknown): Buffer {
@@ -254,11 +330,14 @@ export function withRawHttpLogging(
 	return async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
 		const baseName = `${timestamp()}-${provider}-${model}-${sequence++}`;
 
-		// Capture the request (teeing stream bodies so the SDK's bytes are
-		// undisturbed) and write the request file — immediately for
-		// already-available bodies, in the background for stream bodies.
+		// Capture the request (wrapping stream bodies in a recording
+		// pass-through so the SDK's bytes are undisturbed) and write the
+		// request file — immediately for already-available bodies, when the
+		// stream finishes for stream bodies.
+		let fetchInit = init;
 		try {
 			const captured = captureRequestBody(input, init);
+			fetchInit = captured.init;
 			let method = "POST";
 			let url: URL | undefined;
 			let requestHeaders = new Headers();
@@ -288,10 +367,10 @@ export function withRawHttpLogging(
 					"request",
 					formatRequestFile(method, resolvedUrl, requestHeaders, body),
 				);
-			if ("pending" in captured) {
-				void captured.pending.then(writeRequest, () => writeRequest(undefined));
+			if ("pending" in captured.body) {
+				void captured.body.pending.then(writeRequest, () => writeRequest(undefined));
 			} else {
-				writeRequest(captured.immediate);
+				writeRequest(captured.body.immediate);
 			}
 		} catch {
 			// Swallow: never let logging break the request.
@@ -299,7 +378,7 @@ export function withRawHttpLogging(
 
 		let response: Response;
 		try {
-			response = await underlying(input, init);
+			response = await underlying(input, fetchInit);
 		} catch (error) {
 			// Record the transport-level failure, then rethrow.
 			try {
@@ -318,25 +397,18 @@ export function withRawHttpLogging(
 			throw error;
 		}
 
-		// Tee the response body: the SDK reads the original; a background clone
-		// accumulates the raw bytes and writes the response file on completion.
+		// Record the response body as the SDK consumes it: the pull-through
+		// wrapper keeps cancellation and backpressure intact, and the response
+		// file is written when the stream finishes with whatever bytes arrived.
 		try {
-			const clone = response.clone();
-			void (async () => {
-				let body: Buffer;
-				let error: unknown;
+			const original = response;
+			response = captureResponseForLog(response, (body, error) => {
 				try {
-					body = Buffer.from(await clone.arrayBuffer());
-				} catch (readError) {
-					body = Buffer.alloc(0);
-					error = readError;
-				}
-				try {
-					writeLogFile(outputDir, baseName, "response", formatResponseFile(response, body, error));
+					writeLogFile(outputDir, baseName, "response", formatResponseFile(original, body, error));
 				} catch {
 					// Swallow.
 				}
-			})();
+			});
 		} catch {
 			// Swallow.
 		}

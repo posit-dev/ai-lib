@@ -87,6 +87,35 @@ async function settle(): Promise<void> {
 	}
 }
 
+/**
+ * Wait until a request/response pair exists and both files have content
+ * (writes are async, so existence alone races the read).
+ */
+async function waitForPair(): Promise<void> {
+	const deadline = Date.now() + 5000;
+	for (;;) {
+		const files = listFiles(workDir);
+		const requestFile = files.find((f) => f.endsWith("-request.http"));
+		const responseFile = files.find((f) => f.endsWith("-response.http"));
+		if (requestFile && responseFile) {
+			try {
+				if (
+					readFileSync(join(workDir, requestFile)).length > 0 &&
+					readFileSync(join(workDir, responseFile)).length > 0
+				) {
+					return;
+				}
+			} catch {
+				// File vanished between listing and reading — keep waiting.
+			}
+		}
+		if (Date.now() > deadline) {
+			throw new Error(`Timed out waiting for log pair, found: ${files.join(", ")}`);
+		}
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	}
+}
+
 describe("withRawHttpLogging", () => {
 	it("returns undefined when disabled (no env var, no configured dir)", () => {
 		expect(withRawHttpLogging(undefined, { provider: "test", model: "m" })).toBeUndefined();
@@ -230,6 +259,136 @@ describe("withRawHttpLogging", () => {
 		expect(readFileSync(join(workDir, responseFile!), "utf8")).toContain(
 			"[error: connection refused]",
 		);
+	});
+
+	it("forwards consumer cancellation to the source and logs partial bytes with a marker", async () => {
+		process.env[ENV_VAR] = workDir;
+		const encoder = new TextEncoder();
+		let sourceCancelled = false;
+		const source = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(encoder.encode('data: {"delta":"a"}\n\n'));
+				// Never closes: the consumer cancels mid-stream.
+			},
+			cancel() {
+				sourceCancelled = true;
+			},
+		});
+		const wrapped = withRawHttpLogging(async () => new Response(source, { status: 200 }), {
+			provider: "test",
+			model: "m",
+		});
+
+		const response = await wrapped!("https://api.example.com/v1/chat", {
+			method: "POST",
+			body: "{}",
+		});
+		const reader = response.body!.getReader();
+		const first = await reader.read();
+		expect(first.done).toBe(false);
+		await reader.cancel();
+
+		// Cancellation propagated through the logging wrapper to the source.
+		expect(sourceCancelled).toBe(true);
+
+		await waitForPair();
+		const res = splitMessage(readPair(workDir).response);
+		expect(res.body.toString("utf8")).toContain('"delta":"a"');
+		expect(res.body.toString("utf8")).toContain("[error: stream cancelled by consumer]");
+	});
+
+	it("does not buffer ahead of a slow consumer", async () => {
+		process.env[ENV_VAR] = workDir;
+		const encoder = new TextEncoder();
+		let produced = 0;
+		const source = new ReadableStream<Uint8Array>({
+			pull(controller) {
+				produced++;
+				if (produced <= 100) {
+					controller.enqueue(encoder.encode(`chunk${produced}\n`));
+				} else {
+					controller.close();
+				}
+			},
+		});
+		const wrapped = withRawHttpLogging(async () => new Response(source, { status: 200 }), {
+			provider: "test",
+			model: "m",
+		});
+
+		const response = await wrapped!("https://api.example.com/v1/chat", {
+			method: "POST",
+			body: "{}",
+		});
+		const reader = response.body!.getReader();
+		await reader.read();
+		// Give an eager background drainer (the bug this guards against) time
+		// to run ahead if one exists.
+		await new Promise((resolve) => setTimeout(resolve, 50));
+
+		// The pass-through may only run ahead by its internal queue (a handful
+		// of chunks), never the whole stream.
+		expect(produced).toBeLessThanOrEqual(5);
+		await reader.cancel();
+	});
+
+	it("logs partial bytes plus an error marker when the stream fails mid-body", async () => {
+		process.env[ENV_VAR] = workDir;
+		const encoder = new TextEncoder();
+		// Error from pull (a pending read) — erroring in start with no pending
+		// read surfaces as an unhandled rejection in Node.
+		let pulls = 0;
+		const source = new ReadableStream<Uint8Array>({
+			pull(controller) {
+				pulls++;
+				if (pulls === 1) {
+					controller.enqueue(encoder.encode('data: {"delta":"a"}\n\n'));
+				} else {
+					controller.error(new Error("boom"));
+				}
+			},
+		});
+		const wrapped = withRawHttpLogging(async () => new Response(source, { status: 200 }), {
+			provider: "test",
+			model: "m",
+		});
+
+		const response = await wrapped!("https://api.example.com/v1/chat", {
+			method: "POST",
+			body: "{}",
+		});
+		const reader = response.body!.getReader();
+		await reader.read();
+		await expect(reader.read()).rejects.toThrow("boom");
+
+		await waitForPair();
+		const res = splitMessage(readPair(workDir).response);
+		// The chunk that arrived before the failure is preserved.
+		expect(res.body.toString("utf8")).toContain('"delta":"a"');
+		expect(res.body.toString("utf8")).toContain("[error: boom]");
+	});
+
+	it("does not mutate or break a frozen RequestInit with a stream body", async () => {
+		process.env[ENV_VAR] = workDir;
+		let received: string | undefined;
+		const underlying: typeof globalThis.fetch = async (_input, init) => {
+			received =
+				init?.body instanceof ReadableStream
+					? await new Response(init.body).text()
+					: String(init?.body);
+			return new Response("ok");
+		};
+		const wrapped = withRawHttpLogging(underlying, { provider: "test", model: "m" });
+
+		const init = Object.freeze({ method: "POST", body: sseStream(["request-bytes"]) });
+		const response = await wrapped!("https://api.example.com/", init);
+		expect(await response.text()).toBe("ok");
+		// The underlying fetch received a readable copy of the stream body.
+		expect(received).toBe("request-bytes");
+
+		await waitForPair();
+		const req = splitMessage(readPair(workDir).request);
+		expect(req.body.toString("utf8")).toBe("request-bytes");
 	});
 
 	it("survives logging failures without breaking the response", async () => {
