@@ -9,10 +9,12 @@
  * - `StoredProviderCredentials` type + tolerant Zod schema (disk format guard)
  * - Environment variable credential resolver + provider env mappings
  *
- * It imports `ai-credentials/types` (for ProviderCredentials) and
- * `ai-credentials/store` (for SingleFileStore) but does NOT import anything
- * from `@assistant/*`. This ensures standalone consumers (Notebooks) can
- * resolve credentials without depending on the assistant monorepo.
+ * It imports `ai-credentials/types` (for ProviderCredentials) but does NOT
+ * import `ai-credentials/store` or anything from `@assistant/*` — storage is
+ * injected as `StoreBackendStorage`, so the backend is agnostic to the
+ * backing medium (file store, SecretStorage, …). This ensures standalone
+ * consumers (Notebooks) can resolve credentials without depending on the
+ * assistant monorepo.
  *
  * The store-backed backend (store → env → null resolution, persisted → runtime
  * mapping, and the option-B OAuth hooks) is `createStoreBackend`.
@@ -20,7 +22,11 @@
 
 // Store-backed credential Backend
 export { createStoreBackend } from "./StoreBackend.js";
-export type { AuthMethodDescriptor, CreateStoreBackendOptions } from "./StoreBackend.js";
+export type {
+	AuthMethodDescriptor,
+	CreateStoreBackendOptions,
+	StoreBackendStorage,
+} from "./StoreBackend.js";
 
 // StoredProviderCredentials — on-disk format + Zod schema
 export {
