@@ -21,6 +21,7 @@ import { fileURLToPath } from "url";
 
 import * as z from "zod/v4";
 
+import { PROVIDERS_SCHEMA_URL } from "../src/node/paths.js";
 import { providersConfigSchema } from "../src/schema.js";
 
 // ---------------------------------------------------------------------------
@@ -201,7 +202,7 @@ function serializeProvidersSchema(): string {
 
 	const schemaWithMetadata = {
 		...cleanedSchema,
-		$id: "https://posit.co/schemas/providers.schema.json",
+		$id: PROVIDERS_SCHEMA_URL,
 		$schema: "http://json-schema.org/draft-07/schema#",
 		title: "Posit AI Provider Configuration",
 		description:
