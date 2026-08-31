@@ -17,8 +17,7 @@
     "**/dist/",
     "**/*.tsbuildinfo",
     "**/*.html",
-    "packages/ai-config/providers.schema.json",
-    "packages/ai-config/src/generated/"
+    "packages/ai-config/providers.schema.json"
   ],
   "overrides": [
     {
