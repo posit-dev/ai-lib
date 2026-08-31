@@ -44,6 +44,7 @@ const MODEL_APIS_CAPABILITIES: Record<string, Partial<ModelInfo>> = {
 		supportsToolResultImages: true,
 		supportedInputMediaTypes: ["image/png", "image/jpeg", "image/gif", "image/webp"],
 		maxOutputTokens: 131_072,
+		// Artificially limited from 1M to stay within per-minute token rate limits.
 		maxContextLength: 250_000,
 		maxInputTokens: 250_000,
 	},
