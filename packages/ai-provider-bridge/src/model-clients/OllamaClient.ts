@@ -25,6 +25,7 @@ import {
 	createStepLogger,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
+import { withRawHttpLogging } from "./raw-http-logging";
 
 /** The `think` parameter type accepted by Ollama's native API. */
 type OllamaThinkParam = boolean | "low" | "medium" | "high";
@@ -69,7 +70,14 @@ export class OllamaClient implements ModelClient {
 	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {
 		// Create Ollama provider pointing at the server root
 		const effectiveBaseUrl = params.baseUrl ?? this.endpoint;
-		const provider = createOllama({ baseURL: effectiveBaseUrl });
+		const loggedFetch = withRawHttpLogging(undefined, {
+			provider: "ollama",
+			model: params.model,
+		});
+		const provider = createOllama({
+			baseURL: effectiveBaseUrl,
+			...(loggedFetch && { fetch: loggedFetch }),
+		});
 
 		// Build model settings
 		const think = ollamaThinkParam(params.thinkingEffort);

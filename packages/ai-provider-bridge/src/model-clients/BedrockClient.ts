@@ -34,6 +34,7 @@ import {
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 import { prepareExplicitOpenAIRequest } from "./openai-prompt-caching";
+import { withRawHttpLogging } from "./raw-http-logging";
 
 const EXPLICIT_PROMPT_CACHE_OPTIONS: { mode: "explicit"; ttl: "30m" } = {
 	mode: "explicit",
@@ -251,6 +252,10 @@ export class BedrockClient implements ModelClient {
 	): LanguageModelV3 {
 		const credentialProvider = createAwsCredentialProvider(this.config);
 		const headers = safeSdkCustomHeaders(this.config.customHeaders);
+		const loggedFetch = withRawHttpLogging(undefined, {
+			provider: "bedrock",
+			model: modelId,
+		});
 
 		if (protocol === "openai-chat" || protocol === "openai-responses") {
 			if (!transport.mantleEnabled) {
@@ -266,6 +271,7 @@ export class BedrockClient implements ModelClient {
 				// Enforce the AWS-credentials-only contract. Without this explicit
 				// opt-out, a stale AWS_BEARER_TOKEN_BEDROCK overrides SigV4.
 				apiKey: "",
+				...(loggedFetch && { fetch: loggedFetch }),
 			});
 			return protocol === "openai-chat" ? mantle.chat(modelId) : mantle.responses(modelId);
 		}
@@ -292,6 +298,7 @@ export class BedrockClient implements ModelClient {
 				baseURL: baseUrl ?? transport.runtimeBaseUrl,
 				headers,
 				credentialProvider,
+				...(loggedFetch && { fetch: loggedFetch }),
 			})(modelId);
 		}
 
@@ -300,6 +307,7 @@ export class BedrockClient implements ModelClient {
 			baseURL: baseUrl ?? transport.runtimeBaseUrl,
 			headers,
 			credentialProvider,
+			...(loggedFetch && { fetch: loggedFetch }),
 		})(modelId);
 	}
 }

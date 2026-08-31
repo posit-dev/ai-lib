@@ -41,6 +41,17 @@ export function thinkingRequestFields(
 		: undefined;
 }
 
+export function positAiThinkingRequestFields(
+	modelId: string,
+	effort: string | undefined,
+	requiresChatTemplateKwargs: boolean,
+): Record<string, unknown> | undefined {
+	if (modelId === "deepseek-ai/DeepSeek-V4-Flash-0731" && effort === "off") {
+		return { reasoning_effort: "none" };
+	}
+	return thinkingRequestFields(effort, requiresChatTemplateKwargs);
+}
+
 // ---------------------------------------------------------------------------
 // Model ID helpers
 // ---------------------------------------------------------------------------

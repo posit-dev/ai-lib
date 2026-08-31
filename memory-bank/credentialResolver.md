@@ -87,7 +87,7 @@ flowchart TD
 
 | Backend          | Used by                          | Behavior                                                                                                                                                                                                                                                                        |
 | ---------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/store-backend` | Node hosts, standalone consumers | Resolves `store → env → null`, maps persisted → runtime credentials, and supplies the OAuth hooks (device-flow providers persist tokens to disk).                                                                                                                               |
+| `/store-backend` | Node hosts, standalone consumers | Resolves `store → env → null`, maps persisted → runtime credentials, and supplies the OAuth hooks (device-flow providers persist tokens through the injected `StoreBackendStorage`).                                                                                            |
 | `/positron`      | Positron extension               | Wraps `vscode.authentication`; shapes the raw session token via `/types` `shapeCredentials`. **No** OAuth hooks — Positron's auth extension owns sign-in, so OAuth providers resolve through `getCredentials`. Also exposes `getCredentialsWithPrompt` (deliberate sign-in UX). |
 
 The `/store-backend` needs neither the provider registry nor the catalog:
@@ -121,7 +121,7 @@ unless `DATABRICKS_AUTH_TYPE=oauth-m2m`; environment M2M requires
 Status exposes only source, origin, readiness, expiry, and sanitized workspace
 metadata.
 
-Every upgraded store mutation re-reads under `SingleFileStore.withLock()` and
+Every upgraded store mutation re-reads under the injected storage's `withLock()` and
 writes a fresh opaque generation. Starting stored OAuth writes a token-free
 `pending` record and captures its generation. Completion commits only if that
 generation is still current; configure, source switch, clear, cancellation,

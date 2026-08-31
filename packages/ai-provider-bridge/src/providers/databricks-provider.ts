@@ -58,7 +58,7 @@ import { additiveHeaderRecord } from "../custom-headers";
 import { AnthropicClient } from "../model-clients/AnthropicClient";
 import { GeminiGenerateContentClient } from "../model-clients/GeminiGenerateContentClient";
 import type { ModelClient } from "../model-clients/ModelClient";
-import { createOpenAICompatibleFetch } from "../model-clients/openai-compat-fetch";
+import { createOpenAICompatibleFetchMiddleware } from "../model-clients/openai-compat-fetch";
 import { OpenAIClient } from "../model-clients/OpenAIClient";
 import type { ApiKeyCredentials, Logger, ModelInfo, Protocol, ProviderCredentials } from "../types";
 import { normalizeProtocol } from "../types";
@@ -424,7 +424,7 @@ export function registerDatabricksProvider(registry: ProviderRegistry, logger: L
 			// Databricks strict-decodes the Chat Completions body: it requires
 			// `max_tokens` and answers 400 `unknown field "max_completion_tokens"`,
 			// so the shared wrapper's rename must be turned off here.
-			customFetch: createOpenAICompatibleFetch("Databricks", apiKey, customHeaders, {
+			customFetch: createOpenAICompatibleFetchMiddleware("Databricks", apiKey, customHeaders, {
 				renameMaxTokens: false,
 			}),
 		});

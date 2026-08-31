@@ -50,6 +50,11 @@ export type { LanguageModelUsage, ModelMessage } from "ai";
 // StepLogger interface
 export type { StepLogData, StepLogger } from "./StepLogger";
 
+// Raw HTTP request/response logging configuration (opt-in dev feature).
+// The fetch wrapper itself is internal because it intentionally supports only
+// the response operations used by the AI SDK, not the full fetch contract.
+export { configureRawHttpLogging } from "./model-clients/raw-http-logging";
+
 // CredentialProvider interface
 export type { CredentialProvider, Disposable } from "./CredentialProvider";
 

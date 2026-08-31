@@ -27,6 +27,7 @@ import {
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 import { prepareExplicitOpenAIRequest } from "./openai-prompt-caching";
+import { withRawHttpLogging } from "./raw-http-logging";
 
 export type OpenAIApiMode = "completions" | "responses";
 
@@ -39,7 +40,13 @@ export interface OpenAIClientConfig {
 	apiMode: OpenAIApiMode;
 	apiKey?: string;
 	baseUrl?: string;
-	customFetch?: typeof globalThis.fetch;
+	/**
+	 * Fetch middleware factory: receives the wire fetch (the raw-HTTP-logging
+	 * wrapper when active, otherwise the global fetch) and returns the fetch
+	 * the SDK should use. Taking a delegate keeps raw HTTP logging innermost,
+	 * so logs record the physical wire call after the middleware's mutations.
+	 */
+	customFetch?: (delegate: typeof globalThis.fetch) => typeof globalThis.fetch;
 	customHeaders?: Record<string, string>;
 }
 
@@ -47,7 +54,7 @@ export class OpenAIClient implements ModelClient {
 	private readonly apiKey?: string;
 	private readonly baseURL?: string;
 	private readonly apiMode: OpenAIApiMode;
-	private readonly customFetch?: typeof globalThis.fetch;
+	private readonly customFetch?: (delegate: typeof globalThis.fetch) => typeof globalThis.fetch;
 	private readonly customHeaders?: Record<string, string>;
 
 	constructor(config: OpenAIClientConfig) {
@@ -90,22 +97,27 @@ export class OpenAIClient implements ModelClient {
 		// placeholder to prevent the SDK falling back to OPENAI_API_KEY env var, and
 		// inject a custom fetch that strips the Authorization header.
 		// When a customFetch is provided (e.g., OpenAI-compatible response transforms),
-		// use it directly — it handles auth stripping internally if needed.
+		// it wraps the wire fetch — it handles auth stripping internally if needed.
+		//
+		// Raw HTTP logging sits innermost (wrapping the global fetch) so the log
+		// records the physical wire call after any middleware mutations.
 		const isEmptyKey = this.apiKey === "";
-		const fetchFn =
-			this.customFetch ??
-			(isEmptyKey
+		const loggedFetch = withRawHttpLogging(undefined, { provider: "openai", model: params.model });
+		const wireFetch = loggedFetch ?? globalThis.fetch;
+		const effectiveFetch = this.customFetch
+			? this.customFetch(wireFetch)
+			: isEmptyKey
 				? async (url: string | URL | globalThis.Request, init?: RequestInit) => {
 						const headers = new Headers(init?.headers);
 						headers.delete("Authorization");
-						return globalThis.fetch(url, { ...init, headers });
+						return wireFetch(url, { ...init, headers });
 					}
-				: undefined);
+				: loggedFetch;
 		const headers = safeSdkCustomHeaders(this.customHeaders);
 		const provider = createOpenAI({
 			apiKey: isEmptyKey ? "sk-placeholder" : this.apiKey,
 			...(effectiveBaseUrl && { baseURL: effectiveBaseUrl }),
-			...(fetchFn && { fetch: fetchFn }),
+			...(effectiveFetch && { fetch: effectiveFetch }),
 			...(headers && { headers }),
 		});
 		const model =

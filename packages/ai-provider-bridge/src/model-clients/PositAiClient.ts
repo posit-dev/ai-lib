@@ -29,7 +29,7 @@ import {
 	isClaudeModel,
 	isThinkingEnabled,
 	joinPath,
-	thinkingRequestFields,
+	positAiThinkingRequestFields,
 } from "../utils";
 import {
 	convertAiSdkStreamToPlatform,
@@ -37,6 +37,7 @@ import {
 	createStepLogger,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
+import { withRawHttpLogging } from "./raw-http-logging";
 
 /**
  * Custom fetch wrapper that replaces x-api-key header with Authorization: Bearer
@@ -45,6 +46,7 @@ import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 function createAuthenticatedFetch(
 	accessToken: string,
 	logger: Logger,
+	delegate: typeof globalThis.fetch,
 	customHeaders?: Record<string, string>,
 	onCreditsDepleted?: () => void,
 	onAgreementRequired?: () => void,
@@ -83,7 +85,7 @@ function createAuthenticatedFetch(
 		logger.trace("[PositAiClient] Headers:", JSON.stringify(headerObj, null, 2));
 		logger.trace("[PositAiClient] Body:", options?.body);
 
-		const response = await globalThis.fetch(url, {
+		const response = await delegate(url, {
 			...options,
 			headers,
 		});
@@ -176,10 +178,17 @@ export class PositAiClient implements ModelClient {
 			}
 		};
 
+		// Raw HTTP logging sits innermost (wrapping the global fetch) so the log
+		// reflects the final wire request after the auth rewrite below (auth
+		// header values are redacted in the log files).
+		const wireFetch =
+			withRawHttpLogging(undefined, { provider: "positai", model: params.model }) ??
+			globalThis.fetch;
 		// Create custom fetch with OAuth Bearer authentication and headers
 		const authenticatedFetch = createAuthenticatedFetch(
 			this.accessToken,
 			this.logger,
+			wireFetch,
 			headers,
 			onCreditsDepleted,
 			onAgreementRequired,
@@ -238,7 +247,8 @@ export class PositAiClient implements ModelClient {
 
 			return convertAiSdkStreamToPlatform(result.fullStream, cleanup);
 		} else if (normalizedProtocol === "openai-chat") {
-			const thinkingFields = thinkingRequestFields(
+			const thinkingFields = positAiThinkingRequestFields(
+				params.model,
 				params.thinkingEffort,
 				params.requiresChatTemplateKwargs ?? false,
 			);

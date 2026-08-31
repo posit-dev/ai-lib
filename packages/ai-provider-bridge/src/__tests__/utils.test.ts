@@ -8,6 +8,7 @@ import {
 	buildSnowflakeCortexUrl,
 	buildSnowflakeCortexUrlFromHost,
 	normalizeProviderBaseUrl,
+	positAiThinkingRequestFields,
 	thinkingRequestFields,
 } from "../utils";
 
@@ -30,6 +31,19 @@ describe("thinkingRequestFields", () => {
 
 	it("returns undefined for binary 'on' without the chat_template_kwargs flag", () => {
 		expect(thinkingRequestFields("on", false)).toBeUndefined();
+	});
+});
+
+describe("positAiThinkingRequestFields", () => {
+	it("maps DeepSeek off to none and reuses named efforts", () => {
+		expect(
+			positAiThinkingRequestFields("deepseek-ai/DeepSeek-V4-Flash-0731", "off", false),
+		).toEqual({
+			reasoning_effort: "none",
+		});
+		expect(
+			positAiThinkingRequestFields("deepseek-ai/DeepSeek-V4-Flash-0731", "high", false),
+		).toEqual({ reasoning_effort: "high" });
 	});
 });
 
