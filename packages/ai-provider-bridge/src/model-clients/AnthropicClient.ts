@@ -21,6 +21,7 @@ import {
 	suppressAiSdkDefaultErrorLogging,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
+import { withRawHttpLogging } from "./raw-http-logging";
 
 /** Maximum number of web searches per request */
 const WEB_SEARCH_MAX_USES = 5;
@@ -67,9 +68,14 @@ export class AnthropicClient implements ModelClient {
 		// (see base-url.ts), not here.
 		const effectiveBaseUrl = params.baseUrl ?? this.baseURL;
 		const headers = safeSdkCustomHeaders(this.customHeaders);
+		const loggedFetch = withRawHttpLogging(undefined, {
+			provider: "anthropic",
+			model: params.model,
+		});
 		const provider = createAnthropic({
 			...anthropicAuthSettings(this.auth),
 			...(effectiveBaseUrl && { baseURL: effectiveBaseUrl }),
+			...(loggedFetch && { fetch: loggedFetch }),
 			...(headers && { headers }),
 		});
 		const model = provider(params.model);

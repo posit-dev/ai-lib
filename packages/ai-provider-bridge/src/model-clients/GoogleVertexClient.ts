@@ -26,6 +26,7 @@ import {
 	createStepLogger,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
+import { withRawHttpLogging } from "./raw-http-logging";
 
 /**
  * Check if a Vertex model ID refers to an Anthropic partner model.
@@ -160,11 +161,17 @@ export class GoogleVertexClient implements ModelClient {
 				? "global"
 				: getEffectiveLocation(modelId, this.config.location);
 
+		const loggedFetch = withRawHttpLogging(undefined, {
+			provider: "google-vertex",
+			model: modelId,
+		});
+
 		if (useAnthropicApi) {
 			return createVertexAnthropic({
 				project: this.config.project,
 				location,
 				googleAuthOptions,
+				...(loggedFetch && { fetch: loggedFetch }),
 			})(modelId);
 		}
 
@@ -172,6 +179,7 @@ export class GoogleVertexClient implements ModelClient {
 			project: this.config.project,
 			location,
 			googleAuthOptions,
+			...(loggedFetch && { fetch: loggedFetch }),
 		})(modelId);
 	}
 }

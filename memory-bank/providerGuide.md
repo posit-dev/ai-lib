@@ -248,7 +248,7 @@ New providers should support the `customHeaders` field from `ApiKeyCredentials`.
 
 - **Model discovery** (via `createCachedModelFetcher`): Pass `credentials.customHeaders` -- the fetcher handles merging (additive only, provider headers win on collision).
 - **Direct-SDK chat**: Pass `customHeaders` to the AI SDK's `headers` option. See `AnthropicClient.ts` or `OpenAIClient.ts` for the pattern.
-- **OpenAI-compatible chat** (via `createOpenAICompatibleFetch`): Pass `customHeaders` -- the wrapper handles merging.
+- **OpenAI-compatible chat** (via `createOpenAICompatibleFetchMiddleware`): Pass `customHeaders` -- the middleware handles merging.
 
 See `src/custom-headers.ts` for the shared filtering/merging utilities.
 
@@ -265,9 +265,9 @@ SDK own the token lifecycle:
   scope+tenant (the SDK caches tokens per credential instance, so the cache is
   required, not optional) and normalizes chain failures into an actionable
   "run `az login`" error. The Foundry client factory composes the bearer
-  injection **around** `createOpenAICompatibleFetch` (which keeps owning
-  additive `customHeaders` and request/stream normalization) rather than
-  replacing it.
+  injection **around** `createOpenAICompatibleFetchMiddleware` (which keeps
+  owning additive `customHeaders` and request/stream normalization) rather
+  than replacing it.
 
 ## Common Pitfalls
 

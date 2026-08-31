@@ -26,7 +26,8 @@ import {
 	createStepLogger,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
-import { createOpenAICompatibleFetch } from "./openai-compat-fetch";
+import { createOpenAICompatibleFetchMiddleware } from "./openai-compat-fetch";
+import { withRawHttpLogging } from "./raw-http-logging";
 
 /**
  * How the credential's token authenticates with Snowflake Cortex:
@@ -224,18 +225,33 @@ export class SnowflakeClient implements ModelClient {
 		baseUrl: string,
 	): Promise<AsyncIterable<LMStreamPart>> {
 		const headers = safeSdkCustomHeaders(this.customHeaders);
+		// Raw HTTP logging sits innermost (wrapping the global fetch) so the log
+		// records each physical call after the session-auth rewrite — including
+		// the retry after a session-token refresh.
+		const loggedFetch = withRawHttpLogging(undefined, {
+			provider: "snowflake-cortex",
+			model: params.model,
+		});
+		const effectiveFetch = this.isSessionAuth
+			? createSnowflakeSessionFetch(
+					this.token,
+					loggedFetch ?? globalThis.fetch,
+					this.sessionRefresh,
+				)
+			: loggedFetch;
 		const provider = this.isSessionAuth
 			? createAnthropic({
 					// Auth is applied by the session fetch wrapper; this placeholder key
 					// just satisfies the SDK (its x-api-key header is stripped there).
 					apiKey: "session-auth",
 					baseURL: baseUrl,
-					fetch: createSnowflakeSessionFetch(this.token, globalThis.fetch, this.sessionRefresh),
+					...(effectiveFetch && { fetch: effectiveFetch }),
 					...(headers && { headers }),
 				})
 			: createAnthropic({
 					authToken: this.token,
 					baseURL: baseUrl,
+					...(effectiveFetch && { fetch: effectiveFetch }),
 					...(headers && { headers }),
 				});
 		const model = provider(params.model);
@@ -294,15 +310,27 @@ export class SnowflakeClient implements ModelClient {
 		// The compat fetch applies OpenAI-spec fix-ups. For session auth we keep a
 		// non-empty apiKey so it does NOT strip the Authorization header, and wrap
 		// it so the outer fetch installs the `Snowflake Token=` header last.
-		const compatFetch = this.isSessionAuth
-			? createOpenAICompatibleFetch("Snowflake", "session-auth", this.customHeaders)
-			: createOpenAICompatibleFetch("Snowflake", this.token, this.customHeaders);
+		// Raw HTTP logging sits innermost (wrapping the global fetch) so the log
+		// records the wire request after compat transforms and session-auth
+		// rewrites, the raw SSE before compat rewrites, and each physical call
+		// of a session-refresh retry.
+		const wireFetch =
+			withRawHttpLogging(undefined, {
+				provider: "snowflake-cortex",
+				model: params.model,
+			}) ?? globalThis.fetch;
+		const compatFetch = createOpenAICompatibleFetchMiddleware(
+			"Snowflake",
+			this.isSessionAuth ? "session-auth" : this.token,
+			this.customHeaders,
+		)(wireFetch);
+		const effectiveFetch = this.isSessionAuth
+			? createSnowflakeSessionFetch(this.token, compatFetch, this.sessionRefresh)
+			: compatFetch;
 		const provider = createOpenAI({
 			apiKey: this.token || "sk-placeholder",
 			baseURL: baseUrl,
-			fetch: this.isSessionAuth
-				? createSnowflakeSessionFetch(this.token, compatFetch, this.sessionRefresh)
-				: compatFetch,
+			fetch: effectiveFetch,
 		});
 		const model = provider.chat(params.model);
 

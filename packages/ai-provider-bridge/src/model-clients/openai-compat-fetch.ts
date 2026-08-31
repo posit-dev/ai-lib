@@ -122,6 +122,7 @@ interface MalformedChatCompletionChunk {
 // ---------------------------------------------------------------------------
 
 type FetchFn = (url: string | URL | globalThis.Request, init?: RequestInit) => Promise<Response>;
+type FetchMiddleware = (delegate: typeof globalThis.fetch) => FetchFn;
 
 /** Per-provider switches for {@link createOpenAICompatibleFetch}. */
 export interface OpenAICompatibleFetchOptions {
@@ -140,6 +141,29 @@ export interface OpenAICompatibleFetchOptions {
 
 /**
  * Create a custom fetch function that applies OpenAI-compatible transforms.
+ * This public compatibility API delegates to the global fetch at call time.
+ * Internal provider composition should use
+ * {@link createOpenAICompatibleFetchMiddleware} so the wire delegate is
+ * required explicitly.
+ */
+export function createOpenAICompatibleFetch(
+	providerName: string,
+	apiKey?: string,
+	customHeaders?: Record<string, string>,
+	options?: OpenAICompatibleFetchOptions,
+): FetchFn {
+	return createOpenAICompatibleFetchMiddleware(
+		providerName,
+		apiKey,
+		customHeaders,
+		options,
+	)((...args) => globalThis.fetch(...args));
+}
+
+/**
+ * Create fetch middleware that applies OpenAI-compatible transforms around a
+ * required wire delegate. Requiring the delegate makes transform → raw logger
+ * → network ordering the only representable internal composition.
  *
  * @param providerName - Provider name for logging
  * @param apiKey - API key; when empty string, Authorization header is stripped
@@ -151,61 +175,62 @@ export interface OpenAICompatibleFetchOptions {
  *   by the OpenAI SDK is silently skipped.
  * @param options - Per-provider switches; see {@link OpenAICompatibleFetchOptions}.
  */
-export function createOpenAICompatibleFetch(
+export function createOpenAICompatibleFetchMiddleware(
 	providerName: string,
 	apiKey?: string,
 	customHeaders?: Record<string, string>,
 	options?: OpenAICompatibleFetchOptions,
-): FetchFn {
+): FetchMiddleware {
 	const renameMaxTokens = options?.renameMaxTokens ?? true;
-	return async (url: string | URL | globalThis.Request, init?: RequestInit): Promise<Response> => {
-		const modifiedInit = { ...init };
+	return (delegate) =>
+		async (url: string | URL | globalThis.Request, init?: RequestInit): Promise<Response> => {
+			const modifiedInit = { ...init };
 
-		// Strip Authorization header for unauthenticated endpoints
-		if (apiKey === "") {
-			const headers = new Headers(modifiedInit.headers);
-			headers.delete("Authorization");
-			modifiedInit.headers = headers;
-		}
-
-		// Append customHeaders, but never overwrite a provider/SDK-managed header.
-		if (customHeaders && Object.keys(customHeaders).length > 0) {
-			modifiedInit.headers = additiveHeaders(modifiedInit.headers, customHeaders);
-		}
-
-		// Apply request body transforms and identify no-arg tools.
-		// No-arg tools need special handling in the response: some providers
-		// return arguments: "" for them, which must be fixed to "{}".
-		// We only fix empty arguments for these specific tools — for tools
-		// WITH parameters, an empty string is a valid streaming partial.
-		let noArgTools: string[] = [];
-		if (modifiedInit.body && typeof modifiedInit.body === "string") {
-			try {
-				const body = JSON.parse(modifiedInit.body);
-				noArgTools = extractNoArgTools(body);
-				transformRequestBody(body, renameMaxTokens);
-				modifiedInit.body = JSON.stringify(body);
-			} catch {
-				// Not JSON, pass through unchanged
+			// Strip Authorization header for unauthenticated endpoints
+			if (apiKey === "") {
+				const headers = new Headers(modifiedInit.headers);
+				headers.delete("Authorization");
+				modifiedInit.headers = headers;
 			}
-		}
 
-		const response = await globalThis.fetch(url, modifiedInit);
+			// Append customHeaders, but never overwrite a provider/SDK-managed header.
+			if (customHeaders && Object.keys(customHeaders).length > 0) {
+				modifiedInit.headers = additiveHeaders(modifiedInit.headers, customHeaders);
+			}
 
-		// Only transform streaming responses (SSE)
-		const contentType = response.headers.get("content-type") || "";
-		if (!contentType.includes("text/event-stream") || !response.body) {
-			return response;
-		}
+			// Apply request body transforms and identify no-arg tools.
+			// No-arg tools need special handling in the response: some providers
+			// return arguments: "" for them, which must be fixed to "{}".
+			// We only fix empty arguments for these specific tools — for tools
+			// WITH parameters, an empty string is a valid streaming partial.
+			let noArgTools: string[] = [];
+			if (modifiedInit.body && typeof modifiedInit.body === "string") {
+				try {
+					const body = JSON.parse(modifiedInit.body);
+					noArgTools = extractNoArgTools(body);
+					transformRequestBody(body, renameMaxTokens);
+					modifiedInit.body = JSON.stringify(body);
+				} catch {
+					// Not JSON, pass through unchanged
+				}
+			}
 
-		// Wrap the streaming body with response transforms
-		const transformedBody = transformSSEStream(response.body, noArgTools);
-		return new Response(transformedBody, {
-			status: response.status,
-			statusText: response.statusText,
-			headers: response.headers,
-		});
-	};
+			const response = await delegate(url, modifiedInit);
+
+			// Only transform streaming responses (SSE)
+			const contentType = response.headers.get("content-type") || "";
+			if (!contentType.includes("text/event-stream") || !response.body) {
+				return response;
+			}
+
+			// Wrap the streaming body with response transforms
+			const transformedBody = transformSSEStream(response.body, noArgTools);
+			return new Response(transformedBody, {
+				status: response.status,
+				statusText: response.statusText,
+				headers: response.headers,
+			});
+		};
 }
 
 /**

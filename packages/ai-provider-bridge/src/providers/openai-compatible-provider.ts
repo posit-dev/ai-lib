@@ -4,7 +4,7 @@
 
 import type { ResolvedProviderId } from "ai-config";
 
-import { createOpenAICompatibleFetch } from "../model-clients/openai-compat-fetch";
+import { createOpenAICompatibleFetchMiddleware } from "../model-clients/openai-compat-fetch";
 import { OpenAIClient } from "../model-clients/OpenAIClient";
 import type { Logger, ModelInfo } from "../types";
 import type { ApiKeyCredentials } from "../types";
@@ -62,7 +62,7 @@ const openAICompatibleClientFactory: ClientFactory = (credentials) => {
 		apiKey: credentials.apiKey,
 		baseUrl: credentials.baseUrl?.trim(),
 		apiMode: "completions",
-		customFetch: createOpenAICompatibleFetch(
+		customFetch: createOpenAICompatibleFetchMiddleware(
 			"OpenAI Compatible",
 			credentials.apiKey,
 			credentials.customHeaders,

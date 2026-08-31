@@ -15,6 +15,7 @@ import {
 	suppressAiSdkDefaultErrorLogging,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
+import { withRawHttpLogging } from "./raw-http-logging";
 
 type OpenRouterReasoningSettings = { effort: "high" | "medium" | "low" | "none" };
 const OPENROUTER_DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
@@ -53,11 +54,16 @@ export class OpenRouterClient implements ModelClient {
 
 	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {
 		const headers = safeSdkCustomHeaders(this.customHeaders);
+		const loggedFetch = withRawHttpLogging(undefined, {
+			provider: "openrouter",
+			model: params.model,
+		});
 		const provider = createOpenRouter({
 			apiKey: this.apiKey,
 			baseURL: this.baseURL,
 			appName: "Posit Assistant",
 			appUrl: "https://posit.co",
+			...(loggedFetch && { fetch: loggedFetch }),
 			...(headers && { headers }),
 		});
 
