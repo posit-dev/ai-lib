@@ -173,6 +173,16 @@ function sanitizeForFilename(value: string): string {
  * hash (FNV-1a). Long custom or ARN-style model IDs would otherwise exceed
  * common 255-byte filename limits, and the deliberately swallowed
  * ENAMETOOLONG would silently remove both log files.
+ *
+ * Examples:
+ * - "anthropic" -> "anthropic" (short: returned as-is)
+ * - "us.anthropic.claude-3-7-sonnet-20250219-v1:0" ->
+ *   "us.anthropic.claude-3-7-sonnet-20250219-v1-0" (sanitized only)
+ * - "my custom provider (experimental) #2" ->
+ *   "my-custom-provider--experimental---2" (sanitized only)
+ * - "arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.claude-sonnet-4-20250514-v1:0"
+ *   -> "arn-aws-bedrock-us-east-1-123456789012-inference-profile-us.-93a2f8da"
+ *   (long: 60-char readable prefix + FNV-1a hash, max 69 chars)
  */
 function boundedFilenameComponent(value: string): string {
 	const sanitized = sanitizeForFilename(value);
