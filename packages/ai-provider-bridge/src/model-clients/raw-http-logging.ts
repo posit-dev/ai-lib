@@ -7,10 +7,11 @@ import type * as NodeFs from "node:fs";
 /**
  * Raw HTTP request/response logging
  *
- * A fetch wrapper that captures the exact bytes sent to and received from an
- * LLM provider, for debugging wire-level problems (e.g. a provider rejecting a
- * request as invalid) where the AI SDK's structured request/response view
- * (JsonRequestLogger) hides the actual wire format.
+ * A fetch wrapper that captures the exact request bytes sent to an LLM
+ * provider and the response bytes the fetch consumer receives, for debugging
+ * wire-level problems (e.g. a provider rejecting a request as invalid) where
+ * the AI SDK's structured request/response view (JsonRequestLogger) hides
+ * the actual wire format.
  *
  * Opt-in, two mechanisms:
  *
@@ -34,10 +35,14 @@ import type * as NodeFs from "node:fs";
  *   `[body omitted: ...]` marker so the log never implies an empty body. If a
  *   request stream fails or is cancelled, partial bytes plus an `[error: ...]`
  *   marker are recorded.
- * - `...-response.http`: status line, headers, blank line, then the body
- *   byte-for-byte as received (SSE chunks concatenated verbatim). Written when
- *   the body stream completes; on error or cancellation, whatever bytes
- *   arrived plus an `[error: ...]` marker.
+ * - `...-response.http`: status line, headers, blank line, then the body as
+ *   the fetch consumer receives it (SSE chunks concatenated verbatim). Note
+ *   this is the fetch-visible body, not literal wire bytes: Node's fetch
+ *   transparently decodes gzip/Brotli while preserving the original
+ *   Content-Encoding/Content-Length headers, so a compressed response logs
+ *   decoded bytes under its wire headers. Written when the body stream
+ *   completes; on error or cancellation, whatever bytes arrived plus an
+ *   `[error: ...]` marker.
  *
  * Credential-bearing header values (authorization, api-key, token, secret,
  * etc.) are replaced with `[REDACTED]`. Bodies are never modified.
@@ -161,6 +166,24 @@ function resolveOutputDir(): string | undefined {
 /** Make a string safe for use in a file name. */
 function sanitizeForFilename(value: string): string {
 	return value.replace(/[^a-zA-Z0-9._-]/g, "-");
+}
+
+/**
+ * Sanitize and bound a filename component to a readable prefix plus a stable
+ * hash (FNV-1a). Long custom or ARN-style model IDs would otherwise exceed
+ * common 255-byte filename limits, and the deliberately swallowed
+ * ENAMETOOLONG would silently remove both log files.
+ */
+function boundedFilenameComponent(value: string): string {
+	const sanitized = sanitizeForFilename(value);
+	if (sanitized.length <= 80) {
+		return sanitized;
+	}
+	let hash = 0x811c9dc5;
+	for (let i = 0; i < sanitized.length; i++) {
+		hash = Math.imul(hash ^ sanitized.charCodeAt(i), 0x01000193);
+	}
+	return `${sanitized.slice(0, 60)}-${(hash >>> 0).toString(16)}`;
 }
 
 /** Filesystem-safe timestamp (colons and dots are problematic on Windows). */
@@ -509,8 +532,8 @@ export function withRawHttpLogging(
 	// wrapper is created are honored.
 	const underlying =
 		fetchFn ?? ((...args: Parameters<typeof globalThis.fetch>) => globalThis.fetch(...args));
-	const provider = sanitizeForFilename(context.provider);
-	const model = sanitizeForFilename(context.model);
+	const provider = boundedFilenameComponent(context.provider);
+	const model = boundedFilenameComponent(context.model);
 
 	return async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
 		const baseName = `${timestamp()}-${provider}-${model}-${processNonce}-${sequence++}`;

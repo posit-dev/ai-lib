@@ -338,6 +338,28 @@ describe("withRawHttpLogging", () => {
 		expect(files.some((f) => f.includes("my-provider") && f.includes("a-b-c"))).toBe(true);
 	});
 
+	it("bounds long model IDs in file names with a stable hash suffix", async () => {
+		process.env[ENV_VAR] = workDir;
+		const longModel = `arn:aws:bedrock:us-east-1:123456789012:inference-profile/${"x".repeat(300)}`;
+		const wrapped = withRawHttpLogging(fakeSseFetch(["data: [DONE]\n\n"]), {
+			provider: "test",
+			model: longModel,
+		});
+		const response = await wrapped!("https://api.example.com/", { method: "POST", body: "{}" });
+		await response.arrayBuffer();
+		await waitForPair();
+
+		// Both files publish despite the overlong model ID, with a bounded,
+		// still-readable name.
+		const files = listFiles(workDir);
+		expect(files.some((f) => f.endsWith("-request.http"))).toBe(true);
+		expect(files.some((f) => f.endsWith("-response.http"))).toBe(true);
+		for (const f of files) {
+			expect(f.length).toBeLessThan(200);
+			expect(f).toContain("arn-aws-bedrock");
+		}
+	});
+
 	it("logs GET by default, honoring Request and init method overrides", async () => {
 		process.env[ENV_VAR] = workDir;
 		const wrapped = withRawHttpLogging(fakeSseFetch(["data: [DONE]\n\n"]), {
