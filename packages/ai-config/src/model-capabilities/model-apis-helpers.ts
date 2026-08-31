@@ -28,7 +28,7 @@ const MODEL_APIS_CAPABILITIES: Record<string, Partial<ModelInfo>> = {
 	},
 	"zai-org/GLM-5.3": {
 		family: "glm",
-		thinkingEffortLevels: ["off", "low", "high", "max"],
+		thinkingEffortLevels: ["low", "high", "max"],
 		supportsImages: false,
 		supportsToolResultImages: false,
 		supportedInputMediaTypes: [],
@@ -38,7 +38,7 @@ const MODEL_APIS_CAPABILITIES: Record<string, Partial<ModelInfo>> = {
 	},
 	"zai-org/GLM-5.3-Flash": {
 		family: "glm",
-		thinkingEffortLevels: ["off", "low", "high", "max"],
+		thinkingEffortLevels: ["low", "high", "max"],
 		supportsImages: true,
 		supportsToolResultImages: true,
 		supportedInputMediaTypes: ["image/png", "image/jpeg", "image/gif", "image/webp"],
