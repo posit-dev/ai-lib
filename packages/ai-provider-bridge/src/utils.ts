@@ -46,7 +46,12 @@ export function positAiThinkingRequestFields(
 	effort: string | undefined,
 	requiresChatTemplateKwargs: boolean,
 ): Record<string, unknown> | undefined {
-	if (modelId === "deepseek-ai/DeepSeek-V4-Flash-0731" && effort === "off") {
+	if (
+		effort === "off" &&
+		(modelId === "deepseek-ai/DeepSeek-V4-Flash-0731" ||
+			modelId === "zai-org/GLM-5.3" ||
+			modelId === "zai-org/GLM-5.3-Flash")
+	) {
 		return { reasoning_effort: "none" };
 	}
 	return thinkingRequestFields(effort, requiresChatTemplateKwargs);
