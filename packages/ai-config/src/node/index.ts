@@ -25,6 +25,8 @@
  *
  * ### Write seam
  * - `mutateProvidersConfig(mutator)` — cross-process-safe mutation.
+ * - `migrateProvidersSchemaReference()` — one-shot startup migration of the
+ *   legacy `$schema` sidecar literal to the hosted schema URL.
  *
  * ### Watch seam
  * - `watchResolvedProviderCatalog(handler, opts)` — the **single watch seam**.
@@ -65,7 +67,7 @@ export { loadConfigSources } from "./load-config.js";
 export type { LoadConfigSourcesOptions } from "./load-config.js";
 
 // --- Write seam ------------------------------------------------------------
-export { mutateProvidersConfig } from "./mutate-config.js";
+export { migrateProvidersSchemaReference, mutateProvidersConfig } from "./mutate-config.js";
 
 // --- Watch seam (the single, source-aware watch seam) ----------------------
 export { watchResolvedProviderCatalog } from "./watch-catalog.js";

@@ -342,8 +342,17 @@ without managing locking, atomicity, or watch lifecycle themselves.
   (`./providers.schema.json`) to `PROVIDERS_SCHEMA_URL` whenever it survives a
   mutation unchanged; a missing `$schema` stays missing and any other custom
   value (including a mutator's own removal or replacement of the legacy value)
-  is left untouched. The migration only fires on the next successful mutation
-  for a given file — it's lazy and best-effort, not a proactive rewrite. After
+  is left untouched. The mutation-time migration only fires on the next
+  successful mutation for a given file — it's lazy and best-effort, not a
+  proactive rewrite. The proactive half is `migrateProvidersSchemaReference()`
+  (same module, exported from `ai-config/node`): a one-shot startup migration
+  whose unlocked pre-check reads the root `$schema` and returns silently on
+  anything but an exact legacy match (missing file, read failure, invalid
+  JSONC, non-object root), so startups after the first cost a single
+  `readFile`. Only a match takes the queue and lock, re-reads, re-checks, and
+  rewrites via `editJsonc`; it never rejects (failures past the pre-check log
+  one warning), so hosts call it unguarded once before the initial catalog
+  load. After
   ensuring the file exists, strict `parseProvidersConfig` makes every read,
   JSONC syntax, unknown key, or schema-validation failure abort without
   rewriting the file; validation errors name offending paths. Existing files are transformed by
