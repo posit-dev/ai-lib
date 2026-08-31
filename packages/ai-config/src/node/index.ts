@@ -40,13 +40,15 @@
  * ### Paths
  * - `PROVIDERS_CONFIG_PATH`, `AI_CONFIG_DIR` — centralized for one-edit
  *   changes.
+ * - `PROVIDERS_SCHEMA_URL` — the hosted schema URL seeded as `$schema` and
+ *   written by the startup migration.
  */
 
 // Re-export everything from the pure entry
 export * from "../index.js";
 
 // --- Paths -----------------------------------------------------------------
-export { AI_CONFIG_DIR, PROVIDERS_CONFIG_PATH } from "./paths.js";
+export { AI_CONFIG_DIR, PROVIDERS_CONFIG_PATH, PROVIDERS_SCHEMA_URL } from "./paths.js";
 
 // --- Read seam (canonical report + bare-catalog compatibility wrapper) -----
 export { loadProviderCatalogReport, loadResolvedProviderCatalog } from "./load-catalog.js";

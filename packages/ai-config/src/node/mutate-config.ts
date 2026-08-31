@@ -126,6 +126,26 @@ export async function migrateProvidersSchemaReference(opts?: MutateConfigOptions
 // ---------------------------------------------------------------------------
 
 /**
+ * Read the config file and parse its root object. Returns `undefined` when
+ * the file is missing/unreadable or the root is not an object; throws
+ * `SyntaxError` on invalid JSONC so each caller picks its own error semantics
+ * (the pre-check swallows it, the locked phase lets it propagate to the
+ * migration's catch-all warning).
+ */
+async function readConfigObject(
+	configPath: string,
+): Promise<{ raw: string; parsed: Record<string, unknown> } | undefined> {
+	let raw: string;
+	try {
+		raw = await fs.readFile(configPath, "utf-8");
+	} catch {
+		return undefined;
+	}
+	const parsed = parseJsonc(raw);
+	return isJsonObjectRecord(parsed) ? { raw, parsed } : undefined;
+}
+
+/**
  * Unlocked pre-check for {@link migrateProvidersSchemaReference}: whether the
  * file's root `$schema` is exactly the legacy literal. Every exit that is not
  * an exact match — missing file, read failure, invalid JSONC, non-object root
@@ -133,19 +153,13 @@ export async function migrateProvidersSchemaReference(opts?: MutateConfigOptions
  * headless runs) and must not warn on every startup.
  */
 async function hasLegacySchemaReference(configPath: string): Promise<boolean> {
-	let raw: string;
+	let current: { raw: string; parsed: Record<string, unknown> } | undefined;
 	try {
-		raw = await fs.readFile(configPath, "utf-8");
+		current = await readConfigObject(configPath);
 	} catch {
-		return false;
+		return false; // Invalid JSONC — silent, like every other pre-check exit.
 	}
-	let parsed: unknown;
-	try {
-		parsed = parseJsonc(raw);
-	} catch {
-		return false;
-	}
-	return isJsonObjectRecord(parsed) && parsed.$schema === LEGACY_PROVIDERS_SCHEMA_PATH;
+	return current?.parsed.$schema === LEGACY_PROVIDERS_SCHEMA_PATH;
 }
 
 /**
@@ -171,13 +185,12 @@ async function rewriteLegacySchemaReferenceLocked(
 			throw error;
 		}
 
-		const raw = await fs.readFile(configPath, "utf-8");
-		const parsed = parseJsonc(raw);
-		if (!isJsonObjectRecord(parsed) || parsed.$schema !== LEGACY_PROVIDERS_SCHEMA_PATH) {
+		const current = await readConfigObject(configPath);
+		if (current?.parsed.$schema !== LEGACY_PROVIDERS_SCHEMA_PATH) {
 			return;
 		}
 
-		const output = editJsonc(raw, { ...parsed, $schema: PROVIDERS_SCHEMA_URL });
+		const output = editJsonc(current.raw, { ...current.parsed, $schema: PROVIDERS_SCHEMA_URL });
 		await atomicWrite(configPath, output);
 		logger?.debug("[ai-config] Migrated legacy $schema reference to the hosted schema URL");
 	} finally {
