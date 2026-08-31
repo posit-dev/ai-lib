@@ -269,7 +269,7 @@ validation and autocomplete whether the editor language mode is JSON or JSONC.
     // built-in providers (one key per BUILTIN_PROVIDER_ID; no `type` field)
     "anthropic": {
       "enabled": true,
-      "baseUrl": "https://api.anthropic.com",
+      "baseUrl": "https://api.anthropic.com/v1",
       "customHeaders": { "x-example": "value" },
       "models": {
         "discovery": "auto", // "auto" | "off"
