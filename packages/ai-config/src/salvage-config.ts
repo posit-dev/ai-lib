@@ -5,6 +5,7 @@
 import { configIssuePath, wholeSourceIssue } from "./config-issue.js";
 import type { ConfigIssue } from "./config-issue.js";
 import { customProviderNameIssues } from "./custom-provider-name.js";
+import { isPlainObject } from "./is-plain-object.js";
 import {
 	builtinProviderBlockSchemas,
 	customProviderEntrySchema,
@@ -182,8 +183,4 @@ function warning(path: readonly (string | number)[], message: string): ConfigIss
 
 function degradedIssue(message: string): SalvagedProvidersConfig {
 	return { config: {}, issues: [wholeSourceIssue(message)] };
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

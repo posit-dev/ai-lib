@@ -3,7 +3,6 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { promises as fs } from "fs";
-import * as path from "path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -12,7 +11,10 @@ import type { ConfigFileFixture } from "../../tests/helpers/config-file-fixture.
 import { PROVIDERS_CONFIG_VERSION } from "../index.js";
 import { mutateProvidersConfig } from "../node/mutate-config.js";
 import { parseJsonc } from "../node/parse-jsonc.js";
+import { PROVIDERS_SCHEMA_URL } from "../node/paths.js";
 import type { ProvidersConfig } from "../types.js";
+
+const LEGACY_SCHEMA_PATH = "./providers.schema.json";
 
 const mockLogger = {
 	debug: vi.fn(),
@@ -377,27 +379,8 @@ describe("mutateProvidersConfig first creation and seed boundaries", () => {
 		// $schema and version which the mutation preserves (since the seed
 		// writes them and the mutator spreads `current`).
 		expect(content.providers?.anthropic?.enabled).toBe(true);
-	});
-
-	it("copies providers.schema.json alongside the config file on creation", async () => {
-		await mutateProvidersConfig((current) => current, { configPath, logger: mockLogger });
-
-		const schemaPath = path.join(fixture.directory, "providers.schema.json");
-		const exists = await fs
-			.access(schemaPath)
-			.then(() => true)
-			.catch(() => false);
-
-		// The schema file should be copied (best-effort — may not exist in all
-		// environments, but should work when running from the package source)
-		if (exists) {
-			const schemaContent = JSON.parse(await fs.readFile(schemaPath, "utf-8"));
-			expect(schemaContent).toHaveProperty("$schema");
-			expect(schemaContent).toHaveProperty("properties");
-		}
-		// Either way, the config file should exist and be valid
-		const configContent = JSON.parse(await fixture.readRaw());
-		expect(configContent).toBeDefined();
+		expect(content.$schema).toBe(PROVIDERS_SCHEMA_URL);
+		expect(content.version).toBe(PROVIDERS_CONFIG_VERSION);
 	});
 
 	it("does NOT re-inject $schema/version when a user removes them", async () => {
@@ -450,5 +433,64 @@ describe("mutateProvidersConfig first creation and seed boundaries", () => {
 		expect(content.$schema).toBe(customSchema);
 		expect(content.version).toBe(PROVIDERS_CONFIG_VERSION);
 		expect(content.providers?.openai?.enabled).toBe(true);
+	});
+
+	it("migrates the legacy $schema literal when a mutator passes it through unchanged", async () => {
+		await fixture.writeTypedConfig({
+			$schema: LEGACY_SCHEMA_PATH,
+			version: PROVIDERS_CONFIG_VERSION,
+			providers: { anthropic: { enabled: true } },
+		});
+
+		await mutateProvidersConfig(
+			(current) => ({
+				...current,
+				providers: { ...current.providers, openai: { enabled: true } },
+			}),
+			{ configPath, logger: mockLogger },
+		);
+
+		const content = JSON.parse(await fixture.readRaw());
+		expect(content.$schema).toBe(PROVIDERS_SCHEMA_URL);
+		expect(content.providers?.openai?.enabled).toBe(true);
+	});
+
+	it("respects a mutator that explicitly removes a legacy $schema", async () => {
+		await fixture.writeTypedConfig({
+			$schema: LEGACY_SCHEMA_PATH,
+			version: PROVIDERS_CONFIG_VERSION,
+			providers: { anthropic: { enabled: true } },
+		});
+
+		await mutateProvidersConfig(
+			(current) => {
+				const { $schema: _removed, ...rest } = current;
+				return rest;
+			},
+			{ configPath, logger: mockLogger },
+		);
+
+		const content = JSON.parse(await fixture.readRaw());
+		expect(content.$schema).toBeUndefined();
+	});
+
+	it("respects a mutator that replaces a legacy $schema with a custom URL", async () => {
+		const customSchema = "https://my-corp.example.com/providers.schema.json";
+		await fixture.writeTypedConfig({
+			$schema: LEGACY_SCHEMA_PATH,
+			version: PROVIDERS_CONFIG_VERSION,
+			providers: { anthropic: { enabled: true } },
+		});
+
+		await mutateProvidersConfig(
+			(current) => ({
+				...current,
+				$schema: customSchema,
+			}),
+			{ configPath, logger: mockLogger },
+		);
+
+		const content = JSON.parse(await fixture.readRaw());
+		expect(content.$schema).toBe(customSchema);
 	});
 });

@@ -14,7 +14,6 @@
  */
 
 import { promises as fs } from "fs";
-import { createRequire } from "module";
 import * as path from "path";
 import { isDeepStrictEqual } from "util";
 
@@ -22,10 +21,16 @@ import lockfile from "proper-lockfile";
 
 import { editJsonc, normalizeJsonValue } from "../edit-jsonc.js";
 import { PROVIDERS_CONFIG_VERSION } from "../index.js";
+import { isPlainObject } from "../is-plain-object.js";
 import { providersConfigSchema } from "../schema.js";
 import type { ProvidersConfig } from "../types.js";
+import { parseJsonc } from "./parse-jsonc.js";
 import { parseProvidersConfig } from "./parse-providers-config.js";
-import { PROVIDERS_CONFIG_PATH } from "./paths.js";
+import {
+	LEGACY_PROVIDERS_SCHEMA_PATH,
+	PROVIDERS_CONFIG_PATH,
+	PROVIDERS_SCHEMA_URL,
+} from "./paths.js";
 import type { LoggerLike, MutateConfigOptions } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -76,14 +81,125 @@ export async function mutateProvidersConfig(
 	const configPath = opts?.configPath ?? PROVIDERS_CONFIG_PATH;
 	const logger = opts?.logger;
 
-	await enqueue(configPath, async () => {
-		await performLockedMutation(configPath, mutator, logger);
-	});
+	await enqueue(configPath, () => performLockedMutation(configPath, mutator, logger));
+}
+
+/**
+ * One-shot startup migration: rewrite a root `$schema` that still carries the
+ * pre-hosting sidecar literal (`./providers.schema.json`) to the hosted
+ * {@link PROVIDERS_SCHEMA_URL}.
+ *
+ * Not a general JSONC rewriting seam — it owns both literals internally and
+ * touches nothing else. `mutateProvidersConfig()` already migrates the literal
+ * forward, but only for users who change a setting; hosts call this once at
+ * startup so the fix reaches everyone.
+ *
+ * An unlocked read pre-checks the root `$schema`; only an exact legacy match
+ * takes the queue and the lock, re-reads, re-checks, and rewrites via
+ * `editJsonc` (preserving comments and unknown fields). Every pre-check exit
+ * — missing file, read failure, invalid JSONC, non-object root, non-matching
+ * `$schema` — is silent, so startups after the first cost a single `readFile`
+ * and stay off the write path on read-only deployments.
+ *
+ * Never rejects: any failure past the pre-check logs one warning and returns,
+ * so callers need no guard.
+ *
+ * @param opts - Optional path override and logger.
+ */
+export async function migrateProvidersSchemaReference(opts?: MutateConfigOptions): Promise<void> {
+	const configPath = opts?.configPath ?? PROVIDERS_CONFIG_PATH;
+	const logger = opts?.logger;
+
+	try {
+		if (!(await hasLegacySchemaReference(configPath))) {
+			return;
+		}
+		await enqueue(configPath, () => rewriteLegacySchemaReferenceLocked(configPath, logger));
+	} catch (error) {
+		logger?.warn(
+			`[ai-config] Could not migrate the legacy $schema reference in ${configPath}: ${errorMessage(error)}`,
+		);
+	}
 }
 
 // ---------------------------------------------------------------------------
 // Implementation
 // ---------------------------------------------------------------------------
+
+/**
+ * Read the config file and parse its root object. Returns `undefined` when
+ * the file is missing/unreadable or the root is not an object; throws
+ * `SyntaxError` on invalid JSONC so each caller picks its own error semantics
+ * (the pre-check swallows it, the locked phase lets it propagate to the
+ * migration's catch-all warning).
+ */
+async function readConfigObject(
+	configPath: string,
+): Promise<{ raw: string; parsed: Record<string, unknown> } | undefined> {
+	let raw: string;
+	try {
+		raw = await fs.readFile(configPath, "utf-8");
+	} catch {
+		return undefined;
+	}
+	const parsed = parseJsonc(raw);
+	return isPlainObject(parsed) ? { raw, parsed } : undefined;
+}
+
+/**
+ * Unlocked pre-check for {@link migrateProvidersSchemaReference}: whether the
+ * file's root `$schema` is exactly the legacy literal. Every exit that is not
+ * an exact match — missing file, read failure, invalid JSONC, non-object root
+ * — returns `false` silently; those are the common cases (fresh installs, CI,
+ * headless runs) and must not warn on every startup.
+ */
+async function hasLegacySchemaReference(configPath: string): Promise<boolean> {
+	let current: { raw: string; parsed: Record<string, unknown> } | undefined;
+	try {
+		current = await readConfigObject(configPath);
+	} catch {
+		return false; // Invalid JSONC — silent, like every other pre-check exit.
+	}
+	return current?.parsed.$schema === LEGACY_PROVIDERS_SCHEMA_PATH;
+}
+
+/**
+ * Locked phase of {@link migrateProvidersSchemaReference}. Re-reads and
+ * re-checks under the lock before rewriting, so a concurrent writer that
+ * already fixed (or replaced) the value is respected.
+ */
+async function rewriteLegacySchemaReferenceLocked(
+	configPath: string,
+	logger: LoggerLike | undefined,
+): Promise<void> {
+	let release: (() => Promise<void>) | undefined;
+	try {
+		try {
+			release = await lockfile.lock(configPath, LOCK_OPTIONS);
+		} catch (error) {
+			// With proper-lockfile's default `realpath: true`, a file deleted
+			// between the pre-check and here surfaces ENOENT from the lock call
+			// itself — a no-op, distinct from ELOCKED retry exhaustion.
+			if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+				return;
+			}
+			throw error;
+		}
+
+		const current = await readConfigObject(configPath);
+		if (current?.parsed.$schema !== LEGACY_PROVIDERS_SCHEMA_PATH) {
+			return;
+		}
+
+		const output = editJsonc(current.raw, { ...current.parsed, $schema: PROVIDERS_SCHEMA_URL });
+		await atomicWrite(configPath, output);
+		logger?.debug("[ai-config] Migrated legacy $schema reference to the hosted schema URL");
+	} finally {
+		if (release) {
+			await release();
+		}
+	}
+}
 
 async function performLockedMutation(
 	configPath: string,
@@ -118,10 +234,20 @@ async function performLockedMutation(
 		// This is seed-only — subsequent mutations pass through whatever the
 		// user/mutator wrote. If a user later removes $schema, that's their choice.
 		if (fileCreated && updated.$schema === undefined) {
-			updated = { $schema: "./providers.schema.json", ...updated };
+			updated = { $schema: PROVIDERS_SCHEMA_URL, ...updated };
 		}
 		if (fileCreated && updated.version === undefined) {
 			updated = { ...updated, version: PROVIDERS_CONFIG_VERSION };
+		}
+
+		// Migrate the pre-hosting seed value forward. Checked against the
+		// post-mutator value (not `current.$schema`) so a mutator that itself
+		// removed or replaced a legacy $schema in this same call is respected —
+		// only a value that survived the mutator unchanged is treated as still
+		// being the tool's own stale default. A missing $schema stays missing,
+		// and any other custom value is left untouched.
+		if (updated.$schema === LEGACY_PROVIDERS_SCHEMA_PATH) {
+			updated = { ...updated, $schema: PROVIDERS_SCHEMA_URL };
 		}
 
 		// Validate the result
@@ -209,9 +335,7 @@ async function atomicWrite(configPath: string, text: string): Promise<void> {
  * where two concurrent callers both observe ENOENT and then one clobbers the
  * other's completed write with an empty `{}`.
  *
- * On file creation, seeds the file with `$schema` and `version` fields, and
- * best-effort copies `providers.schema.json` alongside the config file for
- * editor validation/autocomplete.
+ * On file creation, seeds the file with `$schema` and `version` fields.
  *
  * @returns `true` if this call created the file (first write), `false` if
  * it already existed. The caller uses this to inject seed metadata into
@@ -231,7 +355,7 @@ async function raceSafeEnsureFile(
 		// We created the file — write the seeded config and close.
 		// Wrap in try/finally so an I/O error cannot leak the descriptor.
 		const seed = {
-			$schema: "./providers.schema.json",
+			$schema: PROVIDERS_SCHEMA_URL,
 			version: PROVIDERS_CONFIG_VERSION,
 		};
 		try {
@@ -240,32 +364,9 @@ async function raceSafeEnsureFile(
 			await fd.close();
 		}
 
-		// Best-effort: copy providers.schema.json alongside the config file.
-		// This enables editor validation/autocomplete. If it fails (missing
-		// file, permissions), log but don't fail — the schema hint is a
-		// nice-to-have, not a correctness requirement.
-		await copySchemaFile(configPath, logger);
 		return true;
 	}
 	return false;
-}
-
-/**
- * Best-effort copy of providers.schema.json from the ai-config package into
- * the same directory as the config file. Uses the package export to resolve
- * the source path.
- */
-async function copySchemaFile(configPath: string, logger: LoggerLike | undefined): Promise<void> {
-	try {
-		// Resolve the schema file from the package export
-		const require = createRequire(import.meta.url);
-		const schemaSource = require.resolve("ai-config/providers.schema.json");
-		const schemaTarget = path.join(path.dirname(configPath), "providers.schema.json");
-		await fs.copyFile(schemaSource, schemaTarget);
-		logger?.debug("[ai-config] Copied providers.schema.json to config directory");
-	} catch (error) {
-		logger?.warn(`[ai-config] Could not copy providers.schema.json: ${errorMessage(error)}`);
-	}
 }
 
 function errorMessage(error: unknown): string {

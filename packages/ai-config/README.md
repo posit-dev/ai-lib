@@ -263,13 +263,13 @@ validation and autocomplete whether the editor language mode is JSON or JSONC.
 
 ```jsonc
 {
-  "$schema": "./providers.schema.json",
+  "$schema": "https://assistant.posit.co/schemas/providers.schema.json",
   "version": 1,
   "providers": {
     // built-in providers (one key per BUILTIN_PROVIDER_ID; no `type` field)
     "anthropic": {
       "enabled": true,
-      "baseUrl": "https://api.anthropic.com",
+      "baseUrl": "https://api.anthropic.com/v1",
       "customHeaders": { "x-example": "value" },
       "models": {
         "discovery": "auto", // "auto" | "off"
@@ -314,7 +314,7 @@ schema failures salvage valid siblings. Serialized environment fragments remain 
 
 ## File I/O guarantees
 
-`mutateProvidersConfig` owns cross-process write safety so callers just supply a mutator: a `proper-lockfile` lock (with retries and stale detection), an in-process serialization queue per path, race-safe first creation (exclusive `wx` flag), atomic write (temp file + rename), seed-metadata injection (`$schema`, `version`) on first creation, and a best-effort copy of `providers.schema.json` alongside the config. Existing files are updated with the pure `editJsonc(originalText, intendedValue)` transformer, which round-trip-normalizes intended values with `JSON.stringify` semantics, applies sequential path edits, and preserves unrelated source text. First creation remains a whole-file serialization because no user-authored text exists yet. It never treats unreadable, syntax-invalid, unknown-key, schema-invalid, or ambiguously duplicated touched content as empty: any such failure names the offending path, aborts the mutation, and leaves the file byte-for-byte unchanged. Value-identical mutations also leave the file untouched.
+`mutateProvidersConfig` owns cross-process write safety so callers just supply a mutator: a `proper-lockfile` lock (with retries and stale detection), an in-process serialization queue per path, race-safe first creation (exclusive `wx` flag), atomic write (temp file + rename), and seed-metadata injection (`$schema`, `version`) on first creation. `$schema` is seeded with the hosted `providers.schema.json` at `assistant.posit.co/schemas/providers.schema.json`, and a locked migration rewrites any file whose `$schema` still exactly matches the pre-hosting seed literal (`./providers.schema.json`) forward to the hosted URL, leaving a missing or otherwise custom `$schema` untouched. Existing files are updated with the pure `editJsonc(originalText, intendedValue)` transformer, which round-trip-normalizes intended values with `JSON.stringify` semantics, applies sequential path edits, and preserves unrelated source text. First creation remains a whole-file serialization because no user-authored text exists yet. It never treats unreadable, syntax-invalid, unknown-key, schema-invalid, or ambiguously duplicated touched content as empty: any such failure names the offending path, aborts the mutation, and leaves the file byte-for-byte unchanged. Value-identical mutations also leave the file untouched.
 
 ## Development
 

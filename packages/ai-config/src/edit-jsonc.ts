@@ -25,6 +25,8 @@ import {
 	SyntaxKind,
 } from "jsonc-parser";
 
+import { isPlainObject } from "./is-plain-object.js";
+
 interface JsoncChange {
 	path: JSONPath;
 	value: unknown;
@@ -363,7 +365,7 @@ function collectChanges(
 		return;
 	}
 
-	if (!isJsonObject(current) || !isJsonObject(intended)) {
+	if (!isPlainObject(current) || !isPlainObject(intended)) {
 		changes.push({ path, value: intended });
 		return;
 	}
@@ -392,7 +394,7 @@ function jsonValuesEqual(left: unknown, right: unknown): boolean {
 			left.every((value, index) => jsonValuesEqual(value, right[index]))
 		);
 	}
-	if (!isJsonObject(left) || !isJsonObject(right)) {
+	if (!isPlainObject(left) || !isPlainObject(right)) {
 		return false;
 	}
 	const leftKeys = Object.keys(left);
@@ -405,10 +407,6 @@ function jsonValuesEqual(left: unknown, right: unknown): boolean {
 				jsonValuesEqual(Reflect.get(left, key), Reflect.get(right, key)),
 		)
 	);
-}
-
-function isJsonObject(value: unknown): value is object {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function collectDuplicatePaths(root: Node | undefined): JSONPath[] {

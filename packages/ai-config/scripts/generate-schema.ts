@@ -7,9 +7,10 @@
 /**
  * Generate providers.schema.json from the Zod schema.
  *
- * Produces a JSON Schema file at the package root (source-controlled) that
- * is also copied into ~/.posit/ai/ alongside providers.json at seed time
- * so editors can validate and autocomplete the config file.
+ * Writes `providers.schema.json` at the package root — the package export,
+ * read by the Assistant docs generator, by the hosted schema endpoint at
+ * `assistant.posit.co/schemas/providers.schema.json`, and by anyone pointing
+ * an editor at it directly.
  *
  * Usage: npx tsx scripts/generate-schema.ts
  */
@@ -20,6 +21,7 @@ import { fileURLToPath } from "url";
 
 import * as z from "zod/v4";
 
+import { PROVIDERS_SCHEMA_URL } from "../src/node/paths.js";
 import { providersConfigSchema } from "../src/schema.js";
 
 // ---------------------------------------------------------------------------
@@ -200,7 +202,7 @@ function serializeProvidersSchema(): string {
 
 	const schemaWithMetadata = {
 		...cleanedSchema,
-		$id: "https://posit.co/schemas/providers.schema.json",
+		$id: PROVIDERS_SCHEMA_URL,
 		$schema: "http://json-schema.org/draft-07/schema#",
 		title: "Posit AI Provider Configuration",
 		description:
@@ -216,8 +218,9 @@ async function generateSchema() {
 
 	try {
 		const outputPath = path.resolve(__dirname, "../providers.schema.json");
+		const contents = serializeProvidersSchema();
 
-		await fs.writeFile(outputPath, serializeProvidersSchema(), "utf-8");
+		await fs.writeFile(outputPath, contents, "utf-8");
 
 		console.log(`✅ providers.schema.json generated: ${outputPath}`);
 	} catch (error) {

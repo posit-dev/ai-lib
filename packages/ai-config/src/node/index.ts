@@ -25,6 +25,8 @@
  *
  * ### Write seam
  * - `mutateProvidersConfig(mutator)` — cross-process-safe mutation.
+ * - `migrateProvidersSchemaReference()` — one-shot startup migration of the
+ *   legacy `$schema` sidecar literal to the hosted schema URL.
  *
  * ### Watch seam
  * - `watchResolvedProviderCatalog(handler, opts)` — the **single watch seam**.
@@ -38,13 +40,15 @@
  * ### Paths
  * - `PROVIDERS_CONFIG_PATH`, `AI_CONFIG_DIR` — centralized for one-edit
  *   changes.
+ * - `PROVIDERS_SCHEMA_URL` — the hosted schema URL seeded as `$schema` and
+ *   written by the startup migration.
  */
 
 // Re-export everything from the pure entry
 export * from "../index.js";
 
 // --- Paths -----------------------------------------------------------------
-export { AI_CONFIG_DIR, PROVIDERS_CONFIG_PATH } from "./paths.js";
+export { AI_CONFIG_DIR, PROVIDERS_CONFIG_PATH, PROVIDERS_SCHEMA_URL } from "./paths.js";
 
 // --- Read seam (canonical report + bare-catalog compatibility wrapper) -----
 export { loadProviderCatalogReport, loadResolvedProviderCatalog } from "./load-catalog.js";
@@ -65,7 +69,7 @@ export { loadConfigSources } from "./load-config.js";
 export type { LoadConfigSourcesOptions } from "./load-config.js";
 
 // --- Write seam ------------------------------------------------------------
-export { mutateProvidersConfig } from "./mutate-config.js";
+export { migrateProvidersSchemaReference, mutateProvidersConfig } from "./mutate-config.js";
 
 // --- Watch seam (the single, source-aware watch seam) ----------------------
 export { watchResolvedProviderCatalog } from "./watch-catalog.js";

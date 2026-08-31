@@ -11,6 +11,7 @@
  * - Primitives: enforced wins.
  */
 
+import { isPlainObject } from "./is-plain-object.js";
 import type { ProvidersConfigFragment, ProvidersConfig } from "./types.js";
 
 /**
@@ -78,8 +79,4 @@ function deepMerge(base: unknown, override: unknown): unknown {
 
 	// Arrays, primitives, or type mismatch — override wins
 	return override;
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
