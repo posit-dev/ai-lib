@@ -20,12 +20,15 @@ import { isDeepStrictEqual } from "util";
 import lockfile from "proper-lockfile";
 
 import { editJsonc, normalizeJsonValue } from "../edit-jsonc.js";
-import { providersSchemaFileContents } from "../generated/providers-schema-source.js";
 import { PROVIDERS_CONFIG_VERSION } from "../index.js";
 import { providersConfigSchema } from "../schema.js";
 import type { ProvidersConfig } from "../types.js";
 import { parseProvidersConfig } from "./parse-providers-config.js";
-import { PROVIDERS_CONFIG_PATH } from "./paths.js";
+import {
+	LEGACY_PROVIDERS_SCHEMA_PATH,
+	PROVIDERS_CONFIG_PATH,
+	PROVIDERS_SCHEMA_URL,
+} from "./paths.js";
 import type { LoggerLike, MutateConfigOptions } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -76,14 +79,7 @@ export async function mutateProvidersConfig(
 	const configPath = opts?.configPath ?? PROVIDERS_CONFIG_PATH;
 	const logger = opts?.logger;
 
-	await enqueue(configPath, async () => {
-		await performLockedMutation(configPath, mutator, logger);
-
-		// After the mutation, so it cannot perturb the read/write sequence above,
-		// and skipped entirely if the mutation failed (a broken config is not the
-		// moment to refresh an editor hint). Best-effort and idempotent.
-		await writeSchemaFile(configPath, logger);
-	});
+	await enqueue(configPath, () => performLockedMutation(configPath, mutator, logger));
 }
 
 // ---------------------------------------------------------------------------
@@ -123,10 +119,20 @@ async function performLockedMutation(
 		// This is seed-only — subsequent mutations pass through whatever the
 		// user/mutator wrote. If a user later removes $schema, that's their choice.
 		if (fileCreated && updated.$schema === undefined) {
-			updated = { $schema: "./providers.schema.json", ...updated };
+			updated = { $schema: PROVIDERS_SCHEMA_URL, ...updated };
 		}
 		if (fileCreated && updated.version === undefined) {
 			updated = { ...updated, version: PROVIDERS_CONFIG_VERSION };
+		}
+
+		// Migrate the pre-hosting seed value forward. Checked against the
+		// post-mutator value (not `current.$schema`) so a mutator that itself
+		// removed or replaced a legacy $schema in this same call is respected —
+		// only a value that survived the mutator unchanged is treated as still
+		// being the tool's own stale default. A missing $schema stays missing,
+		// and any other custom value is left untouched.
+		if (updated.$schema === LEGACY_PROVIDERS_SCHEMA_PATH) {
+			updated = { ...updated, $schema: PROVIDERS_SCHEMA_URL };
 		}
 
 		// Validate the result
@@ -214,9 +220,7 @@ async function atomicWrite(configPath: string, text: string): Promise<void> {
  * where two concurrent callers both observe ENOENT and then one clobbers the
  * other's completed write with an empty `{}`.
  *
- * On file creation, seeds the file with `$schema` and `version` fields. The
- * sibling `providers.schema.json` is written by the caller on every mutation,
- * not just on creation.
+ * On file creation, seeds the file with `$schema` and `version` fields.
  *
  * @returns `true` if this call created the file (first write), `false` if
  * it already existed. The caller uses this to inject seed metadata into
@@ -236,7 +240,7 @@ async function raceSafeEnsureFile(
 		// We created the file — write the seeded config and close.
 		// Wrap in try/finally so an I/O error cannot leak the descriptor.
 		const seed = {
-			$schema: "./providers.schema.json",
+			$schema: PROVIDERS_SCHEMA_URL,
 			version: PROVIDERS_CONFIG_VERSION,
 		};
 		try {
@@ -248,41 +252,6 @@ async function raceSafeEnsureFile(
 		return true;
 	}
 	return false;
-}
-
-/**
- * Best-effort write of providers.schema.json next to the config file, so
- * editors can validate `providers.json` and show field descriptions on hover.
- *
- * The bytes are inlined at build time rather than resolved from the package.
- * Consumers bundle ai-config and ship no `node_modules/ai-config`, so a runtime
- * `require.resolve("ai-config/providers.schema.json")` throws in every packaged
- * build — which silently left users with no schema at all.
- *
- * Runs on every mutation, not just on file creation, so an upgraded schema
- * reaches existing installs instead of leaving them pinned to whatever shipped
- * the day their config was first written. The content check keeps the common
- * case free of a disk write.
- *
- * Deliberately outside the config lock, unlike everything else in this module:
- * concurrent writers all write identical build-time bytes through an atomic
- * temp+rename, so there is nothing for the lock to protect.
- */
-async function writeSchemaFile(configPath: string, logger: LoggerLike | undefined): Promise<void> {
-	try {
-		const schemaTarget = path.join(path.dirname(configPath), "providers.schema.json");
-		const contents = providersSchemaFileContents();
-
-		const existing = await fs.readFile(schemaTarget, "utf-8").catch(() => undefined);
-		if (existing === contents) {
-			return;
-		}
-
-		await atomicWrite(schemaTarget, contents);
-		logger?.debug("[ai-config] Wrote providers.schema.json to config directory");
-	} catch (error) {
-		logger?.warn(`[ai-config] Could not write providers.schema.json: ${errorMessage(error)}`);
-	}
 }
 
 function errorMessage(error: unknown): string {

@@ -3,17 +3,18 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { promises as fs } from "fs";
-import * as path from "path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createConfigFileFixture } from "../../tests/helpers/config-file-fixture.js";
 import type { ConfigFileFixture } from "../../tests/helpers/config-file-fixture.js";
-import { providersSchemaFileContents } from "../generated/providers-schema-source.js";
 import { PROVIDERS_CONFIG_VERSION } from "../index.js";
 import { mutateProvidersConfig } from "../node/mutate-config.js";
 import { parseJsonc } from "../node/parse-jsonc.js";
+import { PROVIDERS_SCHEMA_URL } from "../node/paths.js";
 import type { ProvidersConfig } from "../types.js";
+
+const LEGACY_SCHEMA_PATH = "./providers.schema.json";
 
 const mockLogger = {
 	debug: vi.fn(),
@@ -159,9 +160,7 @@ describe("mutateProvidersConfig", () => {
 
 		await mutateProvidersConfig((current) => ({ ...current }), { configPath, logger: mockLogger });
 
-		// A mutation also refreshes the sibling providers.schema.json, so assert
-		// on the config file specifically rather than on rename as a whole.
-		expect(rename.mock.calls.filter(([, dest]) => dest === configPath)).toEqual([]);
+		expect(rename).not.toHaveBeenCalled();
 		expect(await fixture.readRaw()).toBe(original);
 	});
 
@@ -380,58 +379,8 @@ describe("mutateProvidersConfig first creation and seed boundaries", () => {
 		// $schema and version which the mutation preserves (since the seed
 		// writes them and the mutator spreads `current`).
 		expect(content.providers?.anthropic?.enabled).toBe(true);
-	});
-
-	it("writes the schema next to the config", async () => {
-		await mutateProvidersConfig((current) => ({ ...current, version: 1 }), {
-			configPath,
-			logger: mockLogger,
-		});
-
-		const written = await fs.readFile(
-			path.join(fixture.directory, "providers.schema.json"),
-			"utf-8",
-		);
-		expect(written).toBe(providersSchemaFileContents());
-		expect(JSON.parse(written).properties).toHaveProperty("providers");
-	});
-
-	it("refreshes a stale schema on a later mutation", async () => {
-		await fixture.writeTypedConfig({
-			providers: { anthropic: { enabled: true } },
-		});
-		const schemaPath = path.join(fixture.directory, "providers.schema.json");
-		await fs.writeFile(schemaPath, '{"stale":true}\n');
-
-		await mutateProvidersConfig(
-			(current) => ({
-				...current,
-				providers: { ...current.providers, anthropic: { enabled: false } },
-			}),
-			{ configPath, logger: mockLogger },
-		);
-
-		expect(await fs.readFile(schemaPath, "utf-8")).toBe(providersSchemaFileContents());
-	});
-
-	it("leaves a current schema untouched", async () => {
-		await fixture.writeTypedConfig({
-			providers: { anthropic: { enabled: true } },
-		});
-		const schemaPath = path.join(fixture.directory, "providers.schema.json");
-		await fs.writeFile(schemaPath, providersSchemaFileContents());
-		const rename = vi.spyOn(fs, "rename");
-
-		await mutateProvidersConfig(
-			(current) => ({
-				...current,
-				providers: { ...current.providers, anthropic: { enabled: false } },
-			}),
-			{ configPath, logger: mockLogger },
-		);
-
-		expect(rename.mock.calls.filter(([, dest]) => dest === schemaPath)).toEqual([]);
-		rename.mockRestore();
+		expect(content.$schema).toBe(PROVIDERS_SCHEMA_URL);
+		expect(content.version).toBe(PROVIDERS_CONFIG_VERSION);
 	});
 
 	it("does NOT re-inject $schema/version when a user removes them", async () => {
@@ -484,5 +433,64 @@ describe("mutateProvidersConfig first creation and seed boundaries", () => {
 		expect(content.$schema).toBe(customSchema);
 		expect(content.version).toBe(PROVIDERS_CONFIG_VERSION);
 		expect(content.providers?.openai?.enabled).toBe(true);
+	});
+
+	it("migrates the legacy $schema literal when a mutator passes it through unchanged", async () => {
+		await fixture.writeTypedConfig({
+			$schema: LEGACY_SCHEMA_PATH,
+			version: PROVIDERS_CONFIG_VERSION,
+			providers: { anthropic: { enabled: true } },
+		});
+
+		await mutateProvidersConfig(
+			(current) => ({
+				...current,
+				providers: { ...current.providers, openai: { enabled: true } },
+			}),
+			{ configPath, logger: mockLogger },
+		);
+
+		const content = JSON.parse(await fixture.readRaw());
+		expect(content.$schema).toBe(PROVIDERS_SCHEMA_URL);
+		expect(content.providers?.openai?.enabled).toBe(true);
+	});
+
+	it("respects a mutator that explicitly removes a legacy $schema", async () => {
+		await fixture.writeTypedConfig({
+			$schema: LEGACY_SCHEMA_PATH,
+			version: PROVIDERS_CONFIG_VERSION,
+			providers: { anthropic: { enabled: true } },
+		});
+
+		await mutateProvidersConfig(
+			(current) => {
+				const { $schema: _removed, ...rest } = current;
+				return rest;
+			},
+			{ configPath, logger: mockLogger },
+		);
+
+		const content = JSON.parse(await fixture.readRaw());
+		expect(content.$schema).toBeUndefined();
+	});
+
+	it("respects a mutator that replaces a legacy $schema with a custom URL", async () => {
+		const customSchema = "https://my-corp.example.com/providers.schema.json";
+		await fixture.writeTypedConfig({
+			$schema: LEGACY_SCHEMA_PATH,
+			version: PROVIDERS_CONFIG_VERSION,
+			providers: { anthropic: { enabled: true } },
+		});
+
+		await mutateProvidersConfig(
+			(current) => ({
+				...current,
+				$schema: customSchema,
+			}),
+			{ configPath, logger: mockLogger },
+		);
+
+		const content = JSON.parse(await fixture.readRaw());
+		expect(content.$schema).toBe(customSchema);
 	});
 });

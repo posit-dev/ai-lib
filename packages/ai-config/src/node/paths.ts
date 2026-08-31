@@ -40,3 +40,18 @@ export const DEFAULT_ENV_VAR = "POSIT_AI_PROVIDERS_DEFAULT";
  * Hidden file next to the config file.
  */
 export const PROVIDERS_LOCKFILE_PATH = `${PROVIDERS_CONFIG_PATH}.lock`;
+
+/**
+ * Hosted `providers.schema.json`, seeded into new `providers.json` files as
+ * `$schema` so editors (VS Code, Positron) can fetch and cache it for hover
+ * text and validation. Covers `PROVIDERS_CONFIG_VERSION` 1; a future breaking
+ * schema change gets its own versioned URL alongside a bumped config version.
+ */
+export const PROVIDERS_SCHEMA_URL = "https://assistant.posit.co/schemas/providers.schema.json";
+
+/**
+ * The legacy `$schema` value seeded before the schema was hosted at
+ * {@link PROVIDERS_SCHEMA_URL}. `mutateProvidersConfig` migrates any file
+ * whose `$schema` still exactly matches this literal — see `mutate-config.ts`.
+ */
+export const LEGACY_PROVIDERS_SCHEMA_PATH = "./providers.schema.json";
