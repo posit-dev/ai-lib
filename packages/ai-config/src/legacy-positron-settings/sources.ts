@@ -28,6 +28,7 @@ import type {
 	ProviderConfigSourceProvider,
 	ProviderConfigSourceReadReport,
 } from "../config-source.js";
+import { isPlainObject } from "../is-plain-object.js";
 import type { ProviderConfigSource } from "../resolve-catalog.js";
 import type { ProvidersConfigFragment } from "../types.js";
 import { translateLegacyPositronSettingsReport } from "./translate.js";
@@ -142,10 +143,6 @@ function createEnforcedSettingsProvider(
 
 function hasProviders(config: ProvidersConfigFragment): boolean {
 	return !!config.providers && Object.keys(config.providers).length > 0;
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function issueOnly(

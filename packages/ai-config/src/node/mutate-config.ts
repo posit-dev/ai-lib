@@ -21,6 +21,7 @@ import lockfile from "proper-lockfile";
 
 import { editJsonc, normalizeJsonValue } from "../edit-jsonc.js";
 import { PROVIDERS_CONFIG_VERSION } from "../index.js";
+import { isPlainObject } from "../is-plain-object.js";
 import { providersConfigSchema } from "../schema.js";
 import type { ProvidersConfig } from "../types.js";
 import { parseJsonc } from "./parse-jsonc.js";
@@ -142,7 +143,7 @@ async function readConfigObject(
 		return undefined;
 	}
 	const parsed = parseJsonc(raw);
-	return isJsonObjectRecord(parsed) ? { raw, parsed } : undefined;
+	return isPlainObject(parsed) ? { raw, parsed } : undefined;
 }
 
 /**
@@ -198,10 +199,6 @@ async function rewriteLegacySchemaReferenceLocked(
 			await release();
 		}
 	}
-}
-
-function isJsonObjectRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 async function performLockedMutation(
