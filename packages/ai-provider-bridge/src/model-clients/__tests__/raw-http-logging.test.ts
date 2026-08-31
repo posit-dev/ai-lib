@@ -10,6 +10,7 @@ import {
 	readdirSync,
 	rmSync,
 	statSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -193,6 +194,47 @@ describe("withRawHttpLogging", () => {
 		for (const f of listFiles(logDir).filter((f) => f.endsWith(".http"))) {
 			expect(statSync(join(logDir, f)).mode & 0o777).toBe(0o600);
 		}
+	});
+
+	it("tightens a pre-existing permissive env directory to owner-only", () => {
+		if (process.platform === "win32") return; // POSIX permission bits don't apply
+		const logDir = join(workDir, "env-logs");
+		mkdirSync(logDir, { mode: 0o755 });
+		process.env[ENV_VAR] = logDir;
+
+		expect(withRawHttpLogging(undefined, { provider: "test", model: "m" })).toBeDefined();
+		// mkdir's mode only applies to directories it creates; an existing
+		// permissive directory is hardened before any log is written.
+		expect(statSync(logDir).mode & 0o777).toBe(0o700);
+	});
+
+	it("refuses a symlinked env directory", () => {
+		if (process.platform === "win32") return; // symlink rules differ on Windows
+		const target = join(workDir, "real");
+		mkdirSync(target);
+		const link = join(workDir, "link");
+		symlinkSync(target, link);
+		process.env[ENV_VAR] = link;
+
+		// The path resolves to a real directory but its final entry is a
+		// symlink: logging stays disabled rather than following it.
+		expect(withRawHttpLogging(undefined, { provider: "test", model: "m" })).toBeUndefined();
+	});
+
+	it("hardens the late-binding directory and refuses a non-directory", () => {
+		if (process.platform === "win32") return; // POSIX permission bits don't apply
+		const logDir = join(workDir, "raw-http");
+		mkdirSync(logDir, { mode: 0o755 });
+		configureRawHttpLogging({ outputDir: logDir });
+
+		expect(withRawHttpLogging(undefined, { provider: "test", model: "m" })).toBeDefined();
+		expect(statSync(logDir).mode & 0o777).toBe(0o700);
+
+		// A regular file at the configured path is not a log directory.
+		const file = join(workDir, "not-a-dir");
+		writeFileSync(file, "x");
+		configureRawHttpLogging({ outputDir: file });
+		expect(withRawHttpLogging(undefined, { provider: "test", model: "m" })).toBeUndefined();
 	});
 
 	it("writes request and response files with byte-identical bodies", async () => {

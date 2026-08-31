@@ -100,6 +100,41 @@ export function resetRawHttpLoggingForTests(): void {
  * is disabled. Env var wins and is always-on; the configured dir is
  * late-binding (must exist on disk).
  */
+/**
+ * Validate and harden a log directory. Log bodies are unredacted (prompts,
+ * tool output), so the directory must be a real directory — not a symlink —
+ * owned by this user, and is tightened to owner-only when it isn't already:
+ * mkdir's mode applies only to directories it creates, so a pre-existing
+ * directory keeps whatever (possibly permissive) mode it was created with.
+ * Returns false — disabling logging — when validation or hardening fails,
+ * rather than writing sensitive bodies into a directory another local
+ * principal controls.
+ */
+function secureOutputDir(dir: string): boolean {
+	if (!nodeFs) {
+		return false;
+	}
+	try {
+		const stat = nodeFs.lstatSync(dir);
+		if (!stat.isDirectory()) {
+			return false;
+		}
+		// Ownership and permission bits are POSIX concepts; on Windows the
+		// real-directory check above is all that applies.
+		if (process.platform !== "win32" && typeof process.getuid === "function") {
+			if (stat.uid !== process.getuid()) {
+				return false;
+			}
+			if ((stat.mode & 0o777) !== 0o700) {
+				nodeFs.chmodSync(dir, 0o700);
+			}
+		}
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 function resolveOutputDir(): string | undefined {
 	if (!nodeFs || typeof process === "undefined") {
 		return undefined;
@@ -107,16 +142,17 @@ function resolveOutputDir(): string | undefined {
 	const envDir = process.env[ENV_VAR];
 	if (envDir) {
 		// Idempotent: recreates the directory if it was deleted mid-session
-		// and picks up env-var changes between calls. Bodies are unredacted
-		// (prompts, tool output), so the directory is owner-only.
+		// and picks up env-var changes between calls.
 		try {
 			nodeFs.mkdirSync(envDir, { recursive: true, mode: 0o700 });
 		} catch {
 			return undefined;
 		}
-		return envDir;
+		return secureOutputDir(envDir) ? envDir : undefined;
 	}
-	if (configuredOutputDir && nodeFs.existsSync(configuredOutputDir)) {
+	// Late binding: logging is active only while the configured directory
+	// exists on disk and passes the same ownership/mode hardening.
+	if (configuredOutputDir && secureOutputDir(configuredOutputDir)) {
 		return configuredOutputDir;
 	}
 	return undefined;
@@ -429,9 +465,14 @@ function writeLogFile(outputDir: string, baseName: string, suffix: string, conte
 	const finalPath = `${outputDir}/${baseName}-${suffix}.http`;
 	// Publish via temp file + rename: an existing final path always holds
 	// complete contents, so log viewers and tests can poll for existence.
-	// Owner-only mode: bodies are deliberately unredacted (prompts, source,
-	// tool output), and rename preserves the temp file's mode.
-	nodeFs?.writeFile(`${finalPath}.tmp`, contents, { mode: 0o600 }, (error) => {
+	// The temp path is unique per file (the base name carries a process nonce
+	// and a sequence number) and created exclusively ("wx"), so the write
+	// never follows a pre-planted symlink or overwrites a stale temp file;
+	// rename then atomically replaces the final directory entry without
+	// following anything there. Owner-only mode: bodies are deliberately
+	// unredacted (prompts, source, tool output), and rename preserves the
+	// temp file's mode.
+	nodeFs?.writeFile(`${finalPath}.tmp`, contents, { mode: 0o600, flag: "wx" }, (error) => {
 		// Errors are swallowed by design: logging must never break a request.
 		if (error) {
 			return;
