@@ -13,7 +13,7 @@
 import type { ResolvedConnection } from "./types.js";
 import type { BuiltinProviderId } from "./vocabulary.js";
 
-/** Posit AI gateway defaults. */
+/** Posit AI Pass gateway defaults. */
 export const POSIT_AI_DEFAULTS = {
 	baseUrl: "https://gateway.posit.ai",
 	positaiLogin: {

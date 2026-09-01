@@ -33,7 +33,7 @@ function filterSupersededModels(models: ModelInfo[]): ModelInfo[] {
 }
 
 /**
- * Response from the Posit AI /models endpoint
+ * Response from the Posit AI Pass /models endpoint
  */
 interface PositAiModelsResponse {
 	chat: Array<{
@@ -56,7 +56,7 @@ type PositAiModelFetcher = ((
 };
 
 /**
- * Map API protocol string from the Posit AI /models endpoint to the canonical
+ * Map API protocol string from the Posit AI Pass /models endpoint to the canonical
  * Protocol enum. The upstream gateway already returns values like
  * `"anthropic-messages"`, `"openai-chat-completions"`, `"openai-responses"`.
  *
@@ -223,7 +223,9 @@ export function registerPositAiProvider(
 
 	registry.registerClientFactory("positai", (credentials) => {
 		if (credentials.type !== "oauth") {
-			throw new Error(`Posit AI provider requires OAuth credentials, got: ${credentials.type}`);
+			throw new Error(
+				`Posit AI Pass provider requires OAuth credentials, got: ${credentials.type}`,
+			);
 		}
 		return new PositAiClient(credentials.accessToken, resolveBaseUrl(), userAgent, logger);
 	});

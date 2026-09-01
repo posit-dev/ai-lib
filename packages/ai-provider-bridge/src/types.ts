@@ -166,7 +166,7 @@ export interface ModelInfo {
 
 	/**
 	 * API protocol used to communicate with this model, for this specific provider.
-	 * For providers that support multiple protocols, like Posit AI or Bedrock.
+	 * For providers that support multiple protocols, like Posit AI Pass or Bedrock.
 	 *
 	 * Canonical values (prefer these):
 	 * - `"anthropic-messages"` — Anthropic Messages API format
@@ -257,7 +257,7 @@ export interface CancellationToken {
 }
 
 // ============================================================================
-// Posit AI Auth Metadata
+// Posit AI Pass Auth Metadata
 // ============================================================================
 
 export type PositAiModelFetchState = "ok" | "agreement_pending" | "error";
@@ -280,15 +280,15 @@ export const NOTIFICATION_ACTIONS = {
 	REFRESH_MODELS: "refresh-models",
 
 	/**
-	 * Manage Posit AI account - typically triggered when token balance is low or depleted
-	 * Handler should open the Posit AI account management page
+	 * Manage Posit AI Pass account - typically triggered when token balance is low or depleted
+	 * Handler should open the Posit AI Pass account management page
 	 */
 	POSIT_AI_MANAGE_ACCOUNT: "posit-ai-manage-account",
 
 	/**
-	 * Complete Posit AI account setup - triggered when user has authenticated but
+	 * Complete Posit AI Pass account setup - triggered when user has authenticated but
 	 * hasn't signed the user agreement (403 from gateway)
-	 * Handler should open the Posit AI setup page
+	 * Handler should open the Posit AI Pass setup page
 	 */
 	POSIT_AI_COMPLETE_SETUP: "posit-ai-complete-setup",
 

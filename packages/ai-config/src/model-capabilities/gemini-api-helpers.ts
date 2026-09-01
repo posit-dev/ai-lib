@@ -16,7 +16,7 @@ import { getGeminiModelCapabilities } from "./gemini-helpers.js";
 // provider-agnostic inference and VS Code LM discovery, where hosted-endpoint
 // semantics do not apply.
 //
-// Do NOT confuse this with gemma-helpers.ts — that table is the Posit AI/vLLM
+// Do NOT confuse this with gemma-helpers.ts — that table is the Posit AI Pass/vLLM
 // contract (`off`/`on` levels via `chat_template_kwargs`). On the Gemini API,
 // Gemma 4 thinking is binary with product levels `off`/`high`, mapped to wire
 // `thinkingLevel` values `minimal`/`high` by the bridge's Interactions client.

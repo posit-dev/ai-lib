@@ -6,7 +6,7 @@
  * Provider Environment Variable Mappings — External Build Variant
  *
  * Same exports as providerEnvMappings.ts but only includes providers
- * available in external builds. External builds use Posit AI only,
+ * available in external builds. External builds use Posit AI Pass only,
  * which has no secret env vars (OAuth tokens come from the auth flow).
  *
  * External builds redirect to this file via bundler file-level aliasing.

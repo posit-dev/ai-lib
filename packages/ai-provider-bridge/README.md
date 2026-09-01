@@ -17,7 +17,7 @@ These rules keep the dependency graph clean:
 | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
 | `ai-provider-bridge`                    | `ProviderRegistry`, interfaces (`ModelClient`, `CredentialProvider`, `StepLogger`), `createCachedModelFetcher`, provider map, `LocalProviderManager`                                                                                      | No                    |
 | `ai-provider-bridge/providers`          | `register*Provider()` functions, client classes, helpers                                                                                                                                                                                  | Yes (AI SDK packages) |
-| `ai-provider-bridge/providers-external` | Minimal provider set (external/OSS builds -- Posit AI only)                                                                                                                                                                               | Minimal               |
+| `ai-provider-bridge/providers-external` | Minimal provider set (external/OSS builds -- Posit AI Pass only)                                                                                                                                                                          | Minimal               |
 | `ai-provider-bridge/positron`           | `VscodeLmClient`, `listVscodeLmModels()`, `fromAiMessages2()`, LM helpers, `CONFIG_KEY_OVERRIDES` (**no** `PositronCredentialProvider` — removed; the VS Code auth backend is now `createPositronBackend` from `ai-credentials/positron`) | Yes (`vscode`)        |
 | `ai-provider-bridge/credential-shaping` | Compat re-export of `ai-credentials/types` — `shapeCredentials()` + `CredentialConfig` + `CONFIG_KEY_OVERRIDES` (implementation now lives in `ai-credentials`)                                                                            | No                    |
 
@@ -38,7 +38,7 @@ These rules keep the dependency graph clean:
 | Ollama (local)    | OllamaClient       | Cached via API  |
 | LM Studio (local) | LMStudioClient     | Cached via API  |
 | Snowflake Cortex  | SnowflakeClient    | Static          |
-| Posit AI          | PositAiClient      | Cached via API  |
+| Posit AI Pass     | PositAiClient      | Cached via API  |
 | OpenAI-Compatible | OpenAIClient       | User-configured |
 | Foundry           | OpenAIClient       | User-configured |
 
@@ -520,7 +520,7 @@ The `/positron` entrypoint also exports message conversion utilities:
 
 External builds alias provider files to their `-external` variants via the consuming monorepo's build configuration:
 
-- `providers.ts` -> `providers-external.ts` -- only Posit AI provider (keeps non-positai provider code and SDK dependencies out of the bundle)
+- `providers.ts` -> `providers-external.ts` -- only Posit AI Pass provider (keeps non-positai provider code and SDK dependencies out of the bundle)
 - `types.ts` -> `types-external.ts` -- only positai provider ID and notification actions
 - `local-providers.ts` -> `local-providers-external.ts` -- empty `LOCAL_PROVIDER_IDS` and no-op `LocalProviderManager` (excludes Ollama/LM Studio)
 
