@@ -52,7 +52,7 @@ async function fetchModels(ids: string[], protocol?: string) {
 	return models;
 }
 
-describe("Posit AI protocol mapping", () => {
+describe("Posit AI Pass protocol mapping", () => {
 	it("maps anthropic-messages protocol and sets vendor to anthropic", async () => {
 		const logger = createMockLogger();
 		const registry = new ProviderRegistry(logger);
@@ -155,7 +155,7 @@ describe("Posit AI protocol mapping", () => {
 	});
 });
 
-describe("Posit AI maxOutputTokens fallback", () => {
+describe("Posit AI Pass maxOutputTokens fallback", () => {
 	it("applies the fallback maxOutputTokens to a model with no capability entry", async () => {
 		const models = await fetchModels(["some-org/unknown-model"]);
 		expect(models).toHaveLength(1);

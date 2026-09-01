@@ -286,7 +286,7 @@ describe("generalized store-backed acquisition", () => {
 		expect(await firstProcess.getCredentials("databricks")).toMatchObject({ apiKey: "current" });
 	});
 
-	describe("Posit AI device authentication through the store backend", () => {
+	describe("Posit AI Pass device authentication through the store backend", () => {
 		beforeEach(() => vi.useFakeTimers());
 		afterEach(() => vi.useRealTimers());
 

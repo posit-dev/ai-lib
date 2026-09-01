@@ -645,7 +645,7 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 	const oauth: OAuthBackendHooks | undefined = oauthConfigForProvider
 		? {
 				configForProvider(providerId): OAuthProviderConfig | undefined {
-					// Compatibility is limited to the original synchronous Posit AI callback.
+					// Compatibility is limited to the original synchronous Posit AI Pass callback.
 					const value = oauthConfigForProvider(providerId, {
 						type: "oauth-device",
 						origin: "implicit",
