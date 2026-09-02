@@ -20,7 +20,9 @@ const HOSTED_GEMMA_CASES = [
 
 describe("inferModelCapabilities", () => {
 	it("returns the generic baseline for an unknown model on an unknown provider", () => {
-		expect(inferModelCapabilities("openai-compatible", "totally-unknown-model")).toEqual({
+		expect(
+			inferModelCapabilities("openai-compatible", "totally-unknown-model").operational,
+		).toEqual({
 			maxContextLength: 128_000,
 			supportsTools: true,
 			supportsImages: false,
@@ -63,11 +65,22 @@ describe("inferModelCapabilities", () => {
 		expect(caps.maxInputTokens).toBe(128_000 - 16_384);
 	});
 
-	it("gives the bare GPT-5.6 alias the Sol long-context pricing limit", () => {
+	it("preserves GPT-5.6 provider facts separately from operational defaults", () => {
 		const alias = inferModelCapabilities("openai", "gpt-5.6");
 		const sol = inferModelCapabilities("openai", "gpt-5.6-sol");
-		expect(alias.maxContextLength).toBe(272_000);
+		expect(alias.facts.maxContextLength).toBe(1_050_000);
+		expect(alias.facts.maxOutputTokens).toBe(128_000);
+		expect(alias.facts.maxInputTokens).toBe(922_000);
 		expect(alias.maxInputTokens).toBe(sol.maxInputTokens);
+	});
+
+	it("keeps Mantle GPT-5.6 output unknown while completing the operational view", () => {
+		const caps = inferModelCapabilities("bedrock", "openai.gpt-5.6-sol");
+		expect(caps.facts.maxContextLength).toBe(1_000_000);
+		expect(caps.facts.maxInputTokens).toBeUndefined();
+		expect(caps.facts.maxOutputTokens).toBeUndefined();
+		expect(caps.operational.maxInputTokens).toBe(128_000);
+		expect(caps.operational.maxOutputTokens).toBe(16_384);
 	});
 
 	it("maps the deepseek table, treating the input limit as the window", () => {
@@ -147,7 +160,7 @@ describe("inferModelCapabilities", () => {
 			const result = customModelSchema.safeParse({
 				id: modelId,
 				name: modelId,
-				...inferModelCapabilities(providerId, modelId),
+				...inferModelCapabilities(providerId, modelId).operational,
 			});
 			expect(result.success, `${providerId}/${modelId}: ${result.error?.message}`).toBe(true);
 		}

@@ -292,7 +292,7 @@ describe("translateLegacyPositronSettings — model overrides", () => {
 		const caps = inferModelCapabilities("anthropic", "claude-sonnet-4-5");
 		expect(caps.family).toBeDefined();
 		expect(caps.supportedInputMediaTypes).toBeDefined();
-		expect(model).toEqual(expect.objectContaining(caps));
+		expect(model).toEqual(expect.objectContaining(caps.operational));
 	});
 
 	it("a non-array overrides value is dropped with a warning", () => {

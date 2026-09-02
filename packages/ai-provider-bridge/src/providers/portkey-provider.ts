@@ -344,6 +344,7 @@ async function fetchPortkeyCatalog(
 				);
 				continue;
 			}
+			const inferred = inferModelCapabilities("portkey", decision.capabilityModelId);
 			models.push({
 				// The routed catalog id is the exact request model; capabilities
 				// come from the decision's underlying-model id.
@@ -352,7 +353,12 @@ async function fetchPortkeyCatalog(
 				providerId,
 				vendor: "anthropic",
 				protocol: decision.protocol,
-				...inferModelCapabilities("portkey", decision.capabilityModelId),
+				...inferred.operational,
+				capabilityFacts: {
+					maxContextLength: inferred.facts.maxContextLength,
+					maxInputTokens: inferred.facts.maxInputTokens,
+					maxOutputTokens: inferred.facts.maxOutputTokens,
+				},
 			});
 		}
 

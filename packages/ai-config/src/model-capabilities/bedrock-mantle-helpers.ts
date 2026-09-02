@@ -33,11 +33,17 @@ export function getBedrockMantleModelCapabilities(
 		};
 	}
 
-	if (modelId.startsWith("openai.gpt-5.")) {
+	// Sources verified 2026-09-02:
+	// https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-56-sol.html
+	// https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-56-terra.html
+	// https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-56-luna.html
+	// Match only the documented GPT-5.6 production variants. Older and unknown
+	// future GPT-5.x IDs retain the conservative family fallback below.
+	if (/^openai\.gpt-5\.6(?:-(?:sol|terra|luna))?(?:-|$)/.test(modelId)) {
 		return {
 			protocol: "openai-responses",
 			family: "gpt-5",
-			maxContextLength: 272_000,
+			maxContextLength: 1_000_000,
 			// AWS does not publish a common GPT-5.x output ceiling. Leaving this
 			// unset avoids inventing a family-wide limit.
 			supportsTools: true,
@@ -46,6 +52,20 @@ export function getBedrockMantleModelCapabilities(
 			supportsToolResultImages: true,
 			supportsWebSearch: false,
 			// Verified family-wide on 2026-07-28. "off" maps to wire value "none".
+			thinkingEffortLevels: GPT_5_EFFORT_LEVELS,
+		};
+	}
+
+	if (modelId.startsWith("openai.gpt-5.")) {
+		return {
+			protocol: "openai-responses",
+			family: "gpt-5",
+			maxContextLength: 272_000,
+			supportsTools: true,
+			supportsImages: true,
+			supportedInputMediaTypes: IMAGE_MEDIA_TYPES,
+			supportsToolResultImages: true,
+			supportsWebSearch: false,
 			thinkingEffortLevels: GPT_5_EFFORT_LEVELS,
 		};
 	}

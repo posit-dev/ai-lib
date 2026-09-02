@@ -7,7 +7,11 @@ import {
 	ListFoundationModelsCommand,
 } from "@aws-sdk/client-bedrock";
 import type { ResolvedProviderId } from "ai-config";
-import { getAnthropicModelCapabilities, getBedrockMantleModelCapabilities } from "ai-config";
+import {
+	completeCapabilities,
+	getAnthropicModelCapabilities,
+	getBedrockMantleModelCapabilities,
+} from "ai-config";
 
 import { createAwsCredentialProvider } from "../aws-credentials";
 import { BedrockClient } from "../model-clients/BedrockClient";
@@ -235,8 +239,8 @@ function createBedrockModelFetcher(
 
 			const mantleListings = await listMantleModels(credentials, logger);
 			const mantleModels: ModelInfo[] = mantleListings.flatMap(({ id }) => {
-				const capabilities = getBedrockMantleModelCapabilities(id);
-				if (!capabilities) {
+				const capabilityFacts = getBedrockMantleModelCapabilities(id);
+				if (!capabilityFacts) {
 					logger.debug(`[Bedrock Mantle] Skipping unsupported model ${id}`);
 					return [];
 				}
@@ -244,7 +248,8 @@ function createBedrockModelFetcher(
 				// Listing is centralized at /v1/models. Inference routes are
 				// family-specific and therefore assigned from capabilities,
 				// not from the catalog path.
-				const path = capabilities.protocol === "openai-responses" ? "/openai/v1" : "/v1";
+				const capabilities = completeCapabilities(capabilityFacts);
+				const path = capabilityFacts.protocol === "openai-responses" ? "/openai/v1" : "/v1";
 				return [
 					{
 						id,
@@ -256,6 +261,12 @@ function createBedrockModelFetcher(
 						vendor: "openai",
 						baseUrl: `https://bedrock-mantle.${credentials.region}.api.aws${path}`,
 						...capabilities,
+						capabilityFacts: {
+							maxContextLength: capabilityFacts.maxContextLength,
+							maxInputTokens: capabilityFacts.maxInputTokens,
+							maxOutputTokens: capabilityFacts.maxOutputTokens,
+						},
+						protocol: capabilityFacts.protocol,
 					},
 				];
 			});

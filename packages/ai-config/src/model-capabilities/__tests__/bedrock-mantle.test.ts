@@ -32,7 +32,25 @@ describe("Bedrock Mantle capability rules", () => {
 	});
 
 	it("does not invent a GPT-5.x output ceiling", () => {
-		const gpt5 = getBedrockMantleModelCapabilities("openai.gpt-5.5");
-		expect(gpt5?.maxOutputTokens).toBeUndefined();
+		for (const id of ["openai.gpt-5.4", "openai.gpt-5.5", "openai.gpt-5.7"]) {
+			const gpt5 = getBedrockMantleModelCapabilities(id);
+			expect(gpt5?.maxContextLength).toBe(272_000);
+			expect(gpt5?.maxOutputTokens).toBeUndefined();
+		}
+	});
+
+	it("applies the documented 1M window only to GPT-5.6 production variants", () => {
+		for (const id of [
+			"openai.gpt-5.6",
+			"openai.gpt-5.6-sol",
+			"openai.gpt-5.6-terra",
+			"openai.gpt-5.6-luna",
+			"openai.gpt-5.6-sol-2026-07-13",
+		]) {
+			const capabilities = getBedrockMantleModelCapabilities(id);
+			expect(capabilities?.maxContextLength).toBe(1_000_000);
+			expect(capabilities?.maxInputTokens).toBeUndefined();
+			expect(capabilities?.maxOutputTokens).toBeUndefined();
+		}
 	});
 });

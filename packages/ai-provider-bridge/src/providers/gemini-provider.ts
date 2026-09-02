@@ -46,6 +46,11 @@ function buildGeminiModel(
 		family: caps.family,
 		maxInputTokens: inputTokenLimit ?? caps.maxInputTokens,
 		maxOutputTokens: outputTokenLimit ?? caps.maxOutputTokens,
+		capabilityFacts: {
+			maxContextLength: inputTokenLimit ?? caps.facts.maxContextLength,
+			maxInputTokens: inputTokenLimit ?? caps.facts.maxInputTokens,
+			maxOutputTokens: outputTokenLimit ?? caps.facts.maxOutputTokens,
+		},
 		supportsTools: caps.supportsTools,
 		supportsImages: caps.supportsImages,
 		supportedInputMediaTypes: caps.supportedInputMediaTypes,

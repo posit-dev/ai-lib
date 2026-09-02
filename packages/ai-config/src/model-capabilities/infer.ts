@@ -2,7 +2,11 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import type { InferredModelCapabilities } from "../types.js";
+import type {
+	CompleteInferredModelCapabilities,
+	InferredModelCapabilityResolution,
+	InferredModelCapabilities,
+} from "../types.js";
 import type { Protocol } from "../vocabulary.js";
 import { getAnthropicModelCapabilities } from "./anthropic-helpers.js";
 import { getBedrockMantleModelCapabilities } from "./bedrock-mantle-helpers.js";
@@ -97,11 +101,6 @@ function familyDefaults(providerId: string, modelId: string): Partial<InferredMo
 			return {};
 	}
 }
-
-export type CompleteInferredModelCapabilities = Omit<
-	InferredModelCapabilities,
-	"requiresChatTemplateKwargs"
->;
 
 /**
  * Apply the generic baseline plus a derivation the tables themselves omit:
@@ -217,22 +216,26 @@ export function inferLitellmModelProfile(input: LitellmModelProfileInput): Litel
 }
 
 /**
- * Infer a complete capability set for a model known only by provider and id:
- * the generic baseline merged under provider-family inference (inference wins
- * per field). Every required capability field is always present; optional
- * fields (family, media types, thinking levels, protocol) appear only when
- * inference determined them.
+ * Infer both capability facts and an operational capability set for a model
+ * known only by provider and id. `facts` preserves provider-family inference
+ * before defaults; `operational` merges the generic baseline underneath it.
+ * Completed operational fields also remain at top level for compatibility.
  *
- * The result is shaped to spread directly into a `models.custom` entry, so it
- * excludes `requiresChatTemplateKwargs`: that flag is a runtime request-shaping
- * detail (it tells the vLLM client to send `chat_template_kwargs`), re-derived
- * from the model id at request time by the bridge's positai path, and it is not
- * a field the strict `customModelSchema` accepts. The capability tables still
- * carry it for that runtime use; it is dropped only here, at the migration seam.
+ * Both public views exclude `requiresChatTemplateKwargs`: that flag is a
+ * runtime request-shaping detail (it tells the vLLM client to send
+ * `chat_template_kwargs`) and is re-derived from the model id at request time
+ * by the bridge's positai path.
  */
 export function inferModelCapabilities(
 	providerId: string,
 	modelId: string,
-): Omit<InferredModelCapabilities, "requiresChatTemplateKwargs"> {
-	return completeCapabilities(familyDefaults(providerId, modelId));
+): InferredModelCapabilityResolution {
+	const facts = familyDefaults(providerId, modelId);
+	const { requiresChatTemplateKwargs: _drop, ...publicFacts } = facts;
+	const operational = completeCapabilities(facts);
+	return {
+		...operational,
+		facts: publicFacts,
+		operational,
+	};
 }
