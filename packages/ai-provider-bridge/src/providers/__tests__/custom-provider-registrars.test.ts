@@ -229,7 +229,15 @@ describe("custom provider registrars", () => {
 			"fetch",
 			vi.fn(async (input: string | URL | Request) => {
 				if (String(input).includes("api.anthropic.com")) {
-					return new Response(JSON.stringify({ data: [] }), { status: 200 });
+					return new Response(
+						JSON.stringify({
+							data: [
+								{ id: "claude-sonnet-4-6", display_name: "Claude Sonnet 4.6" },
+								{ id: "claude-opus-5", display_name: "Claude Opus 5" },
+							],
+						}),
+						{ status: 200 },
+					);
 				}
 				return new Response(null, { status: 503 });
 			}),
@@ -239,11 +247,23 @@ describe("custom provider registrars", () => {
 		registerOpenAIProvider(registry, logger);
 		registerGeminiProvider(registry, logger);
 
+		// The hosted Anthropic fetcher may append supplemental models (documented
+		// but not yet returned by /v1/models) after the live list. That set
+		// changes as the endpoint catches up, so don't pin it — pin the contract
+		// instead: live rows lead verbatim (the endpoint's display_name wins over
+		// any supplemental entry for the same id), and no id appears twice.
+		const anthropicModels = await registry.getModelsForProvider("anthropic", {
+			type: "apikey",
+			apiKey: "key",
+		});
 		expect(
-			(await registry.getModelsForProvider("anthropic", { type: "apikey", apiKey: "key" })).map(
-				(model) => model.id,
-			),
-		).toEqual(["claude-opus-5", "claude-fable-5"]);
+			anthropicModels.slice(0, 2).map((model) => ({ id: model.id, name: model.name })),
+		).toEqual([
+			{ id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6" },
+			{ id: "claude-opus-5", name: "Claude Opus 5" },
+		]);
+		const anthropicIds = anthropicModels.map((model) => model.id);
+		expect(new Set(anthropicIds).size).toBe(anthropicIds.length);
 		expect(
 			await registry.getModelsForProvider("openai", { type: "apikey", apiKey: "key" }),
 		).not.toHaveLength(0);
