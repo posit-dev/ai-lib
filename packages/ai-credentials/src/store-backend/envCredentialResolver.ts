@@ -33,7 +33,7 @@ import { PROVIDER_ENV_MAPPINGS, type ProviderEnvMapping } from "./providerEnvMap
  */
 export function resolveCredentialsFromEnv(
 	providerId: string,
-	envVars: Record<string, string | undefined> = process.env,
+	envVars: Readonly<Record<string, string | undefined>> = process.env,
 ): ProviderCredentials | null {
 	const mapping = PROVIDER_ENV_MAPPINGS[providerId];
 	if (!mapping) return null;
@@ -47,7 +47,7 @@ export function resolveCredentialsFromEnv(
  */
 export function hasEnvCredentials(
 	providerId: string,
-	envVars: Record<string, string | undefined> = process.env,
+	envVars: Readonly<Record<string, string | undefined>> = process.env,
 ): boolean {
 	return resolveCredentialsFromEnv(providerId, envVars) !== null;
 }
@@ -58,7 +58,7 @@ export function hasEnvCredentials(
 
 function resolveFromMapping(
 	mapping: ProviderEnvMapping,
-	envVars: Record<string, string | undefined>,
+	envVars: Readonly<Record<string, string | undefined>>,
 ): ProviderCredentials | null {
 	// API key providers
 	if (mapping.apiKey) {

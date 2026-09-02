@@ -39,4 +39,9 @@ export {
 export { hasEnvCredentials, resolveCredentialsFromEnv } from "./envCredentialResolver.js";
 
 // Provider env mappings
-export { PROVIDER_ENV_MAPPINGS, type ProviderEnvMapping } from "./providerEnvMappings.js";
+export {
+	captureProviderEnvironment,
+	PROVIDER_ENV_MAPPINGS,
+	type CapturedProviderEnvironment,
+	type ProviderEnvMapping,
+} from "./providerEnvMappings.js";

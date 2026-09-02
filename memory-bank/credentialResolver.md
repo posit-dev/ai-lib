@@ -219,6 +219,14 @@ config and is not credential evidence for auth readiness.
 `providerEnvMappings.ts` has a `-external` variant (empty map — positai has no
 secret env vars), redirected by the consuming app's build config.
 
+`captureProviderEnvironment(providerIds, env)` is the boot-time capture seam
+for authenticated hosts that scrub their ambient environment. It statically
+derives the selected providers' declared credential names from the same mapping
+the lazy resolver uses and returns those names plus a frozen, minimal
+environment snapshot. The host owns any additional curated names, deletion
+policy, and the capture-before-scrub ordering; the backend receives the captured
+snapshot through `createStoreBackend({ env })`.
+
 ## Related Documentation
 
 - **aiCredentialStore.md** — the `SingleFileStore` primitive, entrypoint

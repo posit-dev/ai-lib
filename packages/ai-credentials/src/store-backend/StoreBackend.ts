@@ -76,7 +76,7 @@ export interface CreateStoreBackendOptions {
 	) => ProviderCredentials;
 	notifyReady?: (providerId: string) => void;
 	watchedProviderIds?: string[];
-	env?: Record<string, string | undefined>;
+	env?: Readonly<Record<string, string | undefined>>;
 	logger?: Logger;
 	generationFactory?: () => string;
 }

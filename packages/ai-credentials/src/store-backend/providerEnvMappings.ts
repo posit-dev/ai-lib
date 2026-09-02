@@ -92,3 +92,45 @@ export const PROVIDER_ENV_MAPPINGS: Record<string, ProviderEnvMapping> = {
 		apiKey: "CONNECT_API_KEY",
 	},
 };
+
+export interface CapturedProviderEnvironment {
+	/** Environment names declared by the selected providers, sorted and deduplicated. */
+	readonly declaredNames: readonly string[];
+	/** Immutable snapshot containing only the selected providers' declared names. */
+	readonly environment: Readonly<Record<string, string | undefined>>;
+}
+
+/**
+ * Capture the credential environment required by a resolved provider catalog.
+ *
+ * Credential lookup is lazy, so a host that intends to scrub its ambient
+ * environment cannot discover the required names by observing reads. This
+ * helper derives them statically from the provider mapping and captures only
+ * those entries before the host mutates its environment. The host remains the
+ * owner of any wider scrub policy and of the deletion itself.
+ */
+export function captureProviderEnvironment(
+	providerIds: readonly string[],
+	env: Readonly<Record<string, string | undefined>>,
+): CapturedProviderEnvironment {
+	const declaredNames = [...new Set(providerIds.flatMap(providerEnvironmentNames))].sort();
+	const environment: Record<string, string | undefined> = {};
+	for (const name of declaredNames) {
+		environment[name] = env[name];
+	}
+	return {
+		declaredNames: Object.freeze(declaredNames),
+		environment: Object.freeze(environment),
+	};
+}
+
+function providerEnvironmentNames(providerId: string): string[] {
+	const mapping = PROVIDER_ENV_MAPPINGS[providerId];
+	if (!mapping) return [];
+	return [
+		...(mapping.apiKey ? [mapping.apiKey] : []),
+		...(mapping.aws
+			? Object.values(mapping.aws).filter((name): name is string => name !== undefined)
+			: []),
+	];
+}
