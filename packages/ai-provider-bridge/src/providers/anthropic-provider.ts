@@ -19,8 +19,7 @@ import type { ClientFactory, ProviderRegistry } from "./ProviderRegistry";
  * starts returning a model its real `display_name` takes over automatically.
  */
 const SUPPLEMENTAL_MODELS: ReadonlyArray<{ id: string; name: string }> = [
-	{ id: "claude-opus-5", name: "Claude Opus 5" },
-	{ id: "claude-fable-5", name: "Claude Fable 5" },
+	// { id: "claude-fable-5-1", name: "Claude Fable 5.1" },
 ];
 
 /** Build a `ModelInfo` for an Anthropic model, enriched with inferred capabilities. */

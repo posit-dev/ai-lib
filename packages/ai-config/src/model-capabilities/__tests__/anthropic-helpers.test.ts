@@ -45,6 +45,14 @@ describe("getAnthropicModelCapabilities", () => {
 		expect(caps?.maxInputTokens).toBe((caps?.maxContextLength ?? 0) - (caps?.maxOutputTokens ?? 0));
 	});
 
+	it("matches claude-fable-5-1 to the Fable tier with always-on adaptive thinking", () => {
+		const caps = getAnthropicModelCapabilities("claude-fable-5-1");
+		expect(caps?.family).toBe("claude-fable-5");
+		expect(caps?.maxContextLength).toBe(1_000_000);
+		expect(caps?.maxOutputTokens).toBe(128_000);
+		expect(caps?.thinkingEffortLevels).toEqual(["low", "medium", "high", "xhigh", "max"]);
+	});
+
 	it("uses a conservative fallback for an unrecognized Claude model", () => {
 		expect(getAnthropicModelCapabilities("claude-opus-6")?.maxOutputTokens).toBe(64_000);
 	});

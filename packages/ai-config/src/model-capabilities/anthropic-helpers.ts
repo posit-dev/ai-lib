@@ -32,9 +32,11 @@ interface CapabilityRule {
 const CAPABILITY_RULES: CapabilityRule[] = [
 	// Fable 5 / Mythos 5 use a name-as-tier naming scheme (`claude-fable-5`,
 	// `claude-mythos-5`) rather than the `claude-<tier>-<version>` shape the
-	// rules below match. Both have a 1M context window, 128k max output, and
-	// always-on adaptive thinking — thinking cannot be disabled, so "off" is
-	// not offered (unlike Opus 4.8, where thinking is off by default).
+	// rules below match. The prefix match also covers point releases
+	// (`claude-fable-5-1`), which share the same limits. Both have a 1M
+	// context window, 128k max output, and always-on adaptive thinking —
+	// thinking cannot be disabled, so "off" is not offered (unlike Opus 4.8,
+	// where thinking is off by default).
 	{
 		match: /^claude-fable-5/,
 		family: "claude-fable-5",
