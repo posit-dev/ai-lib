@@ -14,7 +14,7 @@ import { createVertex } from "@ai-sdk/google-vertex";
 import { createVertexAnthropic } from "@ai-sdk/google-vertex/anthropic";
 import type { LanguageModelV3 } from "@ai-sdk/provider";
 import { streamText } from "ai";
-import { OAuth2Client } from "google-auth-library";
+import { OAuth2Client, type GoogleAuthOptions } from "google-auth-library";
 
 import { sanitizeToolCallIdsForAnthropic } from "../tool-call-ids";
 import type { LMStreamPart, Logger, Protocol } from "../types";
@@ -55,6 +55,8 @@ export interface GoogleVertexClientConfig {
 	 * When set, the Vertex SDK uses this token directly instead of resolving ADC.
 	 */
 	accessToken?: string;
+	/** Captured ADC file path supplied by a host that scrubbed process.env. */
+	googleApplicationCredentials?: string;
 }
 
 export class GoogleVertexClient implements ModelClient {
@@ -66,11 +68,15 @@ export class GoogleVertexClient implements ModelClient {
 		this.logger = logger;
 	}
 
-	private googleAuthOptions(): { authClient: OAuth2Client } | undefined {
-		if (!this.config.accessToken) return undefined;
-		const authClient = new OAuth2Client();
-		authClient.setCredentials({ access_token: this.config.accessToken });
-		return { authClient };
+	private googleAuthOptions(): GoogleAuthOptions | undefined {
+		if (this.config.accessToken) {
+			const authClient = new OAuth2Client();
+			authClient.setCredentials({ access_token: this.config.accessToken });
+			return { authClient };
+		}
+		return this.config.googleApplicationCredentials
+			? { keyFilename: this.config.googleApplicationCredentials }
+			: undefined;
 	}
 
 	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {

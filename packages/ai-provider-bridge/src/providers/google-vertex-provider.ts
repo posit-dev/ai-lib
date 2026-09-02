@@ -62,9 +62,15 @@ const MODEL_CACHE_TTL = 60 * 60 * 1000;
  * Uses a broker-provided token (e.g. from Positron auth ext) when available;
  * otherwise falls back to Application Default Credentials.
  */
-async function getAccessToken(brokered?: string): Promise<string> {
+async function getAccessToken(
+	brokered?: string,
+	credentialEnvironment?: Readonly<Record<string, string | undefined>>,
+): Promise<string> {
 	if (brokered) return brokered;
-	const auth = new GoogleAuth({ scopes: ["https://www.googleapis.com/auth/cloud-platform"] });
+	const auth = new GoogleAuth({
+		scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+		keyFilename: credentialEnvironment?.GOOGLE_APPLICATION_CREDENTIALS,
+	});
 	const client = await auth.getClient();
 	const { token } = await client.getAccessToken();
 	if (!token) {
@@ -184,6 +190,7 @@ function createGoogleVertexModelFetcher(
 	providerId: ResolvedProviderId,
 	logger: Logger,
 	callbacks?: GoogleVertexProviderCallbacks,
+	credentialEnvironment?: Readonly<Record<string, string | undefined>>,
 ) {
 	return (() => {
 		const TTL = MODEL_CACHE_TTL;
@@ -218,7 +225,7 @@ function createGoogleVertexModelFetcher(
 					`[GoogleVertex] Fetching models from Vertex AI API (project=${credentials.project}, location=${location}, anthropicLocation=global)`,
 				);
 
-				const token = await getAccessToken(credentials.accessToken);
+				const token = await getAccessToken(credentials.accessToken, credentialEnvironment);
 
 				// Fetch from both publishers in parallel, collecting errors
 				// so that if both fail we can propagate to the outer catch
@@ -392,7 +399,10 @@ function createGoogleVertexModelFetcher(
 	})();
 }
 
-function createGoogleVertexClientFactory(logger: Logger): ClientFactory {
+function createGoogleVertexClientFactory(
+	logger: Logger,
+	credentialEnvironment?: Readonly<Record<string, string | undefined>>,
+): ClientFactory {
 	return (credentials) => {
 		if (credentials.type !== "google-cloud") {
 			throw new Error(
@@ -405,6 +415,7 @@ function createGoogleVertexClientFactory(logger: Logger): ClientFactory {
 				project: credentials.project,
 				location: credentials.location,
 				accessToken: credentials.accessToken,
+				googleApplicationCredentials: credentialEnvironment?.GOOGLE_APPLICATION_CREDENTIALS,
 			},
 			logger,
 		);
@@ -415,12 +426,16 @@ export function registerGoogleVertexProvider(
 	registry: ProviderRegistry,
 	logger: Logger,
 	callbacks?: GoogleVertexProviderCallbacks,
+	credentialEnvironment?: Readonly<Record<string, string | undefined>>,
 ): void {
 	registry.registerModelFetcher(
 		"google-vertex",
-		createGoogleVertexModelFetcher("google-vertex", logger, callbacks),
+		createGoogleVertexModelFetcher("google-vertex", logger, callbacks, credentialEnvironment),
 	);
-	registry.registerClientFactory("google-vertex", createGoogleVertexClientFactory(logger));
+	registry.registerClientFactory(
+		"google-vertex",
+		createGoogleVertexClientFactory(logger, credentialEnvironment),
+	);
 }
 
 export function registerCustomGoogleVertexProvider(
@@ -428,10 +443,14 @@ export function registerCustomGoogleVertexProvider(
 	providerId: ResolvedProviderId,
 	logger: Logger,
 	callbacks?: GoogleVertexProviderCallbacks,
+	credentialEnvironment?: Readonly<Record<string, string | undefined>>,
 ): void {
 	registry.registerModelFetcher(
 		providerId,
-		createGoogleVertexModelFetcher(providerId, logger, callbacks),
+		createGoogleVertexModelFetcher(providerId, logger, callbacks, credentialEnvironment),
 	);
-	registry.registerClientFactory("google-vertex", createGoogleVertexClientFactory(logger));
+	registry.registerClientFactory(
+		"google-vertex",
+		createGoogleVertexClientFactory(logger, credentialEnvironment),
+	);
 }

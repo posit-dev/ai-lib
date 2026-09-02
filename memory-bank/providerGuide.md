@@ -269,6 +269,15 @@ SDK own the token lifecycle:
   owning additive `customHeaders` and request/stream normalization) rather
   than replacing it.
 
+Hosts that scrub credential variables pass a captured credential environment
+through `ProviderRegistrationConfig`. Vertex supplies the captured
+`GOOGLE_APPLICATION_CREDENTIALS` path to both model discovery's `GoogleAuth`
+and the chat SDK's `googleAuthOptions`. Foundry materializes a
+`ClientSecretCredential` or `ClientCertificateCredential` from captured Azure
+environment values; when neither is complete it retains
+`DefaultAzureCredential` for managed identity and CLI sources. The bridge never
+mutates the ambient environment and never places secret values in cache keys.
+
 ## Common Pitfalls
 
 - **Don't modify the registry class** -- Use the plugin pattern (`registerModelFetcher` / `registerClientFactory`)

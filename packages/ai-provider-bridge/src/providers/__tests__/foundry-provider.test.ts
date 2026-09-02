@@ -39,9 +39,9 @@ const ENTRA_CREDENTIALS = {
 	customHeaders: { "x-team": "data-science" },
 } as const;
 
-function createRegistry() {
+function createRegistry(credentialEnvironment?: Readonly<Record<string, string | undefined>>) {
 	const registry = new ProviderRegistry(logger);
-	registerFoundryProvider(registry, logger);
+	registerFoundryProvider(registry, logger, credentialEnvironment);
 	return registry;
 }
 
@@ -94,12 +94,14 @@ describe("Foundry client factory", () => {
 	});
 
 	it("creates the entra token provider from the credential scope and tenant", () => {
-		const registry = createRegistry();
+		const credentialEnvironment = Object.freeze({ AZURE_CLIENT_SECRET: "captured-secret" });
+		const registry = createRegistry(credentialEnvironment);
 		const client = registry.getClientForProvider("ms-foundry", { ...ENTRA_CREDENTIALS });
 		expect(client).not.toBeNull();
 		expect(mocks.createAzureEntraTokenProvider).toHaveBeenCalledWith(
 			"https://cognitiveservices.azure.com/.default",
 			"my-tenant",
+			credentialEnvironment,
 		);
 	});
 });

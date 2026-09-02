@@ -121,6 +121,11 @@ unless `DATABRICKS_AUTH_TYPE=oauth-m2m`; environment M2M requires
 Status exposes only source, origin, readiness, expiry, and sanitized workspace
 metadata.
 
+The Databricks entry in `PROVIDER_ENV_MAPPINGS` declares both PAT and M2M
+names. `StoreBackend` reads M2M fields through that mapping, and
+`captureProviderEnvironment` enumerates the same fields, so an authenticated
+host cannot omit `DATABRICKS_CLIENT_SECRET` from its capture/scrub inventory.
+
 Every upgraded store mutation re-reads under the injected storage's `withLock()` and
 writes a fresh opaque generation. Starting stored OAuth writes a token-free
 `pending` record and captures its generation. Completion commits only if that

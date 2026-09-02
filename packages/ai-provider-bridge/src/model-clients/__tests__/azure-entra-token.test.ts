@@ -6,12 +6,21 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
 	const defaultAzureCredential = vi.fn();
+	const clientSecretCredential = vi.fn();
+	const clientCertificateCredential = vi.fn();
 	const getBearerTokenProvider = vi.fn();
-	return { defaultAzureCredential, getBearerTokenProvider };
+	return {
+		defaultAzureCredential,
+		clientSecretCredential,
+		clientCertificateCredential,
+		getBearerTokenProvider,
+	};
 });
 
 vi.mock("@azure/identity", () => ({
 	DefaultAzureCredential: mocks.defaultAzureCredential,
+	ClientSecretCredential: mocks.clientSecretCredential,
+	ClientCertificateCredential: mocks.clientCertificateCredential,
 	getBearerTokenProvider: mocks.getBearerTokenProvider,
 }));
 
@@ -97,5 +106,29 @@ describe("createAzureEntraTokenProvider", () => {
 
 		const provider = createAzureEntraTokenProvider("scope-a");
 		await expect(provider()).resolves.toBe("entra-token");
+	});
+
+	it("materializes captured service-principal credentials after ambient scrubbing", async () => {
+		mocks.getBearerTokenProvider.mockReturnValue(async () => "captured-token");
+		const parentEnvironment: Record<string, string | undefined> = {
+			AZURE_TENANT_ID: "tenant-from-env",
+			AZURE_CLIENT_ID: "client-from-env",
+			AZURE_CLIENT_SECRET: "secret-from-env",
+		};
+		const captured = Object.freeze({ ...parentEnvironment });
+		delete parentEnvironment.AZURE_CLIENT_SECRET;
+
+		const provider = createAzureEntraTokenProvider(
+			"https://cognitiveservices.azure.com/.default",
+			undefined,
+			captured,
+		);
+		await expect(provider()).resolves.toBe("captured-token");
+		expect(mocks.clientSecretCredential).toHaveBeenCalledWith(
+			"tenant-from-env",
+			"client-from-env",
+			"secret-from-env",
+		);
+		expect(mocks.defaultAzureCredential).not.toHaveBeenCalled();
 	});
 });

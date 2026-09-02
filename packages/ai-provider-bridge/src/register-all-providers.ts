@@ -54,6 +54,8 @@ export interface ProviderRegistrationConfig {
 	googleVertexCallbacks?: GoogleVertexProviderCallbacks;
 	snowflakeCallbacks?: SnowflakeProviderCallbacks;
 	connectCallbacks?: ConnectProviderCallbacks;
+	/** Host-captured environment for SDK credential constructors after ambient scrubbing. */
+	credentialEnvironment?: Readonly<Record<string, string | undefined>>;
 }
 
 /**
@@ -79,7 +81,12 @@ const PROVIDER_REGISTRARS = {
 	bedrock: (registry, logger, config) =>
 		registerBedrockProvider(registry, logger, config.bedrockCallbacks),
 	"google-vertex": (registry, logger, config) =>
-		registerGoogleVertexProvider(registry, logger, config.googleVertexCallbacks),
+		registerGoogleVertexProvider(
+			registry,
+			logger,
+			config.googleVertexCallbacks,
+			config.credentialEnvironment,
+		),
 	anthropic: registerAnthropicProvider,
 	copilot: registerCopilotProvider,
 	openai: registerOpenAIProvider,
@@ -88,7 +95,8 @@ const PROVIDER_REGISTRARS = {
 	lmstudio: registerLMStudioProvider,
 	gemini: registerGeminiProvider,
 	"openai-compatible": registerOpenAICompatibleProvider,
-	"ms-foundry": registerFoundryProvider,
+	"ms-foundry": (registry, logger, config) =>
+		registerFoundryProvider(registry, logger, config.credentialEnvironment),
 	"snowflake-cortex": (registry, logger, config) =>
 		registerSnowflakeCortexProvider(registry, logger, config.snowflakeCallbacks),
 	deepseek: registerDeepSeekProvider,

@@ -42,4 +42,23 @@ describe("captureProviderEnvironment", () => {
 			captureProviderEnvironment(["custom:corp", "unknown"], { OPENAI_API_KEY: "secret" }),
 		).toEqual({ declaredNames: [], environment: {} });
 	});
+
+	it("captures every Databricks M2M input from the backend's declaration", () => {
+		const captured = captureProviderEnvironment(["databricks"], {
+			DATABRICKS_AUTH_TYPE: "oauth-m2m",
+			DATABRICKS_HOST: "https://workspace.example.com",
+			DATABRICKS_CLIENT_ID: "client-id",
+			DATABRICKS_CLIENT_SECRET: "client-secret",
+			DATABRICKS_TOKEN: "unused-pat",
+		});
+
+		expect(captured.declaredNames).toEqual([
+			"DATABRICKS_AUTH_TYPE",
+			"DATABRICKS_CLIENT_ID",
+			"DATABRICKS_CLIENT_SECRET",
+			"DATABRICKS_HOST",
+			"DATABRICKS_TOKEN",
+		]);
+		expect(captured.environment.DATABRICKS_CLIENT_SECRET).toBe("client-secret");
+	});
 });

@@ -22,6 +22,12 @@
 
 export interface ProviderEnvMapping {
 	apiKey?: string;
+	oauthM2m?: {
+		authType: string;
+		host: string;
+		clientId: string;
+		clientSecret: string;
+	};
 	aws?: {
 		region?: string;
 		profile?: string;
@@ -79,6 +85,12 @@ export const PROVIDER_ENV_MAPPINGS: Record<string, ProviderEnvMapping> = {
 	},
 	databricks: {
 		apiKey: "DATABRICKS_TOKEN",
+		oauthM2m: {
+			authType: "DATABRICKS_AUTH_TYPE",
+			host: "DATABRICKS_HOST",
+			clientId: "DATABRICKS_CLIENT_ID",
+			clientSecret: "DATABRICKS_CLIENT_SECRET",
+		},
 	},
 	litellm: {
 		apiKey: "LITELLM_API_KEY",
@@ -129,6 +141,7 @@ function providerEnvironmentNames(providerId: string): string[] {
 	if (!mapping) return [];
 	return [
 		...(mapping.apiKey ? [mapping.apiKey] : []),
+		...(mapping.oauthM2m ? Object.values(mapping.oauthM2m) : []),
 		...(mapping.aws
 			? Object.values(mapping.aws).filter((name): name is string => name !== undefined)
 			: []),

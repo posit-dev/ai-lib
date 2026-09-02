@@ -14,12 +14,21 @@
  * must never construct a new `DefaultAzureCredential` per request.
  */
 
-import { DefaultAzureCredential, getBearerTokenProvider } from "@azure/identity";
+import {
+	ClientCertificateCredential,
+	ClientSecretCredential,
+	DefaultAzureCredential,
+	getBearerTokenProvider,
+} from "@azure/identity";
 
 /** A function that resolves a fresh bearer token, refreshing as needed. */
 export type BearerTokenProvider = () => Promise<string>;
 
-const tokenProviderCache = new Map<string, BearerTokenProvider>();
+const ambientTokenProviderCache = new Map<string, BearerTokenProvider>();
+let capturedTokenProviderCaches = new WeakMap<
+	Readonly<Record<string, string | undefined>>,
+	Map<string, BearerTokenProvider>
+>();
 
 function isCredentialUnavailable(error: unknown): boolean {
 	if (!(error instanceof Error)) return false;
@@ -40,12 +49,20 @@ function isCredentialUnavailable(error: unknown): boolean {
 export function createAzureEntraTokenProvider(
 	scope: string,
 	tenantId?: string,
+	credentialEnvironment?: Readonly<Record<string, string | undefined>>,
 ): BearerTokenProvider {
 	const cacheKey = JSON.stringify([tenantId ?? null, scope]);
-	let provider = tokenProviderCache.get(cacheKey);
+	const cache = credentialEnvironment
+		? (capturedTokenProviderCaches.get(credentialEnvironment) ??
+			new Map<string, BearerTokenProvider>())
+		: ambientTokenProviderCache;
+	if (credentialEnvironment && !capturedTokenProviderCaches.has(credentialEnvironment)) {
+		capturedTokenProviderCaches.set(credentialEnvironment, cache);
+	}
+	let provider = cache.get(cacheKey);
 	if (!provider) {
 		const acquire = getBearerTokenProvider(
-			new DefaultAzureCredential(tenantId ? { tenantId } : {}),
+			createAzureCredential(tenantId, credentialEnvironment),
 			scope,
 		);
 		provider = async () => {
@@ -68,12 +85,33 @@ export function createAzureEntraTokenProvider(
 				);
 			}
 		};
-		tokenProviderCache.set(cacheKey, provider);
+		cache.set(cacheKey, provider);
 	}
 	return provider;
 }
 
 /** Test-only: drop every cached token provider. */
 export function clearAzureEntraTokenProviderCache(): void {
-	tokenProviderCache.clear();
+	ambientTokenProviderCache.clear();
+	capturedTokenProviderCaches = new WeakMap();
+}
+
+function createAzureCredential(
+	tenantId: string | undefined,
+	env: Readonly<Record<string, string | undefined>> | undefined,
+) {
+	if (env) {
+		const effectiveTenantId = tenantId ?? env.AZURE_TENANT_ID;
+		const clientId = env.AZURE_CLIENT_ID;
+		if (effectiveTenantId && clientId && env.AZURE_CLIENT_SECRET) {
+			return new ClientSecretCredential(effectiveTenantId, clientId, env.AZURE_CLIENT_SECRET);
+		}
+		if (effectiveTenantId && clientId && env.AZURE_CLIENT_CERTIFICATE_PATH) {
+			return new ClientCertificateCredential(effectiveTenantId, clientId, {
+				certificatePath: env.AZURE_CLIENT_CERTIFICATE_PATH,
+				certificatePassword: env.AZURE_CLIENT_CERTIFICATE_PASSWORD,
+			});
+		}
+	}
+	return new DefaultAzureCredential(tenantId ? { tenantId } : {});
 }
