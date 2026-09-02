@@ -53,7 +53,7 @@ describe("registerAllProviders", () => {
 		).toBeNull();
 	});
 
-	it("resolves a function-form Posit AI base URL when models are fetched", async () => {
+	it("resolves a function-form Posit AI Pass base URL when models are fetched", async () => {
 		let baseUrl = "https://first.example.com";
 		const fetchMock = vi.fn(
 			async () => new Response(JSON.stringify({ chat: [] }), { status: 200 }),

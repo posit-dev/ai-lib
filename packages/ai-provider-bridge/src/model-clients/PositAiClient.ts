@@ -3,14 +3,14 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * Posit AI Client
+ * Posit AI Pass Client
  *
  * Multi-protocol client that supports both Anthropic and OpenAI API formats
  * with OAuth Bearer token authentication. Routes internally based on model ID:
  * Claude models use Anthropic Messages API, all others use OpenAI Chat Completions.
  *
  * Uses Vercel AI SDK with custom fetch wrapper to replace x-api-key header
- * with Authorization: Bearer header required by Posit AI.
+ * with Authorization: Bearer header required by Posit AI Pass.
  */
 
 import { createAnthropic } from "@ai-sdk/anthropic";
@@ -41,7 +41,7 @@ import { withRawHttpLogging } from "./raw-http-logging";
 
 /**
  * Custom fetch wrapper that replaces x-api-key header with Authorization: Bearer
- * required by Posit AI's OAuth authentication
+ * required by Posit AI Pass's OAuth authentication
  */
 function createAuthenticatedFetch(
 	accessToken: string,
@@ -293,7 +293,7 @@ export class PositAiClient implements ModelClient {
 			return convertAiSdkStreamToPlatform(result.fullStream, cleanup);
 		} else {
 			cleanup();
-			throw new Error(`Unsupported protocol for Posit AI: ${normalizedProtocol}`);
+			throw new Error(`Unsupported protocol for Posit AI Pass: ${normalizedProtocol}`);
 		}
 	}
 }

@@ -96,7 +96,7 @@ The Gemini API endpoint also serves Gemma 4 (`gemma-4-31b-it`,
   tool results all work; thought summaries and signatures are emitted.
 - Eligibility: both IDs carry `INTERACTIONS_PROFILES` entries (the thinking
   gate). Capabilities come from ai-config's `getGeminiApiModelCapabilities`
-  (NOT `gemma-helpers.ts`, which is the Posit AI/vLLM `off`/`on` +
+  (NOT `gemma-helpers.ts`, which is the Posit AI Pass/vLLM `off`/`on` +
   `chat_template_kwargs` contract).
 
 ## Discovery: fail-open, thinking: fail-closed

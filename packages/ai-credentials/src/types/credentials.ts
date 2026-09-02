@@ -63,7 +63,7 @@ export interface ApiKeyCredentials {
 }
 
 /**
- * OAuth credentials (Posit AI)
+ * OAuth credentials (Posit AI Pass)
  */
 export interface OAuthCredentials {
 	type: "oauth";

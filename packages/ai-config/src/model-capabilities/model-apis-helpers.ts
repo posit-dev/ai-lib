@@ -5,8 +5,8 @@
 import type { InferredModelCapabilities as ModelInfo } from "../types.js";
 
 /**
- * Capabilities for Posit AI models served through Baseten's shared Model APIs
- * endpoint, keyed by exact model ID as returned by the Posit AI /models
+ * Capabilities for Posit AI Pass models served through Baseten's shared Model APIs
+ * endpoint, keyed by exact model ID as returned by the Posit AI Pass /models
  * endpoint. Adding a Model APIs model is one entry here.
  *
  * Thinking defaults vary by model and stream back as `reasoning_content`.

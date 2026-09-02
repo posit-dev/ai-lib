@@ -44,7 +44,7 @@ import {
 import { PROVIDER_IDS, type Logger, type ProviderId } from "./types";
 
 export interface ProviderRegistrationConfig {
-	/** Posit AI base URL, optionally resolved lazily when models are fetched. */
+	/** Posit AI Pass base URL, optionally resolved lazily when models are fetched. */
 	positAiBaseUrl: string | (() => string);
 	userAgent?: string;
 	/** If set, only these providers register; an empty list registers none. */

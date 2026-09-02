@@ -8,9 +8,9 @@ import { getGemmaModelCapabilities } from "./gemma-helpers.js";
 import { getModelApisModelCapabilities } from "./model-apis-helpers.js";
 
 /**
- * Infer model capabilities for a Posit AI model identifier.
+ * Infer model capabilities for a Posit AI Pass model identifier.
  *
- * Posit AI routes the Anthropic and Gemma model families plus the models
+ * Posit AI Pass routes the Anthropic and Gemma model families plus the models
  * served through Baseten Model APIs. This helper is the single source of
  * truth for that mapping — used by both the live provider
  * (positai-provider.ts) and the Positron model-override path.

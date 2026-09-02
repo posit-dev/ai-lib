@@ -398,7 +398,7 @@ regex-driven lookups from a provider-specific model id to a partial capability
 set — no imports beyond `InferredModelCapabilities` (a projection of
 `ModelInfoLike` with identity/routing fields dropped and `protocol` narrowed to
 the canonical `Protocol` union). `positai-helpers.ts` composes the Anthropic
-and Gemma tables, since Posit AI routes both families.
+and Gemma tables, since Posit AI Pass routes both families.
 
 **`inferModelCapabilities(providerId, modelId)`** (`src/model-capabilities/infer.ts`)
 merges a conservative `GENERIC_BASELINE` (128k context, tools on, no images,
@@ -428,7 +428,7 @@ Per-provider cases:
   Gemini-family table. The shared table (`gemini-helpers.ts`) deliberately
   rejects bare `gemma-*` IDs — it is also consumed by provider-agnostic core
   inference and VS Code LM discovery, where hosted-endpoint semantics don't
-  apply. The Posit AI/vLLM Gemma contract stays in `gemma-helpers.ts`.
+  apply. The Posit AI Pass/vLLM Gemma contract stays in `gemma-helpers.ts`.
 - `deepseek` → the DeepSeek table, mapped specially: DeepSeek publishes no
   separate context-window figure, so `maxContextLength` is set equal to the
   table's `maxInputTokens` (mirroring how `deepseek-provider.ts` in the bridge
