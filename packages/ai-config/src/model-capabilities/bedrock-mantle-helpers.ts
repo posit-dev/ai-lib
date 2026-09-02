@@ -39,7 +39,7 @@ export function getBedrockMantleModelCapabilities(
 	// https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-56-luna.html
 	// Match only the documented GPT-5.6 production variants. Older and unknown
 	// future GPT-5.x IDs retain the conservative family fallback below.
-	if (/^openai\.gpt-5\.6(?:-(?:sol|terra|luna))?(?:-|$)/.test(modelId)) {
+	if (/^openai\.gpt-5\.6(?:-(?:sol|terra|luna)(?:-\d{4}-\d{2}-\d{2})?)?$/.test(modelId)) {
 		return {
 			protocol: "openai-responses",
 			family: "gpt-5",

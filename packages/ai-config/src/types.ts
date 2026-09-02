@@ -246,8 +246,10 @@ export interface ModelInfoLike {
 	maxInputTokens?: number;
 	maxOutputTokens?: number;
 	/**
-	 * Provider-published capacity facts before generic operational defaults are
-	 * filled in. Runtime-only provenance; never written to providers.json.
+	 * Authoritative capacity facts before generic operational defaults are
+	 * filled in. Discovery initializes these from the provider; model overrides
+	 * replace the corresponding values during resolution. Runtime-only; never
+	 * written to providers.json.
 	 */
 	capabilityFacts?: ModelCapabilityFacts;
 	protocol?: string;

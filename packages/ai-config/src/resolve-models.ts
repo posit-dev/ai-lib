@@ -222,6 +222,18 @@ function applyOverrideEntry(entry: PipelineEntry, override: ModelOverride): Pipe
 			(model as Record<string, unknown>)[key] = value;
 		}
 	}
+	if (model.capabilityFacts) {
+		model.capabilityFacts = {
+			...model.capabilityFacts,
+			...(override.maxContextLength !== undefined
+				? { maxContextLength: override.maxContextLength }
+				: {}),
+			...(override.maxInputTokens !== undefined ? { maxInputTokens: override.maxInputTokens } : {}),
+			...(override.maxOutputTokens !== undefined
+				? { maxOutputTokens: override.maxOutputTokens }
+				: {}),
+		};
+	}
 
 	return {
 		model,

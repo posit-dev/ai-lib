@@ -53,4 +53,15 @@ describe("Bedrock Mantle capability rules", () => {
 			expect(capabilities?.maxOutputTokens).toBeUndefined();
 		}
 	});
+
+	it.each([
+		"openai.gpt-5.6-unknown",
+		"openai.gpt-5.6-unknown-2026-07-13",
+		"openai.gpt-5.6-sol-preview",
+	])("keeps the conservative fallback for unverified GPT-5.6 id %s", (id) => {
+		const capabilities = getBedrockMantleModelCapabilities(id);
+		expect(capabilities?.maxContextLength).toBe(272_000);
+		expect(capabilities?.maxInputTokens).toBeUndefined();
+		expect(capabilities?.maxOutputTokens).toBeUndefined();
+	});
 });

@@ -236,6 +236,11 @@ model pipeline: discovery gate (`discovery: "auto" | "off"`) → merge discovere
 `deny` filter (always wins) → attach routing (protocol/baseUrl). It is pure and
 reusable independent of the catalog builder.
 
+Capacity overrides (`maxContextLength`, `maxInputTokens`, and
+`maxOutputTokens`) replace the corresponding values in both the resolved flat
+model and its runtime-only `capabilityFacts`. Policy consumers therefore see
+the effective administrator limits rather than the original discovery facts.
+
 ### Precedence ladders
 
 - **Enablement** (`resolveEnabled`): config layers are checked highest to lowest
@@ -421,9 +426,9 @@ Per-provider cases:
 - `bedrock` → the Mantle OpenAI-family table first, then the Anthropic table.
   The Mantle rules deliberately exclude safeguard and unknown IDs; gpt-oss
   uses Chat Completions while GPT-5.x uses Responses. Verified GPT-5.6
-  Sol/Terra/Luna/bare/snapshot IDs carry the published 1M combined context
-  fact while input and output remain unknown; older and unknown future GPT-5.x
-  IDs retain the prior 272K fallback rule.
+  bare and Sol/Terra/Luna IDs, including dated named variants, carry the
+  published 1M combined context fact while input and output remain unknown;
+  older and unknown future GPT-5.x IDs retain the prior 272K fallback rule.
 - `openai` → the OpenAI table, with `maxInputTokens` re-derived via
   `openaiMaxInputTokens()` (context window minus reserved output budget) —
   the table itself doesn't set it. GPT-5.6 Sol/Terra/Luna/bare/snapshot IDs

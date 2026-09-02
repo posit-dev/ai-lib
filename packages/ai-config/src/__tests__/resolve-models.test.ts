@@ -97,6 +97,38 @@ describe("resolveModels", () => {
 		expect(patched?.maxContextLength).toBe(200000);
 	});
 
+	it("applies capacity overrides to the effective capability facts", () => {
+		const discoveredWithFacts = [
+			makeModel("model-a", {
+				maxContextLength: 1_050_000,
+				maxInputTokens: 922_000,
+				maxOutputTokens: 128_000,
+				capabilityFacts: {
+					maxContextLength: 1_050_000,
+					maxInputTokens: 922_000,
+					maxOutputTokens: 128_000,
+				},
+			}),
+		];
+		const block: ModelsBlock = {
+			overrides: {
+				"model-a": {
+					maxContextLength: 200_000,
+					maxInputTokens: 190_000,
+					maxOutputTokens: 20_000,
+				},
+			},
+		};
+
+		const [patched] = resolveModels(block, discoveredWithFacts);
+
+		expect(patched.capabilityFacts).toEqual({
+			maxContextLength: 200_000,
+			maxInputTokens: 190_000,
+			maxOutputTokens: 20_000,
+		});
+	});
+
 	it("ignores overrides for non-matching ids (no-op, not error)", () => {
 		const block: ModelsBlock = {
 			overrides: {
