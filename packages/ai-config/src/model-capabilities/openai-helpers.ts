@@ -111,12 +111,12 @@ export function getOpenAIModelCapabilities(modelId: string): Partial<ModelInfo> 
 		};
 	}
 
-	// GPT-5.6 Sol is capped at OpenAI's 272k long-context pricing threshold rather
-	// than its full window: above 272k input tokens OpenAI bills a higher
-	// long-context rate ($10/$45 per 1M vs $5/$30), and ModelPricing in
-	// @assistant/core carries a single standard rate per model, so a longer window
-	// would silently under-report cost. Raise this only alongside tiered pricing.
-	if (modelId === "gpt-5.6" || modelId.startsWith("gpt-5.6-sol")) {
+	// Sources verified 2026-09-02:
+	// https://developers.openai.com/api/docs/models/gpt-5.6-sol
+	// https://developers.openai.com/api/docs/models/compare
+	// OpenAI documents the same 1.05M window and 128K output maximum for Sol,
+	// Terra, and Luna; the bare gpt-5.6 alias routes to Sol.
+	if (modelId === "gpt-5.6" || /^gpt-5\.6-(?:sol|terra|luna)(?:-|$)/.test(modelId)) {
 		return {
 			family: "gpt-5",
 			supportsTools: true,
@@ -129,14 +129,14 @@ export function getOpenAIModelCapabilities(modelId: string): Partial<ModelInfo> 
 				"application/pdf",
 			],
 			supportsToolResultImages: true,
-			maxContextLength: 272000,
+			maxContextLength: 1_050_000,
 			maxOutputTokens: 128000,
 			thinkingEffortLevels: OPENAI_THINKING_EFFORT_LEVELS,
 		};
 	}
 
-	// GPT-5 series (400k context window)
-	if (modelId.startsWith("gpt-5")) {
+	// GPT-5 through GPT-5.3 series (400k context window)
+	if (/^gpt-5(?:\.[123])?(?:-|$)/.test(modelId)) {
 		return {
 			family: modelId.startsWith("gpt-5.3")
 				? "gpt-5.3"
@@ -154,6 +154,27 @@ export function getOpenAIModelCapabilities(modelId: string): Partial<ModelInfo> 
 			],
 			supportsToolResultImages: true,
 			maxContextLength: 400000,
+			maxOutputTokens: 128000,
+			thinkingEffortLevels: OPENAI_THINKING_EFFORT_LEVELS,
+		};
+	}
+
+	// Unknown future GPT-5.x IDs default to the 1.05M window documented for
+	// the family's current generation (see the GPT-5.6 sources above).
+	if (modelId.startsWith("gpt-5")) {
+		return {
+			family: "gpt-5",
+			supportsTools: true,
+			supportsImages: true,
+			supportedInputMediaTypes: [
+				"image/png",
+				"image/jpeg",
+				"image/gif",
+				"image/webp",
+				"application/pdf",
+			],
+			supportsToolResultImages: true,
+			maxContextLength: 1_050_000,
 			maxOutputTokens: 128000,
 			thinkingEffortLevels: OPENAI_THINKING_EFFORT_LEVELS,
 		};

@@ -38,9 +38,10 @@ const OPENAI_FALLBACK_ROWS = [
 ];
 
 function buildOpenAIModel(providerId: ResolvedProviderId, id: string, name: string): ModelInfo {
+	const facts = getOpenAIModelCapabilities(id) ?? {};
 	const caps = {
 		...OPENAI_DEFAULT_CAPABILITIES,
-		...getOpenAIModelCapabilities(id),
+		...facts,
 	};
 
 	return {
@@ -51,6 +52,11 @@ function buildOpenAIModel(providerId: ResolvedProviderId, id: string, name: stri
 		family: caps.family,
 		maxInputTokens: openaiMaxInputTokens(caps),
 		maxOutputTokens: caps.maxOutputTokens,
+		capabilityFacts: {
+			maxContextLength: facts.maxContextLength,
+			maxInputTokens: openaiMaxInputTokens(facts),
+			maxOutputTokens: facts.maxOutputTokens,
+		},
 		supportsTools: caps.supportsTools,
 		supportsImages: caps.supportsImages,
 		supportedInputMediaTypes: caps.supportedInputMediaTypes,

@@ -421,7 +421,7 @@ type AssertNever<T extends never> = T;
  * entire legacy layer at runtime. Trip the build instead.
  */
 type _InferredFieldsStayCustomModelFields = AssertNever<
-	Exclude<keyof ReturnType<typeof inferModelCapabilities>, keyof CustomModel>
+	Exclude<keyof ReturnType<typeof inferModelCapabilities>["operational"], keyof CustomModel>
 >;
 
 /**
@@ -430,7 +430,7 @@ type _InferredFieldsStayCustomModelFields = AssertNever<
  * maxContextLength never drops below the user's maxInputTokens.
  */
 function buildCustomModel(providerId: BuiltinProviderId, entry: LegacyModelOverride): CustomModel {
-	const caps = inferModelCapabilities(providerId, entry.identifier);
+	const caps = inferModelCapabilities(providerId, entry.identifier).operational;
 	const model: CustomModel = {
 		id: entry.identifier,
 		name: entry.name,

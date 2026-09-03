@@ -236,6 +236,11 @@ model pipeline: discovery gate (`discovery: "auto" | "off"`) → merge discovere
 `deny` filter (always wins) → attach routing (protocol/baseUrl). It is pure and
 reusable independent of the catalog builder.
 
+Capacity overrides (`maxContextLength`, `maxInputTokens`, and
+`maxOutputTokens`) replace the corresponding values in both the resolved flat
+model and its runtime-only `capabilityFacts`. Policy consumers therefore see
+the effective administrator limits rather than the original discovery facts.
+
 ### Precedence ladders
 
 - **Enablement** (`resolveEnabled`): config layers are checked highest to lowest
@@ -379,7 +384,8 @@ Machine-supplied environment fragments continue to use strict `JSON.parse`.
 
 `ai-config` also owns the shared model-metadata charter: per-provider capability
 tables and `inferModelCapabilities(providerId, modelId)`, the single function
-that turns a bare provider + model id into a complete capability set. This
+that turns a bare provider + model id into both provider facts and a complete
+operational capability set. This
 moved here from `ai-provider-bridge` (ai-lib#9) so any `ai-config` consumer —
 Positron's authentication extension, the assistant, future core — can
 synthesize model capabilities without taking the bridge's dependency tree
@@ -401,9 +407,12 @@ the canonical `Protocol` union). `positai-helpers.ts` composes the Anthropic
 and Gemma tables, since Posit AI Pass routes both families.
 
 **`inferModelCapabilities(providerId, modelId)`** (`src/model-capabilities/infer.ts`)
-merges a conservative `GENERIC_BASELINE` (128k context, tools on, no images,
-no web search) under provider-family inference, with inference winning per
-field.
+first preserves the partial provider-family result as `facts`, then merges a
+conservative `GENERIC_BASELINE` (128k context, tools on, no images, no web
+search) under those facts as `operational`. The return value also exposes the
+completed fields at top level for source compatibility with older consumers;
+new policy code must choose `facts` or `operational` explicitly rather than
+interpreting a fallback number as published metadata.
 
 The policy for every provider case: mirror the static caps the bridge's
 provider builder declares for that provider. Where a builder derives values
@@ -416,10 +425,16 @@ Per-provider cases:
 - `anthropic` → the Anthropic table.
 - `bedrock` → the Mantle OpenAI-family table first, then the Anthropic table.
   The Mantle rules deliberately exclude safeguard and unknown IDs; gpt-oss
-  uses Chat Completions while GPT-5.x uses Responses.
+  uses Chat Completions while GPT-5.x uses Responses. Verified GPT-5.6
+  bare and Sol/Terra/Luna IDs, including dated named variants, carry the
+  published 1M combined context fact while input and output remain unknown;
+  known older GPT-5.4/5.5 IDs retain the prior 272K rule, and unknown future
+  GPT-5.x IDs default to the 1M family window.
 - `openai` → the OpenAI table, with `maxInputTokens` re-derived via
   `openaiMaxInputTokens()` (context window minus reserved output budget) —
-  the table itself doesn't set it.
+  the table itself doesn't set it. GPT-5.6 Sol/Terra/Luna/bare/snapshot IDs
+  carry the published 1.05M combined window and 128K output facts, producing a
+  922K derived input fact.
 - `positai` → the combined Anthropic/Gemma lookup.
 - `gemini` → the Gemini-API endpoint composition
   (`getGeminiApiModelCapabilities`, `gemini-api-helpers.ts`): hosted-Gemma

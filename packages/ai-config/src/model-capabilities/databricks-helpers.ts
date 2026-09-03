@@ -33,12 +33,12 @@
  * served entity** participates and the result is entity-order invariant.
  */
 
-import type { InferredModelCapabilities } from "../types.js";
+import type { CompleteInferredModelCapabilities, InferredModelCapabilities } from "../types.js";
 import type { Protocol } from "../vocabulary.js";
 import { getAnthropicModelCapabilities } from "./anthropic-helpers.js";
 import { getGeminiGenerateContentProfile } from "./gemini-generate-content.js";
 import { getGeminiModelCapabilities } from "./gemini-helpers.js";
-import { completeCapabilities, type CompleteInferredModelCapabilities } from "./infer.js";
+import { completeCapabilities } from "./infer.js";
 import { getOpenAIModelCapabilities, openaiMaxInputTokens } from "./openai-helpers.js";
 
 // ---------------------------------------------------------------------------

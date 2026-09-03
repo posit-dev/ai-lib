@@ -31,8 +31,43 @@ describe("Bedrock Mantle capability rules", () => {
 		expect(getBedrockMantleModelCapabilities("openai.future-model")).toBeUndefined();
 	});
 
-	it("does not invent a GPT-5.x output ceiling", () => {
-		const gpt5 = getBedrockMantleModelCapabilities("openai.gpt-5.5");
+	it("pins known older GPT-5.x releases at 272K without inventing an output ceiling", () => {
+		for (const id of ["openai.gpt-5.4", "openai.gpt-5.5"]) {
+			const gpt5 = getBedrockMantleModelCapabilities(id);
+			expect(gpt5?.maxContextLength).toBe(272_000);
+			expect(gpt5?.maxOutputTokens).toBeUndefined();
+		}
+	});
+
+	it("defaults unknown future GPT-5.x IDs to the 1M family window", () => {
+		const gpt5 = getBedrockMantleModelCapabilities("openai.gpt-5.7");
+		expect(gpt5?.maxContextLength).toBe(1_000_000);
 		expect(gpt5?.maxOutputTokens).toBeUndefined();
+	});
+
+	it("applies the documented 1M window only to GPT-5.6 production variants", () => {
+		for (const id of [
+			"openai.gpt-5.6",
+			"openai.gpt-5.6-sol",
+			"openai.gpt-5.6-terra",
+			"openai.gpt-5.6-luna",
+			"openai.gpt-5.6-sol-2026-07-13",
+		]) {
+			const capabilities = getBedrockMantleModelCapabilities(id);
+			expect(capabilities?.maxContextLength).toBe(1_000_000);
+			expect(capabilities?.maxInputTokens).toBeUndefined();
+			expect(capabilities?.maxOutputTokens).toBeUndefined();
+		}
+	});
+
+	it.each([
+		"openai.gpt-5.6-unknown",
+		"openai.gpt-5.6-unknown-2026-07-13",
+		"openai.gpt-5.6-sol-preview",
+	])("applies the 1M family default to unverified GPT-5.6 id %s", (id) => {
+		const capabilities = getBedrockMantleModelCapabilities(id);
+		expect(capabilities?.maxContextLength).toBe(1_000_000);
+		expect(capabilities?.maxInputTokens).toBeUndefined();
+		expect(capabilities?.maxOutputTokens).toBeUndefined();
 	});
 });

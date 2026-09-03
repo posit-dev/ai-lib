@@ -245,6 +245,13 @@ export interface ModelInfoLike {
 	maxContextLength: number;
 	maxInputTokens?: number;
 	maxOutputTokens?: number;
+	/**
+	 * Authoritative capacity facts before generic operational defaults are
+	 * filled in. Discovery initializes these from the provider; model overrides
+	 * replace the corresponding values during resolution. Runtime-only; never
+	 * written to providers.json.
+	 */
+	capabilityFacts?: ModelCapabilityFacts;
 	protocol?: string;
 	baseUrl?: string;
 	supportsTools: boolean;
@@ -266,10 +273,31 @@ export interface ModelInfoLike {
  */
 export type InferredModelCapabilities = Omit<
 	ModelInfoLike,
-	"id" | "name" | "baseUrl" | "protocol"
+	"id" | "name" | "baseUrl" | "protocol" | "capabilityFacts"
 > & {
 	protocol?: Protocol;
 };
+
+/** Provider-published or route-derived capability facts, before fallbacks. */
+export type ModelCapabilityFacts = Partial<
+	Omit<InferredModelCapabilities, "requiresChatTemplateKwargs">
+>;
+
+/** Complete capability shape used by operational callers that require defaults. */
+export type CompleteInferredModelCapabilities = Omit<
+	InferredModelCapabilities,
+	"requiresChatTemplateKwargs"
+>;
+
+/** Both the authoritative fact view and the completed legacy operational view. */
+export interface ResolvedModelCapabilities {
+	readonly facts: ModelCapabilityFacts;
+	readonly operational: CompleteInferredModelCapabilities;
+}
+
+/** Compatibility view: operational fields remain readable at top level. */
+export type InferredModelCapabilityResolution = ResolvedModelCapabilities &
+	CompleteInferredModelCapabilities;
 
 /**
  * Output of `resolveModels()` — a model with resolved routing information.

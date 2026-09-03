@@ -189,6 +189,14 @@ describe("Bedrock provider Mantle aggregation", () => {
 			protocol: "openai-responses",
 			baseUrl: "https://bedrock-mantle.us-east-2.api.aws/openai/v1",
 			supportsToolResultImages: true,
+			maxContextLength: 1_000_000,
+			maxInputTokens: 128_000,
+			maxOutputTokens: 16_384,
+			capabilityFacts: {
+				maxContextLength: 1_000_000,
+				maxInputTokens: undefined,
+				maxOutputTokens: undefined,
+			},
 		});
 		expect(models.some((model) => model.id.includes("safeguard"))).toBe(false);
 		expect(models.some((model) => model.id === "openai.unknown-model")).toBe(false);

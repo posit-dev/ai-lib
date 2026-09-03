@@ -163,6 +163,12 @@ export interface ModelInfo {
 
 	maxInputTokens?: number;
 	maxOutputTokens?: number;
+	/** Provider facts before generic operational defaults are filled in. */
+	capabilityFacts?: {
+		maxContextLength?: number;
+		maxInputTokens?: number;
+		maxOutputTokens?: number;
+	};
 
 	/**
 	 * API protocol used to communicate with this model, for this specific provider.

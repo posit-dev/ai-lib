@@ -72,6 +72,10 @@ export type {
 	ResolvedProvider,
 	ResolvedProviderId,
 	InferredModelCapabilities,
+	ModelCapabilityFacts,
+	CompleteInferredModelCapabilities,
+	InferredModelCapabilityResolution,
+	ResolvedModelCapabilities,
 } from "./types.js";
 
 // --- Model capability inference ---------------------------------------------
@@ -134,11 +138,8 @@ export type {
 	SnowflakeCortexModelCapabilities,
 } from "./model-capabilities/snowflake-cortex-helpers.js";
 export { inferLitellmModelProfile, inferModelCapabilities } from "./model-capabilities/infer.js";
-export type {
-	CompleteInferredModelCapabilities,
-	LitellmModelProfile,
-	LitellmModelProfileInput,
-} from "./model-capabilities/infer.js";
+export { completeCapabilities } from "./model-capabilities/infer.js";
+export type { LitellmModelProfile, LitellmModelProfileInput } from "./model-capabilities/infer.js";
 
 // --- Defaults --------------------------------------------------------------
 export {
