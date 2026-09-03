@@ -428,7 +428,8 @@ Per-provider cases:
   uses Chat Completions while GPT-5.x uses Responses. Verified GPT-5.6
   bare and Sol/Terra/Luna IDs, including dated named variants, carry the
   published 1M combined context fact while input and output remain unknown;
-  older and unknown future GPT-5.x IDs retain the prior 272K fallback rule.
+  known older GPT-5.4/5.5 IDs retain the prior 272K rule, and unknown future
+  GPT-5.x IDs default to the 1M family window.
 - `openai` → the OpenAI table, with `maxInputTokens` re-derived via
   `openaiMaxInputTokens()` (context window minus reserved output budget) —
   the table itself doesn't set it. GPT-5.6 Sol/Terra/Luna/bare/snapshot IDs
