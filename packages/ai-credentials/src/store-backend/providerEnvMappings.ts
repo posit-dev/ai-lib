@@ -3,10 +3,10 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * Provider Environment Variable Mappings (Internal Build Variant)
+ * Provider Environment Variable Mappings
  *
- * The single declaration of every environment variable a provider's
- * credential layer or SDK reads. Each field is an
+ * The single implementation driven by the declared provider environment
+ * (`PROVIDER_ENV_MAPPINGS`, re-exported here). Each declared field is an
  * `EnvironmentFieldDescriptor` carrying the wire name and its scrub policy,
  * and that one declaration drives:
  *
@@ -15,16 +15,18 @@
  * - typed SDK credential construction (`readSdkCredentialEnvironment`,
  *   consumed by ai-provider-bridge's Azure/Vertex credential constructors)
  *
- * Non-secret connection config (baseUrl, endpoint, oauth, googleCloud) is
- * handled by ai-config's CONNECTION_ENV_MAPPINGS in the catalog builder.
+ * The registry data lives in `providerEnvRegistry.ts`; external builds alias
+ * that module to an empty registry, so this implementation is shared by both
+ * builds. Non-secret connection config (baseUrl, endpoint, oauth, googleCloud)
+ * is handled by ai-config's CONNECTION_ENV_MAPPINGS in the catalog builder.
  *
  * Moved from @assistant/node so that ai-credentials/store-backend can resolve
  * credentials without importing @assistant/*.
- *
- * SYNC NOTE: The ProviderEnvMapping interface is imported by
- * providerEnvMappings-external.ts. If you modify the interface here,
- * the external variant picks it up automatically.
  */
+
+import { PROVIDER_ENV_MAPPINGS } from "./providerEnvRegistry.js";
+
+export { PROVIDER_ENV_MAPPINGS };
 
 /**
  * One environment variable a provider reads, with its scrub policy.
@@ -38,16 +40,6 @@ export interface EnvironmentFieldDescriptor {
 	 * values such as AZURE_TENANT_ID that user code may legitimately read).
 	 */
 	readonly scrub: boolean;
-}
-
-/** Shorthand for a captured-and-scrubbed field (the common case). */
-function scrubbed(name: string): EnvironmentFieldDescriptor {
-	return { name, scrub: true };
-}
-
-/** Shorthand for a capture-only field; the value remains ambient. */
-function ambient(name: string): EnvironmentFieldDescriptor {
-	return { name, scrub: false };
 }
 
 /**
@@ -89,94 +81,6 @@ export interface ProviderEnvMapping {
 		Record<keyof SdkCredentialEnvironment, EnvironmentFieldDescriptor>
 	>;
 }
-
-/**
- * Registry of environment variable names for each provider.
- *
- * Only credential fields go here. Non-secret connection config (baseUrl,
- * endpoint, oauth settings, googleCloud settings) is handled by ai-config's
- * env overlay in the catalog builder.
- *
- * AWS region/profile appear here so the env credential resolver can
- * construct valid aws-credentials objects when env secrets are present.
- * They also appear in ai-config's CONNECTION_ENV_MAPPINGS for catalog
- * connection resolution — this is intentional, not a duplication error.
- *
- * All fields are `scrub: true` today, preserving the historical behavior of
- * deleting every declared name from the ambient environment — including
- * non-secret support values (AWS_REGION, DATABRICKS_HOST, …). The only
- * capture-only fields are the Azure tenant/client IDs, which are non-secret
- * inputs to SDK credential construction that user code may also read.
- */
-export const PROVIDER_ENV_MAPPINGS: Record<string, ProviderEnvMapping> = {
-	anthropic: {
-		apiKey: scrubbed("ANTHROPIC_API_KEY"),
-	},
-	openai: {
-		apiKey: scrubbed("OPENAI_API_KEY"),
-	},
-	gemini: {
-		apiKey: scrubbed("GEMINI_API_KEY"),
-	},
-	openrouter: {
-		apiKey: scrubbed("OPENROUTER_API_KEY"),
-	},
-	bedrock: {
-		aws: {
-			region: scrubbed("AWS_REGION"),
-			profile: scrubbed("AWS_PROFILE"),
-			accessKeyId: scrubbed("AWS_ACCESS_KEY_ID"),
-			secretAccessKey: scrubbed("AWS_SECRET_ACCESS_KEY"),
-			sessionToken: scrubbed("AWS_SESSION_TOKEN"),
-		},
-	},
-	"openai-compatible": {
-		apiKey: scrubbed("OPENAI_COMPATIBLE_API_KEY"),
-	},
-	"ms-foundry": {
-		apiKey: scrubbed("MS_FOUNDRY_API_KEY"),
-		sdkCredentialEnvironment: {
-			azureClientSecret: scrubbed("AZURE_CLIENT_SECRET"),
-			azureClientCertificatePath: scrubbed("AZURE_CLIENT_CERTIFICATE_PATH"),
-			azureClientCertificatePassword: scrubbed("AZURE_CLIENT_CERTIFICATE_PASSWORD"),
-			azureTenantId: ambient("AZURE_TENANT_ID"),
-			azureClientId: ambient("AZURE_CLIENT_ID"),
-		},
-	},
-	"snowflake-cortex": {
-		apiKey: scrubbed("SNOWFLAKE_TOKEN"),
-	},
-	deepseek: {
-		apiKey: scrubbed("DEEPSEEK_API_KEY"),
-	},
-	databricks: {
-		apiKey: scrubbed("DATABRICKS_TOKEN"),
-		oauthM2m: {
-			authType: scrubbed("DATABRICKS_AUTH_TYPE"),
-			host: scrubbed("DATABRICKS_HOST"),
-			clientId: scrubbed("DATABRICKS_CLIENT_ID"),
-			clientSecret: scrubbed("DATABRICKS_CLIENT_SECRET"),
-		},
-	},
-	litellm: {
-		apiKey: scrubbed("LITELLM_API_KEY"),
-	},
-	portkey: {
-		apiKey: scrubbed("PORTKEY_API_KEY"),
-	},
-	// The standard Posit Connect API-key variable (rsconnect/connectapi
-	// convention); pairs with ai-config's POSIT_CONNECT_URL connection var.
-	"posit-connect": {
-		apiKey: scrubbed("CONNECT_API_KEY"),
-	},
-	// Google Application Default Credentials file, read directly by the
-	// google-auth-library SDK on the lazy Vertex credential path.
-	"google-vertex": {
-		sdkCredentialEnvironment: {
-			googleApplicationCredentials: scrubbed("GOOGLE_APPLICATION_CREDENTIALS"),
-		},
-	},
-};
 
 export interface CapturedProviderEnvironment {
 	/** Environment names declared by the selected providers, sorted and deduplicated. */

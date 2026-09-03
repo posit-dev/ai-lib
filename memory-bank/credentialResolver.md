@@ -236,9 +236,14 @@ semantic fields of `SdkCredentialEnvironment` — a misspelled key is a compile
 error, and a behavioral test proves every declared key is represented in the
 reader's result.
 
-`providerEnvMappings.ts` has a `-external` variant (empty map plus empty
-capture/reader stubs — positai has no secret env vars), redirected by the
-consuming app's build config.
+The registry data lives in `providerEnvRegistry.ts`, which has an `-external`
+variant (empty registry — positai has no secret env vars) redirected by the
+consuming app's build config. Only the data module is aliased: descriptor
+types, capture, and the typed reader are shared by both builds, so the
+external variant cannot drift from the implementation. A contract test
+aliases the empty registry into the public `/store-backend` surface and
+exercises capture, the reader, env resolution, and Databricks environment
+resolution against it.
 
 `captureProviderEnvironment(providerIds, env)` is the boot-time capture seam
 for authenticated hosts that scrub their ambient environment. It statically

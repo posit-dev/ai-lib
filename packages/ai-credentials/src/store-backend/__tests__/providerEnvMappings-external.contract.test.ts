@@ -5,19 +5,19 @@
 /**
  * External-variant contract test.
  *
- * External builds redirect `providerEnvMappings.ts` to
- * `providerEnvMappings-external.ts` via bundler file-level aliasing, so the
+ * External builds redirect the registry DATA module (`providerEnvRegistry.ts`
+ * → `providerEnvRegistry-external.ts`) via bundler file-level aliasing, so the
  * entire public `/store-backend` surface must keep working against the empty
- * registry. This test reproduces that aliasing with a module mock and
- * exercises the surface ordinary internal tests (which see the full
- * registry) cannot cover.
+ * registry. This test reproduces that aliasing with a module mock — crucially,
+ * the capture/reader/resolver implementation under test is the same shared
+ * code internal builds run, not a stubbed mirror of it.
  */
 
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock(
-	"../providerEnvMappings.js",
-	async () => await import("../providerEnvMappings-external.js"),
+	"../providerEnvRegistry.js",
+	async () => await import("../providerEnvRegistry-external.js"),
 );
 
 import {
@@ -39,7 +39,7 @@ function emptyStore(): StoreBackendStorage {
 	};
 }
 
-describe("external provider-env-mappings variant", () => {
+describe("external provider-env-registry variant", () => {
 	it("exports an empty registry", () => {
 		expect(PROVIDER_ENV_MAPPINGS).toEqual({});
 	});

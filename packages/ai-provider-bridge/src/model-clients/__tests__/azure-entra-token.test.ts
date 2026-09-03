@@ -132,6 +132,32 @@ describe("createAzureEntraTokenProvider", () => {
 		expect(mocks.defaultAzureCredential).not.toHaveBeenCalled();
 	});
 
+	it("caches one bearer provider per captured record identity and scope+tenant", () => {
+		mocks.getBearerTokenProvider.mockReturnValue(async () => "token");
+		const captured = Object.freeze({
+			AZURE_TENANT_ID: "tenant-from-env",
+			AZURE_CLIENT_ID: "client-from-env",
+			AZURE_CLIENT_SECRET: "secret-from-env",
+		});
+
+		const first = createAzureEntraTokenProvider("scope-a", undefined, captured);
+		const second = createAzureEntraTokenProvider("scope-a", undefined, captured);
+		// A structurally identical but distinct record is a different cache key:
+		// identity on the raw snapshot is what keeps the Azure SDK's per-instance
+		// token cache effective.
+		const otherRecord = createAzureEntraTokenProvider(
+			"scope-a",
+			undefined,
+			Object.freeze({ ...captured }),
+		);
+
+		expect(first).toBe(second);
+		expect(first).not.toBe(otherRecord);
+		// One credential + bearer-provider construction per distinct record.
+		expect(mocks.clientSecretCredential).toHaveBeenCalledTimes(2);
+		expect(mocks.getBearerTokenProvider).toHaveBeenCalledTimes(2);
+	});
+
 	it("prefers an explicit tenantId over the captured AZURE_TENANT_ID", () => {
 		mocks.getBearerTokenProvider.mockReturnValue(async () => "token");
 		const captured = Object.freeze({
