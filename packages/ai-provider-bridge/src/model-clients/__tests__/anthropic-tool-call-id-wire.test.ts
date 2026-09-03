@@ -3,11 +3,9 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * Regression test for issue #2016: replaying a history that contains
- * OpenAI-wire tool-call IDs (e.g. Kimi K3's `<toolName>:<counter>` format)
- * to an Anthropic-wire model must not trip Anthropic's `tool_use.id`
- * validation (`^[a-zA-Z0-9_-]+$`). The Anthropic-wire clients sanitize
- * outbound IDs send-side.
+ * Regression tests for Anthropic-wire tool-call IDs: cross-provider histories
+ * need their client IDs sanitized, while Anthropic server-tool IDs must remain
+ * byte-for-byte intact when replayed as `server_tool_use` and tool results.
  */
 
 import type { ModelMessage } from "ai";
@@ -33,6 +31,7 @@ const logger: Logger = {
 };
 
 const ANTHROPIC_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
+const SERVER_TOOL_ID = "srvtoolu_01NbdBmHttmKrT7PeoMS19nH";
 
 function successfulAnthropicStreamResponse(): Response {
 	const events = [
@@ -107,15 +106,96 @@ function kimiHistory(): ModelMessage[] {
 	];
 }
 
+/** Observed Posit AI Pass shape: the server result arrives one assistant message later. */
+function delayedServerToolHistory(): ModelMessage[] {
+	return [
+		{ role: "user", content: "Search for pricing" },
+		{
+			role: "assistant",
+			content: [
+				{
+					type: "tool-call",
+					toolCallId: "toolu_01BbAey45cCT9SBNRQ1qcc22",
+					toolName: "tool0",
+					input: {},
+				},
+				{
+					type: "tool-call",
+					toolCallId: SERVER_TOOL_ID,
+					toolName: "web_search",
+					input: { query: "pricing" },
+					providerExecuted: true,
+				},
+			],
+		},
+		{
+			role: "tool",
+			content: [
+				{
+					type: "tool-result",
+					toolCallId: "toolu_01BbAey45cCT9SBNRQ1qcc22",
+					toolName: "tool0",
+					output: { type: "text", value: "ok" },
+				},
+			],
+		},
+		{
+			role: "assistant",
+			content: [
+				{
+					type: "tool-result",
+					toolCallId: SERVER_TOOL_ID,
+					toolName: "web_search",
+					output: {
+						type: "json",
+						value: [
+							{
+								type: "web_search_result",
+								url: "https://example.com/pricing",
+								title: "Pricing",
+								pageAge: null,
+								encryptedContent: "encrypted-result",
+							},
+						],
+					},
+				},
+				{
+					type: "tool-call",
+					toolCallId: "toolu_018x2fkqPC424Z2tUAP8Mi7k",
+					toolName: "tool1",
+					input: {},
+				},
+			],
+		},
+		{
+			role: "tool",
+			content: [
+				{
+					type: "tool-result",
+					toolCallId: "toolu_018x2fkqPC424Z2tUAP8Mi7k",
+					toolName: "tool1",
+					output: { type: "text", value: "ok" },
+				},
+			],
+		},
+	];
+}
+
+function collectWireParts(body: Record<string, unknown>): Array<Record<string, unknown>> {
+	const parts: Array<Record<string, unknown>> = [];
+	for (const message of body.messages as Array<{ content: unknown }>) {
+		if (!Array.isArray(message.content)) continue;
+		parts.push(...(message.content as Array<Record<string, unknown>>));
+	}
+	return parts;
+}
+
 function collectToolIds(body: Record<string, unknown>): { useIds: string[]; resultIds: string[] } {
 	const useIds: string[] = [];
 	const resultIds: string[] = [];
-	for (const message of body.messages as Array<{ content: unknown }>) {
-		if (!Array.isArray(message.content)) continue;
-		for (const part of message.content as Array<Record<string, unknown>>) {
-			if (part.type === "tool_use") useIds.push(part.id as string);
-			if (part.type === "tool_result") resultIds.push(part.tool_use_id as string);
-		}
+	for (const part of collectWireParts(body)) {
+		if (part.type === "tool_use") useIds.push(part.id as string);
+		if (part.type === "tool_result") resultIds.push(part.tool_use_id as string);
 	}
 	return { useIds, resultIds };
 }
@@ -159,6 +239,40 @@ describe("PositAiClient Anthropic-wire tool-call ID sanitization", () => {
 
 		// ...and each result still pairs with its call.
 		expect(resultIds).toEqual(useIds);
+	});
+
+	it("passes delayed server-tool IDs through unchanged on the wire", async () => {
+		let requestBody: Record<string, unknown> | undefined;
+		const capture = createRawFetchCapture(async (_input: RequestInfo | URL, init?: RequestInit) => {
+			requestBody = JSON.parse(String(init?.body));
+			return successfulAnthropicStreamResponse();
+		});
+		vi.stubGlobal("fetch", capture.mock);
+
+		await consumeStream(
+			client.chat({
+				model: "claude-opus-4-1",
+				messages: delayedServerToolHistory(),
+				cancellationToken,
+				webSearchEnabled: true,
+			}),
+		);
+
+		expect(requestBody).toBeDefined();
+		const wireParts = collectWireParts(requestBody!);
+		expect(wireParts).toContainEqual(
+			expect.objectContaining({
+				type: "server_tool_use",
+				id: SERVER_TOOL_ID,
+				name: "web_search",
+			}),
+		);
+		expect(wireParts).toContainEqual(
+			expect.objectContaining({
+				type: "web_search_tool_result",
+				tool_use_id: SERVER_TOOL_ID,
+			}),
+		);
 	});
 });
 

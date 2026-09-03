@@ -33,7 +33,10 @@
  *   through verbatim: they always conform and are unique, and any rewrite
  *   would violate their stricter `^srvtoolu_[a-zA-Z0-9_]+$` wire pattern.
  *   This also sidesteps pairing ambiguity for provider-executed tools, whose
- *   result can land in a later assistant message than the call.
+ *   result can land in a later assistant message than the call. A client tool
+ *   ID that happens to use Anthropic's reserved `srvtoolu_` prefix would also
+ *   bypass duplicate handling; this is accepted as extraordinarily unlikely,
+ *   rather than adding provider-execution tracking state to the sanitizer.
  *
  * Accepted residual risk: two *different* originals in the same message
  * sanitizing to the same base (`ls:0` + `ls-0`) collide. This requires mixed ID

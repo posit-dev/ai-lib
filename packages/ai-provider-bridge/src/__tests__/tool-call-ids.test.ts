@@ -201,42 +201,6 @@ describe("sanitizeToolCallIdsForAnthropic", () => {
 		expect(logger.warn.mock.calls.flat().join(" ")).toContain("collision");
 	});
 
-	it("passes server-minted `srvtoolu_` IDs through untouched when the result lands in a later assistant message", () => {
-		// Observed on the wire (Posit AI Pass, Opus 5 + web search): web_search
-		// is provider-executed, and the AI SDK places the call in one assistant
-		// message and its result in the *next* assistant message. Anthropic
-		// validates these IDs against `^srvtoolu_[a-zA-Z0-9_]+$`, so any
-		// duplicate-suffixing breaks the request with a 400.
-		const serverId = "srvtoolu_01NbdBmHttmKrT7PeoMS19nH";
-		const messages: ai.ModelMessage[] = [
-			{ role: "user", content: "search for pricing" },
-			assistantWithToolCalls("toolu_01BbAey45cCT9SBNRQ1qcc22", serverId),
-			toolResults("toolu_01BbAey45cCT9SBNRQ1qcc22"),
-			{
-				role: "assistant",
-				content: [
-					{
-						type: "tool-result" as const,
-						toolCallId: serverId,
-						toolName: "web_search",
-						output: { type: "text" as const, value: "results" },
-					},
-					{
-						type: "tool-call" as const,
-						toolCallId: "toolu_018x2fkqPC424Z2tUAP8Mi7k",
-						toolName: "tool0",
-						input: {},
-					},
-				],
-			},
-		];
-
-		const result = sanitizeToolCallIdsForAnthropic(messages);
-
-		expect(result).toBe(messages);
-		expect(allToolCallIds(result).filter((id) => id === serverId)).toHaveLength(2);
-	});
-
 	it("produces only pattern-conforming IDs for a mixed history", () => {
 		const pattern = /^[a-zA-Z0-9_-]+$/;
 		const messages: ai.ModelMessage[] = [
