@@ -29,6 +29,11 @@
  *   message) are also index-suffixed, so per-request uniqueness is constructed,
  *   not trusted. Results mirror their call: a result keeps its ID iff the call
  *   at the paired index was the ID's first occurrence.
+ * - Server-minted IDs (`srvtoolu_…`, e.g. web search / code execution) pass
+ *   through verbatim: they always conform and are unique, and any rewrite
+ *   would violate their stricter `^srvtoolu_[a-zA-Z0-9_]+$` wire pattern.
+ *   This also sidesteps pairing ambiguity for provider-executed tools, whose
+ *   result can land in a later assistant message than the call.
  *
  * Accepted residual risk: two *different* originals in the same message
  * sanitizing to the same base (`ls:0` + `ls-0`) collide. This requires mixed ID
@@ -46,6 +51,13 @@ const ANTHROPIC_TOOL_USE_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
 
 /** Fallback base for empty/missing IDs. */
 const EMPTY_ID_BASE = "call";
+
+/**
+ * Anthropic's validation pattern for server-minted tool IDs (web search,
+ * code execution, etc.). Unlike client tool IDs, no `-` is allowed, so the
+ * generic rewrite scheme can never produce a valid server-tool ID.
+ */
+const SERVER_TOOL_ID_PATTERN = /^srvtoolu_[a-zA-Z0-9_]+$/;
 
 /**
  * Rewrite non-conforming tool-call IDs in a message list so they satisfy
@@ -124,6 +136,14 @@ function sanitizeParts<TPart extends { type: string }>(
 		const toolPart = part as TPart & { toolCallId: string };
 
 		const id = toolPart.toolCallId;
+
+		// Server-minted IDs must round-trip verbatim: they already conform,
+		// are inherently unique, and any rewrite would break the stricter
+		// server-tool wire pattern (see SERVER_TOOL_ID_PATTERN).
+		if (SERVER_TOOL_ID_PATTERN.test(id)) {
+			return part;
+		}
+
 		const partIndex = part.type === "tool-call" ? messageIndex : resultIndex;
 		const conforming = ANTHROPIC_TOOL_USE_ID_PATTERN.test(id);
 
