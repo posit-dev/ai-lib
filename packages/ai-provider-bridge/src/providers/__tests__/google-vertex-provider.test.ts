@@ -5,6 +5,17 @@
 import { mintCustomProviderId } from "ai-config";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const authMocks = vi.hoisted(() => ({
+	googleAuth: vi.fn(),
+	getClient: vi.fn(),
+	getAccessToken: vi.fn(),
+}));
+
+vi.mock("google-auth-library", () => ({
+	GoogleAuth: authMocks.googleAuth,
+	OAuth2Client: class {},
+}));
+
 import {
 	getEffectiveLocation,
 	isVertexAnthropicModel,
@@ -27,6 +38,9 @@ const mockLogger: Logger = {
 describe("registerGoogleVertexProvider", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		authMocks.getAccessToken.mockResolvedValue({ token: "captured-adc-token" });
+		authMocks.getClient.mockResolvedValue({ getAccessToken: authMocks.getAccessToken });
+		authMocks.googleAuth.mockImplementation(() => ({ getClient: authMocks.getClient }));
 		vi.stubGlobal(
 			"fetch",
 			vi.fn(async () => {
@@ -72,6 +86,36 @@ describe("registerGoogleVertexProvider", () => {
 		expect(mockLogger.error).toHaveBeenCalledWith(
 			expect.stringContaining("Reconnect Google Cloud auth in Positron"),
 		);
+	});
+
+	it("uses a captured ADC path after the ambient environment is scrubbed", async () => {
+		const parentEnvironment: Record<string, string | undefined> = {
+			GOOGLE_APPLICATION_CREDENTIALS: "/secrets/service-account.json",
+		};
+		const captured = Object.freeze({ ...parentEnvironment });
+		delete parentEnvironment.GOOGLE_APPLICATION_CREDENTIALS;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () =>
+				Response.json({
+					publisherModels: [{ name: "publishers/google/models/gemini-2.5-pro" }],
+				}),
+			),
+		);
+		const registry = new ProviderRegistry(mockLogger);
+		registerGoogleVertexProvider(registry, mockLogger, undefined, captured);
+
+		const models = await registry.getModelsForProvider("google-vertex", {
+			type: "google-cloud",
+			project: "my-project",
+			location: "us-central1",
+		});
+
+		expect(models).toHaveLength(2);
+		expect(authMocks.googleAuth).toHaveBeenCalledWith({
+			scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+			keyFilename: "/secrets/service-account.json",
+		});
 	});
 
 	it("discovers models under a custom Vertex provider ID", async () => {

@@ -6,12 +6,21 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
 	const defaultAzureCredential = vi.fn();
+	const clientSecretCredential = vi.fn();
+	const clientCertificateCredential = vi.fn();
 	const getBearerTokenProvider = vi.fn();
-	return { defaultAzureCredential, getBearerTokenProvider };
+	return {
+		defaultAzureCredential,
+		clientSecretCredential,
+		clientCertificateCredential,
+		getBearerTokenProvider,
+	};
 });
 
 vi.mock("@azure/identity", () => ({
 	DefaultAzureCredential: mocks.defaultAzureCredential,
+	ClientSecretCredential: mocks.clientSecretCredential,
+	ClientCertificateCredential: mocks.clientCertificateCredential,
 	getBearerTokenProvider: mocks.getBearerTokenProvider,
 }));
 
@@ -97,5 +106,110 @@ describe("createAzureEntraTokenProvider", () => {
 
 		const provider = createAzureEntraTokenProvider("scope-a");
 		await expect(provider()).resolves.toBe("entra-token");
+	});
+
+	it("materializes captured service-principal credentials after ambient scrubbing", async () => {
+		mocks.getBearerTokenProvider.mockReturnValue(async () => "captured-token");
+		const parentEnvironment: Record<string, string | undefined> = {
+			AZURE_TENANT_ID: "tenant-from-env",
+			AZURE_CLIENT_ID: "client-from-env",
+			AZURE_CLIENT_SECRET: "secret-from-env",
+		};
+		const captured = Object.freeze({ ...parentEnvironment });
+		delete parentEnvironment.AZURE_CLIENT_SECRET;
+
+		const provider = createAzureEntraTokenProvider(
+			"https://cognitiveservices.azure.com/.default",
+			undefined,
+			captured,
+		);
+		await expect(provider()).resolves.toBe("captured-token");
+		expect(mocks.clientSecretCredential).toHaveBeenCalledWith(
+			"tenant-from-env",
+			"client-from-env",
+			"secret-from-env",
+		);
+		expect(mocks.defaultAzureCredential).not.toHaveBeenCalled();
+	});
+
+	it("caches one bearer provider per captured record identity and scope+tenant", () => {
+		mocks.getBearerTokenProvider.mockReturnValue(async () => "token");
+		const captured = Object.freeze({
+			AZURE_TENANT_ID: "tenant-from-env",
+			AZURE_CLIENT_ID: "client-from-env",
+			AZURE_CLIENT_SECRET: "secret-from-env",
+		});
+
+		const first = createAzureEntraTokenProvider("scope-a", undefined, captured);
+		const second = createAzureEntraTokenProvider("scope-a", undefined, captured);
+		// A structurally identical but distinct record is a different cache key:
+		// identity on the raw snapshot is what keeps the Azure SDK's per-instance
+		// token cache effective.
+		const otherRecord = createAzureEntraTokenProvider(
+			"scope-a",
+			undefined,
+			Object.freeze({ ...captured }),
+		);
+
+		expect(first).toBe(second);
+		expect(first).not.toBe(otherRecord);
+		// One credential + bearer-provider construction per distinct record.
+		expect(mocks.clientSecretCredential).toHaveBeenCalledTimes(2);
+		expect(mocks.getBearerTokenProvider).toHaveBeenCalledTimes(2);
+	});
+
+	it("prefers an explicit tenantId over the captured AZURE_TENANT_ID", () => {
+		mocks.getBearerTokenProvider.mockReturnValue(async () => "token");
+		const captured = Object.freeze({
+			AZURE_TENANT_ID: "captured-tenant",
+			AZURE_CLIENT_ID: "client-from-env",
+			AZURE_CLIENT_SECRET: "secret-from-env",
+		});
+
+		createAzureEntraTokenProvider("scope-a", "explicit-tenant", captured);
+
+		expect(mocks.clientSecretCredential).toHaveBeenCalledWith(
+			"explicit-tenant",
+			"client-from-env",
+			"secret-from-env",
+		);
+		expect(mocks.defaultAzureCredential).not.toHaveBeenCalled();
+	});
+
+	it("constructs a certificate credential from captured values, forwarding the password", () => {
+		mocks.getBearerTokenProvider.mockReturnValue(async () => "token");
+		const captured = Object.freeze({
+			AZURE_TENANT_ID: "tenant-from-env",
+			AZURE_CLIENT_ID: "client-from-env",
+			AZURE_CLIENT_CERTIFICATE_PATH: "/certs/sp.pem",
+			AZURE_CLIENT_CERTIFICATE_PASSWORD: "cert-password",
+		});
+
+		createAzureEntraTokenProvider("scope-a", undefined, captured);
+
+		expect(mocks.clientCertificateCredential).toHaveBeenCalledWith(
+			"tenant-from-env",
+			"client-from-env",
+			{
+				certificatePath: "/certs/sp.pem",
+				certificatePassword: "cert-password",
+			},
+		);
+		expect(mocks.defaultAzureCredential).not.toHaveBeenCalled();
+	});
+
+	it("falls back to DefaultAzureCredential when captured values are incomplete", () => {
+		mocks.getBearerTokenProvider.mockReturnValue(async () => "token");
+		const captured = Object.freeze({
+			AZURE_TENANT_ID: "tenant-from-env",
+			AZURE_CLIENT_ID: "client-from-env",
+			// No AZURE_CLIENT_SECRET / AZURE_CLIENT_CERTIFICATE_PATH.
+		});
+
+		createAzureEntraTokenProvider("scope-a", undefined, captured);
+
+		expect(mocks.clientSecretCredential).not.toHaveBeenCalled();
+		expect(mocks.clientCertificateCredential).not.toHaveBeenCalled();
+		expect(mocks.defaultAzureCredential).toHaveBeenCalledWith({});
 	});
 });

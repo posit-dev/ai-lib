@@ -51,61 +51,74 @@ function createFoundryModelFetcher(providerId: ResolvedProviderId, logger: Logge
 	return fetcher;
 }
 
-const foundryClientFactory: ClientFactory = (credentials) => {
-	if (credentials.type === "azure-entra") {
-		// Entra mode: the bearer token is injected per request around the
-		// shared OpenAI-compatible fetch, which keeps owning additive
-		// customHeaders and request/stream normalization. `@azure/identity`
-		// caches and refreshes tokens internally, so no expiry handling
-		// reaches this code. The placeholder apiKey stops the OpenAI SDK
-		// from falling back to OPENAI_API_KEY; the custom fetch overwrites
-		// the Authorization header before the request leaves.
-		const tokenProvider = createAzureEntraTokenProvider(credentials.scope, credentials.tenantId);
+function createFoundryClientFactory(
+	credentialEnvironment?: Readonly<Record<string, string | undefined>>,
+): ClientFactory {
+	return (credentials) => {
+		if (credentials.type === "azure-entra") {
+			// Entra mode: the bearer token is injected per request around the
+			// shared OpenAI-compatible fetch, which keeps owning additive
+			// customHeaders and request/stream normalization. `@azure/identity`
+			// caches and refreshes tokens internally, so no expiry handling
+			// reaches this code. The placeholder apiKey stops the OpenAI SDK
+			// from falling back to OPENAI_API_KEY; the custom fetch overwrites
+			// the Authorization header before the request leaves.
+			const tokenProvider = createAzureEntraTokenProvider(
+				credentials.scope,
+				credentials.tenantId,
+				credentialEnvironment,
+			);
+			return new OpenAIClient({
+				apiKey: "entra-token-managed",
+				baseUrl: credentials.baseUrl,
+				apiMode: "completions",
+				customFetch: (delegate) => {
+					const compatFetch = createOpenAICompatibleFetchMiddleware(
+						"Foundry",
+						undefined,
+						credentials.customHeaders,
+					)(delegate);
+					return async (url, init) => {
+						const token = await tokenProvider();
+						const headers = new Headers(init?.headers);
+						headers.set("Authorization", `Bearer ${token}`);
+						return compatFetch(url, { ...init, headers });
+					};
+				},
+			});
+		}
+		if (credentials.type !== "apikey") {
+			throw new Error(`Foundry provider requires API key credentials, got: ${credentials.type}`);
+		}
+		// customHeaders are injected by the custom fetch wrapper.
 		return new OpenAIClient({
-			apiKey: "entra-token-managed",
+			apiKey: credentials.apiKey,
 			baseUrl: credentials.baseUrl,
 			apiMode: "completions",
-			customFetch: (delegate) => {
-				const compatFetch = createOpenAICompatibleFetchMiddleware(
-					"Foundry",
-					undefined,
-					credentials.customHeaders,
-				)(delegate);
-				return async (url, init) => {
-					const token = await tokenProvider();
-					const headers = new Headers(init?.headers);
-					headers.set("Authorization", `Bearer ${token}`);
-					return compatFetch(url, { ...init, headers });
-				};
-			},
+			customFetch: createOpenAICompatibleFetchMiddleware(
+				"Foundry",
+				credentials.apiKey,
+				credentials.customHeaders,
+			),
 		});
-	}
-	if (credentials.type !== "apikey") {
-		throw new Error(`Foundry provider requires API key credentials, got: ${credentials.type}`);
-	}
-	// customHeaders are injected by the custom fetch wrapper.
-	return new OpenAIClient({
-		apiKey: credentials.apiKey,
-		baseUrl: credentials.baseUrl,
-		apiMode: "completions",
-		customFetch: createOpenAICompatibleFetchMiddleware(
-			"Foundry",
-			credentials.apiKey,
-			credentials.customHeaders,
-		),
-	});
-};
+	};
+}
 
-export function registerFoundryProvider(registry: ProviderRegistry, logger: Logger): void {
+export function registerFoundryProvider(
+	registry: ProviderRegistry,
+	logger: Logger,
+	credentialEnvironment?: Readonly<Record<string, string | undefined>>,
+): void {
 	registry.registerModelFetcher("ms-foundry", createFoundryModelFetcher("ms-foundry", logger));
-	registry.registerClientFactory("ms-foundry", foundryClientFactory);
+	registry.registerClientFactory("ms-foundry", createFoundryClientFactory(credentialEnvironment));
 }
 
 export function registerCustomFoundryProvider(
 	registry: ProviderRegistry,
 	providerId: ResolvedProviderId,
 	logger: Logger,
+	credentialEnvironment?: Readonly<Record<string, string | undefined>>,
 ): void {
 	registry.registerModelFetcher(providerId, createFoundryModelFetcher(providerId, logger));
-	registry.registerClientFactory("ms-foundry", foundryClientFactory);
+	registry.registerClientFactory("ms-foundry", createFoundryClientFactory(credentialEnvironment));
 }

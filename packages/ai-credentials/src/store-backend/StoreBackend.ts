@@ -20,6 +20,7 @@ import type {
 import type { Logger, ProviderCredentials, TokenData } from "../types/index.js";
 import { normalizeDatabricksHost, requireBareAuthHost, storageKeyFor } from "../types/index.js";
 import { resolveCredentialsFromEnv } from "./envCredentialResolver.js";
+import { PROVIDER_ENV_MAPPINGS } from "./providerEnvMappings.js";
 import {
 	storedProviderCredentialsSchema,
 	type StoredProviderCredentials,
@@ -76,7 +77,7 @@ export interface CreateStoreBackendOptions {
 	) => ProviderCredentials;
 	notifyReady?: (providerId: string) => void;
 	watchedProviderIds?: string[];
-	env?: Record<string, string | undefined>;
+	env?: Readonly<Record<string, string | undefined>>;
 	logger?: Logger;
 	generationFactory?: () => string;
 }
@@ -254,20 +255,28 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 			return credentials ? { kind: "credentials", credentials } : { kind: "none" };
 		}
 
-		const token = env.DATABRICKS_TOKEN;
-		const explicitlyM2m = env.DATABRICKS_AUTH_TYPE === "oauth-m2m";
+		// External build variants ship an empty PROVIDER_ENV_MAPPINGS; guard the
+		// dereference so Databricks resolution degrades to "none" there.
+		const mapping = PROVIDER_ENV_MAPPINGS.databricks;
+		const oauthM2m = mapping?.oauthM2m;
+		if (!oauthM2m) return { kind: "none" };
+		const token = mapping.apiKey ? env[mapping.apiKey.name] : undefined;
+		const explicitlyM2m = env[oauthM2m.authType.name] === "oauth-m2m";
 		if (token && !explicitlyM2m) {
 			const credentials = resolveCredentialsFromEnv(providerId, env);
 			return credentials ? { kind: "credentials", credentials } : { kind: "none" };
 		}
-		if (env.DATABRICKS_CLIENT_ID && env.DATABRICKS_CLIENT_SECRET && env.DATABRICKS_HOST) {
+		const clientId = env[oauthM2m.clientId.name];
+		const clientSecret = env[oauthM2m.clientSecret.name];
+		const configuredHost = env[oauthM2m.host.name];
+		if (clientId && clientSecret && configuredHost) {
 			let workspaceHost: string;
 			try {
-				workspaceHost = normalizeDatabricksHost(env.DATABRICKS_HOST);
+				workspaceHost = normalizeDatabricksHost(configuredHost);
 			} catch (error) {
 				return {
 					kind: "incomplete-oauth-m2m",
-					workspaceHost: env.DATABRICKS_HOST,
+					workspaceHost: configuredHost,
 					error: error instanceof Error ? error.message : "Invalid Databricks workspace URL",
 				};
 			}
@@ -276,8 +285,8 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 				source: {
 					type: "oauth-m2m",
 					origin: "environment",
-					clientId: env.DATABRICKS_CLIENT_ID,
-					clientSecret: env.DATABRICKS_CLIENT_SECRET,
+					clientId,
+					clientSecret,
 					workspaceHost,
 				},
 			};
@@ -285,7 +294,7 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 		if (explicitlyM2m) {
 			return {
 				kind: "incomplete-oauth-m2m",
-				workspaceHost: env.DATABRICKS_HOST,
+				workspaceHost: configuredHost,
 				error:
 					"Databricks OAuth M2M requires DATABRICKS_HOST, DATABRICKS_CLIENT_ID, and DATABRICKS_CLIENT_SECRET",
 			};

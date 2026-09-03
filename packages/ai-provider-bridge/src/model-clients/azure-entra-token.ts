@@ -14,12 +14,22 @@
  * must never construct a new `DefaultAzureCredential` per request.
  */
 
-import { DefaultAzureCredential, getBearerTokenProvider } from "@azure/identity";
+import {
+	ClientCertificateCredential,
+	ClientSecretCredential,
+	DefaultAzureCredential,
+	getBearerTokenProvider,
+} from "@azure/identity";
+import { readSdkCredentialEnvironment } from "ai-credentials/store-backend";
 
 /** A function that resolves a fresh bearer token, refreshing as needed. */
 export type BearerTokenProvider = () => Promise<string>;
 
-const tokenProviderCache = new Map<string, BearerTokenProvider>();
+const ambientTokenProviderCache = new Map<string, BearerTokenProvider>();
+let capturedTokenProviderCaches = new WeakMap<
+	Readonly<Record<string, string | undefined>>,
+	Map<string, BearerTokenProvider>
+>();
 
 function isCredentialUnavailable(error: unknown): boolean {
 	if (!(error instanceof Error)) return false;
@@ -40,12 +50,27 @@ function isCredentialUnavailable(error: unknown): boolean {
 export function createAzureEntraTokenProvider(
 	scope: string,
 	tenantId?: string,
+	credentialEnvironment?: Readonly<Record<string, string | undefined>>,
 ): BearerTokenProvider {
 	const cacheKey = JSON.stringify([tenantId ?? null, scope]);
-	let provider = tokenProviderCache.get(cacheKey);
+	let cache: Map<string, BearerTokenProvider>;
+	if (credentialEnvironment) {
+		// Keyed on the raw captured record: cache identity depends on the
+		// host passing the same frozen snapshot object.
+		const existing = capturedTokenProviderCaches.get(credentialEnvironment);
+		if (existing) {
+			cache = existing;
+		} else {
+			cache = new Map<string, BearerTokenProvider>();
+			capturedTokenProviderCaches.set(credentialEnvironment, cache);
+		}
+	} else {
+		cache = ambientTokenProviderCache;
+	}
+	let provider = cache.get(cacheKey);
 	if (!provider) {
 		const acquire = getBearerTokenProvider(
-			new DefaultAzureCredential(tenantId ? { tenantId } : {}),
+			createAzureCredential(tenantId, credentialEnvironment),
 			scope,
 		);
 		provider = async () => {
@@ -68,12 +93,38 @@ export function createAzureEntraTokenProvider(
 				);
 			}
 		};
-		tokenProviderCache.set(cacheKey, provider);
+		cache.set(cacheKey, provider);
 	}
 	return provider;
 }
 
 /** Test-only: drop every cached token provider. */
 export function clearAzureEntraTokenProviderCache(): void {
-	tokenProviderCache.clear();
+	ambientTokenProviderCache.clear();
+	capturedTokenProviderCaches = new WeakMap();
+}
+
+function createAzureCredential(
+	tenantId: string | undefined,
+	env: Readonly<Record<string, string | undefined>> | undefined,
+) {
+	if (env) {
+		const sdkEnvironment = readSdkCredentialEnvironment(env);
+		const effectiveTenantId = tenantId ?? sdkEnvironment.azureTenantId;
+		const clientId = sdkEnvironment.azureClientId;
+		if (effectiveTenantId && clientId && sdkEnvironment.azureClientSecret) {
+			return new ClientSecretCredential(
+				effectiveTenantId,
+				clientId,
+				sdkEnvironment.azureClientSecret,
+			);
+		}
+		if (effectiveTenantId && clientId && sdkEnvironment.azureClientCertificatePath) {
+			return new ClientCertificateCredential(effectiveTenantId, clientId, {
+				certificatePath: sdkEnvironment.azureClientCertificatePath,
+				certificatePassword: sdkEnvironment.azureClientCertificatePassword,
+			});
+		}
+	}
+	return new DefaultAzureCredential(tenantId ? { tenantId } : {});
 }
