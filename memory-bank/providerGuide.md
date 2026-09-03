@@ -270,13 +270,19 @@ SDK own the token lifecycle:
   than replacing it.
 
 Hosts that scrub credential variables pass a captured credential environment
-through `ProviderRegistrationConfig`. Vertex supplies the captured
-`GOOGLE_APPLICATION_CREDENTIALS` path to both model discovery's `GoogleAuth`
-and the chat SDK's `googleAuthOptions`. Foundry materializes a
-`ClientSecretCredential` or `ClientCertificateCredential` from captured Azure
-environment values; when neither is complete it retains
-`DefaultAzureCredential` for managed identity and CLI sources. The bridge never
-mutates the ambient environment and never places secret values in cache keys.
+through `ProviderRegistrationConfig`. The bridge never reads SDK wire names
+directly: both providers call `readSdkCredentialEnvironment` from
+`ai-credentials/store-backend`, which maps the ai-credentials
+`sdkCredentialEnvironment` declaration onto a typed struct. Vertex supplies
+the captured `googleApplicationCredentials` path to both model discovery's
+`GoogleAuth` and the chat SDK's `googleAuthOptions`. Foundry materializes a
+`ClientSecretCredential` or `ClientCertificateCredential` from the captured
+Azure values; when neither is complete it retains `DefaultAzureCredential`
+for managed identity and CLI sources. Because the names come from the
+ai-credentials declaration, hosts no longer curate ai-lib-consumed names
+(`GOOGLE_APPLICATION_CREDENTIALS`, `AZURE_*`) themselves — capturing the
+declared provider environment covers them. The bridge never mutates the
+ambient environment and never places secret values in cache keys.
 
 ## Common Pitfalls
 

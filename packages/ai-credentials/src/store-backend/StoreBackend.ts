@@ -255,18 +255,20 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 			return credentials ? { kind: "credentials", credentials } : { kind: "none" };
 		}
 
+		// External build variants ship an empty PROVIDER_ENV_MAPPINGS; guard the
+		// dereference so Databricks resolution degrades to "none" there.
 		const mapping = PROVIDER_ENV_MAPPINGS.databricks;
-		const oauthM2m = mapping.oauthM2m;
+		const oauthM2m = mapping?.oauthM2m;
 		if (!oauthM2m) return { kind: "none" };
-		const token = mapping.apiKey ? env[mapping.apiKey] : undefined;
-		const explicitlyM2m = env[oauthM2m.authType] === "oauth-m2m";
+		const token = mapping.apiKey ? env[mapping.apiKey.name] : undefined;
+		const explicitlyM2m = env[oauthM2m.authType.name] === "oauth-m2m";
 		if (token && !explicitlyM2m) {
 			const credentials = resolveCredentialsFromEnv(providerId, env);
 			return credentials ? { kind: "credentials", credentials } : { kind: "none" };
 		}
-		const clientId = env[oauthM2m.clientId];
-		const clientSecret = env[oauthM2m.clientSecret];
-		const configuredHost = env[oauthM2m.host];
+		const clientId = env[oauthM2m.clientId.name];
+		const clientSecret = env[oauthM2m.clientSecret.name];
+		const configuredHost = env[oauthM2m.host.name];
 		if (clientId && clientSecret && configuredHost) {
 			let workspaceHost: string;
 			try {

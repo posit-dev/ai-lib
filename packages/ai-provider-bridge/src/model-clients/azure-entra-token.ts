@@ -20,6 +20,7 @@ import {
 	DefaultAzureCredential,
 	getBearerTokenProvider,
 } from "@azure/identity";
+import { readSdkCredentialEnvironment } from "ai-credentials/store-backend";
 
 /** A function that resolves a fresh bearer token, refreshing as needed. */
 export type BearerTokenProvider = () => Promise<string>;
@@ -52,12 +53,19 @@ export function createAzureEntraTokenProvider(
 	credentialEnvironment?: Readonly<Record<string, string | undefined>>,
 ): BearerTokenProvider {
 	const cacheKey = JSON.stringify([tenantId ?? null, scope]);
-	const cache = credentialEnvironment
-		? (capturedTokenProviderCaches.get(credentialEnvironment) ??
-			new Map<string, BearerTokenProvider>())
-		: ambientTokenProviderCache;
-	if (credentialEnvironment && !capturedTokenProviderCaches.has(credentialEnvironment)) {
-		capturedTokenProviderCaches.set(credentialEnvironment, cache);
+	let cache: Map<string, BearerTokenProvider>;
+	if (credentialEnvironment) {
+		// Keyed on the raw captured record: cache identity depends on the
+		// host passing the same frozen snapshot object.
+		const existing = capturedTokenProviderCaches.get(credentialEnvironment);
+		if (existing) {
+			cache = existing;
+		} else {
+			cache = new Map<string, BearerTokenProvider>();
+			capturedTokenProviderCaches.set(credentialEnvironment, cache);
+		}
+	} else {
+		cache = ambientTokenProviderCache;
 	}
 	let provider = cache.get(cacheKey);
 	if (!provider) {
@@ -101,15 +109,20 @@ function createAzureCredential(
 	env: Readonly<Record<string, string | undefined>> | undefined,
 ) {
 	if (env) {
-		const effectiveTenantId = tenantId ?? env.AZURE_TENANT_ID;
-		const clientId = env.AZURE_CLIENT_ID;
-		if (effectiveTenantId && clientId && env.AZURE_CLIENT_SECRET) {
-			return new ClientSecretCredential(effectiveTenantId, clientId, env.AZURE_CLIENT_SECRET);
+		const sdkEnvironment = readSdkCredentialEnvironment(env);
+		const effectiveTenantId = tenantId ?? sdkEnvironment.azureTenantId;
+		const clientId = sdkEnvironment.azureClientId;
+		if (effectiveTenantId && clientId && sdkEnvironment.azureClientSecret) {
+			return new ClientSecretCredential(
+				effectiveTenantId,
+				clientId,
+				sdkEnvironment.azureClientSecret,
+			);
 		}
-		if (effectiveTenantId && clientId && env.AZURE_CLIENT_CERTIFICATE_PATH) {
+		if (effectiveTenantId && clientId && sdkEnvironment.azureClientCertificatePath) {
 			return new ClientCertificateCredential(effectiveTenantId, clientId, {
-				certificatePath: env.AZURE_CLIENT_CERTIFICATE_PATH,
-				certificatePassword: env.AZURE_CLIENT_CERTIFICATE_PASSWORD,
+				certificatePath: sdkEnvironment.azureClientCertificatePath,
+				certificatePassword: sdkEnvironment.azureClientCertificatePassword,
 			});
 		}
 	}

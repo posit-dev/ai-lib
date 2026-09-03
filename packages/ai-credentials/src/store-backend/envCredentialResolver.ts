@@ -62,7 +62,7 @@ function resolveFromMapping(
 ): ProviderCredentials | null {
 	// API key providers
 	if (mapping.apiKey) {
-		const apiKey = envVars[mapping.apiKey];
+		const apiKey = envVars[mapping.apiKey.name];
 		if (apiKey) {
 			return {
 				type: "apikey",
@@ -74,17 +74,19 @@ function resolveFromMapping(
 
 	// AWS credentials
 	if (mapping.aws) {
-		const accessKeyId = mapping.aws.accessKeyId ? envVars[mapping.aws.accessKeyId] : undefined;
+		const accessKeyId = mapping.aws.accessKeyId ? envVars[mapping.aws.accessKeyId.name] : undefined;
 		const secretAccessKey = mapping.aws.secretAccessKey
-			? envVars[mapping.aws.secretAccessKey]
+			? envVars[mapping.aws.secretAccessKey.name]
 			: undefined;
 
 		// Only resolve if actual secret credentials are present.
 		// Region/profile alone are non-secret config handled by ai-config.
 		if (accessKeyId || secretAccessKey) {
-			const region = mapping.aws.region ? envVars[mapping.aws.region] : undefined;
-			const profile = mapping.aws.profile ? envVars[mapping.aws.profile] : undefined;
-			const sessionToken = mapping.aws.sessionToken ? envVars[mapping.aws.sessionToken] : undefined;
+			const region = mapping.aws.region ? envVars[mapping.aws.region.name] : undefined;
+			const profile = mapping.aws.profile ? envVars[mapping.aws.profile.name] : undefined;
+			const sessionToken = mapping.aws.sessionToken
+				? envVars[mapping.aws.sessionToken.name]
+				: undefined;
 
 			return {
 				type: "aws-credentials",
