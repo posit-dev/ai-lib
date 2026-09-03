@@ -4,6 +4,7 @@
 
 import type { ResolvedProviderId } from "ai-config";
 import { getAnthropicModelCapabilities } from "ai-config";
+import { readSdkCredentialEnvironment } from "ai-credentials/store-backend";
 import { GoogleAuth } from "google-auth-library";
 
 import { GoogleVertexClient } from "../model-clients/GoogleVertexClient";
@@ -69,7 +70,9 @@ async function getAccessToken(
 	if (brokered) return brokered;
 	const auth = new GoogleAuth({
 		scopes: ["https://www.googleapis.com/auth/cloud-platform"],
-		keyFilename: credentialEnvironment?.GOOGLE_APPLICATION_CREDENTIALS,
+		keyFilename: credentialEnvironment
+			? readSdkCredentialEnvironment(credentialEnvironment).googleApplicationCredentials
+			: undefined,
 	});
 	const client = await auth.getClient();
 	const { token } = await client.getAccessToken();
@@ -415,7 +418,9 @@ function createGoogleVertexClientFactory(
 				project: credentials.project,
 				location: credentials.location,
 				accessToken: credentials.accessToken,
-				googleApplicationCredentials: credentialEnvironment?.GOOGLE_APPLICATION_CREDENTIALS,
+				googleApplicationCredentials: credentialEnvironment
+					? readSdkCredentialEnvironment(credentialEnvironment).googleApplicationCredentials
+					: undefined,
 			},
 			logger,
 		);

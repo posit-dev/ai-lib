@@ -131,4 +131,59 @@ describe("createAzureEntraTokenProvider", () => {
 		);
 		expect(mocks.defaultAzureCredential).not.toHaveBeenCalled();
 	});
+
+	it("prefers an explicit tenantId over the captured AZURE_TENANT_ID", () => {
+		mocks.getBearerTokenProvider.mockReturnValue(async () => "token");
+		const captured = Object.freeze({
+			AZURE_TENANT_ID: "captured-tenant",
+			AZURE_CLIENT_ID: "client-from-env",
+			AZURE_CLIENT_SECRET: "secret-from-env",
+		});
+
+		createAzureEntraTokenProvider("scope-a", "explicit-tenant", captured);
+
+		expect(mocks.clientSecretCredential).toHaveBeenCalledWith(
+			"explicit-tenant",
+			"client-from-env",
+			"secret-from-env",
+		);
+		expect(mocks.defaultAzureCredential).not.toHaveBeenCalled();
+	});
+
+	it("constructs a certificate credential from captured values, forwarding the password", () => {
+		mocks.getBearerTokenProvider.mockReturnValue(async () => "token");
+		const captured = Object.freeze({
+			AZURE_TENANT_ID: "tenant-from-env",
+			AZURE_CLIENT_ID: "client-from-env",
+			AZURE_CLIENT_CERTIFICATE_PATH: "/certs/sp.pem",
+			AZURE_CLIENT_CERTIFICATE_PASSWORD: "cert-password",
+		});
+
+		createAzureEntraTokenProvider("scope-a", undefined, captured);
+
+		expect(mocks.clientCertificateCredential).toHaveBeenCalledWith(
+			"tenant-from-env",
+			"client-from-env",
+			{
+				certificatePath: "/certs/sp.pem",
+				certificatePassword: "cert-password",
+			},
+		);
+		expect(mocks.defaultAzureCredential).not.toHaveBeenCalled();
+	});
+
+	it("falls back to DefaultAzureCredential when captured values are incomplete", () => {
+		mocks.getBearerTokenProvider.mockReturnValue(async () => "token");
+		const captured = Object.freeze({
+			AZURE_TENANT_ID: "tenant-from-env",
+			AZURE_CLIENT_ID: "client-from-env",
+			// No AZURE_CLIENT_SECRET / AZURE_CLIENT_CERTIFICATE_PATH.
+		});
+
+		createAzureEntraTokenProvider("scope-a", undefined, captured);
+
+		expect(mocks.clientSecretCredential).not.toHaveBeenCalled();
+		expect(mocks.clientCertificateCredential).not.toHaveBeenCalled();
+		expect(mocks.defaultAzureCredential).toHaveBeenCalledWith({});
+	});
 });

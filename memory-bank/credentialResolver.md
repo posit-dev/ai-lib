@@ -125,6 +125,11 @@ The Databricks entry in `PROVIDER_ENV_MAPPINGS` declares both PAT and M2M
 names. `StoreBackend` reads M2M fields through that mapping, and
 `captureProviderEnvironment` enumerates the same fields, so an authenticated
 host cannot omit `DATABRICKS_CLIENT_SECRET` from its capture/scrub inventory.
+The same single-source guarantee covers the Vertex ADC path
+(`GOOGLE_APPLICATION_CREDENTIALS`) and the Azure SDK names (`AZURE_*`): both
+are declared as `sdkCredentialEnvironment` descriptors on their provider
+entries and consumed by the bridge exclusively through
+`readSdkCredentialEnvironment`.
 
 Every upgraded store mutation re-reads under the injected storage's `withLock()` and
 writes a fresh opaque generation. Starting stored OAuth writes a token-free
@@ -221,16 +226,34 @@ fallback needs nothing from any host application. For AWS, `hasEnvCredentials`
 requires secret key material: `AWS_REGION` alone remains non-secret connection
 config and is not credential evidence for auth readiness.
 
-`providerEnvMappings.ts` has a `-external` variant (empty map — positai has no
-secret env vars), redirected by the consuming app's build config.
+Every mapped field is an `EnvironmentFieldDescriptor` (`{ name, scrub }`), so
+one declaration drives env resolution, host capture/scrubbing, and SDK
+credential construction. `scrub: true` means captured AND deleted from the
+ambient environment; `scrub: false` means captured only (the non-secret Azure
+tenant/client IDs, which user code may legitimately read). Fields a provider
+SDK reads directly are declared under `sdkCredentialEnvironment`, keyed by the
+semantic fields of `SdkCredentialEnvironment` — a misspelled key is a compile
+error, and a behavioral test proves every declared key is represented in the
+reader's result.
+
+`providerEnvMappings.ts` has a `-external` variant (empty map plus empty
+capture/reader stubs — positai has no secret env vars), redirected by the
+consuming app's build config.
 
 `captureProviderEnvironment(providerIds, env)` is the boot-time capture seam
 for authenticated hosts that scrub their ambient environment. It statically
 derives the selected providers' declared credential names from the same mapping
-the lazy resolver uses and returns those names plus a frozen, minimal
+the lazy resolver uses and returns those names, the `scrub: true` subset
+(`scrubbedNames` — the only names the host deletes), plus a frozen, minimal
 environment snapshot. The host owns any additional curated names, deletion
 policy, and the capture-before-scrub ordering; the backend receives the captured
 snapshot through `createStoreBackend({ env })`.
+
+`readSdkCredentialEnvironment(env)` assembles the typed
+`SdkCredentialEnvironment` struct from the `sdkCredentialEnvironment`
+descriptors with explicit field assignments — no env-name literals exist
+outside the declaration. The bridge's Azure/Vertex credential constructors
+consume only this struct, so the wire names have exactly one owner.
 
 ## Related Documentation
 
