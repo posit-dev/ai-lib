@@ -105,6 +105,39 @@ re-read, adopt another process's result when possible, otherwise refresh and
 persist the rotated token. Environment M2M tokens never enter that transaction
 because their derived tokens live only in process memory.
 
+### Refresh failure policy — terminal vs. transient
+
+Stored refresh follows one rule: **only a definitive server rejection may
+delete the stored tokens.** `postForm` throws an `OAuthHttpError` carrying the
+HTTP status and the bounded RFC 6749 `error` code (parsed even when
+`error_description` is present; the human-readable message format
+`oauth_http_<status>: <detail>` is unchanged). A refresh failure is _terminal_
+only when the status is 400/401 and the code is exactly `invalid_grant` or
+`invalid_client`; classification and the `refresh_failed` tombstone stay inside
+the `withRefreshTransaction` callback so a concurrent refresher cannot
+overwrite the terminal record. Every other failure is _transient_ — network
+errors, the 30s `AbortSignal.timeout` on the refresh exchange (so a hung fetch
+cannot hold the cross-process file lock), 429/5xx, unknown 4xx codes, malformed
+bodies, a rejected `persistRefreshedTokens`, or the transaction itself failing
+(lock/IO) — and resolves as: return null, leave the stored record untouched,
+and start a ~60s in-memory per-provider cooldown so status polling cannot
+hammer the token endpoint during an outage. A successful refresh clears the
+cooldown. The cooldown is process-local; the file lock already serializes
+actual refreshes across processes.
+
+Caveats:
+
+- **Residual rotation loss.** If a refresh response is lost after the server
+  rotated the token — or the rotated token is received but fails to persist
+  and is discarded — the preserved old token is already dead and a later retry
+  tombstones via `invalid_grant`. This is rare and self-corrects into the
+  correct terminal state; avoiding it needs server-side rotation grace.
+- **Mixed-version sharing.** Older builds sharing the same `data.json` can
+  still write tombstones on transient failures; only new builds stop doing so.
+- The legacy `OAuthEngine` path (`device-auth.ts`) retains the old
+  tombstone-on-any-error behavior; no current Node-surface consumer constructs
+  it (hosts always supply acquisition hooks).
+
 ## Databricks source and concurrency model
 
 Databricks keeps the stable `auth:databricks:apikey` storage key and always
