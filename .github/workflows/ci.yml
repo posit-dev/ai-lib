@@ -19,6 +19,12 @@ jobs:
 
       - run: npm ci
 
+      # The AI SDK family pins @ai-sdk/provider and @ai-sdk/provider-utils
+      # exactly, so updating one family member without the others splits them
+      # into nested copies whose nominally-branded types no longer interop.
+      - name: Check AI SDK packages resolve to single copies
+        run: npm run check-ai-sdk-single-copy
+
       - name: Check formatting
         run: npm run format:check
 
