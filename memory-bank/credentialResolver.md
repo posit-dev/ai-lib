@@ -59,15 +59,12 @@ an `ai-credentials → ai-config` import edge.
 
 Routing inside `createCredentialProvider`:
 
-- `getCredentials` — device-flow OAuth providers (the backend exposes
-  `oauth.configForProvider(id)`) route through `getAccessToken` and wrap the
-  token as `{ type: "oauth", accessToken }`; everything else defers to
+- `getCredentials` — providers the backend exposes acquisition hooks for
+  route through the acquisition engine; everything else defers to
   `backend.getCredentials`.
 - `getAccessToken` / `startDeviceAuth` — compatibility adapters over the
-  generalized acquisition controller when available; the legacy device engine
-  is instantiated only for older injected backends that have no generalized
-  acquisition hooks. A provider handle therefore never owns two acquisition
-  controllers.
+  acquisition engine; a backend without acquisition hooks has no OAuth
+  support (null / rejection).
 
 ## Backends — the host-selected material seam
 
@@ -134,9 +131,6 @@ Caveats:
   correct terminal state; avoiding it needs server-side rotation grace.
 - **Mixed-version sharing.** Older builds sharing the same `data.json` can
   still write tombstones on transient failures; only new builds stop doing so.
-- The legacy `OAuthEngine` path (`device-auth.ts`) retains the old
-  tombstone-on-any-error behavior; no current Node-surface consumer constructs
-  it (hosts always supply acquisition hooks).
 
 ## Databricks source and concurrency model
 
