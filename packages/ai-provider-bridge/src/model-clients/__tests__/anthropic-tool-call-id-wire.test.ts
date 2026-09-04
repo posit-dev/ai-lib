@@ -9,6 +9,7 @@
  */
 
 import type { ModelMessage } from "ai";
+import { jsonSchema } from "ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createRawFetchCapture } from "../../../tests/helpers/raw-fetch-capture";
@@ -273,6 +274,49 @@ describe("PositAiClient Anthropic-wire tool-call ID sanitization", () => {
 				tool_use_id: SERVER_TOOL_ID,
 			}),
 		);
+	});
+});
+
+describe("PositAiClient web_search provider-tool merge", () => {
+	const client = new PositAiClient("token", "https://posit.ai", "test-agent", logger);
+
+	it("rejects a local tool occupying the web_search key when native search is enabled", async () => {
+		await expect(
+			client.chat({
+				model: "claude-haiku-4-5",
+				messages: [{ role: "user", content: "hi" }],
+				cancellationToken,
+				webSearchEnabled: true,
+				tools: {
+					web_search: { inputSchema: jsonSchema({ type: "object", properties: {} }) },
+				},
+			}),
+		).rejects.toThrow(/local tool named "web_search"/);
+	});
+
+	it("attaches native search alongside local tools when the key is free", async () => {
+		let requestBody: Record<string, unknown> | undefined;
+		const capture = createRawFetchCapture(async (_input: RequestInfo | URL, init?: RequestInit) => {
+			requestBody = JSON.parse(String(init?.body));
+			return successfulAnthropicStreamResponse();
+		});
+		vi.stubGlobal("fetch", capture.mock);
+
+		await consumeStream(
+			client.chat({
+				model: "claude-haiku-4-5",
+				messages: [{ role: "user", content: "hi" }],
+				cancellationToken,
+				webSearchEnabled: true,
+				tools: {
+					readFile: { inputSchema: jsonSchema({ type: "object", properties: {} }) },
+				},
+			}),
+		);
+
+		const wireTools = requestBody?.tools as Array<Record<string, unknown>>;
+		expect(wireTools).toContainEqual(expect.objectContaining({ name: "readFile" }));
+		expect(wireTools).toContainEqual(expect.objectContaining({ name: "web_search" }));
 	});
 });
 
