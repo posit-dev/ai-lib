@@ -132,11 +132,6 @@ describe("createPositronBackend", () => {
 		expect(await backend.getCredentials("unmapped")).toBeNull();
 	});
 
-	it("has no oauth device-flow hooks", () => {
-		const backend = makeBackend();
-		expect(backend.oauth).toBeUndefined();
-	});
-
 	it("getCredentialsWithPrompt uses createIfNone", async () => {
 		mockGetSession.mockResolvedValue(makeSession("sk-ant"));
 		const backend = makeBackend();

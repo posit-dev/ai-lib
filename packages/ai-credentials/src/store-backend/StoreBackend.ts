@@ -6,7 +6,6 @@ import type {
 	AcquisitionBackendHooks,
 	CredentialSourceContext,
 	MutableBackend,
-	OAuthBackendHooks,
 	OAuthGrantConfig,
 	OAuthProviderConfig,
 	StoredOAuthTokens,
@@ -651,45 +650,6 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 			: { type: "oauth", accessToken };
 	}
 
-	const oauth: OAuthBackendHooks | undefined = oauthConfigForProvider
-		? {
-				configForProvider(providerId): OAuthProviderConfig | undefined {
-					// Compatibility is limited to the original synchronous Posit AI Pass callback.
-					const value = oauthConfigForProvider(providerId, {
-						type: "oauth-device",
-						origin: "implicit",
-					});
-					if (value instanceof Promise || !value || "grantType" in value) return undefined;
-					return value;
-				},
-				readTokens,
-				async persistTokens(providerId, tokens) {
-					const key = keyFor(providerId);
-					if (!key) return;
-					await store.withLock(async () => {
-						await store.set(
-							key,
-							authenticatedOAuthRecord({ type: "oauth-device" }, tokens, generationFactory()),
-						);
-					});
-				},
-				persistError: persistRefreshError,
-				async clearError(providerId) {
-					const key = keyFor(providerId);
-					if (!key) return;
-					await store.withLock(async () => {
-						await store.set(
-							key,
-							terminalOAuthRecord({ type: "oauth-device" }, generationFactory()),
-						);
-					});
-				},
-				notifyReady(providerId) {
-					notifyReady?.(providerId);
-				},
-			}
-		: undefined;
-
 	function onDidChangeCredentials(callback: (providerIds: string[]) => void): Disposable {
 		if (watchedProviderIds.length === 0) return NOOP_DISPOSABLE;
 		return store.watch(() => callback([...watchedProviderIds]));
@@ -698,7 +658,6 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 	return {
 		getCredentials,
 		onDidChangeCredentials,
-		...(oauth ? { oauth } : {}),
 		...(acquisition ? { acquisition } : {}),
 		mutateCredentials,
 		getCredentialStatus,

@@ -33,7 +33,6 @@ export type {
 	Backend,
 	CredentialSourceContext,
 	MutableBackend,
-	OAuthBackendHooks,
 	OAuthGrantConfig,
 	OAuthProviderConfig,
 	PreparedAuthorizationCodeReceiver,

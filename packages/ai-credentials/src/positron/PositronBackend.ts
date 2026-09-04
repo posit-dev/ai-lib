@@ -21,7 +21,7 @@
 
 import * as vscode from "vscode";
 
-import type { Backend, OAuthBackendHooks } from "../Backend.js";
+import type { Backend } from "../Backend.js";
 import type { Disposable } from "../CredentialProvider.js";
 import type {
 	AuthProviderMapping,
@@ -37,10 +37,9 @@ export type ProviderMap = Readonly<Record<string, AuthProviderMapping | undefine
 /**
  * A {@link Backend} that additionally exposes a prompting credential lookup
  * (Positron's deliberate sign-in UX) and lifecycle disposal for its vscode
- * listeners. It never carries {@link OAuthBackendHooks}.
+ * listeners.
  */
 export interface PositronBackend extends Backend {
-	oauth?: never;
 	/** Like getCredentials, but prompts the user to sign in when no session exists. */
 	getCredentialsWithPrompt(providerId: string): Promise<ProviderCredentials | null>;
 	/** Dispose the vscode session-change listener. */

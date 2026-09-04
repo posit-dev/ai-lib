@@ -180,95 +180,14 @@ describe("createStoreBackend", () => {
 		});
 	});
 
-	describe("oauth hooks", () => {
+	describe("readTokens", () => {
 		const oauthConfigForProvider = () => ({
 			authHost: "auth.test",
 			scope: "prism",
 			clientId: "databot",
 		});
 
-		it("is absent when no oauthConfigForProvider is supplied", () => {
-			const backend = createStoreBackend({ store, resolveAuthMethod, env: {} });
-			expect(backend.oauth).toBeUndefined();
-		});
-
-		it("persists and reads back tokens with a computed expiry", async () => {
-			const backend = createStoreBackend({
-				store,
-				resolveAuthMethod,
-				oauthConfigForProvider,
-				env: {},
-			});
-			const oauth = backend.oauth;
-			expect(oauth).toBeDefined();
-			if (!oauth) return;
-
-			await oauth.persistTokens("positai", {
-				accessToken: "at",
-				refreshToken: "rt",
-				expiresIn: 3600,
-				tokenType: "Bearer",
-				scope: "prism",
-			});
-
-			const tokens = await oauth.readTokens("positai");
-			expect(tokens).toMatchObject({ accessToken: "at", refreshToken: "rt", scope: "prism" });
-			expect(new Date(tokens?.expiresAt ?? 0).getTime()).toBeGreaterThan(Date.now());
-
-			// Round-trips through the on-disk StoredProviderCredentials shape.
-			const stored = await store.get<StoredProviderCredentials>(storageKeyFor("positai", "oauth"));
-			expect(stored?.authenticated).toBe(true);
-			expect(stored?.oauthAuth?.tokenData.accessToken).toBe("at");
-		});
-
-		it("persistError clears tokens and readTokens returns null", async () => {
-			const backend = createStoreBackend({
-				store,
-				resolveAuthMethod,
-				oauthConfigForProvider,
-				env: {},
-			});
-			const oauth = backend.oauth;
-			if (!oauth) throw new Error("expected oauth hooks");
-
-			await oauth.persistTokens("positai", {
-				accessToken: "at",
-				refreshToken: "rt",
-				expiresIn: 3600,
-				tokenType: "Bearer",
-				scope: "prism",
-			});
-			await oauth.persistError("positai", "access_denied");
-
-			expect(await oauth.readTokens("positai")).toBeNull();
-			const stored = await store.get<StoredProviderCredentials>(storageKeyFor("positai", "oauth"));
-			expect(stored?.error).toBe("access_denied");
-			expect(await backend.getCredentialStatus("positai")).toMatchObject({
-				authenticated: false,
-				error: "access_denied",
-			});
-		});
-
-		it("clearError resets a prior error record to a clean unauthenticated state", async () => {
-			const backend = createStoreBackend({
-				store,
-				resolveAuthMethod,
-				oauthConfigForProvider,
-				env: {},
-			});
-			const oauth = backend.oauth;
-			if (!oauth) throw new Error("expected oauth hooks");
-
-			await oauth.persistError("positai", "access_denied");
-			await oauth.clearError("positai");
-
-			const stored = await store.get<StoredProviderCredentials>(storageKeyFor("positai", "oauth"));
-			expect(stored?.authenticated).toBe(false);
-			expect(stored?.error).toBeUndefined();
-			expect(await oauth.readTokens("positai")).toBeNull();
-		});
-
-		it("readTokens ignores a record marked authenticated:false with stale tokenData", async () => {
+		it("ignores a record marked authenticated:false with stale tokenData", async () => {
 			// Legacy refresh-failure shape: authenticated flipped to false but
 			// oauthAuth.tokenData left in place. Must NOT be treated as usable.
 			await store.set<StoredProviderCredentials>(storageKeyFor("positai", "oauth"), {
@@ -292,7 +211,7 @@ describe("createStoreBackend", () => {
 				oauthConfigForProvider,
 				env: {},
 			});
-			expect(await backend.oauth?.readTokens("positai")).toBeNull();
+			expect(await backend.acquisition?.readTokens("positai")).toBeNull();
 		});
 	});
 

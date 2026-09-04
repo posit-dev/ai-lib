@@ -112,7 +112,6 @@ describe("ai-credentials purity — /types is browser-safe", () => {
 			"/store-backend/",
 			"/positron/",
 			"/createCredentialProvider",
-			"/device-auth",
 			"/Backend",
 			"/CredentialProvider",
 		]) {
@@ -167,7 +166,6 @@ describe("ai-credentials purity — /store is a generic leaf", () => {
 			"/createCredentialProvider",
 			"/Backend",
 			"/CredentialProvider",
-			"/device-auth",
 		]) {
 			expect(hasInput(g, sib), `/store must not import ${sib}`).toBe(false);
 		}
