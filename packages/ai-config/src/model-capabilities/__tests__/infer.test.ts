@@ -242,6 +242,23 @@ describe("inferModelCapabilities", () => {
 		]);
 	});
 
+	it("gives gemini-3.8-flash low/medium/high only (rejects minimal, like 3.7)", () => {
+		const caps = inferModelCapabilities("gemini", "gemini-3.8-flash");
+		expect(caps.family).toBe("gemini-3");
+		expect(caps.thinkingEffortLevels).toEqual(["low", "medium", "high"]);
+		expect(caps.maxInputTokens).toBe(1_000_000);
+		expect(caps.maxContextLength).toBe(1_000_000);
+		expect(caps.maxOutputTokens).toBe(65_536);
+	});
+
+	it("keeps the generic 3.x rule fail-open for future 3.x models", () => {
+		// A hypothetical 3.9 must still fall through to the generic rule
+		// (minimal included) — the 3.7/3.8 narrowing must not over-reach.
+		const caps = inferModelCapabilities("gemini", "gemini-3.9-flash");
+		expect(caps.family).toBe("gemini-3");
+		expect(caps.thinkingEffortLevels).toEqual(["minimal", "low", "medium", "high"]);
+	});
+
 	it("keeps hosted-Gemma semantics out of google-vertex and the shared gemini table", () => {
 		// Vertex does not serve the hosted-Gemma contract: a gemma id falls
 		// through to the conservative baseline.
