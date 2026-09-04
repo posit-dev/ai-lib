@@ -76,6 +76,12 @@ describe("getGeminiInteractionsProfile", () => {
 		});
 	});
 
+	it("3.8-flash: low/medium/high only (rejects minimal)", () => {
+		const flash38 = getGeminiInteractionsProfile("gemini-3.8-flash");
+		expect(flash38).toBeDefined();
+		expect(flash38!.effortToWireLevel).toEqual({ low: "low", medium: "medium", high: "high" });
+	});
+
 	it("Gemma 4: binary thinking maps product off→minimal, high→high", () => {
 		for (const modelId of ["gemma-4-31b-it", "gemma-4-26b-a4b-it"]) {
 			const profile = getGeminiInteractionsProfile(modelId);

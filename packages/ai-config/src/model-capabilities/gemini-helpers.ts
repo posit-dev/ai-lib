@@ -55,11 +55,13 @@ const CAPABILITY_RULES: CapabilityRule[] = [
 		maxOutputTokens: 65_536,
 		thinkingEffortLevels: LEVELS_WITHOUT_MINIMAL,
 	},
-	// 3.7 models: low/medium/high only — 3.7-flash rejects `minimal` on the
-	// Interactions API ("Allowed values are: high, low, medium"; verified
-	// 2026-08-17). Must precede the generic 3.x rule.
+	// 3.7 and 3.8 models: low/medium/high only — both reject `minimal` on
+	// the Interactions API (3.7-flash: "Allowed values are: high, low,
+	// medium", verified 2026-08-17; 3.8-flash:
+	// https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash).
+	// Must precede the generic 3.x rule.
 	{
-		match: /^gemini-3\.7/,
+		match: /^gemini-3\.[78]/,
 		family: "gemini-3",
 		maxInputTokens: 1_000_000,
 		maxContextLength: 1_000_000,

@@ -8,6 +8,7 @@
   "type": "module",
   "scripts": {
     "build": "npm run build --workspaces --if-present",
+    "check-ai-sdk-single-copy": "node scripts/check-ai-sdk-single-copy.mjs",
     "clean": "npm run clean --workspaces --if-present",
     "check-types": "npm run check-types --workspaces --if-present && tsc -p typechecks/tsconfig.json",
     "test": "npm run test --workspaces --if-present",

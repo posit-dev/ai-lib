@@ -85,6 +85,9 @@ const INTERACTIONS_PROFILES: ReadonlyMap<string, GeminiInteractionsProfile> = ne
 	// are: high, low, medium").
 	["gemini-3.6-flash", { effortToWireLevel: identityLevels("minimal", "low", "medium", "high") }],
 	["gemini-3.7-flash", { effortToWireLevel: identityLevels("low", "medium", "high") }],
+	// 3.8-flash rejects `minimal` exactly like 3.7-flash
+	// (https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash).
+	["gemini-3.8-flash", { effortToWireLevel: identityLevels("low", "medium", "high") }],
 
 	// --- Gemma 4 (hosted on the Gemini API) ---
 	// Binary thinking, verified against the live API (2026-08-17): wire

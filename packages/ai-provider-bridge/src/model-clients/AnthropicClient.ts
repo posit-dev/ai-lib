@@ -9,6 +9,7 @@
  */
 
 import { createAnthropic } from "@ai-sdk/anthropic";
+import type * as ai from "ai";
 
 import { safeSdkCustomHeaders } from "../custom-headers";
 import { streamTextAnthropicWire } from "../tool-call-ids";
@@ -21,6 +22,7 @@ import {
 	suppressAiSdkDefaultErrorLogging,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
+import { mergeProviderTools } from "./provider-tools";
 import { withRawHttpLogging } from "./raw-http-logging";
 
 /** Maximum number of web searches per request */
@@ -84,13 +86,12 @@ export class AnthropicClient implements ModelClient {
 		const { abortController, cleanup } = createAbortControllerFromToken(params.cancellationToken);
 
 		// Build tools - add web search if explicitly enabled per-request
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		let tools: Record<string, any> | undefined = params.tools;
+		let tools: Record<string, ai.Tool> | undefined = params.tools;
 		if (params.webSearchEnabled) {
 			const webSearchTool = provider.tools.webSearch_20250305({
 				maxUses: WEB_SEARCH_MAX_USES,
 			});
-			tools = { ...tools, web_search: webSearchTool };
+			tools = mergeProviderTools(params.tools, { web_search: webSearchTool });
 		}
 
 		const providerOptions = isThinkingEnabled(params.thinkingEffort)
