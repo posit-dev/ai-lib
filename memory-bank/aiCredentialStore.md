@@ -237,9 +237,9 @@ directories (`0o700`) and an empty `{}` file (`0o600`).
 - **Graceful degradation** — invalid JSON and watcher-init failures log and
   recover rather than throw.
 - **Disposable watch lifecycle** — mirrors VS Code's resource pattern.
-- **One acquisition controller per provider handle** — generalized store-backed
-  backends instantiate only `AcquisitionEngine`; `OAuthEngine` exists solely as
-  a fallback for older backends without generalized acquisition hooks.
+- **One acquisition controller per provider handle** — store-backed backends
+  instantiate only `AcquisitionEngine`, which owns every supported OAuth
+  acquisition and refresh flow.
 - **AWS settings updates preserve secret intent atomically** — region/profile
   edits and manual-key preserve/replace/clear semantics are one locked backend
   mutation; incomplete preservation never degrades silently to chain auth.

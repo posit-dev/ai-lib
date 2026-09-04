@@ -120,9 +120,10 @@ accepts the shared connection/model fields but none of the provider-specific
 `aws`, `googleCloud`, `snowflake`, `databricks`, or `positaiLogin` sections.
 
 **`positaiLogin` (formerly `oauth`).** The Posit-login connection sub-section
-was renamed from `oauth` to `positaiLogin` — it is Posit-login-specific config
-(the engine hard-codes Posit's device-auth/token URL conventions around the bare
-`host`), not generic OAuth. The rename spans the disk field, the runtime
+was renamed from `oauth` to `positaiLogin` — it is Posit-login-specific config:
+the store backend derives Posit's device-authorization and token endpoints from
+the bare `host` when it adapts that config into a device-code grant, rather than
+representing generic OAuth. The rename spans the disk field, the runtime
 `ResolvedConnection.positaiLogin`, `POSIT_AI_DEFAULTS.positaiLogin`, and the env
 overlay. It does **not** touch the auth-method / storage-key / status vocabulary,
 which stays `oauth` (a genuinely different concept — mapped at the
