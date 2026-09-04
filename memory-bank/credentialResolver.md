@@ -121,9 +121,9 @@ cannot hold the cross-process file lock), 429/5xx, unknown 4xx codes, malformed
 bodies, a rejected `persistRefreshedTokens`, or the transaction itself failing
 (lock/IO) — and resolves as: return null, leave the stored record untouched,
 and start a ~60s in-memory per-provider cooldown so status polling cannot
-hammer the token endpoint during an outage. A successful refresh clears the
-cooldown. The cooldown is process-local; the file lock already serializes
-actual refreshes across processes.
+hammer the token endpoint during an outage. An expired cooldown is removed
+before the retry. The cooldown is process-local; the file lock already
+serializes actual refreshes across processes.
 
 Caveats:
 

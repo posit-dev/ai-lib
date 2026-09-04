@@ -419,6 +419,8 @@ export class AcquisitionEngine {
 				);
 				return Promise.resolve(null);
 			}
+			// An expired cooldown is removed before the retry; a successful
+			// refresh therefore never has an entry to clear.
 			this.refreshCooldowns.delete(providerId);
 		}
 		const promise = this.refreshStoredTransaction(providerId, config);
@@ -430,17 +432,21 @@ export class AcquisitionEngine {
 	 * Refresh under the cross-process store lock. Only a definitive server
 	 * rejection (see {@link TERMINAL_REFRESH_CODES}) tombstones the stored
 	 * tokens; every other failure keeps them so a later attempt can retry.
+	 * The transaction yields the access token to shape; shaping happens
+	 * outside the transaction error boundary so a programming bug in the
+	 * shaper rejects instead of being misclassified as a transient failure.
 	 */
 	private async refreshStoredTransaction(
 		providerId: string,
 		config: Exclude<OAuthGrantConfig, { grantType: "client-credentials" }>,
 	): Promise<ProviderCredentials | null> {
+		let accessToken: string | null;
 		try {
-			return await this.hooks.withRefreshTransaction(providerId, async () => {
+			accessToken = await this.hooks.withRefreshTransaction(providerId, async () => {
 				const current = await this.hooks.readTokens(providerId);
 				if (!current) return null;
 				if (!this.isExpiring(current, 2)) {
-					return this.hooks.shapeToken(providerId, current.accessToken, config);
+					return current.accessToken;
 				}
 				let refreshed: TokenData;
 				try {
@@ -481,24 +487,25 @@ export class AcquisitionEngine {
 					// invalid_grant and tombstones correctly.
 					this.startRefreshCooldown(providerId);
 					this.logger?.warn(
-						`[ai-credentials] refreshed tokens for ${providerId} could not be persisted; stored tokens kept`,
+						`[ai-credentials] refreshed tokens for ${providerId} could not be persisted (transient); stored tokens kept`,
 						error,
 					);
 					return null;
 				}
-				this.refreshCooldowns.delete(providerId);
 				this.hooks.notifyReady(providerId);
-				return this.hooks.shapeToken(providerId, refreshed.accessToken, config);
+				return refreshed.accessToken;
 			});
 		} catch (error) {
 			// The transaction itself failed (lock/IO) — same policy: keep tokens.
 			this.startRefreshCooldown(providerId);
 			this.logger?.warn(
-				`[ai-credentials] refresh transaction failed for ${providerId}; stored tokens kept`,
+				`[ai-credentials] refresh transaction failed for ${providerId} (transient); stored tokens kept`,
 				error,
 			);
 			return null;
 		}
+		if (accessToken === null) return null;
+		return this.hooks.shapeToken(providerId, accessToken, config);
 	}
 
 	private startRefreshCooldown(providerId: string): void {
@@ -664,7 +671,9 @@ function isTerminalRefreshError(error: unknown): boolean {
 /** Bounded one-line description of a refresh failure for logs. */
 function describeRefreshError(error: unknown): string {
 	if (error instanceof OAuthHttpError) {
-		return error.code ? `http ${error.status}, code ${error.code}` : `http ${error.status}`;
+		const code = error.code ? `, code ${error.code}` : "";
+		// The message carries the bounded server detail (`oauth_http_<status>: <detail>`).
+		return `http ${error.status}${code} [${error.message}]`;
 	}
 	if (error instanceof Error) return error.message;
 	return String(error);

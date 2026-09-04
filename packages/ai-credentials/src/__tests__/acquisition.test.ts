@@ -585,6 +585,7 @@ describe("generalized store-backed acquisition", () => {
 		});
 
 		it("classifies by the RFC 6749 error code even when error_description is present", async () => {
+			const logger = mockLogger();
 			await seedExpiredPositai();
 			vi.stubGlobal(
 				"fetch",
@@ -595,13 +596,18 @@ describe("generalized store-backed acquisition", () => {
 					}),
 				),
 			);
-			const provider = createProvider();
+			const provider = createProvider({}, undefined, logger);
 
 			expect(await provider.getCredentials("positai")).toBeNull();
 			expect(await storedPositai()).toMatchObject({
 				readiness: "unauthenticated",
 				error: "refresh_failed",
 			});
+			const text = loggedText(logger);
+			expect(text).toContain("terminal");
+			expect(text).toContain("http 400");
+			expect(text).toContain("code invalid_grant");
+			expect(text).toContain("The refresh token expired.");
 		});
 
 		it.each([
@@ -648,6 +654,23 @@ describe("generalized store-backed acquisition", () => {
 			tombstone: string | undefined;
 			failTransaction: boolean;
 			failPersist: boolean;
+		}
+
+		function mockLogger() {
+			return {
+				info: vi.fn(),
+				warn: vi.fn(),
+				error: vi.fn(),
+				debug: vi.fn(),
+				trace: vi.fn(),
+			};
+		}
+
+		function loggedText(logger: ReturnType<typeof mockLogger>): string {
+			return [...logger.warn.mock.calls, ...logger.error.mock.calls]
+				.flat()
+				.map((arg) => (arg instanceof Error ? `${arg.name}: ${arg.message}` : String(arg)))
+				.join(" | ");
 		}
 
 		function expiringTokens(): StoredOAuthTokens {
@@ -713,8 +736,9 @@ describe("generalized store-backed acquisition", () => {
 		it("keeps the tokens when the refresh transaction itself fails", async () => {
 			const state = makeEngineState();
 			state.failTransaction = true;
+			const logger = mockLogger();
 			vi.stubGlobal("fetch", vi.fn());
-			const engine = new AcquisitionEngine(makeEngineHooks(state));
+			const engine = new AcquisitionEngine(makeEngineHooks(state), logger);
 
 			await expect(engine.getCredentials("positai")).resolves.toEqual({
 				handled: true,
@@ -722,11 +746,13 @@ describe("generalized store-backed acquisition", () => {
 			});
 			expect(state.tokens).not.toBeNull();
 			expect(state.tombstone).toBeUndefined();
+			expect(loggedText(logger)).toContain("refresh transaction failed for positai (transient)");
 		});
 
 		it("treats a persistence failure after a successful exchange as transient", async () => {
 			const state = makeEngineState();
 			state.failPersist = true;
+			const logger = mockLogger();
 			vi.stubGlobal(
 				"fetch",
 				vi
@@ -735,11 +761,37 @@ describe("generalized store-backed acquisition", () => {
 						ok({ access_token: "fresh", refresh_token: "rotated", expires_in: 3600 }),
 					),
 			);
-			const engine = new AcquisitionEngine(makeEngineHooks(state));
+			const engine = new AcquisitionEngine(makeEngineHooks(state), logger);
 
 			const result = await engine.getCredentials("positai");
 			expect(result.credentials).toBeNull();
 			expect(state.tokens?.accessToken).toBe("old-access");
+			expect(state.tombstone).toBeUndefined();
+			expect(loggedText(logger)).toContain(
+				"refreshed tokens for positai could not be persisted (transient)",
+			);
+		});
+
+		it("lets a credential-shaping programming error reject instead of returning null", async () => {
+			const state = makeEngineState();
+			vi.stubGlobal(
+				"fetch",
+				vi
+					.fn()
+					.mockResolvedValue(
+						ok({ access_token: "fresh", refresh_token: "rotated", expires_in: 3600 }),
+					),
+			);
+			const hooks = makeEngineHooks(state);
+			hooks.shapeToken = () => {
+				throw new Error("shaper bug");
+			};
+			const engine = new AcquisitionEngine(hooks);
+
+			// The rotated tokens were committed, so the defect must surface as a
+			// rejection — not be misdiagnosed as a transient refresh failure.
+			await expect(engine.getCredentials("positai")).rejects.toThrow("shaper bug");
+			expect(state.tokens?.accessToken).toBe("fresh");
 			expect(state.tombstone).toBeUndefined();
 		});
 
