@@ -34,6 +34,35 @@ interface DeviceAuthenticationStart {
 }
 
 const DEFAULT_AUTHORIZATION_TIMEOUT_MS = 5 * 60 * 1000;
+const DEFAULT_REFRESH_TIMEOUT_MS = 30_000;
+const DEFAULT_REFRESH_COOLDOWN_MS = 60_000;
+
+/**
+ * Refresh-failure policy: only a definitive server rejection — one of these
+ * RFC 6749 codes on a 400/401 — may delete the stored tokens. Every other
+ * failure (network, timeout, 429, 5xx, unknown 4xx, malformed body, local
+ * lock/IO) keeps them and retries later.
+ */
+const TERMINAL_REFRESH_CODES = new Set(["invalid_grant", "invalid_client"]);
+
+/** Non-2xx response from an OAuth endpoint, with the parsed RFC 6749 code. */
+class OAuthHttpError extends Error {
+	constructor(
+		readonly status: number,
+		readonly code: string | undefined,
+		message: string,
+	) {
+		super(message);
+		this.name = "OAuthHttpError";
+	}
+}
+
+export interface AcquisitionRefreshPolicy {
+	/** Bound on a single refresh exchange so a hung fetch cannot hold the store lock. */
+	refreshTimeoutMs?: number;
+	/** In-memory per-provider backoff after a transient refresh failure. */
+	refreshCooldownMs?: number;
+}
 
 /** Provider-neutral device/code/client-credentials acquisition state machine. */
 export class AcquisitionEngine {
@@ -41,17 +70,24 @@ export class AcquisitionEngine {
 	private readonly activeById = new Map<string, ActiveAttempt>();
 	private readonly startingProviders = new Set<string>();
 	private readonly refreshPromises = new Map<string, Promise<ProviderCredentials | null>>();
+	private readonly refreshCooldowns = new Map<string, number>();
 	private readonly clientCredentialTokens = new Map<string, StoredOAuthTokens>();
 	private readonly refreshJitterMinutes = 4 + Math.random() * 2;
 	private readonly startPromises = new Set<Promise<unknown>>();
 	private readonly terminalPromises = new Set<Promise<void>>();
+	private readonly refreshTimeoutMs: number;
+	private readonly refreshCooldownMs: number;
 	private disposed = false;
 	private disposalPromise: Promise<void> | undefined;
 
 	constructor(
 		private readonly hooks: AcquisitionBackendHooks,
 		private readonly logger?: Logger,
-	) {}
+		refreshPolicy: AcquisitionRefreshPolicy = {},
+	) {
+		this.refreshTimeoutMs = refreshPolicy.refreshTimeoutMs ?? DEFAULT_REFRESH_TIMEOUT_MS;
+		this.refreshCooldownMs = refreshPolicy.refreshCooldownMs ?? DEFAULT_REFRESH_COOLDOWN_MS;
+	}
 
 	async getCredentials(
 		providerId: string,
@@ -375,31 +411,105 @@ export class AcquisitionEngine {
 	): Promise<ProviderCredentials | null> {
 		const existing = this.refreshPromises.get(providerId);
 		if (existing) return existing;
-		const promise = this.hooks.withRefreshTransaction(providerId, async () => {
-			const current = await this.hooks.readTokens(providerId);
-			if (!current) return null;
-			if (!this.isExpiring(current, 2)) {
-				return this.hooks.shapeToken(providerId, current.accessToken, config);
+		const cooldownUntil = this.refreshCooldowns.get(providerId);
+		if (cooldownUntil !== undefined) {
+			if (cooldownUntil > Date.now()) {
+				this.logger?.debug(
+					`[ai-credentials] refresh for ${providerId} skipped: cooling down after a recent transient failure`,
+				);
+				return Promise.resolve(null);
 			}
-			try {
-				const response = await postForm(config.tokenEndpoint, {
-					grant_type: "refresh_token",
-					client_id: config.clientId,
-					refresh_token: current.refreshToken,
-					...(config.scope ? { scope: config.scope } : {}),
-				});
-				const refreshed = await tokenData(response, false, current.refreshToken);
-				await this.hooks.persistRefreshedTokens(providerId, refreshed);
-				this.hooks.notifyReady(providerId);
-				return this.hooks.shapeToken(providerId, refreshed.accessToken, config);
-			} catch (error) {
-				await this.hooks.persistRefreshError(providerId, "refresh_failed");
-				this.logger?.error(`[ai-credentials] refresh failed for ${providerId}`, error);
-				return null;
-			}
-		});
+			// An expired cooldown is removed before the retry; a successful
+			// refresh therefore never has an entry to clear.
+			this.refreshCooldowns.delete(providerId);
+		}
+		const promise = this.refreshStoredTransaction(providerId, config);
 		this.refreshPromises.set(providerId, promise);
 		return promise.finally(() => this.refreshPromises.delete(providerId));
+	}
+
+	/**
+	 * Refresh under the cross-process store lock. Only a definitive server
+	 * rejection (see {@link TERMINAL_REFRESH_CODES}) tombstones the stored
+	 * tokens; every other failure keeps them so a later attempt can retry.
+	 * The transaction yields the access token to shape; shaping happens
+	 * outside the transaction error boundary so a programming bug in the
+	 * shaper rejects instead of being misclassified as a transient failure.
+	 */
+	private async refreshStoredTransaction(
+		providerId: string,
+		config: Exclude<OAuthGrantConfig, { grantType: "client-credentials" }>,
+	): Promise<ProviderCredentials | null> {
+		let accessToken: string | null;
+		try {
+			accessToken = await this.hooks.withRefreshTransaction(providerId, async () => {
+				const current = await this.hooks.readTokens(providerId);
+				if (!current) return null;
+				if (!this.isExpiring(current, 2)) {
+					return current.accessToken;
+				}
+				let refreshed: TokenData;
+				try {
+					const response = await postForm(
+						config.tokenEndpoint,
+						{
+							grant_type: "refresh_token",
+							client_id: config.clientId,
+							refresh_token: current.refreshToken,
+							...(config.scope ? { scope: config.scope } : {}),
+						},
+						AbortSignal.timeout(this.refreshTimeoutMs),
+					);
+					refreshed = await tokenData(response, false, current.refreshToken);
+				} catch (error) {
+					if (isTerminalRefreshError(error)) {
+						// Re-auth is genuinely required. Classification and the
+						// tombstone stay inside the transaction so a concurrent
+						// refresher cannot overwrite the terminal record.
+						await this.hooks.persistRefreshError(providerId, "refresh_failed");
+						this.logger?.error(
+							`[ai-credentials] refresh rejected for ${providerId} (terminal: ${describeRefreshError(error)}); stored tokens removed`,
+						);
+					} else {
+						this.startRefreshCooldown(providerId);
+						this.logger?.warn(
+							`[ai-credentials] refresh failed for ${providerId} (transient: ${describeRefreshError(error)}); stored tokens kept`,
+						);
+					}
+					return null;
+				}
+				try {
+					await this.hooks.persistRefreshedTokens(providerId, refreshed);
+				} catch (error) {
+					// The exchange succeeded but the rotated tokens could not be
+					// saved. Keep the old record and retry later; if the server
+					// rotated underneath us, the next retry gets a real
+					// invalid_grant and tombstones correctly.
+					this.startRefreshCooldown(providerId);
+					this.logger?.warn(
+						`[ai-credentials] refreshed tokens for ${providerId} could not be persisted (transient); stored tokens kept`,
+						error,
+					);
+					return null;
+				}
+				this.hooks.notifyReady(providerId);
+				return refreshed.accessToken;
+			});
+		} catch (error) {
+			// The transaction itself failed (lock/IO) — same policy: keep tokens.
+			this.startRefreshCooldown(providerId);
+			this.logger?.warn(
+				`[ai-credentials] refresh transaction failed for ${providerId} (transient); stored tokens kept`,
+				error,
+			);
+			return null;
+		}
+		if (accessToken === null) return null;
+		return this.hooks.shapeToken(providerId, accessToken, config);
+	}
+
+	private startRefreshCooldown(providerId: string): void {
+		this.refreshCooldowns.set(providerId, Date.now() + this.refreshCooldownMs);
 	}
 
 	private async getClientCredentials(
@@ -496,42 +606,77 @@ async function postForm(
 		signal,
 	});
 	if (!allowError && !response.ok) {
-		throw new Error(`oauth_http_${response.status}${await oauthErrorDetail(response)}`);
+		const { detail, code } = await oauthErrorInfo(response);
+		throw new OAuthHttpError(response.status, code, `oauth_http_${response.status}${detail}`);
 	}
 	return response;
 }
 
+interface OAuthErrorInfo {
+	/** Message detail including the leading `": "`, or "" when nothing usable. */
+	detail: string;
+	/** Bounded RFC 6749 `error` code, when the body carried one. */
+	code: string | undefined;
+}
+
 /**
  * Best-effort detail for a failed OAuth endpoint call. RFC 6749 §5.2 error
- * bodies are JSON (`{"error": "...", "error_description": "..."}`); prefer
- * the description, fall back to bounded raw text. The status alone
- * (`oauth_http_400`) tells the user nothing — a 400 from device authorization
- * usually means a bad client ID or scope, which the body names explicitly.
+ * bodies are JSON (`{"error": "...", "error_description": "..."}`); the
+ * message prefers the description, while the structured `code` is retained
+ * separately so refresh classification does not depend on message text.
+ * The status alone (`oauth_http_400`) tells the user nothing — a 400 from
+ * device authorization usually means a bad client ID or scope, which the
+ * body names explicitly.
  */
-async function oauthErrorDetail(response: Response): Promise<string> {
+async function oauthErrorInfo(response: Response): Promise<OAuthErrorInfo> {
 	// Bound every candidate the same way: the message is persisted in the
-	// terminal credential record and echoed in status payloads and logs, so
-	// a server must not be able to stuff an arbitrarily large value into it.
+	// terminal credential record and echoed in status payloads and logs, and
+	// the code is logged during refresh classification, so a server must not
+	// be able to stuff an arbitrarily large value into any of them.
 	const bound = (value: string): string => (value.length > 200 ? `${value.slice(0, 200)}…` : value);
 	try {
 		const text = await response.text();
-		if (!text) return "";
+		if (!text) return { detail: "", code: undefined };
 		try {
 			const body: unknown = JSON.parse(text);
 			if (typeof body === "object" && body !== null) {
 				const record = body as Record<string, unknown>;
+				const rawCode = record.error;
+				const code = typeof rawCode === "string" && rawCode ? bound(rawCode) : undefined;
 				const description = record.error_description;
-				if (typeof description === "string" && description) return `: ${bound(description)}`;
-				const code = record.error;
-				if (typeof code === "string" && code) return `: ${bound(code)}`;
+				if (typeof description === "string" && description) {
+					return { detail: `: ${bound(description)}`, code };
+				}
+				if (code) return { detail: `: ${code}`, code };
 			}
 		} catch {
 			// Not JSON — fall through to the raw body.
 		}
-		return `: ${bound(text)}`;
+		return { detail: `: ${bound(text)}`, code: undefined };
 	} catch {
-		return "";
+		return { detail: "", code: undefined };
 	}
+}
+
+/** A definitive server rejection of the refresh token; anything else retries. */
+function isTerminalRefreshError(error: unknown): boolean {
+	return (
+		error instanceof OAuthHttpError &&
+		(error.status === 400 || error.status === 401) &&
+		error.code !== undefined &&
+		TERMINAL_REFRESH_CODES.has(error.code)
+	);
+}
+
+/** Bounded one-line description of a refresh failure for logs. */
+function describeRefreshError(error: unknown): string {
+	if (error instanceof OAuthHttpError) {
+		const code = error.code ? `, code ${error.code}` : "";
+		// The message carries the bounded server detail (`oauth_http_<status>: <detail>`).
+		return `http ${error.status}${code} [${error.message}]`;
+	}
+	if (error instanceof Error) return error.message;
+	return String(error);
 }
 
 async function tokenData(

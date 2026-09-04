@@ -8,17 +8,21 @@ import {
 	createSingleFileStoreFixture,
 	type SingleFileStoreFixture,
 } from "../../tests/helpers/single-file-store-fixture.js";
+import { AcquisitionEngine } from "../acquisition";
 import type {
+	AcquisitionBackendHooks,
 	AuthorizationCodeCallback,
 	AuthorizationCodeReceiver,
 	CredentialSourceContext,
 	OAuthGrantConfig,
 	OAuthProviderConfig,
 	PreparedAuthorizationCodeReceiver,
+	StoredOAuthTokens,
 } from "../Backend";
 import { createCredentialProvider } from "../createCredentialProvider";
 import { createStoreBackend } from "../store-backend/StoreBackend";
 import type { StoredProviderCredentials } from "../store-backend/StoredProviderCredentials";
+import type { Logger } from "../types/index.js";
 
 class TestReceiver implements AuthorizationCodeReceiver {
 	private resolveCallback?: (callback: AuthorizationCodeCallback) => void;
@@ -66,6 +70,7 @@ describe("generalized store-backed acquisition", () => {
 	function createProvider(
 		env: Record<string, string | undefined> = {},
 		authorizationReceiver: AuthorizationCodeReceiver = receiver,
+		logger?: Logger,
 	) {
 		const backend = createStoreBackend({
 			store,
@@ -107,7 +112,7 @@ describe("generalized store-backed acquisition", () => {
 				return undefined;
 			},
 		});
-		return createCredentialProvider({ backend });
+		return createCredentialProvider({ backend, logger });
 	}
 
 	it("completes authorization-code PKCE and rejects a genuinely concurrent local start", async () => {
@@ -456,6 +461,405 @@ describe("generalized store-backed acquisition", () => {
 			expect(await store.get<StoredProviderCredentials>("auth:positai:oauth")).toMatchObject({
 				readiness: "unauthenticated",
 				error: "cancelled",
+			});
+		});
+	});
+
+	describe("refresh resilience through the store backend", () => {
+		const err = (status: number, body: unknown): Response =>
+			new Response(typeof body === "string" ? body : JSON.stringify(body), {
+				status,
+				headers: { "Content-Type": "application/json" },
+			});
+
+		function mockLogger() {
+			return {
+				info: vi.fn(),
+				warn: vi.fn(),
+				error: vi.fn(),
+				debug: vi.fn(),
+				trace: vi.fn(),
+			};
+		}
+
+		function loggedText(logger: ReturnType<typeof mockLogger>): string {
+			return [...logger.warn.mock.calls, ...logger.error.mock.calls]
+				.flat()
+				.map((arg) => (arg instanceof Error ? `${arg.name}: ${arg.message}` : String(arg)))
+				.join(" | ");
+		}
+
+		function expiredPositaiRecord(): StoredProviderCredentials {
+			const expiresAt = new Date(Date.now() - 60_000).toISOString();
+			return {
+				generation: "seed-generation",
+				readiness: "ready",
+				source: "oauth-device",
+				configured: true,
+				authenticated: true,
+				oauthAuth: {
+					tokenData: {
+						accessToken: "old-access",
+						refreshToken: "old-refresh",
+						expiresAt,
+						tokenType: "Bearer",
+						scope: "prism",
+					},
+					expiresAt,
+					scope: "prism",
+				},
+			};
+		}
+
+		async function seedExpiredPositai(): Promise<StoredProviderCredentials> {
+			const record = expiredPositaiRecord();
+			await store.set("auth:positai:oauth", record);
+			return record;
+		}
+
+		function storedPositai(): Promise<StoredProviderCredentials | undefined> {
+			return store.get<StoredProviderCredentials>("auth:positai:oauth");
+		}
+
+		it("refreshes an expired token and persists the rotated tokens", async () => {
+			await seedExpiredPositai();
+			vi.stubGlobal(
+				"fetch",
+				vi.fn().mockResolvedValue(
+					ok({
+						access_token: "fresh-access",
+						refresh_token: "fresh-refresh",
+						expires_in: 3600,
+						token_type: "Bearer",
+						scope: "prism",
+					}),
+				),
+			);
+			const provider = createProvider();
+
+			expect(await provider.getCredentials("positai")).toEqual({
+				type: "oauth",
+				accessToken: "fresh-access",
+			});
+			expect(await storedPositai()).toMatchObject({
+				readiness: "ready",
+				authenticated: true,
+				oauthAuth: {
+					tokenData: { accessToken: "fresh-access", refreshToken: "fresh-refresh" },
+				},
+			});
+		});
+
+		it("keeps the stored tokens and ready record when refresh hits a network error", async () => {
+			const seeded = await seedExpiredPositai();
+			const bytesBefore = fixture.readBytes();
+			const logger = mockLogger();
+			vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
+			const provider = createProvider({}, undefined, logger);
+
+			expect(await provider.getCredentials("positai")).toBeNull();
+			expect(await storedPositai()).toEqual(seeded);
+			expect(fixture.readBytes().equals(bytesBefore)).toBe(true);
+			expect(loggedText(logger)).toContain("transient");
+		});
+
+		it.each([
+			{ status: 400, code: "invalid_grant" },
+			{ status: 401, code: "invalid_client" },
+		])("tombstones on a definitive server rejection ($status $code)", async ({ status, code }) => {
+			const logger = mockLogger();
+			await seedExpiredPositai();
+			vi.stubGlobal("fetch", vi.fn().mockResolvedValue(err(status, { error: code })));
+			const provider = createProvider({}, undefined, logger);
+
+			expect(await provider.getCredentials("positai")).toBeNull();
+			expect(await storedPositai()).toMatchObject({
+				readiness: "unauthenticated",
+				authenticated: false,
+				error: "refresh_failed",
+			});
+			const text = loggedText(logger);
+			expect(text).toContain("terminal");
+			expect(text).toContain(String(status));
+			expect(text).toContain(code);
+		});
+
+		it("classifies by the RFC 6749 error code even when error_description is present", async () => {
+			const logger = mockLogger();
+			await seedExpiredPositai();
+			vi.stubGlobal(
+				"fetch",
+				vi.fn().mockResolvedValue(
+					err(400, {
+						error: "invalid_grant",
+						error_description: "The refresh token expired.",
+					}),
+				),
+			);
+			const provider = createProvider({}, undefined, logger);
+
+			expect(await provider.getCredentials("positai")).toBeNull();
+			expect(await storedPositai()).toMatchObject({
+				readiness: "unauthenticated",
+				error: "refresh_failed",
+			});
+			const text = loggedText(logger);
+			expect(text).toContain("terminal");
+			expect(text).toContain("http 400");
+			expect(text).toContain("code invalid_grant");
+			expect(text).toContain("The refresh token expired.");
+		});
+
+		it.each([
+			["429 rate limit", err(429, { error: "slow_down" })],
+			["500 server error", err(500, { error: "server_error" })],
+			["503 plain text", err(503, "Service Unavailable")],
+			["400 unknown code", err(400, { error: "temporarily_unavailable" })],
+			["401 unknown code", err(401, { error: "unauthorized_client" })],
+			["400 non-JSON body", new Response("<html>proxy error</html>", { status: 400 })],
+			["200 malformed token body", ok({ refresh_token: "orphan" })],
+			[
+				"400 non-terminal code with description",
+				err(400, {
+					error: "temporarily_unavailable",
+					error_description: "try again later",
+				}),
+			],
+		])("keeps the stored record on a transient failure: %s", async (_label, response) => {
+			const seeded = await seedExpiredPositai();
+			vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+			const provider = createProvider();
+
+			expect(await provider.getCredentials("positai")).toBeNull();
+			expect(await storedPositai()).toEqual(seeded);
+		});
+
+		it("bounds an overlong error code and never classifies it as terminal", async () => {
+			const seeded = await seedExpiredPositai();
+			const logger = mockLogger();
+			vi.stubGlobal("fetch", vi.fn().mockResolvedValue(err(400, { error: "x".repeat(500) })));
+			const provider = createProvider({}, undefined, logger);
+
+			expect(await provider.getCredentials("positai")).toBeNull();
+			expect(await storedPositai()).toEqual(seeded);
+			const text = loggedText(logger);
+			expect(text).toContain("transient");
+			expect(text).not.toContain("x".repeat(250));
+		});
+	});
+
+	describe("AcquisitionEngine refresh policy", () => {
+		interface EngineState {
+			tokens: StoredOAuthTokens | null;
+			tombstone: string | undefined;
+			failTransaction: boolean;
+			failPersist: boolean;
+		}
+
+		function mockLogger() {
+			return {
+				info: vi.fn(),
+				warn: vi.fn(),
+				error: vi.fn(),
+				debug: vi.fn(),
+				trace: vi.fn(),
+			};
+		}
+
+		function loggedText(logger: ReturnType<typeof mockLogger>): string {
+			return [...logger.warn.mock.calls, ...logger.error.mock.calls]
+				.flat()
+				.map((arg) => (arg instanceof Error ? `${arg.name}: ${arg.message}` : String(arg)))
+				.join(" | ");
+		}
+
+		function expiringTokens(): StoredOAuthTokens {
+			return {
+				accessToken: "old-access",
+				refreshToken: "old-refresh",
+				expiresAt: new Date(Date.now() - 60_000).toISOString(),
+				tokenType: "Bearer",
+				scope: "prism",
+			};
+		}
+
+		function makeEngineState(): EngineState {
+			return {
+				tokens: expiringTokens(),
+				tombstone: undefined,
+				failTransaction: false,
+				failPersist: false,
+			};
+		}
+
+		function makeEngineHooks(state: EngineState): AcquisitionBackendHooks {
+			const config: OAuthGrantConfig = {
+				grantType: "device-code",
+				clientId: "posit-ai",
+				scope: "prism",
+				deviceAuthorizationEndpoint: "https://auth.test/oauth/device/authorize",
+				tokenEndpoint: "https://auth.test/oauth/token",
+			};
+			return {
+				configForProvider: () => Promise.resolve(config),
+				readTokens: () => Promise.resolve(state.tokens),
+				beginAuthentication: () => Promise.resolve("generation"),
+				commitAuthentication: () => Promise.resolve("committed"),
+				finishAuthentication: () => Promise.resolve("committed"),
+				persistRefreshedTokens: (_providerId, tokens) => {
+					if (state.failPersist) {
+						return Promise.reject(new Error("EACCES: permission denied"));
+					}
+					state.tokens = {
+						accessToken: tokens.accessToken,
+						refreshToken: tokens.refreshToken,
+						expiresAt: new Date(Date.now() + tokens.expiresIn * 1000).toISOString(),
+						tokenType: tokens.tokenType,
+						scope: tokens.scope,
+					};
+					return Promise.resolve();
+				},
+				persistRefreshError: (_providerId, error) => {
+					state.tombstone = error;
+					state.tokens = null;
+					return Promise.resolve();
+				},
+				withRefreshTransaction: (_providerId, operation) =>
+					state.failTransaction
+						? Promise.reject(new Error("ELOCKED: file is locked"))
+						: operation(),
+				shapeToken: (_providerId, accessToken) => ({ type: "oauth", accessToken }),
+				notifyReady: () => {},
+			};
+		}
+
+		it("keeps the tokens when the refresh transaction itself fails", async () => {
+			const state = makeEngineState();
+			state.failTransaction = true;
+			const logger = mockLogger();
+			vi.stubGlobal("fetch", vi.fn());
+			const engine = new AcquisitionEngine(makeEngineHooks(state), logger);
+
+			await expect(engine.getCredentials("positai")).resolves.toEqual({
+				handled: true,
+				credentials: null,
+			});
+			expect(state.tokens).not.toBeNull();
+			expect(state.tombstone).toBeUndefined();
+			expect(loggedText(logger)).toContain("refresh transaction failed for positai (transient)");
+		});
+
+		it("treats a persistence failure after a successful exchange as transient", async () => {
+			const state = makeEngineState();
+			state.failPersist = true;
+			const logger = mockLogger();
+			vi.stubGlobal(
+				"fetch",
+				vi
+					.fn()
+					.mockResolvedValue(
+						ok({ access_token: "fresh", refresh_token: "rotated", expires_in: 3600 }),
+					),
+			);
+			const engine = new AcquisitionEngine(makeEngineHooks(state), logger);
+
+			const result = await engine.getCredentials("positai");
+			expect(result.credentials).toBeNull();
+			expect(state.tokens?.accessToken).toBe("old-access");
+			expect(state.tombstone).toBeUndefined();
+			expect(loggedText(logger)).toContain(
+				"refreshed tokens for positai could not be persisted (transient)",
+			);
+		});
+
+		it("lets a credential-shaping programming error reject instead of returning null", async () => {
+			const state = makeEngineState();
+			vi.stubGlobal(
+				"fetch",
+				vi
+					.fn()
+					.mockResolvedValue(
+						ok({ access_token: "fresh", refresh_token: "rotated", expires_in: 3600 }),
+					),
+			);
+			const hooks = makeEngineHooks(state);
+			hooks.shapeToken = () => {
+				throw new Error("shaper bug");
+			};
+			const engine = new AcquisitionEngine(hooks);
+
+			// The rotated tokens were committed, so the defect must surface as a
+			// rejection — not be misdiagnosed as a transient refresh failure.
+			await expect(engine.getCredentials("positai")).rejects.toThrow("shaper bug");
+			expect(state.tokens?.accessToken).toBe("fresh");
+			expect(state.tombstone).toBeUndefined();
+		});
+
+		it("aborts a hung refresh at the configured timeout and keeps the tokens", async () => {
+			const state = makeEngineState();
+			let observedSignal: AbortSignal | undefined;
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(
+					(_url: string, init?: RequestInit) =>
+						new Promise<Response>((_resolve, reject) => {
+							observedSignal = init?.signal ?? undefined;
+							observedSignal?.addEventListener("abort", () => reject(observedSignal.reason));
+						}),
+				),
+			);
+			const engine = new AcquisitionEngine(makeEngineHooks(state), undefined, {
+				refreshTimeoutMs: 50,
+			});
+
+			const result = await engine.getCredentials("positai");
+			expect(result.credentials).toBeNull();
+			expect(observedSignal?.aborted).toBe(true);
+			expect(state.tokens).not.toBeNull();
+			expect(state.tombstone).toBeUndefined();
+		});
+
+		describe("cooldown", () => {
+			beforeEach(() => vi.useFakeTimers());
+			afterEach(() => vi.useRealTimers());
+
+			it("suppresses immediate retries after a transient failure and retries after the interval", async () => {
+				const state = makeEngineState();
+				const fetchMock = vi.fn().mockRejectedValue(new TypeError("fetch failed"));
+				vi.stubGlobal("fetch", fetchMock);
+				const engine = new AcquisitionEngine(makeEngineHooks(state));
+
+				await engine.getCredentials("positai");
+				expect(state.tokens).not.toBeNull();
+				await engine.getCredentials("positai");
+				expect(fetchMock).toHaveBeenCalledTimes(1);
+
+				await vi.advanceTimersByTimeAsync(61_000);
+				await engine.getCredentials("positai");
+				expect(fetchMock).toHaveBeenCalledTimes(2);
+			});
+
+			it("does not suppress the next needed refresh after a success", async () => {
+				const state = makeEngineState();
+				const fetchMock = vi
+					.fn()
+					.mockRejectedValueOnce(new TypeError("fetch failed"))
+					.mockResolvedValue(
+						ok({ access_token: "fresh", refresh_token: "rotated", expires_in: 3600 }),
+					);
+				vi.stubGlobal("fetch", fetchMock);
+				const engine = new AcquisitionEngine(makeEngineHooks(state));
+
+				await engine.getCredentials("positai");
+				await vi.advanceTimersByTimeAsync(61_000);
+				expect((await engine.getCredentials("positai")).credentials).toEqual({
+					type: "oauth",
+					accessToken: "fresh",
+				});
+
+				state.tokens = expiringTokens();
+				await engine.getCredentials("positai");
+				expect(fetchMock).toHaveBeenCalledTimes(3);
 			});
 		});
 	});
