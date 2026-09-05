@@ -24,6 +24,12 @@ describe("mergeProviderTools", () => {
 		).toThrowError(/local tool named "web_search"/);
 	});
 
+	it("rejects when a local tool occupies the google_search key", () => {
+		expect(() =>
+			mergeProviderTools({ google_search: localTool() }, { google_search: providerTool() }),
+		).toThrowError(/local tool named "google_search"/);
+	});
+
 	it("leaves a like-named local tool untouched when no provider tool needs its key", () => {
 		const local = localTool();
 		const merged = mergeProviderTools({ web_search: local }, { google_search: providerTool() });
