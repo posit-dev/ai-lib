@@ -272,6 +272,7 @@ interface ProviderSignature {
 	clientKind: string;
 	connection: string; // JSON-serialized for comparison
 	connectionProvenance: string; // JSON-serialized for comparison
+	authPolicy: string; // JSON-serialized for comparison
 	models: string; // JSON-serialized for comparison
 }
 
@@ -281,6 +282,7 @@ function toSignature(p: ResolvedProvider): ProviderSignature {
 		clientKind: p.clientKind,
 		connection: JSON.stringify(p.connection),
 		connectionProvenance: JSON.stringify(p.connectionProvenance),
+		authPolicy: JSON.stringify(p.authPolicy),
 		models: JSON.stringify(p.models),
 	};
 }
@@ -328,10 +330,14 @@ function diffCatalogs(
 		if (prev.enabled !== curr.enabled) {
 			enabledChanged = true;
 		}
+		// An auth-policy-only change (e.g. toggling a custom entry's
+		// `apiKeyOptional`) is activation-relevant — credentials must be
+		// re-synthesized — so it lands in the connection category.
 		if (
 			prev.clientKind !== curr.clientKind ||
 			prev.connection !== curr.connection ||
-			prev.connectionProvenance !== curr.connectionProvenance
+			prev.connectionProvenance !== curr.connectionProvenance ||
+			prev.authPolicy !== curr.authPolicy
 		) {
 			connectionChanged = true;
 		}

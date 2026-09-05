@@ -189,6 +189,46 @@ describe("watchResolvedProviderCatalog", () => {
 		expect(change.connectionChanged).toBe(true);
 	});
 
+	it("should fire connectionChanged on an auth-policy-only toggle", async () => {
+		// Toggling only `apiKeyOptional` must be activation-relevant: the
+		// runtime re-synthesizes credentials through the connection category.
+		await fixture.writeTypedConfig({
+			providers: {
+				custom: {
+					"corp-proxy": {
+						type: "anthropic",
+						baseUrl: "http://localhost:8443",
+					},
+				},
+			},
+		});
+		const probe = createChangeProbe();
+		const watcher = watchResolvedProviderCatalog(probe.handler, { configPath, logger: mockLogger });
+		await awaitReady(watcher);
+
+		const policyToggle = probe.next((change) => change.connectionChanged, "auth policy toggle");
+		await fixture.writeTypedConfigAtomic({
+			providers: {
+				custom: {
+					"corp-proxy": {
+						type: "anthropic",
+						baseUrl: "http://localhost:8443",
+						apiKeyOptional: true,
+					},
+				},
+			},
+		});
+		const toggleChange = await policyToggle;
+		watcher.dispose();
+
+		expect(toggleChange.connectionChanged).toBe(true);
+		expect(toggleChange.enabledChanged).toBe(false);
+		expect(toggleChange.modelsChanged).toBe(false);
+		expect(
+			toggleChange.catalog.find((provider) => provider.id === "corp-proxy")?.authPolicy,
+		).toEqual({ apiKeyOptional: true, source: "user" });
+	});
+
 	// PROVIDER-SETTINGS-MIGRATION(legacy-positron) gate: delete this test with
 	// the loader option.
 	it("should rebuild and emit when the legacy Positron reader signals a change", async () => {

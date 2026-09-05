@@ -135,6 +135,33 @@ export const SUPPORTED_CUSTOM_CLIENT_KIND_VALUES = [
 
 export type SupportedCustomClientKind = (typeof SUPPORTED_CUSTOM_CLIENT_KIND_VALUES)[number];
 
+/**
+ * Kind-level `apiKeyOptional` defaults for supported custom client kinds —
+ * whether a provider of that kind can be used without an API key when the
+ * entry does not author `apiKeyOptional` itself.
+ *
+ * A **local mirror** of the `apiKeyOptional` values in `ai-credentials/types`'
+ * `CUSTOM_CLIENT_KIND_AUTH_DESCRIPTORS` (leaf-import discipline — see
+ * {@link SUPPORTED_CUSTOM_CLIENT_KIND_VALUES}). A compile-time shape guard in
+ * `ai-lib/typechecks/` asserts the literal values stay equal.
+ */
+export const CUSTOM_KIND_API_KEY_OPTIONAL_DEFAULT = {
+	"openai-compatible": true,
+	anthropic: false,
+	openai: false,
+	gemini: false,
+	aws: false,
+	snowflake: false,
+	"google-vertex": false,
+	ollama: false,
+	lmstudio: false,
+	deepseek: false,
+	openrouter: false,
+	"ms-foundry": false,
+	litellm: true,
+	portkey: true,
+} as const satisfies Record<SupportedCustomClientKind, boolean>;
+
 // ---------------------------------------------------------------------------
 // Reserved keys in the providers map
 // ---------------------------------------------------------------------------

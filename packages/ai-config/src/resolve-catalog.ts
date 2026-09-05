@@ -29,10 +29,13 @@ import type {
 	BuiltinProviderBlock,
 	LoggerLike,
 	ProvidersConfig,
+	ResolvedAuthPolicySource,
 	ResolvedConnectionFieldSource,
 	ResolvedConnectionProvenance,
+	ResolvedCustomAuthPolicy,
 	ResolvedProvider,
 } from "./types.js";
+import { CUSTOM_KIND_API_KEY_OPTIONAL_DEFAULT } from "./vocabulary.js";
 
 // ---------------------------------------------------------------------------
 // Source model
@@ -213,10 +216,70 @@ export function resolveProviderCatalogReport(
 		.filter((s): s is ProviderConfigSource => s.kind !== "env")
 		.map<EnablementLayer>((s) => s.config.providers);
 	const connectionProvenance = resolveConnectionProvenance(kept, config);
+	const authPolicies = resolveAuthPolicies(kept, config);
 	return {
-		catalog: buildCatalog(config, enabledLayers, connectionProvenance),
+		catalog: buildCatalog(config, enabledLayers, connectionProvenance, authPolicies),
 		issues,
 	};
+}
+
+/**
+ * Resolve every custom entry's API-key policy and its provenance from the
+ * retained source stack (`kept`, ordered highest precedence first).
+ *
+ * The effective value is the client kind's default OR the highest-precedence
+ * authored `apiKeyOptional`; the source names the highest retained layer that
+ * authors the field, or `"kind-default"` when none does. Provenance is
+ * resolved here — not reconstructed downstream — because comparing effective
+ * vs. authored values cannot distinguish an overridable default from an
+ * enforced value when they are equal.
+ *
+ * The internal env source is excluded from the search: connection env vars
+ * never carry `apiKeyOptional` (`readEnvConnectionConfig` emits connection
+ * fields only).
+ */
+function resolveAuthPolicies(
+	kept: readonly RankedConfigSource[],
+	config: ProvidersConfig,
+): ReadonlyMap<string, ResolvedCustomAuthPolicy> {
+	const result = new Map<string, ResolvedCustomAuthPolicy>();
+	const customEntries = config.providers?.custom;
+	if (!customEntries) {
+		return result;
+	}
+	for (const [name, entry] of Object.entries(customEntries)) {
+		const kindDefault = CUSTOM_KIND_API_KEY_OPTIONAL_DEFAULT[entry.type];
+		// Only the anthropic variant carries the authored field; full-schema
+		// validation of the merged config has already rejected it elsewhere.
+		const authored = entry.type === "anthropic" ? entry.apiKeyOptional : undefined;
+		const authoringSource = kept.find(
+			(source): source is ProviderConfigSource =>
+				source.kind !== "env" &&
+				source.config.providers?.custom?.[name]?.apiKeyOptional !== undefined,
+		);
+		result.set(name, {
+			apiKeyOptional: kindDefault || (authored ?? false),
+			source: authPolicySource(authoringSource),
+		});
+	}
+	return result;
+}
+
+/** Map a retained source's kind onto the narrow auth-policy provenance. */
+function authPolicySource(source: ProviderConfigSource | undefined): ResolvedAuthPolicySource {
+	if (!source) {
+		return "kind-default";
+	}
+	switch (source.kind) {
+		case "enforced":
+		case "legacy-positron-enforced": // PROVIDER-SETTINGS-MIGRATION(legacy-positron)
+			return "enforced";
+		case "default":
+			return "default";
+		case "user":
+		case "legacy-positron": // PROVIDER-SETTINGS-MIGRATION(legacy-positron)
+			return "user";
+	}
 }
 
 /**

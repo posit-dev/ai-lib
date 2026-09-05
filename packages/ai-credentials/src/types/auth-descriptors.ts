@@ -71,8 +71,14 @@ type SupportedCustomClientKind = (typeof SUPPORTED_CUSTOM_CLIENT_KIND_VALUES)[nu
  * `satisfies Record<SupportedCustomClientKind, CustomAuthMapping>` ensures
  * every tuple value has an entry and every entry is a valid tuple value —
  * omissions or typos are compile errors.
+ *
+ * Exported (as const, so the `apiKeyOptional` literals are visible to the
+ * type system) so the compile-time shape guard in `ai-lib/typechecks/` can
+ * assert ai-config's `CUSTOM_KIND_API_KEY_OPTIONAL_DEFAULT` mirror stays
+ * equal. Runtime consumers should prefer {@link CUSTOM_CLIENT_KIND_AUTH_MAP}
+ * or {@link resolveCustomAuthMapping}.
  */
-const CUSTOM_CLIENT_KIND_AUTH_DESCRIPTORS = {
+export const CUSTOM_CLIENT_KIND_AUTH_DESCRIPTORS = {
 	"openai-compatible": { authMethodId: "apikey", apiKeyOptional: true },
 	anthropic: { authMethodId: "apikey", apiKeyOptional: false },
 	openai: { authMethodId: "apikey", apiKeyOptional: false },
@@ -96,6 +102,29 @@ const CUSTOM_CLIENT_KIND_AUTH_DESCRIPTORS = {
 export const CUSTOM_CLIENT_KIND_AUTH_MAP: ReadonlyMap<string, CustomAuthMapping> = new Map(
 	Object.entries(CUSTOM_CLIENT_KIND_AUTH_DESCRIPTORS),
 );
+
+/**
+ * Resolve the effective auth mapping for a custom provider ENTRY.
+ *
+ * The kind-level descriptor supplies the defaults; an entry's authored
+ * `apiKeyOptional` (providers.json `providers.custom.<id>.apiKeyOptional`)
+ * relaxes the key requirement — effective optionality is the kind default OR
+ * the entry value. An authored `false` can never tighten a kind that is
+ * key-optional by default. Returns `undefined` for kinds with no descriptor.
+ */
+export function resolveCustomAuthMapping(
+	clientKind: string,
+	entry?: { readonly apiKeyOptional?: boolean },
+): CustomAuthMapping | undefined {
+	const kindMapping = CUSTOM_CLIENT_KIND_AUTH_MAP.get(clientKind);
+	if (!kindMapping) {
+		return undefined;
+	}
+	if (entry?.apiKeyOptional === undefined) {
+		return kindMapping;
+	}
+	return { ...kindMapping, apiKeyOptional: kindMapping.apiKeyOptional || entry.apiKeyOptional };
+}
 
 /**
  * Client kinds supported as custom provider `type` values (as a Set for
