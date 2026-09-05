@@ -146,6 +146,28 @@ describe("OpenAI web search wire requests", () => {
 		},
 	);
 
+	it("rejects webSearchEnabled on the MLflow Responses route before any request", async () => {
+		// Databricks' MLflow route shares the Responses wire shape but not
+		// OpenAI's hosted web_search tool.
+		const fetchCapture = createRawFetchCapture(async () => new Response());
+		const client = new OpenAIClient({
+			apiKey: "sk-test",
+			apiMode: "responses",
+			customFetch: () => fetchCapture.mock,
+		});
+
+		await expect(
+			client.chat({
+				model: "gpt-5.6-sol",
+				protocol: "mlflow-responses",
+				messages,
+				webSearchEnabled: true,
+				cancellationToken,
+			}),
+		).rejects.toThrow(/MLflow/);
+		expect(fetchCapture.mock).not.toHaveBeenCalled();
+	});
+
 	it("rejects a local tool occupying the reserved web_search key", async () => {
 		const fetchCapture = createRawFetchCapture(async () => new Response());
 		const client = new OpenAIClient({

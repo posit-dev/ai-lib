@@ -88,15 +88,29 @@ export class OpenAIClient implements ModelClient {
 			effectiveApiMode = this.apiMode;
 		}
 
-		// Hosted web search exists only on the Responses wire shape. Reject an
-		// explicit request on the Chat Completions route before any network
-		// call rather than silently dropping the requested capability.
-		if (params.webSearchEnabled && effectiveApiMode !== "responses") {
+		// Hosted web search exists only on OpenAI's own Responses route.
+		// Databricks' MLflow Responses route shares the Responses wire shape
+		// but not OpenAI's hosted tools, so the coarse API-mode check is not
+		// enough — reject it explicitly, along with Chat Completions, before
+		// any network call rather than silently dropping the requested
+		// capability.
+		if (
+			params.webSearchEnabled &&
+			(effectiveApiMode !== "responses" || normalizedProtocol === "mlflow-responses")
+		) {
 			throw new Error(
 				`webSearchEnabled requires the OpenAI Responses API, but this request routes to ` +
-					`Chat Completions (model: ${params.model})`,
+					`${normalizedProtocol === "mlflow-responses" ? "the Databricks MLflow Responses API" : "Chat Completions"} ` +
+					`(model: ${params.model})`,
 			);
 		}
+
+		// Attach the hosted web_search tool when requested, with OpenAI's
+		// default search options. The merged record is the single source for
+		// both `tools` and `toolChoice`. Compute it before any cancellation
+		// registration below: a rejected merge (provider-tool name collision)
+		// throws synchronously and must not leak the abort subscription.
+		const tools = mergeOpenAIWebSearchTool(params.tools, params.webSearchEnabled === true);
 
 		// Per-request routing override wins over the constructor value. The URL is
 		// trusted as given — bare-host correction happens at the config seam
@@ -156,11 +170,6 @@ export class OpenAIClient implements ModelClient {
 		});
 		messagesToSend = prepared.messages;
 		const promptCacheKey = prepared.promptCacheKey;
-
-		// Attach the hosted web_search tool when requested, with OpenAI's
-		// default search options. The merged record is the single source for
-		// both `tools` and `toolChoice`.
-		const tools = mergeOpenAIWebSearchTool(params.tools, params.webSearchEnabled === true);
 
 		const useThinking = isThinkingEnabled(params.thinkingEffort);
 		const providerOptions =

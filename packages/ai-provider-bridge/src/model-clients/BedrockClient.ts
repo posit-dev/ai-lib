@@ -105,6 +105,18 @@ export class BedrockClient implements ModelClient {
 			);
 		}
 
+		// Attach the hosted web_search tool when requested. The guard above
+		// guarantees this only happens on the Mantle Responses route. Mantle
+		// requires an explicit `external_web_access` boolean: AWS defaults it to
+		// `true`, so omission would widen the egress boundary — default the
+		// omitted policy to `false`. The merged record is the single source for
+		// both `tools` and `toolChoice`. Compute it before any cancellation
+		// registration below: a rejected merge (provider-tool name collision)
+		// throws synchronously and must not leak the abort subscription.
+		const tools = mergeOpenAIWebSearchTool(params.tools, params.webSearchEnabled === true, {
+			externalWebAccess: params.bedrockExternalWebAccess ?? false,
+		});
+
 		const transport = await resolveBedrockTransport({
 			region: this.config.region,
 			profile: this.config.profile,
@@ -210,16 +222,6 @@ export class BedrockClient implements ModelClient {
 		if (isAnthropic) {
 			messagesToSend = sanitizeToolCallIdsForAnthropic(messagesToSend, this.logger);
 		}
-
-		// Attach the hosted web_search tool when requested. The guard above
-		// guarantees this only happens on the Mantle Responses route. Mantle
-		// requires an explicit `external_web_access` boolean: AWS defaults it to
-		// `true`, so omission would widen the egress boundary — default the
-		// omitted policy to `false`. The merged record is the single source for
-		// both `tools` and `toolChoice`.
-		const tools = mergeOpenAIWebSearchTool(params.tools, params.webSearchEnabled === true, {
-			externalWebAccess: params.bedrockExternalWebAccess ?? false,
-		});
 
 		// Stream the response
 		const result = streamText({

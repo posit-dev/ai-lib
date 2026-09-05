@@ -259,5 +259,87 @@ describe("finalizeWebSearchCapability", () => {
 				),
 			).toBe(false);
 		});
+
+		it("treats an unknown FIPS state as ineligible", () => {
+			// The host could not resolve the transport configuration; request-time
+			// resolution may still discover FIPS, so the capability fails closed.
+			expect(
+				finalizeWebSearchCapability(
+					makeResolved("openai.gpt-5.6-sol", { resolvedProtocol: "openai-responses" }),
+					true,
+					MANTLE("us-east-1", undefined),
+				),
+			).toBe(false);
+		});
+	});
+
+	describe("Gemini", () => {
+		const GEMINI_BUILTIN: WebSearchServing = { kind: "gemini-builtin" };
+		const GEMINI_CUSTOM: WebSearchServing = { kind: "gemini-custom" };
+		// The discovered stand-in for a verified 3.x model on Google-hosted
+		// discovery (the bridge gates discovery on its verified-model list).
+		const VERIFIED = { supportsWebSearch: true };
+
+		it("classifies the built-in Gemini provider and custom Gemini providers", () => {
+			expect(resolveWebSearchServing({ id: "gemini", clientKind: "gemini" })).toEqual({
+				kind: "gemini-builtin",
+			});
+			expect(resolveWebSearchServing({ id: "my-gemini", clientKind: "gemini" })).toEqual({
+				kind: "gemini-custom",
+			});
+		});
+
+		it("keeps the discovered capability on the canonical endpoint", () => {
+			expect(
+				finalizeWebSearchCapability(
+					makeResolved("gemini-3.8-flash", VERIFIED),
+					undefined,
+					GEMINI_BUILTIN,
+				),
+			).toBe(true);
+			expect(
+				finalizeWebSearchCapability(
+					makeResolved("gemini-3.8-flash", {
+						...VERIFIED,
+						resolvedBaseUrl: "https://generativelanguage.googleapis.com/v1beta",
+					}),
+					undefined,
+					GEMINI_BUILTIN,
+				),
+			).toBe(true);
+		});
+
+		it("fails closed on a redirected built-in endpoint, even with an explicit opt-in", () => {
+			expect(
+				finalizeWebSearchCapability(
+					makeResolved("gemini-3.8-flash", {
+						...VERIFIED,
+						resolvedBaseUrl: "https://gateway.example.com/gemini",
+					}),
+					true,
+					GEMINI_BUILTIN,
+				),
+			).toBe(false);
+		});
+
+		it("honors an explicit opt-out on the canonical endpoint", () => {
+			expect(
+				finalizeWebSearchCapability(
+					makeResolved("gemini-3.8-flash", VERIFIED),
+					false,
+					GEMINI_BUILTIN,
+				),
+			).toBe(false);
+		});
+
+		it("never enables for custom Gemini providers, even with an explicit opt-in", () => {
+			expect(
+				finalizeWebSearchCapability(
+					makeResolved("gemini-3.8-flash", VERIFIED),
+					true,
+					GEMINI_CUSTOM,
+				),
+			).toBe(false);
+		});
 	});
 });

@@ -26,11 +26,16 @@
  * 5. Bedrock requires a documented Mantle GPT family, the Mantle Responses
  *    route, a web-search-enabled region, and no FIPS veto. An explicit
  *    `false` disables it; an explicit `true` cannot bypass the service gates.
- * 6. Providers outside this policy keep their already-resolved capability
+ * 6. Gemini search grounding is implemented only by `GeminiClient` against
+ *    Google's hosted Interactions endpoint, so only the built-in `gemini`
+ *    provider on its canonical endpoint may keep its (verified-model-gated)
+ *    discovered capability. A redirected built-in endpoint and every custom
+ *    Gemini provider resolve to `false`, regardless of any override.
+ * 7. Providers outside this policy keep their already-resolved capability
  *    unchanged (no context is built for them).
  */
 
-import { OPENAI_API_VERSION, OPENAI_HOST } from "../base-url.js";
+import { GEMINI_API_VERSION, GEMINI_HOST, OPENAI_API_VERSION, OPENAI_HOST } from "../base-url.js";
 import { BEDROCK_DEFAULTS } from "../defaults.js";
 import type { ResolvedConnection, ResolvedModelInfo } from "../types.js";
 import type { ClientKind } from "../vocabulary.js";
@@ -52,6 +57,9 @@ const MANTLE_WEB_SEARCH_REGIONS: ReadonlySet<string> = new Set([
 /** The canonical OpenAI Responses API root (host + version segment). */
 const OPENAI_CANONICAL_BASE_URL = `${OPENAI_HOST}/${OPENAI_API_VERSION}`;
 
+/** The canonical Google-hosted Gemini API root (host + version segment). */
+const GEMINI_CANONICAL_BASE_URL = `${GEMINI_HOST}/${GEMINI_API_VERSION}`;
+
 /**
  * The serving contexts the web-search policy applies to. Providers that fit
  * none of these keep their discovered/declared capability untouched.
@@ -59,16 +67,17 @@ const OPENAI_CANONICAL_BASE_URL = `${OPENAI_HOST}/${OPENAI_API_VERSION}`;
 export type WebSearchServing =
 	| { readonly kind: "openai-builtin" }
 	| { readonly kind: "openai-custom" }
+	| { readonly kind: "gemini-builtin" }
+	| { readonly kind: "gemini-custom" }
 	| {
 			readonly kind: "bedrock-mantle";
 			/** Effective AWS region (credential-synthesis fallback applied). */
 			readonly awsRegion: string;
 			/**
 			 * Whether AWS FIPS endpoints are mandated. `undefined` means the
-			 * host could not determine it; Mantle discovery already withholds
-			 * Mantle models under FIPS, and the client vetoes the route at
-			 * request time, so an unknown flag fails safe for discovered
-			 * models.
+			 * host could not determine it; finalization treats an unknown flag
+			 * as ineligible (fail closed) rather than advertising a capability
+			 * request-time transport resolution may veto.
 			 */
 			readonly awsFips: boolean | undefined;
 	  };
@@ -94,6 +103,11 @@ export function resolveWebSearchServing(
 		// every other built-in (databricks, ms-foundry, openai-compatible, …)
 		// has its own kind and stays outside the policy.
 		return { kind: provider.id === "openai" ? "openai-builtin" : "openai-custom" };
+	}
+	if (provider.clientKind === "gemini") {
+		// Likewise, only the built-in `gemini` provider is Google-hosted;
+		// custom Gemini providers get their own resolved ids.
+		return { kind: provider.id === "gemini" ? "gemini-builtin" : "gemini-custom" };
 	}
 	if (provider.clientKind === "aws") {
 		return {
@@ -128,6 +142,27 @@ export function finalizeWebSearchCapability(
 		return model.supportsWebSearch;
 	}
 
+	if (serving.kind === "gemini-builtin" || serving.kind === "gemini-custom") {
+		// Rule 6: Google Search grounding exists only on Google's hosted
+		// Interactions endpoint. The registrar that discovered the model is
+		// not evidence of the endpoint that will serve it — built-in Gemini
+		// credentials can carry a redirected base URL — so gate on the
+		// resolved endpoint instead. No override opts a non-Google endpoint
+		// in: the client hardcodes Google's Interactions wire contract.
+		if (serving.kind === "gemini-custom") {
+			return false;
+		}
+		if (explicit === false) {
+			return false;
+		}
+		if (!isCanonicalGeminiEndpoint(model.resolvedBaseUrl)) {
+			return false;
+		}
+		// The discovered value already carries the verified-model gate;
+		// an explicit `true` cannot bypass it.
+		return model.supportsWebSearch;
+	}
+
 	if (serving.kind === "bedrock-mantle") {
 		// Rule 5: every gate is a service fact; no override can bypass them.
 		// Unlike the OpenAI client kinds, Bedrock has no Responses default —
@@ -135,7 +170,9 @@ export function finalizeWebSearchCapability(
 		if (model.resolvedProtocol !== "openai-responses") {
 			return false;
 		}
-		if (serving.awsFips === true) {
+		if (serving.awsFips !== false) {
+			// FIPS vetoes Mantle web search; an unknown flag fails closed too,
+			// since request-time transport resolution may still discover FIPS.
 			return false;
 		}
 		if (!MANTLE_WEB_SEARCH_REGIONS.has(serving.awsRegion)) {
@@ -183,4 +220,16 @@ function isCanonicalOpenAIEndpoint(baseUrl: string | undefined): boolean {
 		return true;
 	}
 	return baseUrl.replace(/\/+$/, "") === OPENAI_CANONICAL_BASE_URL;
+}
+
+/**
+ * Whether the effective base URL is Google's canonical Gemini API root. An
+ * unresolved base URL means the client falls back to its built-in default,
+ * which is the canonical endpoint.
+ */
+function isCanonicalGeminiEndpoint(baseUrl: string | undefined): boolean {
+	if (baseUrl === undefined) {
+		return true;
+	}
+	return baseUrl.replace(/\/+$/, "") === GEMINI_CANONICAL_BASE_URL;
 }
