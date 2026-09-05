@@ -51,7 +51,11 @@ export function getBedrockMantleModelCapabilities(
 			supportsImages: true,
 			supportedInputMediaTypes: IMAGE_MEDIA_TYPES,
 			supportsToolResultImages: true,
-			supportsWebSearch: false,
+			// AWS documents Mantle-hosted web search for the GPT-5.4/5.5/5.6
+			// families on the Responses route. This is the intrinsic family
+			// rule; region, FIPS, and routing gates are applied later, at
+			// capability finalization (see model-capabilities/web-search.ts).
+			supportsWebSearch: true,
 			// Verified family-wide on 2026-07-28. "off" maps to wire value "none".
 			thinkingEffortLevels: GPT_5_EFFORT_LEVELS,
 		};
@@ -68,7 +72,8 @@ export function getBedrockMantleModelCapabilities(
 			supportsImages: true,
 			supportedInputMediaTypes: IMAGE_MEDIA_TYPES,
 			supportsToolResultImages: true,
-			supportsWebSearch: false,
+			// Documented Mantle web-search family (see the GPT-5.6 note above).
+			supportsWebSearch: true,
 			thinkingEffortLevels: GPT_5_EFFORT_LEVELS,
 		};
 	}

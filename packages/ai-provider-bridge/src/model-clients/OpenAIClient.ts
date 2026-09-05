@@ -27,6 +27,7 @@ import {
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 import { prepareExplicitOpenAIRequest } from "./openai-prompt-caching";
+import { mergeOpenAIWebSearchTool } from "./provider-tools";
 import { withRawHttpLogging } from "./raw-http-logging";
 
 export type OpenAIApiMode = "completions" | "responses";
@@ -85,6 +86,16 @@ export class OpenAIClient implements ModelClient {
 			}
 		} else {
 			effectiveApiMode = this.apiMode;
+		}
+
+		// Hosted web search exists only on the Responses wire shape. Reject an
+		// explicit request on the Chat Completions route before any network
+		// call rather than silently dropping the requested capability.
+		if (params.webSearchEnabled && effectiveApiMode !== "responses") {
+			throw new Error(
+				`webSearchEnabled requires the OpenAI Responses API, but this request routes to ` +
+					`Chat Completions (model: ${params.model})`,
+			);
 		}
 
 		// Per-request routing override wins over the constructor value. The URL is
@@ -146,6 +157,11 @@ export class OpenAIClient implements ModelClient {
 		messagesToSend = prepared.messages;
 		const promptCacheKey = prepared.promptCacheKey;
 
+		// Attach the hosted web_search tool when requested, with OpenAI's
+		// default search options. The merged record is the single source for
+		// both `tools` and `toolChoice`.
+		const tools = mergeOpenAIWebSearchTool(params.tools, params.webSearchEnabled === true);
+
 		const useThinking = isThinkingEnabled(params.thinkingEffort);
 		const providerOptions =
 			usesExplicitPromptCaching || useThinking
@@ -177,8 +193,8 @@ export class OpenAIClient implements ModelClient {
 			messages: messagesToSend,
 			system: params.systemPrompt,
 			maxOutputTokens: params.maxOutputTokens, // Respect caller's value!
-			tools: params.tools,
-			toolChoice: params.tools ? "auto" : undefined,
+			tools,
+			toolChoice: tools ? "auto" : undefined,
 			abortSignal: abortController.signal,
 			providerOptions,
 			onError: suppressAiSdkDefaultErrorLogging,

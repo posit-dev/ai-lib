@@ -31,6 +31,17 @@ describe("Bedrock Mantle capability rules", () => {
 		expect(getBedrockMantleModelCapabilities("openai.future-model")).toBeUndefined();
 	});
 
+	it("marks only the documented GPT-5.4/5.5/5.6 families as web-search capable", () => {
+		for (const id of ["openai.gpt-5.4", "openai.gpt-5.5", "openai.gpt-5.6-sol", "openai.gpt-5.6"]) {
+			expect(getBedrockMantleModelCapabilities(id)?.supportsWebSearch).toBe(true);
+		}
+		// gpt-oss and unknown/future families stay search-incapable; a newly
+		// supported family requires a deliberate table update.
+		for (const id of ["openai.gpt-oss-120b", "openai.gpt-5.9", "openai.gpt-5.6-unknown"]) {
+			expect(getBedrockMantleModelCapabilities(id)?.supportsWebSearch).toBe(false);
+		}
+	});
+
 	it("pins known older GPT-5.x releases at 272K without inventing an output ceiling", () => {
 		for (const id of ["openai.gpt-5.4", "openai.gpt-5.5"]) {
 			const gpt5 = getBedrockMantleModelCapabilities(id);

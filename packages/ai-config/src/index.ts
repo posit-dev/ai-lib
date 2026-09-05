@@ -155,6 +155,11 @@ export {
 
 // --- Resolution helpers (public) -------------------------------------------
 export { resolveModels } from "./resolve-models.js";
+export {
+	finalizeWebSearchCapability,
+	resolveWebSearchServing,
+} from "./model-capabilities/web-search.js";
+export type { WebSearchServing } from "./model-capabilities/web-search.js";
 
 // --- Bare-host base URL correction ------------------------------------------
 export {

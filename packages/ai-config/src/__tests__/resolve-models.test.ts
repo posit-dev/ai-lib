@@ -4,6 +4,7 @@
 
 import { describe, it, expect } from "vitest";
 
+import type { WebSearchServing } from "../model-capabilities/web-search.js";
 import { resolveModels } from "../resolve-models.js";
 import type { ModelInfoLike, ModelsBlock, ResolvedConnection } from "../types.js";
 
@@ -429,5 +430,96 @@ describe("resolveModels", () => {
 		expect(result[0].name).toBe("Model A (patched)");
 		expect(result[0].resolvedProtocol).toBe("openai-chat");
 		expect(result[1].id).toBe("custom-1");
+	});
+
+	// --- Web-search capability finalization ---
+
+	describe("web-search finalization", () => {
+		const openaiBuiltin: WebSearchServing = { kind: "openai-builtin" };
+
+		it("passes capabilities through when no serving context is supplied", () => {
+			const block: ModelsBlock = {
+				overrides: { "model-a": { supportsWebSearch: true } },
+			};
+			const result = resolveModels(block, discovered, undefined, undefined);
+			expect(result.find((m) => m.id === "model-a")?.supportsWebSearch).toBe(true);
+		});
+
+		it("defaults built-in OpenAI Responses models on at the canonical endpoint", () => {
+			const result = resolveModels(undefined, discovered, undefined, openaiBuiltin);
+			expect(result.map((m) => m.supportsWebSearch)).toEqual([true, true, true]);
+		});
+
+		it("honors an explicit override opt-out at the canonical endpoint", () => {
+			const block: ModelsBlock = {
+				overrides: { "model-a": { supportsWebSearch: false } },
+			};
+			const result = resolveModels(block, discovered, undefined, openaiBuiltin);
+			expect(result.find((m) => m.id === "model-a")?.supportsWebSearch).toBe(false);
+			expect(result.find((m) => m.id === "model-b")?.supportsWebSearch).toBe(true);
+		});
+
+		it("defaults a provider-level endpoint redirect off unless a model opts in explicitly", () => {
+			const connection: ResolvedConnection = { baseUrl: "https://gateway.example.com/v1" };
+			const block: ModelsBlock = {
+				overrides: { "model-a": { supportsWebSearch: true } },
+			};
+			const result = resolveModels(block, discovered, connection, openaiBuiltin);
+			expect(result.find((m) => m.id === "model-a")?.supportsWebSearch).toBe(true);
+			expect(result.find((m) => m.id === "model-b")?.supportsWebSearch).toBe(false);
+		});
+
+		it("treats a custom declaration's supportsWebSearch as an explicit user choice", () => {
+			const block: ModelsBlock = {
+				custom: [
+					{
+						id: "custom-search",
+						name: "Custom Search",
+						maxContextLength: 50000,
+						supportsTools: true,
+						supportsImages: false,
+						supportsToolResultImages: false,
+						supportsWebSearch: true,
+						protocol: "openai-responses",
+					},
+				],
+			};
+			const customOpenAI: WebSearchServing = { kind: "openai-custom" };
+			const result = resolveModels(block, [], undefined, customOpenAI);
+			expect(result[0].supportsWebSearch).toBe(true);
+		});
+
+		it("drops the capability when an override reroutes the model off Responses", () => {
+			const block: ModelsBlock = {
+				overrides: { "model-a": { protocol: "openai-chat" } },
+			};
+			const result = resolveModels(block, discovered, undefined, openaiBuiltin);
+			expect(result.find((m) => m.id === "model-a")?.supportsWebSearch).toBe(false);
+			expect(result.find((m) => m.id === "model-b")?.supportsWebSearch).toBe(true);
+		});
+
+		it("applies the Mantle service gates after routing resolution", () => {
+			const mantle: WebSearchServing = {
+				kind: "bedrock-mantle",
+				awsRegion: "us-west-2",
+				awsFips: false,
+			};
+			const mantleDiscovered = [
+				makeModel("openai.gpt-5.6-sol", {
+					supportsWebSearch: true,
+					protocol: "openai-responses",
+				}),
+				makeModel("openai.gpt-oss-120b", { protocol: "openai-chat" }),
+			];
+			const block: ModelsBlock = {
+				overrides: {
+					// An explicit opt-in cannot make gpt-oss search-capable.
+					"openai.gpt-oss-120b": { supportsWebSearch: true, protocol: "openai-responses" },
+				},
+			};
+			const result = resolveModels(block, mantleDiscovered, undefined, mantle);
+			expect(result.find((m) => m.id === "openai.gpt-5.6-sol")?.supportsWebSearch).toBe(true);
+			expect(result.find((m) => m.id === "openai.gpt-oss-120b")?.supportsWebSearch).toBe(false);
+		});
 	});
 });

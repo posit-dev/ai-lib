@@ -82,6 +82,11 @@ export type { ProviderRegistrationConfig } from "./register-all-providers";
 // Bedrock SSO utilities
 export { isAwsSsoProfileConfigured, parseAwsConfig } from "./providers/bedrock-sso";
 
+// Bedrock transport policy (FIPS/Mantle availability), shared by discovery,
+// inference, and host capability finalization
+export { resolveBedrockTransport } from "./providers/bedrock-transport";
+export type { BedrockTransport } from "./providers/bedrock-transport";
+
 // Google Vertex display-name and model-classification helpers
 export {
 	claudeDisplayName,

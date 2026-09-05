@@ -34,6 +34,7 @@ import {
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 import { prepareExplicitOpenAIRequest } from "./openai-prompt-caching";
+import { mergeOpenAIWebSearchTool } from "./provider-tools";
 import { withRawHttpLogging } from "./raw-http-logging";
 
 const EXPLICIT_PROMPT_CACHE_OPTIONS: { mode: "explicit"; ttl: "30m" } = {
@@ -90,6 +91,18 @@ export class BedrockClient implements ModelClient {
 			normalizedProtocol !== "openai-responses"
 		) {
 			throw new Error(`Unsupported protocol for Bedrock: ${normalizedProtocol}`);
+		}
+
+		// Hosted web search exists only on the Mantle Responses route (which
+		// speaks the OpenAI Responses wire shape). Reject an explicit request on
+		// any other route before any network call rather than silently dropping
+		// the requested capability.
+		if (params.webSearchEnabled && normalizedProtocol !== "openai-responses") {
+			throw new Error(
+				`webSearchEnabled is only supported on the Bedrock Mantle Responses route, but this ` +
+					`request routes to ${normalizedProtocol ?? "the inferred Converse/Anthropic route"} ` +
+					`(model: ${params.model})`,
+			);
 		}
 
 		const transport = await resolveBedrockTransport({
@@ -198,6 +211,16 @@ export class BedrockClient implements ModelClient {
 			messagesToSend = sanitizeToolCallIdsForAnthropic(messagesToSend, this.logger);
 		}
 
+		// Attach the hosted web_search tool when requested. The guard above
+		// guarantees this only happens on the Mantle Responses route. Mantle
+		// requires an explicit `external_web_access` boolean: AWS defaults it to
+		// `true`, so omission would widen the egress boundary — default the
+		// omitted policy to `false`. The merged record is the single source for
+		// both `tools` and `toolChoice`.
+		const tools = mergeOpenAIWebSearchTool(params.tools, params.webSearchEnabled === true, {
+			externalWebAccess: params.bedrockExternalWebAccess ?? false,
+		});
+
 		// Stream the response
 		const result = streamText({
 			allowSystemInMessages: params.allowSystemInMessages,
@@ -208,8 +231,8 @@ export class BedrockClient implements ModelClient {
 			// historic Bedrock fallback on Mantle Responses; all existing routes
 			// retain it, and gpt-oss discovery supplies 16,384 explicitly.
 			maxOutputTokens: isMantleResponses ? params.maxOutputTokens : params.maxOutputTokens || 4096,
-			tools: params.tools,
-			toolChoice: params.tools ? "auto" : undefined,
+			tools,
+			toolChoice: tools ? "auto" : undefined,
 			abortSignal: abortController.signal,
 			providerOptions,
 			// Capture raw JSON on each step finish
