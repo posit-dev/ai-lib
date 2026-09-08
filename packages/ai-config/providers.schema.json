@@ -1148,6 +1148,10 @@
               {
                 "additionalProperties": false,
                 "properties": {
+                  "apiKeyOptional": {
+                    "description": "Whether an API key is optional for this provider. Set to true when the endpoint authenticates another way, such as a local proxy that adds SSO credentials, so no API key needs to be configured.",
+                    "type": "boolean"
+                  },
                   "baseUrl": {
                     "description": "Base URL for the provider's API. Some providers need a version segment: `https://api.anthropic.com/v1` for Anthropic, `https://api.openai.com/v1` for OpenAI, and `https://generativelanguage.googleapis.com/v1beta` for Gemini. A bare host will fail for those.",
                     "type": "string"

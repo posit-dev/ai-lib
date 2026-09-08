@@ -197,6 +197,35 @@ export interface ResolvedConnectionProvenance {
 }
 
 /**
+ * Origin of a custom provider's resolved `apiKeyOptional` policy.
+ *
+ * - `"kind-default"` — no retained config source authors the field; the
+ *   effective value is the client kind's built-in default.
+ * - `"default"` — the admin defaults layer (`POSIT_AI_PROVIDERS_DEFAULT`)
+ *   authors it; a user write overrides it.
+ * - `"user"` — the mutable user layer (or non-enforced legacy settings)
+ *   authors it.
+ * - `"enforced"` — an admin-enforced overlay authors it; the user layer
+ *   cannot override it.
+ */
+export type ResolvedAuthPolicySource = "kind-default" | "default" | "user" | "enforced";
+
+/**
+ * A custom provider's resolved API-key policy: the effective
+ * `apiKeyOptional` value (the client kind's default OR the
+ * highest-precedence authored value) plus the provenance of that value.
+ * Provenance is resolved alongside the value — comparing effective vs.
+ * authored values cannot distinguish an overridable default from an enforced
+ * value when they are equal.
+ */
+export interface ResolvedCustomAuthPolicy {
+	/** Effective value: kind default OR the highest-precedence authored value. */
+	readonly apiKeyOptional: boolean;
+	/** Where the effective value came from. */
+	readonly source: ResolvedAuthPolicySource;
+}
+
+/**
  * A resolved provider entry in the catalog — the uniform shape consumers
  * iterate instead of the static PROVIDER_REGISTRY.
  *
@@ -223,6 +252,14 @@ export interface ResolvedProvider {
 
 	/** Origin metadata for connection fields whose source affects behavior. */
 	readonly connectionProvenance: ResolvedConnectionProvenance;
+
+	/**
+	 * Resolved API-key policy — present only for CUSTOM providers, whose
+	 * `providers.custom.<id>.apiKeyOptional` field can relax the client
+	 * kind's key requirement. Absent for built-in providers: their auth
+	 * requirements are owned by the provider registry, not providers.json.
+	 */
+	readonly authPolicy?: ResolvedCustomAuthPolicy;
 
 	/** Model policy and custom declarations, if configured. */
 	readonly models: ModelsBlock | undefined;

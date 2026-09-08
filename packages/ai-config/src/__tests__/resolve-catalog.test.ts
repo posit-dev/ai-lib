@@ -207,6 +207,141 @@ describe("resolveProviderCatalog — tightened-schema recovery", () => {
 	});
 });
 
+describe("resolveProviderCatalog — custom provider auth policy", () => {
+	const anthropicEntry = {
+		type: "anthropic",
+		baseUrl: "http://localhost:8443",
+	} as const;
+
+	it("resolves the kind default when no source authors apiKeyOptional", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("user", {
+					providers: {
+						custom: {
+							"corp-proxy": { ...anthropicEntry },
+							gateway: { type: "openai-compatible", baseUrl: "https://gw.example.com" },
+						},
+					},
+				}),
+			],
+			envVars: {},
+		});
+
+		// anthropic requires a key by kind; openai-compatible is key-optional.
+		expect(find(catalog, "corp-proxy")?.authPolicy).toEqual({
+			apiKeyOptional: false,
+			source: "kind-default",
+		});
+		expect(find(catalog, "gateway")?.authPolicy).toEqual({
+			apiKeyOptional: true,
+			source: "kind-default",
+		});
+		// Built-in providers carry no auth policy.
+		expect(find(catalog, "anthropic")?.authPolicy).toBeUndefined();
+	});
+
+	it("a user-authored true relaxes a custom anthropic entry", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("user", {
+					providers: {
+						custom: { "corp-proxy": { ...anthropicEntry, apiKeyOptional: true } },
+					},
+				}),
+			],
+			envVars: {},
+		});
+
+		expect(find(catalog, "corp-proxy")?.authPolicy).toEqual({
+			apiKeyOptional: true,
+			source: "user",
+		});
+	});
+
+	it("enforced false shadows a user-authored true (value AND provenance)", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				// enforced fragment sets only the policy; user completes `type`.
+				source("enforced", {
+					providers: { custom: { "corp-proxy": { apiKeyOptional: false } } },
+				}),
+				source("user", {
+					providers: {
+						custom: { "corp-proxy": { ...anthropicEntry, apiKeyOptional: true } },
+					},
+				}),
+			],
+			envVars: {},
+		});
+
+		expect(find(catalog, "corp-proxy")?.authPolicy).toEqual({
+			apiKeyOptional: false,
+			source: "enforced",
+		});
+	});
+
+	it("attributes provenance to enforced even when user authors the SAME value", () => {
+		// Equal values: comparing effective vs. authored cannot distinguish an
+		// overridable default from an enforced pin — provenance must come from
+		// the retained source stack.
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("enforced", {
+					providers: { custom: { "corp-proxy": { apiKeyOptional: true } } },
+				}),
+				source("user", {
+					providers: {
+						custom: { "corp-proxy": { ...anthropicEntry, apiKeyOptional: true } },
+					},
+				}),
+			],
+			envVars: {},
+		});
+
+		expect(find(catalog, "corp-proxy")?.authPolicy).toEqual({
+			apiKeyOptional: true,
+			source: "enforced",
+		});
+	});
+
+	it("a default-layer value applies when user is silent, and user overrides it", () => {
+		const defaulted = resolveProviderCatalog({
+			sources: [
+				source("default", {
+					providers: { custom: { "corp-proxy": { apiKeyOptional: true } } },
+				}),
+				source("user", {
+					providers: { custom: { "corp-proxy": { ...anthropicEntry } } },
+				}),
+			],
+			envVars: {},
+		});
+		expect(find(defaulted, "corp-proxy")?.authPolicy).toEqual({
+			apiKeyOptional: true,
+			source: "default",
+		});
+
+		const overridden = resolveProviderCatalog({
+			sources: [
+				source("default", {
+					providers: { custom: { "corp-proxy": { apiKeyOptional: true } } },
+				}),
+				source("user", {
+					providers: {
+						custom: { "corp-proxy": { ...anthropicEntry, apiKeyOptional: false } },
+					},
+				}),
+			],
+			envVars: {},
+		});
+		expect(find(overridden, "corp-proxy")?.authPolicy).toEqual({
+			apiKeyOptional: false,
+			source: "user",
+		});
+	});
+});
+
 describe("resolveProviderCatalog — cross-layer custom completion", () => {
 	it("keeps a lower partial custom source completed by a higher source", () => {
 		const logger = { debug: vi.fn(), warn: vi.fn() };

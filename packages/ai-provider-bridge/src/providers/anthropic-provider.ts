@@ -66,9 +66,13 @@ function createAnthropicModelFetcher(
 			);
 			return `${base}/models`;
 		},
-		hasCredentials: (credentials) => Boolean(credentials.apiKey),
+		// An empty-string key is the canonical anonymous signal (auth-less
+		// custom providers whose endpoint needs no key, e.g. an
+		// SSO-authenticating proxy): discovery proceeds without a credential
+		// header. Only a MISSING key falls back to the static model list.
+		hasCredentials: (credentials) => typeof credentials.apiKey === "string",
 		createHeaders: (credentials) => ({
-			"x-api-key": credentials.apiKey,
+			...(credentials.apiKey !== "" ? { "x-api-key": credentials.apiKey } : {}),
 			"anthropic-version": "2023-06-01",
 		}),
 		parseResponse: (data: unknown) => {
