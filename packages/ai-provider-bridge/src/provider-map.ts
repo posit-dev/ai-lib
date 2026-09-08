@@ -20,7 +20,9 @@ export const PROVIDER_MAP: Partial<Record<ProviderId, AuthProviderMapping>> = {
 	gemini: { authProviderId: "google", scopes: [], credentialType: "apikey" },
 	litellm: { authProviderId: "litellm", scopes: [], credentialType: "apikey" },
 	portkey: { authProviderId: "portkey", scopes: [], credentialType: "apikey" },
-	"posit-connect": { authProviderId: "posit-connect", scopes: [], credentialType: "apikey" },
+	// `posit-connect` as an auth provider id belongs to Posit Publisher, which
+	// registers it for deployment credentials. This is the LLM gateway's key.
+	"posit-connect": { authProviderId: "posit-connect-llm", scopes: [], credentialType: "apikey" },
 	"openai-compatible": {
 		authProviderId: "openai-compatible",
 		scopes: [],
