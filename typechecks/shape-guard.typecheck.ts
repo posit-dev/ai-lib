@@ -172,6 +172,11 @@ const _supportedCustomKindsEqual: TupleEqual<
 // map's own `satisfies Record<SupportedCustomClientKind, …>`.
 // ---------------------------------------------------------------------------
 
+// Each key maps to `true` on agreement and `false` on mismatch; indexing the
+// mapped type unions the per-key results. The mismatch branch must be `false`,
+// never `never`: `never` is absorbed by any union (`true | never` collapses to
+// `true`) and `[never] extends [true]` PASSES, so a `never` branch would let
+// one — or even every — mismatch slip through.
 type ApiKeyOptionalDefaultsMatch = {
 	[K in keyof typeof CUSTOM_CLIENT_KIND_AUTH_DESCRIPTORS]: [
 		(typeof CUSTOM_KIND_API_KEY_OPTIONAL_DEFAULT)[K],
@@ -180,8 +185,8 @@ type ApiKeyOptionalDefaultsMatch = {
 				(typeof CUSTOM_KIND_API_KEY_OPTIONAL_DEFAULT)[K],
 			]
 			? true
-			: never
-		: never;
+			: false
+		: false;
 }[keyof typeof CUSTOM_CLIENT_KIND_AUTH_DESCRIPTORS];
 
 const _apiKeyOptionalDefaultsMatch: [ApiKeyOptionalDefaultsMatch] extends [true] ? true : never =
