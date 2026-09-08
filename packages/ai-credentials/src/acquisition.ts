@@ -429,7 +429,7 @@ export class AcquisitionEngine {
 	}
 
 	/**
-	 * Refresh under the cross-process store lock. Only a definitive server
+	 * Refresh under the backing store's transaction boundary. Only a definitive server
 	 * rejection (see {@link TERMINAL_REFRESH_CODES}) tombstones the stored
 	 * tokens; every other failure keeps them so a later attempt can retry.
 	 * The transaction yields the access token to shape; shaping happens
