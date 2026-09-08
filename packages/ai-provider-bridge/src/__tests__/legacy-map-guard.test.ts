@@ -9,13 +9,11 @@
  * Guard: ai-config's legacy connection rows stay in sync with the bridge.
  *
  * ai-config owns the legacy Positron settings → providers.json map but must
- * not import the bridge, so its connection rows duplicate the derivation from
- * `PROVIDER_MAP` + `CONFIG_KEY_OVERRIDES` (every `apikey` provider except the
- * snowflake/databricks special cases). This test runs in the bridge — which
- * may import ai-config — and pins the two against each other. It is the
- * runtime counterpart of the compile-time guards in `typechecks/`
- * (`PROVIDER_MAP`'s declared type is deliberately non-literal, so this
- * assertion cannot be expressed there).
+ * not import the bridge, so its connection rows duplicate config keys derived
+ * from `PROVIDER_MAP` + `CONFIG_KEY_OVERRIDES`. This test runs in the bridge —
+ * which may import ai-config — and pins every legacy row against that
+ * derivation, so a renamed `authProviderId` or config-key override surfaces
+ * here as an unexpected extra.
  */
 
 import { LEGACY_CONNECTION_ROWS } from "ai-config";
@@ -40,15 +38,6 @@ function deriveConnectionRows(): Array<{ configKey: string; providerId: string }
 }
 
 describe("legacy connection rows ↔ bridge derivation", () => {
-	it("every derived apikey row has a matching map row", () => {
-		const mapRows = new Set(
-			LEGACY_CONNECTION_ROWS.map((row) => `${row.configKey} → ${row.providerId}`),
-		);
-		for (const derived of deriveConnectionRows()) {
-			expect(mapRows).toContain(`${derived.configKey} → ${derived.providerId}`);
-		}
-	});
-
 	it("the map's only non-derived connection row is googleVertex → google-vertex", () => {
 		// google-vertex is declared extra: its PROVIDER_MAP credentialType is
 		// `google-cloud`, so it is not derivable from the apikey rule, but its

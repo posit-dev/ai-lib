@@ -18,6 +18,9 @@ export const PROVIDER_MAP: Partial<Record<ProviderId, AuthProviderMapping>> = {
 	positai: { authProviderId: "posit-ai", scopes: ["positai"], credentialType: "oauth" },
 	openai: { authProviderId: "openai-api", scopes: [], credentialType: "apikey" },
 	gemini: { authProviderId: "google", scopes: [], credentialType: "apikey" },
+	litellm: { authProviderId: "litellm", scopes: [], credentialType: "apikey" },
+	portkey: { authProviderId: "portkey", scopes: [], credentialType: "apikey" },
+	"posit-connect": { authProviderId: "posit-connect", scopes: [], credentialType: "apikey" },
 	"openai-compatible": {
 		authProviderId: "openai-compatible",
 		scopes: [],
