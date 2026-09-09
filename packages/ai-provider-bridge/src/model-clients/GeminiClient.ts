@@ -14,18 +14,20 @@
 
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { APICallError } from "@ai-sdk/provider";
+import type * as ai from "ai";
 import type { ModelMessage } from "ai";
 import { streamText } from "ai";
 
 import { safeSdkCustomHeaders } from "../custom-headers";
 import { getGeminiInteractionsProfile } from "../model-capabilities/gemini-interactions";
-import type { AiToolWithJsonSchema, LMStreamPart, Logger } from "../types";
+import type { LMStreamPart, Logger } from "../types";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
 	createStepLogger,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
+import { mergeProviderTools } from "./provider-tools";
 import { withRawHttpLogging } from "./raw-http-logging";
 
 // ---------------------------------------------------------------------------
@@ -380,6 +382,20 @@ export class GeminiClient implements ModelClient {
 			previousInteractionId,
 		});
 
+		// Build the request toolset. Callers supply only local tools; when web
+		// search is explicitly enabled per-request, attach Google's server-side
+		// Search grounding tool under the fixed `google_search` key. The merged
+		// record is wider than the public contract (provider-defined tools have
+		// no JSON-schema input), so the widening is absorbed here. The merge
+		// rejects a local tool occupying the reserved key rather than silently
+		// overwriting it.
+		let tools: Record<string, ai.Tool> | undefined = params.tools;
+		if (params.webSearchEnabled) {
+			tools = mergeProviderTools(params.tools, {
+				google_search: provider.tools.googleSearch({}),
+			});
+		}
+
 		// [diagnostics] Record the outgoing chaining decision so we can correlate
 		// it with any server rejection (400 invalid_argument / 404 not found).
 		this.logger?.debug(
@@ -404,8 +420,8 @@ export class GeminiClient implements ModelClient {
 			messages: requestMessages,
 			system: params.systemPrompt,
 			maxOutputTokens: params.maxOutputTokens,
-			tools: params.tools,
-			toolChoice: params.tools ? ("auto" as const) : undefined,
+			tools,
+			toolChoice: tools ? ("auto" as const) : undefined,
 			abortSignal: abortController.signal,
 			providerOptions,
 			onStepFinish: createStepLogger(params.stepLoggers || [], "gemini", params.model),
@@ -460,7 +476,7 @@ export class GeminiClient implements ModelClient {
 			messages: ModelMessage[];
 			system?: string;
 			maxOutputTokens?: number;
-			tools?: Record<string, AiToolWithJsonSchema>;
+			tools?: Record<string, ai.Tool>;
 			toolChoice?: "auto";
 			abortSignal: AbortSignal;
 			providerOptions: { google: Record<string, string | number | boolean | null> };

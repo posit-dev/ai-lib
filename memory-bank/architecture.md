@@ -189,6 +189,51 @@ permissions are not needed after subscription. AWS's
 zero-retention guarantee: AWS account/project retention policy is configured
 separately and may still retain data according to that policy.
 
+### Hosted web search on the OpenAI Responses transports
+
+Direct OpenAI Responses and Bedrock Mantle Responses share one hosted-tool
+seam: `mergeOpenAIWebSearchTool()` (`src/model-clients/provider-tools.ts`)
+attaches the SDK's `openai.tools.webSearch(...)` provider tool under the
+fixed `web_search` key, merging through `mergeProviderTools()` so a local
+tool occupying that key rejects the request instead of being silently
+overwritten. Both routes run the AI SDK's `OpenAIResponsesLanguageModel`, so
+the same provider tool serializes correctly on either, and callers derive
+`toolChoice` from the single merged record the helper returns. (The SDK
+factory's return type is re-wrapped into this repo's `ai.Tool` because
+`@ai-sdk/openai` and `ai` pin different `@ai-sdk/provider-utils` copies whose
+unique-symbol schema brands are nominally incompatible; provider tools
+serialize from `id`/`args` alone, so the re-wrap loses nothing.)
+
+Each client vetoes an incompatible route before any network call —
+`OpenAIClient` rejects `webSearchEnabled` unless the effective mode is
+Responses, and `BedrockClient` rejects it unless the resolved protocol is
+`openai-responses` (Mantle Chat, Converse, and Anthropic Messages carry no
+hosted search). The veto is defense in depth for non-host consumers; whether
+a model may advertise the toggle at all is decided upstream, at ai-config's
+capability finalization seam (see `memory-bank/aiConfig.md` → "Web-search
+capability finalization").
+
+Mantle search has its own IAM namespace and egress boundary:
+
+- Retrieval needs `bedrock-websearch:InvokeSearch` and
+  `bedrock-websearch:InvokeFetch` in addition to the Mantle inference
+  permissions above. The commonly used `AmazonBedrockFullAccess` policy
+  grants Search and Fetch but **not** external access. PA never probes these
+  actions during discovery — permission varies by identity and the invocation
+  error is authoritative.
+- `external_web_access` controls whether a cache-miss Fetch may reach the
+  live external page; when off, retrieval is restricted to AWS's own web
+  index and cache. AWS defaults an omitted flag to `true`, which would widen
+  the egress boundary, so `BedrockClient` always serializes an explicit
+  boolean from the optional `ModelClientChatParams.bedrockExternalWebAccess`
+  (omission defaults to `false`). Enabling it additionally requires the
+  `bedrock-websearch:ExternalWebAccess` IAM action. Direct OpenAI omits the
+  option and keeps OpenAI's own defaults.
+- AWS documents web search only for specific Mantle GPT model families and a
+  region allowlist narrower than Mantle inference availability; both gates
+  are applied at capability finalization, and FIPS vetoes the route entirely
+  (AWS publishes no Mantle FIPS endpoint).
+
 ### Databricks: pinned surface + native protocol dispatch
 
 Databricks fronts many vendors behind one workspace on one of two surfaces —

@@ -34,6 +34,14 @@ export interface ModelClientChatParams {
 	contextLength?: number;
 	/** Whether provider-side web search should be enabled for this request. */
 	webSearchEnabled?: boolean;
+	/**
+	 * Whether Bedrock Mantle's hosted web search may fetch live external pages
+	 * on a cache miss (`external_web_access` on the wire). Consumed only by
+	 * BedrockClient on the Mantle Responses route; omitted defaults to `false`
+	 * so retrieval stays within AWS's web index/cache unless the host
+	 * explicitly opts in. Ignored by every other client and route.
+	 */
+	bedrockExternalWebAccess?: boolean;
 	/** Whether the model requires vLLM-style `chat_template_kwargs` to enable thinking. */
 	requiresChatTemplateKwargs?: boolean;
 	/**

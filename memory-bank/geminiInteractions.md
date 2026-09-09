@@ -1,6 +1,6 @@
 ---
 title: Gemini Interactions API
-description: Stateful chaining design, unsigned-reasoning filtering, the raw-usage metadata hoist, and known API gotchas for the Gemini Interactions path, contrasted with the stateless generateContent client used by gateways like Databricks.
+description: Stateful chaining design, unsigned-reasoning filtering, server-side Google Search grounding, the raw-usage metadata hoist, and known API gotchas for the Gemini Interactions path, contrasted with the stateless generateContent client used by gateways like Databricks.
 package: ai-provider-bridge
 ---
 
@@ -33,6 +33,7 @@ The two clients differ at every point their host surface differs:
 | Retry               | `withExpiredIdRetry()` retries once on expired-interaction errors                                                                  | No retry path — there is no interaction ID to expire                                                                                                                                       |
 | Thinking control    | `thinkingLevel` mapped from the product-level effort via per-model `INTERACTIONS_PROFILES` (`effortToWireLevel`), top-level option | `thinkingConfig`: numeric `thinkingBudget` for Gemini 2.5 variants, categorical `thinkingLevel` for 3.x, derived from ai-config's `getGeminiGenerateContentProfile` at variant granularity |
 | Auth                | SDK-native                                                                                                                         | `apiKey` mode uses the SDK's native `x-goog-api-key`; `authToken` (bearer gateways) uses a fetch middleware that sets `Authorization: Bearer` and strips `x-goog-api-key`                  |
+| Search grounding    | Supported — attaches the provider-defined `google_search` tool when `webSearchEnabled` (see below)                                 | Not implemented — sends local tools only                                                                                                                                                   |
 
 `sanitizeGenerateContentHistory()` is deliberately **not** a reuse of
 `filterUnsignedReasoning()`: the two APIs key signed reasoning on different
@@ -119,6 +120,53 @@ Gemini 3.6/3.7 Flash were invisible until manually allowlisted):
   takes only `minimal`/`high`. Unprofiled models advertise no
   `thinkingEffortLevels` (`buildGeminiModel` strips them) and the client
   sends no `thinkingLevel`/`thinkingSummaries`.
+
+## Server-Side Web Search (Google Search Grounding)
+
+`GeminiClient.chat()` honors the per-request `webSearchEnabled` param by
+attaching the SDK's provider-defined Search tool
+(`provider.tools.googleSearch({})`) under the fixed `google_search` key —
+the Interactions API treats that name as a tool _type_, so it cannot be
+renamed. On the wire this serializes to `tools: [{ type: "google_search" }]`
+on `POST /v1beta/interactions`.
+
+- **The merge goes through `mergeProviderTools()`** (`provider-tools.ts`),
+  which rejects the request when a local tool already occupies the
+  `google_search` key rather than silently overwriting it. The same helper
+  serves Anthropic's `web_search`.
+- **The toolset widening is absorbed inside the client.** The public
+  `ModelClientChatParams.tools` contract stays narrow (local
+  `AiToolWithJsonSchema` tools only); the merged record is wider because a
+  provider-defined tool has no JSON-schema input. The merged toolset is part
+  of the `streamArgs` reused by `withExpiredIdRetry()`, so the tool survives
+  the expired-interaction retry unchanged.
+- **The client takes eligibility as a per-request flag only** — it does not
+  re-check model IDs. Advertisement is the catalog's job: `buildGeminiModel`
+  sets `supportsWebSearch` from `googleHosted && isGeminiWebSearchVerified(id)`.
+  Like thinking profiles, the verified list (`WEB_SEARCH_VERIFIED_MODELS` in
+  `gemini-interactions.ts`) is **fail-closed** against fail-open discovery:
+  an unverified future model gets no toggle. Gemini 2.5 is deliberately
+  excluded — its grounding bills per _prompt_ (~$35 vs ~$14 per 1,000), and
+  it rejects built-in Search combined with function tools (verified live
+  2026-09-05), which PA always sends. Custom Gemini endpoints and Vertex
+  stay `false`; ai-config's capability table stays provider-neutral.
+- **`tool_choice` behaves differently search-only vs. search-plus-tools.**
+  The SDK drops `tool_choice` when the resolved tool list contains no
+  `function` tools (the Interactions API rejects it otherwise), so a
+  search-only request sends none; with local tools present the client sends
+  `"auto"`.
+- **Stream shape** (verified live 2026-09-05 against `gemini-3.8-flash`):
+  the SDK emits the `google_search` tool-call with `providerExecuted: true`,
+  then the tool-result, then reasoning/text, with URL `source` parts arising
+  both from the result block (pre-text, when result entries carry `url`) and
+  from `text_annotation_delta` citations (post-text). Core owns rendering:
+  ownership follows the `providerExecuted` flag, not the tool name, and core
+  buffers pre-text sources until the first text delta.
+- **Known limitation:** the pinned `@ai-sdk/google` records `is_error` on a
+  built-in result but omits it when emitting the tool-result stream part, so
+  a failed Search renders downstream as an empty success. Closing this needs
+  an upstream SDK fix; the bridge only ever sees AI SDK stream parts and
+  cannot recover the bit.
 
 ## Raw Usage Metadata Hoist
 

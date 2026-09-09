@@ -118,6 +118,42 @@ export function hasGeminiInteractionsProfile(modelId: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Server-side web search eligibility (fail-closed)
+// ---------------------------------------------------------------------------
+
+/**
+ * Models verified to support Google Search grounding on the hosted
+ * Interactions endpoint. **Fail-closed**, mirroring the thinking profiles:
+ * discovery is deliberately fail-open ({@link isGeminiApiChatModel}), so
+ * without this gate every future discovered Gemini would advertise a search
+ * toggle nobody has checked — and an unverified model can fail loudly (API
+ * error) or silently (an ungrounded answer).
+ *
+ * Gemini 2.5 is deliberately excluded: its grounding is billed per *prompt*
+ * rather than per query (~$35 vs ~$14 per 1,000), which the single-tier
+ * cost model cannot express, and — verified live 2026-09-05 — 2.5 rejects
+ * built-in Search combined with function tools (`invalid_request: Built-in
+ * tools ({google_search}) and Function Calling cannot be combined`), while
+ * PA always sends local tools. 3.x accepts the combination.
+ */
+const WEB_SEARCH_VERIFIED_MODELS: ReadonlySet<string> = new Set([
+	"gemini-3.5-flash",
+	"gemini-3.5-flash-lite",
+	"gemini-3.6-flash",
+	"gemini-3.7-flash",
+	"gemini-3.8-flash",
+]);
+
+/**
+ * Whether a model on the hosted Gemini Interactions endpoint is verified to
+ * support server-side Google Search grounding. Gates capability
+ * advertisement only — like thinking profiles, NOT discovery.
+ */
+export function isGeminiWebSearchVerified(modelId: string): boolean {
+	return WEB_SEARCH_VERIFIED_MODELS.has(modelId);
+}
+
+// ---------------------------------------------------------------------------
 // Discovery gate (fail-open)
 // ---------------------------------------------------------------------------
 

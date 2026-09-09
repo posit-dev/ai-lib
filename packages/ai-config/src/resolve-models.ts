@@ -27,6 +27,10 @@
  * relative to provider config, so the pipeline tracks them separately.
  */
 
+import {
+	finalizeWebSearchCapability,
+	type WebSearchServing,
+} from "./model-capabilities/web-search.js";
 import { resolveEndpoint } from "./resolve-connection.js";
 import type {
 	CustomModel,
@@ -75,6 +79,14 @@ const NO_USER_ROUTING: UserRouting = { protocol: undefined, baseUrl: undefined }
 interface PipelineEntry {
 	model: ModelInfoLike;
 	userRouting: UserRouting;
+	/**
+	 * The user-configured `supportsWebSearch` value (custom declaration or
+	 * override), or `undefined` when the user never stated one. Tracked
+	 * separately from `model.supportsWebSearch` — which overrides flatten —
+	 * so capability finalization can distinguish a deliberate opt-in/out from
+	 * a discovered default.
+	 */
+	explicitWebSearch: boolean | undefined;
 }
 
 /**
@@ -86,32 +98,51 @@ interface PipelineEntry {
  * @param providerConnection - The provider's resolved connection config (protocol,
  *   endpoints, baseUrl). Used to resolve per-model routing. May be undefined if
  *   no provider config exists.
+ * @param webSearchServing - The provider's web-search serving context (see
+ *   `resolveWebSearchServing`). When supplied, each surviving model's final
+ *   `supportsWebSearch` is computed after overrides and routing are resolved.
+ *   When omitted, the capability passes through unresolved (legacy behavior
+ *   for consumers that have no serving context).
  * @returns The resolved list of models with `resolvedProtocol` and `resolvedBaseUrl`.
  */
 export function resolveModels(
 	modelsBlock: ModelsBlock | undefined,
 	discovered: readonly ModelInfoLike[],
 	providerConnection?: ResolvedConnection,
+	webSearchServing?: WebSearchServing,
 ): ResolvedModelInfo[] {
 	if (!modelsBlock) {
 		// No models block — pass through discovered models with routing resolved.
 		// Discovered protocol is built-in inference only (lowest precedence).
-		return discovered.map((m) => attachRouting(m, NO_USER_ROUTING, providerConnection));
+		return discovered.map((m) =>
+			finalizeEntry(
+				{ model: m, userRouting: NO_USER_ROUTING, explicitWebSearch: undefined },
+				providerConnection,
+				webSearchServing,
+			),
+		);
 	}
 
 	// 1. Discovery gate
 	const base: PipelineEntry[] =
 		modelsBlock.discovery === "off"
 			? []
-			: discovered.map((m) => ({ model: m, userRouting: NO_USER_ROUTING }));
+			: discovered.map((m) => ({
+					model: m,
+					userRouting: NO_USER_ROUTING,
+					explicitWebSearch: undefined,
+				}));
 
-	// 2. Add custom models (protocol/baseUrl are user-configured)
+	// 2. Add custom models (protocol/baseUrl are user-configured; a custom
+	// declaration's supportsWebSearch is always an explicit user choice — the
+	// schema requires the field)
 	const customs = modelsBlock.custom;
 	if (customs) {
 		for (const custom of customs) {
 			base.push({
 				model: customModelToModelInfo(custom),
 				userRouting: { protocol: custom.protocol, baseUrl: custom.baseUrl },
+				explicitWebSearch: custom.supportsWebSearch,
 			});
 		}
 	}
@@ -145,8 +176,32 @@ export function resolveModels(
 		result = result.filter((e) => !denySet.has(e.model.id));
 	}
 
-	// 6. Resolve routing for each surviving model
-	return result.map((e) => attachRouting(e.model, e.userRouting, providerConnection));
+	// 6. Resolve routing for each surviving model, then finalize capabilities
+	//    that depend on the resolved serving context.
+	return result.map((e) => finalizeEntry(e, providerConnection, webSearchServing));
+}
+
+/**
+ * Resolve routing for a pipeline entry and finalize its web-search
+ * capability against the resolved route/endpoint and serving context.
+ */
+function finalizeEntry(
+	entry: PipelineEntry,
+	providerConnection: ResolvedConnection | undefined,
+	webSearchServing: WebSearchServing | undefined,
+): ResolvedModelInfo {
+	const resolved = attachRouting(entry.model, entry.userRouting, providerConnection);
+	if (!webSearchServing) {
+		return resolved;
+	}
+	return {
+		...resolved,
+		supportsWebSearch: finalizeWebSearchCapability(
+			resolved,
+			entry.explicitWebSearch,
+			webSearchServing,
+		),
+	};
 }
 
 /**
@@ -243,5 +298,8 @@ function applyOverrideEntry(entry: PipelineEntry, override: ModelOverride): Pipe
 			protocol: override.protocol ?? entry.userRouting.protocol,
 			baseUrl: override.baseUrl ?? entry.userRouting.baseUrl,
 		},
+		// An override that states supportsWebSearch replaces any prior
+		// explicit value; one that omits it preserves the prior provenance.
+		explicitWebSearch: override.supportsWebSearch ?? entry.explicitWebSearch,
 	};
 }
