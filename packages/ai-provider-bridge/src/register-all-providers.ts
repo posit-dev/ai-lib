@@ -46,7 +46,17 @@ import { PROVIDER_IDS, type Logger, type ProviderId } from "./types";
 export interface ProviderRegistrationConfig {
 	/** Posit AI Pass base URL, optionally resolved lazily when models are fetched. */
 	positAiBaseUrl: string | (() => string);
+	/** User-Agent identifying the host to Posit AI Pass. */
 	userAgent?: string;
+	/**
+	 * Host product User-Agent for the direct OpenAI/Anthropic-family providers
+	 * (built-in and custom). Endpoint-specific transport policies (e.g.
+	 * OpenCode) apply it on matching routes — inference and discovery alike —
+	 * beneath any explicit custom `User-Agent` header. Distinct from
+	 * `userAgent` so a host can preserve a legacy Posit AI Pass identity while
+	 * giving endpoint-policy providers a versioned one.
+	 */
+	providerUserAgent?: string;
 	/** If set, only these providers register; an empty list registers none. */
 	allowedProviders?: ProviderId[];
 	/** Pre-built by the caller; the bridge never constructs host callbacks. */
@@ -87,14 +97,17 @@ const PROVIDER_REGISTRARS = {
 			config.googleVertexCallbacks,
 			config.credentialEnvironment,
 		),
-	anthropic: registerAnthropicProvider,
+	anthropic: (registry, logger, config) =>
+		registerAnthropicProvider(registry, logger, config.providerUserAgent),
 	copilot: registerCopilotProvider,
-	openai: registerOpenAIProvider,
+	openai: (registry, logger, config) =>
+		registerOpenAIProvider(registry, logger, config.providerUserAgent),
 	openrouter: registerOpenRouterProvider,
 	ollama: registerOllamaProvider,
 	lmstudio: registerLMStudioProvider,
 	gemini: registerGeminiProvider,
-	"openai-compatible": registerOpenAICompatibleProvider,
+	"openai-compatible": (registry, logger, config) =>
+		registerOpenAICompatibleProvider(registry, logger, config.providerUserAgent),
 	"ms-foundry": (registry, logger, config) =>
 		registerFoundryProvider(registry, logger, config.credentialEnvironment),
 	"snowflake-cortex": (registry, logger, config) =>

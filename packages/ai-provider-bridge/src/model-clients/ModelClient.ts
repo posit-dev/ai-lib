@@ -12,6 +12,27 @@ import type { StepLogger } from "../StepLogger";
 import type { AiToolWithJsonSchema, CancellationToken, LMStreamPart, Protocol } from "../types";
 
 /**
+ * Runtime request metadata supplied by the host for a chat request.
+ *
+ * Both fields are opaque routing identities owned by the host; the bridge
+ * never derives, splits, or invents them.
+ *
+ * - `sessionId`: the host's full structured session identity for this
+ *   request. Projections that consume it (Posit AI Pass `Session-Id`,
+ *   OpenAI explicit `prompt_cache_key`) continue to use this value.
+ * - `rootConversationId`: the identity of the root conversation the request
+ *   belongs to. Endpoint-specific transport policies (e.g. OpenCode's
+ *   `x-opencode-session`) route on this value so every request in a
+ *   conversation — main chat, subagents, auxiliary requests — shares it.
+ *
+ * This is runtime metadata only; it is not a persisted schema.
+ */
+export interface ChatRequestMetadata {
+	sessionId?: string;
+	rootConversationId?: string;
+}
+
+/**
  * Parameters for a chat request. Shared across all ModelClient implementations
  * so the contract is defined in one place.
  */
@@ -60,9 +81,7 @@ export interface ModelClientChatParams {
 
 	// Posit Assistant-specific parameters — not part of the generic
 	// provider contract; may be removed when this package is extracted.
-	metadata?: {
-		sessionId?: string;
-	};
+	metadata?: ChatRequestMetadata;
 	stepLoggers?: StepLogger[];
 
 	// --- Per-request routing overrides (Phase 4) ---

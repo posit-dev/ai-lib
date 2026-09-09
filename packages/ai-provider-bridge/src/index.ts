@@ -38,7 +38,11 @@ export type {
 } from "./providers/ProviderRegistry";
 
 // ModelClient interface and shared params type
-export type { ModelClient, ModelClientChatParams } from "./model-clients/ModelClient";
+export type {
+	ChatRequestMetadata,
+	ModelClient,
+	ModelClientChatParams,
+} from "./model-clients/ModelClient";
 
 // AI SDK types surfaced through the bridge so consumers can use the public API
 // without importing `ai` directly: `ModelMessage` appears in ModelClient.chat's
