@@ -394,6 +394,9 @@ export class AcquisitionEngine {
 			}
 		} catch (error) {
 			if (this.isCurrent(attempt) && !attempt.controller.signal.aborted) {
+				this.logger?.info(
+					`[ai-credentials] device poll for ${attempt.providerId} ended: ${errorCode(error)}`,
+				);
 				await this.hooks.finishAuthentication(
 					attempt.providerId,
 					attempt.generation,
