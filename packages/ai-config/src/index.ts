@@ -40,6 +40,7 @@ export {
 	azureConfigSchema,
 	customModelSchema,
 	customProviderEntrySchema,
+	opencodeProductSchema,
 	providersConfigFragmentSchema,
 	providersConfigSchema,
 } from "./schema.js";
@@ -71,7 +72,9 @@ export type {
 	ResolvedConnectionProvenance,
 	ResolvedConnectionValueProvenance,
 	ResolvedCustomAuthPolicy,
+	OpencodeProductState,
 	ResolvedModelInfo,
+	ResolvedOpencodeProduct,
 	ResolvedProvider,
 	ResolvedProviderId,
 	InferredModelCapabilities,
@@ -154,8 +157,7 @@ export {
 	MS_FOUNDRY_DEFAULT_SCOPE,
 	MS_FOUNDRY_DEFAULTS,
 	OLLAMA_DEFAULTS,
-	OPENCODE_GO_DEFAULTS,
-	OPENCODE_ZEN_DEFAULTS,
+	OPENCODE_DEFAULTS,
 	POSIT_AI_DEFAULTS,
 	PROVIDER_CONNECTION_DEFAULTS,
 } from "./defaults.js";
@@ -173,8 +175,11 @@ export {
 	LMSTUDIO_HOST,
 	normalizeBaseUrlForProvider,
 	normalizeOpenRouterBaseUrl,
+	OPENCODE_DEFAULT_PRODUCT,
 	OPENCODE_GO_BASE_URL,
 	OPENCODE_HOST,
+	OPENCODE_PRODUCT_BASE_URLS,
+	OPENCODE_PRODUCTS,
 	OPENCODE_ZEN_BASE_URL,
 	OPENAI_API_VERSION,
 	OPENAI_HOST,
@@ -183,6 +188,7 @@ export {
 	PORTKEY_HOST,
 	PORTKEY_HOSTED_BASE_URL,
 } from "./base-url.js";
+export type { OpencodeProduct } from "./base-url.js";
 
 // --- Deep resolver seam (owns the precedence stack) ------------------------
 export { resolveProviderCatalog, resolveProviderCatalogReport } from "./resolve-catalog.js";

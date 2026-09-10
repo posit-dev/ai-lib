@@ -273,6 +273,7 @@ interface ProviderSignature {
 	connection: string; // JSON-serialized for comparison
 	connectionProvenance: string; // JSON-serialized for comparison
 	authPolicy: string; // JSON-serialized for comparison
+	opencodeProduct: string; // JSON-serialized for comparison
 	models: string; // JSON-serialized for comparison
 }
 
@@ -283,6 +284,10 @@ function toSignature(p: ResolvedProvider): ProviderSignature {
 		connection: JSON.stringify(p.connection),
 		connectionProvenance: JSON.stringify(p.connectionProvenance),
 		authPolicy: JSON.stringify(p.authPolicy),
+		// The effective-product projection is value-bearing: a product-only
+		// edit beneath a fixed baseUrl changes no connection field, so without
+		// it live hosts would show a stale selector until restart.
+		opencodeProduct: JSON.stringify(p.opencodeProduct),
 		models: JSON.stringify(p.models),
 	};
 }
@@ -337,7 +342,8 @@ function diffCatalogs(
 			prev.clientKind !== curr.clientKind ||
 			prev.connection !== curr.connection ||
 			prev.connectionProvenance !== curr.connectionProvenance ||
-			prev.authPolicy !== curr.authPolicy
+			prev.authPolicy !== curr.authPolicy ||
+			prev.opencodeProduct !== curr.opencodeProduct
 		) {
 			connectionChanged = true;
 		}

@@ -83,8 +83,7 @@ function familyDefaults(providerId: string, modelId: string): Partial<InferredMo
 				thinkingEffortLevels: caps.thinkingEffortLevels,
 			};
 		}
-		case "opencode-go":
-		case "opencode-zen": {
+		case "opencode": {
 			// Both products share one capability policy: a small probe-verified
 			// table over conservative defaults (opencode-helpers.ts).
 			const { protocol, ...caps } = getOpencodeModelCapabilities(modelId);

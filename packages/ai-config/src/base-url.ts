@@ -75,6 +75,30 @@ export const OPENCODE_GO_BASE_URL = `${OPENCODE_HOST}/zen/go/v1`;
 export const OPENCODE_ZEN_BASE_URL = `${OPENCODE_HOST}/zen/v1`;
 
 /**
+ * The OpenCode hosted products selectable on the single built-in `opencode`
+ * provider. The choice is persisted as the scalar `providers.opencode.product`
+ * field (never as a URL) so the endpoint literals below stay owned by this
+ * catalog. Default product: `zen` (probe-verified free tier, larger catalog).
+ */
+export const OPENCODE_PRODUCTS = ["go", "zen"] as const;
+
+/** An OpenCode hosted product selectable on the built-in `opencode` provider. */
+export type OpencodeProduct = (typeof OPENCODE_PRODUCTS)[number];
+
+/**
+ * Product → API root. The matcher (`opencode-request-headers.ts` derives its
+ * roots from these literals), the catalog defaults, and `resolveConnection`'s
+ * product selection share this one source of truth.
+ */
+export const OPENCODE_PRODUCT_BASE_URLS: Readonly<Record<OpencodeProduct, string>> = {
+	go: OPENCODE_GO_BASE_URL,
+	zen: OPENCODE_ZEN_BASE_URL,
+};
+
+/** The default OpenCode product when `providers.opencode.product` is unset. */
+export const OPENCODE_DEFAULT_PRODUCT: OpencodeProduct = "zen";
+
+/**
  * Normalize an OpenRouter host or API-root URL to the SDK's `/api/v1` base.
  * Other paths are preserved after ordinary whitespace/trailing-slash cleanup.
  */

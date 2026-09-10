@@ -54,7 +54,6 @@ export {
 } from "./providers/lmstudio-provider";
 export { registerCustomOllamaProvider, registerOllamaProvider } from "./providers/ollama-provider";
 export { registerOpencodeProvider } from "./providers/opencode-provider";
-export type { OpencodeProviderId } from "./providers/opencode-provider";
 export {
 	registerCustomOpenAICompatibleProvider,
 	registerOpenAICompatibleProvider,

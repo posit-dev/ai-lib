@@ -3,13 +3,14 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * Built-in OpenCode provider (Go/Zen) behavioral contracts.
+ * Built-in OpenCode provider behavioral contracts.
  *
  * Distinct from the custom-provider wire matrix in
  * `model-clients/__tests__/opencode-session-wire.test.ts` (which owns URL
  * matching and header-merge precedence): these pin the built-in
- * registrations — the product default URLs, the resolved-`baseUrl` override
- * reaching discovery AND chat, the constructor-default Chat Completions
+ * registration — the Zen default URL, the resolved-`baseUrl` override
+ * reaching discovery AND chat, the base-URL-partitioned discovery cache
+ * (the product-switch regression), the constructor-default Chat Completions
  * route, and the host User-Agent arriving at both seams.
  */
 
@@ -20,7 +21,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRawFetchCapture } from "../../../tests/helpers/raw-fetch-capture";
 import { registerAllProviders } from "../../register-all-providers";
 import type { ApiKeyCredentials, CancellationToken, Logger, ModelClient } from "../../types";
-import { registerOpencodeProvider, type OpencodeProviderId } from "../opencode-provider";
+import { registerOpencodeProvider } from "../opencode-provider";
 import { ProviderRegistry } from "../ProviderRegistry";
 
 const logger: Logger = {
@@ -63,8 +64,7 @@ function modelsResponse(ids: string[]): Response {
 
 function opencodeRegistry(userAgent?: string): ProviderRegistry {
 	const registry = new ProviderRegistry(logger);
-	registerOpencodeProvider(registry, "opencode-go", logger, userAgent);
-	registerOpencodeProvider(registry, "opencode-zen", logger, userAgent);
+	registerOpencodeProvider(registry, logger, userAgent);
 	return registry;
 }
 
@@ -93,34 +93,24 @@ function capturedHeaders(call: Parameters<typeof fetch>): Headers {
 }
 
 describe("OpenCode built-in model discovery", () => {
-	it("fetches each product's default /models URL with bearer auth and the host User-Agent", async () => {
+	it("fetches the default (Zen) /models URL with bearer auth and the host User-Agent", async () => {
 		const capture = createRawFetchCapture(async () => modelsResponse(["kimi-k2.5"]));
 		vi.stubGlobal("fetch", capture.mock);
 
 		const registry = opencodeRegistry(HOST_USER_AGENT);
-		const products: [OpencodeProviderId, string][] = [
-			["opencode-go", OPENCODE_GO_BASE_URL],
-			["opencode-zen", OPENCODE_ZEN_BASE_URL],
-		];
-		for (const [id, baseUrl] of products) {
-			const models = await registry.getModelsForProvider(id, {
-				type: "apikey",
-				apiKey: "sk-test",
-			});
-			expect(models.map((model) => model.id)).toEqual(["kimi-k2.5"]);
-			expect(models[0]?.providerId).toBe(id);
-		}
+		const models = await registry.getModelsForProvider("opencode", {
+			type: "apikey",
+			apiKey: "sk-test",
+		});
 
-		expect(capture.calls.map((call) => call[0])).toEqual(
-			products.map(([, baseUrl]) => `${baseUrl}/models`),
-		);
-		for (const call of capture.calls) {
-			const headers = capturedHeaders(call);
-			expect(headers.get("authorization")).toBe("Bearer sk-test");
-			expect(headers.get("user-agent")).toBe(HOST_USER_AGENT);
-			// Discovery belongs to no conversation.
-			expect(headers.get("x-opencode-session")).toBeNull();
-		}
+		expect(models.map((model) => model.id)).toEqual(["kimi-k2.5"]);
+		expect(models[0]?.providerId).toBe("opencode");
+		expect(capture.calls.map((call) => call[0])).toEqual([`${OPENCODE_ZEN_BASE_URL}/models`]);
+		const headers = capturedHeaders(capture.calls[0]!);
+		expect(headers.get("authorization")).toBe("Bearer sk-test");
+		expect(headers.get("user-agent")).toBe(HOST_USER_AGENT);
+		// Discovery belongs to no conversation.
+		expect(headers.get("x-opencode-session")).toBeNull();
 	});
 
 	it("sends a configured baseUrl override to discovery instead of the default", async () => {
@@ -128,7 +118,7 @@ describe("OpenCode built-in model discovery", () => {
 		vi.stubGlobal("fetch", capture.mock);
 
 		const registry = opencodeRegistry();
-		await registry.getModelsForProvider("opencode-zen", {
+		await registry.getModelsForProvider("opencode", {
 			type: "apikey",
 			apiKey: "sk-test",
 			baseUrl: "https://gateway.example.com/v1/",
@@ -137,12 +127,54 @@ describe("OpenCode built-in model discovery", () => {
 		expect(capture.single()[0]).toBe("https://gateway.example.com/v1/models");
 	});
 
+	it("refetches on a product switch instead of serving the stale cached catalog", async () => {
+		// Regression: one provider ID serves two endpoints; the discovery cache
+		// must partition on the resolved baseUrl or a Go switch would serve the
+		// Zen catalog (and vice versa) for up to the cache TTL.
+		const capture = createRawFetchCapture(async (input) => {
+			const url = String(input);
+			return modelsResponse(url.includes("/zen/go/") ? ["go-model"] : ["zen-model"]);
+		});
+		vi.stubGlobal("fetch", capture.mock);
+
+		const registry = opencodeRegistry();
+		const zen = await registry.getModelsForProvider("opencode", {
+			type: "apikey",
+			apiKey: "sk-test",
+			baseUrl: OPENCODE_ZEN_BASE_URL,
+		});
+		expect(zen.map((model) => model.id)).toEqual(["zen-model"]);
+
+		// Same provider ID, changed resolved baseUrl (a product switch).
+		const go = await registry.getModelsForProvider("opencode", {
+			type: "apikey",
+			apiKey: "sk-test",
+			baseUrl: OPENCODE_GO_BASE_URL,
+		});
+		expect(go.map((model) => model.id)).toEqual(["go-model"]);
+
+		// Each endpoint was fetched exactly once...
+		expect(capture.calls.map((call) => call[0])).toEqual([
+			`${OPENCODE_ZEN_BASE_URL}/models`,
+			`${OPENCODE_GO_BASE_URL}/models`,
+		]);
+
+		// ...and switching back is served from its own cache entry.
+		const zenAgain = await registry.getModelsForProvider("opencode", {
+			type: "apikey",
+			apiKey: "sk-test",
+			baseUrl: OPENCODE_ZEN_BASE_URL,
+		});
+		expect(zenAgain.map((model) => model.id)).toEqual(["zen-model"]);
+		expect(capture.calls).toHaveLength(2);
+	});
+
 	it("returns no models without an API key", async () => {
 		const capture = createRawFetchCapture(async () => modelsResponse(["m1"]));
 		vi.stubGlobal("fetch", capture.mock);
 
 		const registry = opencodeRegistry();
-		const models = await registry.getModelsForProvider("opencode-go", {
+		const models = await registry.getModelsForProvider("opencode", {
 			type: "apikey",
 			apiKey: "",
 		});
@@ -153,10 +185,7 @@ describe("OpenCode built-in model discovery", () => {
 });
 
 describe("OpenCode built-in chat", () => {
-	function registeredClient(
-		credentials: ApiKeyCredentials,
-		providerId: OpencodeProviderId = "opencode-zen",
-	): ModelClient {
+	function registeredClient(credentials: ApiKeyCredentials): ModelClient {
 		// The ordinary no-config host path: everything comes through
 		// registerAllProviders, and the client resolves via the provider-id
 		// factory ahead of the catalog's `openai` client kind.
@@ -165,7 +194,7 @@ describe("OpenCode built-in chat", () => {
 			positAiBaseUrl: "https://api.posit.cloud",
 			providerUserAgent: HOST_USER_AGENT,
 		});
-		const client = registry.getClientForProviderOrKind(providerId, credentials, "openai");
+		const client = registry.getClientForProviderOrKind("opencode", credentials, "openai");
 		if (!client) {
 			throw new Error("registry returned no client");
 		}
@@ -176,7 +205,7 @@ describe("OpenCode built-in chat", () => {
 		const capture = createRawFetchCapture(async () => sseResponse());
 		vi.stubGlobal("fetch", capture.mock);
 
-		// No configured baseUrl: the product default applies. An unknown model
+		// No configured baseUrl: the Zen default applies. An unknown model
 		// (no protocol stamp) must use the client's constructor apiMode —
 		// completions, per the 2026-09-09 probe (`/responses` 500s).
 		const client = registeredClient({ type: "apikey", apiKey: "sk-test" });
@@ -194,14 +223,11 @@ describe("OpenCode built-in chat", () => {
 		const capture = createRawFetchCapture(async () => sseResponse());
 		vi.stubGlobal("fetch", capture.mock);
 
-		const client = registeredClient(
-			{
-				type: "apikey",
-				apiKey: "sk-test",
-				baseUrl: "https://gateway.example.com/v1",
-			},
-			"opencode-go",
-		);
+		const client = registeredClient({
+			type: "apikey",
+			apiKey: "sk-test",
+			baseUrl: "https://gateway.example.com/v1",
+		});
 		await driveChat(client, { rootConversationId: "root-1" });
 
 		const [url, init] = capture.single();
@@ -218,7 +244,7 @@ describe("OpenCode built-in chat", () => {
 		// No discovered model carries a stamp today (none probe-verified for
 		// Responses), so the override arrives as an explicit param — the same
 		// seam a future stamped ModelInfo.protocol flows through.
-		const client = registeredClient({ type: "apikey", apiKey: "sk-test" }, "opencode-go");
+		const client = registeredClient({ type: "apikey", apiKey: "sk-test" });
 		try {
 			const stream = await client.chat({
 				model: "some-unknown-model",
@@ -233,13 +259,13 @@ describe("OpenCode built-in chat", () => {
 			// The wire request is captured before the stream ends.
 		}
 
-		expect(capture.single()[0]).toBe(`${OPENCODE_GO_BASE_URL}/responses`);
+		expect(capture.single()[0]).toBe(`${OPENCODE_ZEN_BASE_URL}/responses`);
 	});
 
 	it("rejects non-apikey credentials", () => {
 		const registry = opencodeRegistry();
 		expect(() =>
-			registry.getClientForProvider("opencode-go", { type: "oauth", accessToken: "t" }),
+			registry.getClientForProvider("opencode", { type: "oauth", accessToken: "t" }),
 		).toThrow("requires API key credentials");
 	});
 });

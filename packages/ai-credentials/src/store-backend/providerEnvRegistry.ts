@@ -104,13 +104,10 @@ export const PROVIDER_ENV_MAPPINGS: Record<string, ProviderEnvMapping> = {
 	"posit-connect": {
 		apiKey: scrubbed("CONNECT_API_KEY"),
 	},
-	// One OpenCode workspace key serves both products; the per-product names
-	// let users holding separate keys scope them.
-	"opencode-go": {
-		apiKey: scrubbed("OPENCODE_GO_API_KEY"),
-	},
-	"opencode-zen": {
-		apiKey: scrubbed("OPENCODE_ZEN_API_KEY"),
+	// One OpenCode workspace key serves both hosted products (Go and Zen),
+	// so a single variable covers the single built-in `opencode` provider.
+	opencode: {
+		apiKey: scrubbed("OPENCODE_API_KEY"),
 	},
 	// Google Application Default Credentials file, read directly by the
 	// google-auth-library SDK on the lazy Vertex credential path.

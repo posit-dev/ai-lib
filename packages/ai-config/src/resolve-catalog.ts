@@ -315,35 +315,43 @@ function resolveConnectionProvenance(
 		}
 	}
 
+	// Per-field source resolution for a built-in provider's UI-managed
+	// fields. The source of the effective value is the highest-precedence kept
+	// source that sets the field (`kept` is ordered highest-first); when no
+	// source sets it, fields with a built-in default report "default"
+	// (overridable), the rest are absent.
+	const fieldSourceFor = (
+		providerId: "ms-foundry" | "opencode",
+		read: (block: BuiltinProviderBlock | undefined) => unknown,
+		hasBuiltinDefault: boolean,
+	): ResolvedConnectionFieldSource | undefined => {
+		const block = (source: RankedConfigSource) => source.config.providers?.[providerId];
+		const source = kept.find((s) => read(block(s)) !== undefined);
+		if (source) {
+			switch (source.kind) {
+				case "enforced":
+				case "legacy-positron-enforced": // PROVIDER-SETTINGS-MIGRATION(legacy-positron)
+					return "enforced";
+				case "env":
+					return "environment";
+				case "user":
+				case "legacy-positron": // PROVIDER-SETTINGS-MIGRATION(legacy-positron)
+					return "user";
+				case "default":
+					return "default";
+			}
+		}
+		return hasBuiltinDefault ? "default" : undefined;
+	};
+
 	// Microsoft Foundry: per-field sources for every UI-managed field, so a
-	// configure form can disable individually pinned controls. The source of
-	// the effective value is the highest-precedence kept source that sets the
-	// field (`kept` is ordered highest-first); when no source sets it, fields
-	// with a built-in default report "default" (overridable), the rest are
-	// absent.
+	// configure form can disable individually pinned controls.
 	{
-		const foundryBlock = (source: RankedConfigSource) => source.config.providers?.["ms-foundry"];
 		const fieldSource = (
 			read: (block: BuiltinProviderBlock | undefined) => unknown,
 			hasBuiltinDefault: boolean,
-		): ResolvedConnectionFieldSource | undefined => {
-			const source = kept.find((s) => read(foundryBlock(s)) !== undefined);
-			if (source) {
-				switch (source.kind) {
-					case "enforced":
-					case "legacy-positron-enforced": // PROVIDER-SETTINGS-MIGRATION(legacy-positron)
-						return "enforced";
-					case "env":
-						return "environment";
-					case "user":
-					case "legacy-positron": // PROVIDER-SETTINGS-MIGRATION(legacy-positron)
-						return "user";
-					case "default":
-						return "default";
-				}
-			}
-			return hasBuiltinDefault ? "default" : undefined;
-		};
+		): ResolvedConnectionFieldSource | undefined =>
+			fieldSourceFor("ms-foundry", read, hasBuiltinDefault);
 		const foundryProvenance: ResolvedConnectionProvenance = {
 			azure: {
 				authMode: fieldSource((block) => block?.azure?.authMode, true),
@@ -353,6 +361,18 @@ function resolveConnectionProvenance(
 			baseUrl: fieldSource((block) => block?.baseUrl, false),
 		};
 		result.set("ms-foundry", foundryProvenance);
+	}
+
+	// OpenCode: per-field sources for `product` and `baseUrl`, feeding the
+	// effective-product derivation in build-catalog. Authorship-based, so both
+	// fields report ABSENT when no retained source authors them — the built-in
+	// zen default/product must not masquerade as an administrator default.
+	{
+		const product = fieldSourceFor("opencode", (block) => block?.product, false);
+		const baseUrl = fieldSourceFor("opencode", (block) => block?.baseUrl, false);
+		if (product !== undefined || baseUrl !== undefined) {
+			result.set("opencode", { opencode: { product, baseUrl } });
+		}
 	}
 
 	const snowflakeConnectionName = config.providers?.["snowflake-cortex"]?.snowflake?.connectionName;

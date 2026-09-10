@@ -80,7 +80,7 @@ function customClient(
 	userAgent?: string,
 ): ModelClient {
 	const registry = new ProviderRegistry(logger);
-	const id = mintCustomProviderId("opencode");
+	const id = mintCustomProviderId("opencode-host");
 	if (kind === "openai-compatible") {
 		registerCustomOpenAICompatibleProvider(registry, id, logger, userAgent);
 	} else {
@@ -364,7 +364,7 @@ describe("OpenCode model discovery (wire)", () => {
 		vi.stubGlobal("fetch", capture.mock);
 
 		const registry = new ProviderRegistry(logger);
-		const id = mintCustomProviderId("opencode");
+		const id = mintCustomProviderId("opencode-host");
 		registerCustomOpenAICompatibleProvider(registry, id, logger, HOST_USER_AGENT);
 
 		const models = await registry.getModelsForProvider(id, {
@@ -387,7 +387,7 @@ describe("OpenCode model discovery (wire)", () => {
 		vi.stubGlobal("fetch", capture.mock);
 
 		const registry = new ProviderRegistry(logger);
-		const id = mintCustomProviderId("opencode");
+		const id = mintCustomProviderId("opencode-host");
 		registerCustomOpenAICompatibleProvider(registry, id, logger, HOST_USER_AGENT);
 
 		await registry.getModelsForProvider(id, {

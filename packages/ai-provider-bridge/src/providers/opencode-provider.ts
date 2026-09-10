@@ -3,16 +3,20 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * OpenCode Go and Zen providers.
+ * OpenCode built-in provider.
  *
- * Both products are OpenAI-style `/v1` surfaces on `opencode.ai`
- * (`/zen/go/v1` and `/zen/v1`, catalogued as built-in provider ids
- * `opencode-go` and `opencode-zen` with client kind `openai`). The catalog
- * supplies the product base URL via `PROVIDER_CONNECTION_DEFAULTS`; both the
- * fetcher and the client factory consume the RESOLVED `credentials.baseUrl`,
- * so a configured `providers.opencode-*.baseUrl` override reaches discovery
- * and chat — the ai-config constant is only the fallback when credentials
- * carry no URL at all.
+ * One provider ID (`opencode`, client kind `openai`) covers both hosted
+ * products — Go (`/zen/go/v1`) and Zen (`/zen/v1`). The product choice lives
+ * in ai-config as the scalar `providers.opencode.product` field and resolves
+ * to a base URL at catalog build time, so this module stays URL-driven: both
+ * the fetcher and the client factory consume the RESOLVED
+ * `credentials.baseUrl`, falling back to the ai-config Zen default only when
+ * credentials carry no URL at all.
+ *
+ * Because one provider ID can serve two endpoints across a product switch,
+ * the discovery fetcher partitions its cache by the resolved base URL
+ * (`cacheKey`, the Connect precedent) — otherwise a switch would serve the
+ * previous product's catalog for up to the cache TTL.
  *
  * Chat runs on the OpenAI client with constructor `apiMode: "completions"`:
  * Chat Completions is the only probe-verified inference route (2026-09-09;
@@ -27,38 +31,31 @@
  * opencode.ai turns the session header off automatically.
  */
 
-import {
-	getOpencodeModelCapabilities,
-	OPENCODE_GO_BASE_URL,
-	OPENCODE_ZEN_BASE_URL,
-} from "ai-config";
+import { getOpencodeModelCapabilities, OPENCODE_ZEN_BASE_URL } from "ai-config";
 
 import { OpenAIClient } from "../model-clients/OpenAIClient";
 import type { ApiKeyCredentials, Logger, ModelInfo } from "../types";
 import { createCachedModelFetcher } from "./cached-model-fetcher";
 import type { ClientFactory, ProviderRegistry } from "./ProviderRegistry";
 
-/** The two built-in OpenCode product provider ids. */
-export type OpencodeProviderId = "opencode-go" | "opencode-zen";
+/** The built-in OpenCode provider id. */
+const OPENCODE_PROVIDER_ID = "opencode";
 
-/** Per-product fallback base URLs (the catalog default is the primary source). */
-const DEFAULT_BASE_URLS: Record<OpencodeProviderId, string> = {
-	"opencode-go": OPENCODE_GO_BASE_URL,
-	"opencode-zen": OPENCODE_ZEN_BASE_URL,
-};
+/** Fallback base URL when credentials carry none (the Zen default product). */
+const DEFAULT_BASE_URL = OPENCODE_ZEN_BASE_URL;
 
 interface OpencodeModelsResponse {
 	data?: Array<{ id: string; object: string }>;
 }
 
-function parseOpencodeModels(providerId: OpencodeProviderId, data: unknown): ModelInfo[] {
+function parseOpencodeModels(data: unknown): ModelInfo[] {
 	const entries = (data as OpencodeModelsResponse).data ?? [];
 	return entries.map((model) => {
 		const caps = getOpencodeModelCapabilities(model.id);
 		return {
 			id: model.id,
 			name: model.id,
-			providerId,
+			providerId: OPENCODE_PROVIDER_ID,
 			vendor: "opencode",
 			family: caps.family,
 			maxInputTokens: caps.maxInputTokens,
@@ -77,44 +74,38 @@ function parseOpencodeModels(providerId: OpencodeProviderId, data: unknown): Mod
 	});
 }
 
-function createOpencodeModelFetcher(
-	providerId: OpencodeProviderId,
-	logger: Logger,
-	userAgent?: string,
-) {
+/** The resolved endpoint root for a credential set (trailing slashes stripped). */
+function resolvedBaseUrl(credentials: ApiKeyCredentials): string {
+	return (credentials.baseUrl?.trim() || DEFAULT_BASE_URL).replace(/\/+$/, "");
+}
+
+function createOpencodeModelFetcher(logger: Logger, userAgent?: string) {
 	return createCachedModelFetcher<ApiKeyCredentials>({
-		providerId,
+		providerId: OPENCODE_PROVIDER_ID,
 		userAgent,
-		resolveUrl: (credentials) => {
-			const base = (credentials.baseUrl?.trim() || DEFAULT_BASE_URLS[providerId]).replace(
-				/\/+$/,
-				"",
-			);
-			return `${base}/models`;
-		},
+		resolveUrl: (credentials) => `${resolvedBaseUrl(credentials)}/models`,
+		// One provider ID, two possible endpoints across a product switch:
+		// partition the cache by the resolved base URL (Connect precedent) so
+		// a switch refetches instead of serving the other product's catalog.
+		cacheKey: (credentials) => resolvedBaseUrl(credentials),
 		hasCredentials: (credentials) => Boolean(credentials.apiKey),
 		createHeaders: (credentials) => ({
 			Authorization: `Bearer ${credentials.apiKey}`,
 		}),
-		parseResponse: (data) => parseOpencodeModels(providerId, data),
+		parseResponse: parseOpencodeModels,
 		fallbackModels: [],
 		logger,
 	});
 }
 
-function createOpencodeClientFactory(
-	providerId: OpencodeProviderId,
-	userAgent?: string,
-): ClientFactory {
+function createOpencodeClientFactory(userAgent?: string): ClientFactory {
 	return (credentials) => {
 		if (credentials.type !== "apikey") {
 			throw new Error(`OpenCode provider requires API key credentials, got: ${credentials.type}`);
 		}
-		const baseUrl =
-			credentials.baseUrl?.trim().replace(/\/+$/, "") || DEFAULT_BASE_URLS[providerId];
 		return new OpenAIClient({
 			apiKey: credentials.apiKey,
-			baseUrl,
+			baseUrl: resolvedBaseUrl(credentials),
 			apiMode: "completions",
 			customHeaders: credentials.customHeaders,
 			userAgent,
@@ -123,19 +114,18 @@ function createOpencodeClientFactory(
 }
 
 /**
- * Register one built-in OpenCode provider (`opencode-go` or `opencode-zen`).
- * Fetcher and factory are keyed by the provider id, so each product keeps an
- * independent cache and its own default base URL.
+ * Register the built-in OpenCode provider. The catalog-resolved
+ * `credentials.baseUrl` selects the product endpoint; discovery is cached
+ * per resolved base URL so a product switch refetches immediately.
  */
 export function registerOpencodeProvider(
 	registry: ProviderRegistry,
-	providerId: OpencodeProviderId,
 	logger: Logger,
 	userAgent?: string,
 ): void {
 	registry.registerModelFetcher(
-		providerId,
-		createOpencodeModelFetcher(providerId, logger, userAgent),
+		OPENCODE_PROVIDER_ID,
+		createOpencodeModelFetcher(logger, userAgent),
 	);
-	registry.registerClientFactory(providerId, createOpencodeClientFactory(providerId, userAgent));
+	registry.registerClientFactory(OPENCODE_PROVIDER_ID, createOpencodeClientFactory(userAgent));
 }

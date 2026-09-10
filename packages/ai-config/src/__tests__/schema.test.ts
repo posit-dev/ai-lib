@@ -46,18 +46,59 @@ describe("providersConfigSchema", () => {
 		expect(result.success).toBe(true);
 	});
 
-	it("accepts base fields on the opencode built-in keys", () => {
+	it("accepts base fields on the opencode built-in key", () => {
 		const result = providersConfigSchema.safeParse({
 			providers: {
-				"opencode-go": {
+				opencode: {
 					enabled: true,
 					baseUrl: "https://gateway.example.com/v1",
 					customHeaders: { "x-team": "data-science" },
+					models: { allow: ["kimi-k2.5"] },
 				},
-				"opencode-zen": { models: { allow: ["kimi-k2.5"] } },
 			},
 		});
 		expect(result.success).toBe(true);
+	});
+
+	it("accepts the product scalar on the opencode built-in key", () => {
+		for (const product of ["go", "zen"]) {
+			const result = providersConfigSchema.safeParse({
+				providers: { opencode: { product } },
+			});
+			expect(result.success).toBe(true);
+		}
+	});
+
+	it("rejects an unknown product value on the opencode built-in key", () => {
+		const result = providersConfigSchema.safeParse({
+			providers: { opencode: { product: "max" } },
+		});
+		expect(result.success).toBe(false);
+	});
+
+	it("rejects the product scalar on a non-opencode built-in key", () => {
+		const result = providersConfigSchema.safeParse({
+			providers: { anthropic: { product: "go" } },
+		});
+		expect(result.success).toBe(false);
+	});
+
+	it("accepts product on opencode in default and enforced fragments", () => {
+		// Fragments use the permissive superset block; the scalar field must be
+		// visible there too (the canonical scalar-field map feeds both shapes).
+		for (const fragment of [
+			{ providers: { opencode: { product: "go" } } },
+			{ providers: { opencode: { product: "zen", baseUrl: "https://gateway.example.com/v1" } } },
+		]) {
+			expect(providersConfigFragmentSchema.safeParse(fragment).success).toBe(true);
+		}
+	});
+
+	it("rejects an unknown product value in fragments", () => {
+		const result = providersConfigFragmentSchema.safeParse({
+			providers: { opencode: { product: "max" } },
+		});
+		expect(result.success).toBe(false);
 	});
 
 	it("accepts a built-in provider with models block", () => {
@@ -228,10 +269,10 @@ describe("providersConfigSchema", () => {
 		expect(result.success).toBe(false);
 	});
 
-	it("rejects a foreign connection section on the opencode built-in keys", () => {
+	it("rejects a foreign connection section on the opencode built-in key", () => {
 		const result = providersConfigSchema.safeParse({
 			providers: {
-				"opencode-go": { aws: { region: "us-east-1" } },
+				opencode: { aws: { region: "us-east-1" } },
 			},
 		});
 		expect(result.success).toBe(false);

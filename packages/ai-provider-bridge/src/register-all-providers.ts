@@ -119,10 +119,8 @@ const PROVIDER_REGISTRARS = {
 	portkey: registerPortkeyProvider,
 	"posit-connect": (registry, logger, config) =>
 		registerConnectProvider(registry, logger, config.connectCallbacks),
-	"opencode-go": (registry, logger, config) =>
-		registerOpencodeProvider(registry, "opencode-go", logger, config.providerUserAgent),
-	"opencode-zen": (registry, logger, config) =>
-		registerOpencodeProvider(registry, "opencode-zen", logger, config.providerUserAgent),
+	opencode: (registry, logger, config) =>
+		registerOpencodeProvider(registry, logger, config.providerUserAgent),
 } satisfies Record<ProviderId, ProviderRegistrar>;
 
 /**
