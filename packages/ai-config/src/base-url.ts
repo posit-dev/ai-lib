@@ -60,6 +60,21 @@ export const PORTKEY_HOSTED_BASE_URL = `${PORTKEY_HOST}/${PORTKEY_API_VERSION}`;
 export const OPENROUTER_DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
 
 /**
+ * Canonical OpenCode host. OpenCode's hosted model services (Go and Zen)
+ * require every inference request to carry a stable conversation identity in
+ * the `x-opencode-session` header and ask clients to send a product
+ * User-Agent. The bridge's header policy matches exactly this host (no
+ * subdomain/lookalike matching) and derives its API roots from the two base
+ * URLs below, so the catalog defaults and the transport matcher share one
+ * source of truth and cannot drift.
+ */
+export const OPENCODE_HOST = "https://opencode.ai";
+/** OpenCode Go API root (OpenAI-style `/v1` surface). */
+export const OPENCODE_GO_BASE_URL = `${OPENCODE_HOST}/zen/go/v1`;
+/** OpenCode Zen API root (OpenAI-style `/v1` surface). */
+export const OPENCODE_ZEN_BASE_URL = `${OPENCODE_HOST}/zen/v1`;
+
+/**
  * Normalize an OpenRouter host or API-root URL to the SDK's `/api/v1` base.
  * Other paths are preserved after ordinary whitespace/trailing-slash cleanup.
  */

@@ -117,6 +117,8 @@ export type {
 	LitellmModelClassificationInput,
 	LitellmModelFamily,
 } from "./model-capabilities/litellm-helpers.js";
+export { getOpencodeModelCapabilities } from "./model-capabilities/opencode-helpers.js";
+export type { OpencodeModelCapabilities } from "./model-capabilities/opencode-helpers.js";
 export {
 	getOpenAIModelCapabilities,
 	openaiMaxInputTokens,
@@ -152,6 +154,8 @@ export {
 	MS_FOUNDRY_DEFAULT_SCOPE,
 	MS_FOUNDRY_DEFAULTS,
 	OLLAMA_DEFAULTS,
+	OPENCODE_GO_DEFAULTS,
+	OPENCODE_ZEN_DEFAULTS,
 	POSIT_AI_DEFAULTS,
 	PROVIDER_CONNECTION_DEFAULTS,
 } from "./defaults.js";
@@ -169,6 +173,9 @@ export {
 	LMSTUDIO_HOST,
 	normalizeBaseUrlForProvider,
 	normalizeOpenRouterBaseUrl,
+	OPENCODE_GO_BASE_URL,
+	OPENCODE_HOST,
+	OPENCODE_ZEN_BASE_URL,
 	OPENAI_API_VERSION,
 	OPENAI_HOST,
 	OPENROUTER_DEFAULT_BASE_URL,

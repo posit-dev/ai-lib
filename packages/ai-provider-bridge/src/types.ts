@@ -59,6 +59,8 @@ export const PROVIDER_IDS = [
 	"litellm",
 	"portkey",
 	"posit-connect",
+	"opencode-go",
+	"opencode-zen",
 ] as const;
 
 /**

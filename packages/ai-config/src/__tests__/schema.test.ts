@@ -46,6 +46,20 @@ describe("providersConfigSchema", () => {
 		expect(result.success).toBe(true);
 	});
 
+	it("accepts base fields on the opencode built-in keys", () => {
+		const result = providersConfigSchema.safeParse({
+			providers: {
+				"opencode-go": {
+					enabled: true,
+					baseUrl: "https://gateway.example.com/v1",
+					customHeaders: { "x-team": "data-science" },
+				},
+				"opencode-zen": { models: { allow: ["kimi-k2.5"] } },
+			},
+		});
+		expect(result.success).toBe(true);
+	});
+
 	it("accepts a built-in provider with models block", () => {
 		const result = providersConfigSchema.safeParse({
 			providers: {
@@ -209,6 +223,15 @@ describe("providersConfigSchema", () => {
 		const result = providersConfigSchema.safeParse({
 			providers: {
 				anthropic: { aws: { region: "us-east-1" } },
+			},
+		});
+		expect(result.success).toBe(false);
+	});
+
+	it("rejects a foreign connection section on the opencode built-in keys", () => {
+		const result = providersConfigSchema.safeParse({
+			providers: {
+				"opencode-go": { aws: { region: "us-east-1" } },
 			},
 		});
 		expect(result.success).toBe(false);

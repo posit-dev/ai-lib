@@ -4,6 +4,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
+import { OPENCODE_GO_BASE_URL, OPENCODE_ZEN_BASE_URL } from "../base-url.js";
 import type { ProviderConfigSource } from "../resolve-catalog.js";
 import {
 	recoverValidStack,
@@ -995,5 +996,35 @@ describe("resolveProviderCatalog — legacy-positron-enforced (legacy Positron e
 		expect(find(catalog, "ghost")).toBeUndefined();
 		expect(find(catalog, "anthropic")?.enabled).toBe(true);
 		expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("invalid merged result"));
+	});
+});
+
+describe("resolveProviderCatalog — OpenCode built-ins", () => {
+	it("resolves the product base URLs and openai client kind from built-in defaults", () => {
+		const catalog = resolveProviderCatalog({ sources: [], envVars: {} });
+
+		const go = find(catalog, "opencode-go");
+		const zen = find(catalog, "opencode-zen");
+		expect(go?.connection.baseUrl).toBe(OPENCODE_GO_BASE_URL);
+		expect(zen?.connection.baseUrl).toBe(OPENCODE_ZEN_BASE_URL);
+		expect(go?.clientKind).toBe("openai");
+		expect(zen?.clientKind).toBe("openai");
+	});
+
+	it("a configured baseUrl overrides the built-in default", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("user", {
+					providers: { "opencode-zen": { baseUrl: "https://gateway.example.com/v1" } },
+				}),
+			],
+			envVars: {},
+		});
+
+		expect(find(catalog, "opencode-zen")?.connection.baseUrl).toBe(
+			"https://gateway.example.com/v1",
+		);
+		// The sibling product keeps its default.
+		expect(find(catalog, "opencode-go")?.connection.baseUrl).toBe(OPENCODE_GO_BASE_URL);
 	});
 });

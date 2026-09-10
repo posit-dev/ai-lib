@@ -13,9 +13,12 @@
  *
  * Scope and ownership:
  *
- * - The literals and matcher stay private to the bridge. No configuration
- *   resolver, schema, form, or host consumes them, so they are deliberately
- *   not exported from the package entrypoints. OpenCode behind another
+ * - The endpoint literals live in ai-config (`OPENCODE_GO_BASE_URL` /
+ *   `OPENCODE_ZEN_BASE_URL`) so the catalog's connection defaults and this
+ *   matcher share one source of truth; the host and API roots below are
+ *   derived from them. The matcher itself stays private to the bridge —
+ *   configuration resolvers, schemas, forms, and hosts consume the ai-config
+ *   constants, never this module. OpenCode behind another
  *   hostname (proxy/gateway aliases) is out of scope for automatic
  *   detection; supporting that would require an explicit configuration
  *   contract, not hostname inference.
@@ -32,16 +35,27 @@
  *   explicit custom User-Agent always wins over the host default.
  */
 
+import { OPENCODE_GO_BASE_URL, OPENCODE_ZEN_BASE_URL } from "ai-config";
+
 /** Header that carries the conversation routing identity to OpenCode. */
 const SESSION_HEADER_NAME = "x-opencode-session";
 
 const USER_AGENT_HEADER_NAME = "user-agent";
 
-/** Canonical OpenCode host. Exact match only — no subdomain/lookalike matching. */
-const OPENCODE_HOST = "opencode.ai";
+/**
+ * Canonical OpenCode host, derived from the ai-config endpoint constants.
+ * Exact match only — no subdomain/lookalike matching.
+ */
+const OPENCODE_HOST = new URL(OPENCODE_GO_BASE_URL).hostname;
 
-/** OpenCode API roots: Go (`/zen/go/v1`) and Zen (`/zen/v1`). */
-const OPENCODE_API_ROOTS = ["/zen/go/v1", "/zen/v1"] as const;
+/**
+ * OpenCode API roots: Go (`/zen/go/v1`) and Zen (`/zen/v1`), derived from
+ * the ai-config endpoint constants so matcher and catalog cannot drift.
+ */
+const OPENCODE_API_ROOTS = [
+	new URL(OPENCODE_GO_BASE_URL).pathname,
+	new URL(OPENCODE_ZEN_BASE_URL).pathname,
+] as const;
 
 /**
  * Whether `url` resolves to a recognized OpenCode API endpoint: HTTPS on

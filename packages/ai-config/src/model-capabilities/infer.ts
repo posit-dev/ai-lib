@@ -20,6 +20,7 @@ import {
 	type LitellmModelFamily,
 } from "./litellm-helpers.js";
 import { getOpenAIModelCapabilities, openaiMaxInputTokens } from "./openai-helpers.js";
+import { getOpencodeModelCapabilities } from "./opencode-helpers.js";
 import { getPortkeyModelCapabilities } from "./portkey-helpers.js";
 import { getPositAiModelCapabilities } from "./positai-helpers.js";
 import { getSnowflakeCortexModelCapabilities } from "./snowflake-cortex-helpers.js";
@@ -80,6 +81,19 @@ function familyDefaults(providerId: string, modelId: string): Partial<InferredMo
 				supportsTools: caps.supportsTools,
 				supportsImages: caps.supportsImages,
 				thinkingEffortLevels: caps.thinkingEffortLevels,
+			};
+		}
+		case "opencode-go":
+		case "opencode-zen": {
+			// Both products share one capability policy: a small probe-verified
+			// table over conservative defaults (opencode-helpers.ts).
+			const { protocol, ...caps } = getOpencodeModelCapabilities(modelId);
+			return {
+				...caps,
+				// OpenCode publishes no separate context-window figure; treat the
+				// input limit as the window (same convention as deepseek).
+				maxContextLength: caps.maxInputTokens,
+				...(protocol !== undefined ? { protocol } : {}),
 			};
 		}
 		case "litellm":

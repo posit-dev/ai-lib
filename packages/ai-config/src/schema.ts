@@ -523,6 +523,8 @@ const BUILTIN_CONNECTION_SECTIONS = {
 	litellm: [],
 	portkey: [],
 	"posit-connect": [],
+	"opencode-go": [],
+	"opencode-zen": [],
 } as const satisfies Record<BuiltinProviderId, readonly ConnectionSectionName[]>;
 
 /**

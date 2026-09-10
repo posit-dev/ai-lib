@@ -289,3 +289,23 @@ describe("inferModelCapabilities", () => {
 		expect(caps.supportsImages).toBe(true);
 	});
 });
+
+describe("inferModelCapabilities — opencode", () => {
+	it("gives unknown opencode models conservative defaults with no protocol stamp", () => {
+		for (const providerId of ["opencode-go", "opencode-zen"]) {
+			const caps = inferModelCapabilities(providerId, "some-future-model");
+			expect(caps.operational.supportsTools).toBe(true);
+			expect(caps.operational.supportsImages).toBe(false);
+			// No stamp: the chat client applies its constructor-default apiMode.
+			expect(caps.facts.protocol).toBeUndefined();
+			expect(caps.facts.maxContextLength).toBe(128_000);
+		}
+	});
+
+	it("applies probe-verified table overrides above the defaults", () => {
+		// Mechanism coverage: one table row proves the override path; other
+		// rows ride on it.
+		expect(inferModelCapabilities("opencode-zen", "mimo-v2.5-free").supportsImages).toBe(true);
+		expect(inferModelCapabilities("opencode-go", "mimo-v2.5-free").supportsImages).toBe(true);
+	});
+});

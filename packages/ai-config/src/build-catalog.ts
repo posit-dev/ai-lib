@@ -37,6 +37,9 @@ import type { BuiltinProviderId, ClientKind } from "./vocabulary.js";
  * it. Most are identity mappings, but some differ:
  * - `bedrock` → `aws` (the client speaks AWS Bedrock)
  * - `snowflake-cortex` → `snowflake` (the client speaks Snowflake Cortex)
+ * - `opencode-go`/`opencode-zen` → `openai` (both are OpenAI-style `/v1`
+ *   surfaces; the bridge still registers per-id client factories, which win
+ *   over the kind fallback, so each keeps its own default API mode)
  *
  * The `satisfies` constraint ensures a compile error if a built-in id is
  * added without a corresponding client-kind entry.
@@ -60,6 +63,8 @@ const BUILTIN_CLIENT_KIND = {
 	litellm: "litellm",
 	portkey: "portkey",
 	"posit-connect": "posit-connect",
+	"opencode-go": "openai",
+	"opencode-zen": "openai",
 } as const satisfies Record<BuiltinProviderId, ClientKind>;
 
 /**

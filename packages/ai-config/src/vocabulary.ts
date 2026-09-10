@@ -37,6 +37,8 @@ export const BUILTIN_PROVIDER_IDS = [
 	"litellm",
 	"portkey",
 	"posit-connect",
+	"opencode-go",
+	"opencode-zen",
 ] as const;
 
 export type BuiltinProviderId = (typeof BUILTIN_PROVIDER_IDS)[number];

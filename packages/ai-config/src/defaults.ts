@@ -10,6 +10,7 @@
  * configMapper and schema validation.
  */
 
+import { OPENCODE_GO_BASE_URL, OPENCODE_ZEN_BASE_URL } from "./base-url.js";
 import type { ResolvedConnection } from "./types.js";
 import type { BuiltinProviderId } from "./vocabulary.js";
 
@@ -72,6 +73,22 @@ export const MS_FOUNDRY_DEFAULTS = {
 } as const satisfies ResolvedConnection;
 
 /**
+ * OpenCode Go default endpoint. A *default*, not an immutable endpoint:
+ * `providers.opencode-go.baseUrl` overrides it.
+ */
+export const OPENCODE_GO_DEFAULTS = {
+	baseUrl: OPENCODE_GO_BASE_URL,
+} as const satisfies ResolvedConnection;
+
+/**
+ * OpenCode Zen default endpoint. A *default*, not an immutable endpoint:
+ * `providers.opencode-zen.baseUrl` overrides it.
+ */
+export const OPENCODE_ZEN_DEFAULTS = {
+	baseUrl: OPENCODE_ZEN_BASE_URL,
+} as const satisfies ResolvedConnection;
+
+/**
  * Map of built-in provider id → connection defaults.
  * Only providers that need non-empty defaults appear here.
  */
@@ -83,4 +100,6 @@ export const PROVIDER_CONNECTION_DEFAULTS: Readonly<
 	lmstudio: LMSTUDIO_DEFAULTS,
 	"google-vertex": GOOGLE_VERTEX_DEFAULTS,
 	"ms-foundry": MS_FOUNDRY_DEFAULTS,
+	"opencode-go": OPENCODE_GO_DEFAULTS,
+	"opencode-zen": OPENCODE_ZEN_DEFAULTS,
 };

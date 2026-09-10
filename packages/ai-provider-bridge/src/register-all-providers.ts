@@ -33,6 +33,7 @@ import { registerLMStudioProvider } from "./providers/lmstudio-provider";
 import { registerOllamaProvider } from "./providers/ollama-provider";
 import { registerOpenAICompatibleProvider } from "./providers/openai-compatible-provider";
 import { registerOpenAIProvider } from "./providers/openai-provider";
+import { registerOpencodeProvider } from "./providers/opencode-provider";
 import { registerOpenRouterProvider } from "./providers/openrouter-provider";
 import { registerPortkeyProvider } from "./providers/portkey-provider";
 import { registerPositAiProvider } from "./providers/positai-provider";
@@ -118,6 +119,10 @@ const PROVIDER_REGISTRARS = {
 	portkey: registerPortkeyProvider,
 	"posit-connect": (registry, logger, config) =>
 		registerConnectProvider(registry, logger, config.connectCallbacks),
+	"opencode-go": (registry, logger, config) =>
+		registerOpencodeProvider(registry, "opencode-go", logger, config.providerUserAgent),
+	"opencode-zen": (registry, logger, config) =>
+		registerOpencodeProvider(registry, "opencode-zen", logger, config.providerUserAgent),
 } satisfies Record<ProviderId, ProviderRegistrar>;
 
 /**
