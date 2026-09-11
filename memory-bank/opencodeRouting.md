@@ -107,9 +107,10 @@ The session-header policy is owned by the provider, not a URL matcher: each chat
 its delegate per request with `x-opencode-session` (from `metadata.rootConversationId`) already
 in `customHeaders` — the generated value wins over a static case-variant, and with no root
 identity nothing is generated and a static workaround survives. Per-request construction is free
-because each delegate builds its SDK connection inside `chat()`. Discovery carries
-`Authorization` only — never a session header — and the discovery cache stays partitioned by the
-resolved credential base URL so a product switch refetches.
+because each delegate builds its SDK connection inside `chat()`. Discovery generates only
+`Authorization` — never a conversation session header — while allowed credential `customHeaders`
+(such as the registry's default User-Agent) remain additive. The discovery cache stays partitioned
+by the resolved credential base URL so a product switch refetches.
 
 ## Gemini profile gating
 

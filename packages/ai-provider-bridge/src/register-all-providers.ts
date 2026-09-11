@@ -125,6 +125,7 @@ export function registerAllProviders(
 	logger: Logger,
 	config: ProviderRegistrationConfig,
 ): void {
+	registry.setDefaultUserAgent(config.providerUserAgent);
 	for (const id of PROVIDER_IDS) {
 		if (!config.allowedProviders || config.allowedProviders.includes(id)) {
 			PROVIDER_REGISTRARS[id](registry, logger, config);

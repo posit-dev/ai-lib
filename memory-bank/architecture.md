@@ -56,6 +56,22 @@ branching on it; the strip helper is private to the module, so there is no way t
 - **Key presence and breakpoint eligibility cannot drift** — no session ID means no key _and_ a
   full marker strip, decided in one place rather than re-derived per client.
 
+### Default direct-provider User-Agent
+
+`ProviderRegistry` owns the host's default product identity. `registerAllProviders()` sets it once,
+and all three credential handoff methods (`getModelsForProvider`, `getClientForProvider`, and
+`getClientForProviderOrKind`) add it to `customHeaders` immediately before invoking a fetcher or
+factory. The value is late-bound: a host may call `setDefaultUserAgent()` again, and subsequent
+requests use the latest value without rebuilding registrations. A non-empty case-insensitive
+`User-Agent` already present in `customHeaders` wins over the default.
+
+This reaches `ApiKeyCredentials` and `AzureEntraCredentials`, the credential variants that carry
+`customHeaders`. OAuth, local, AWS, and Google Cloud credentials pass through unchanged, so
+Bedrock, Vertex, Copilot, Ollama, and LM Studio are outside this default. Direct SDK clients pass
+the identity through their `headers` option and let the SDK append its library tokens. Fetch
+middleware sees the SDK's existing User-Agent later, so `additiveHeaders` and
+`additiveHeaderRecord` prepend the custom product identity there; the merge is idempotent.
+
 ### Endpoint-required transport headers (OpenCode)
 
 Host-supplied capability params are one kind of input; a distinct kind is **endpoint-required
@@ -79,8 +95,9 @@ contract: `sessionId` remains the full structured identity consumed by the Posit
 `Session-Id` header and the `prompt_cache_key` projection, while `rootConversationId` exists for
 provider-owned routing headers like OpenCode's.
 
-Model discovery belongs to no conversation, so it never receives a session header — the OpenCode
-fetcher's only header is `Authorization: Bearer`.
+Model discovery belongs to no conversation, so the OpenCode provider never generates a session
+header there. Its provider-generated header is only `Authorization: Bearer`; allowed credential
+`customHeaders`, including the registry's default User-Agent, remain additive.
 
 The built-in `opencode` provider builds one of three delegates per chat request against the
 resolved API root — `OpenAIClient` (Chat Completions and Responses), `AnthropicClient`
@@ -139,11 +156,10 @@ model overrides and protocol endpoints, but above provider-wide `baseUrl`.
 The full ladder is: model override/custom model → protocol endpoint →
 discovered model → provider-wide URL → client default.
 
-Clients preserve the supplied URL unchanged on the wire. Endpoint-specific
-header policy (the OpenCode seam above) only _inspects_ the resolved
-destination — `params.baseUrl ?? this.baseURL` — at request time, because a
-per-model endpoint override can change it in either direction; it never
-corrects or rewrites the URL.
+Clients preserve the supplied URL unchanged on the wire. The OpenCode provider's
+session-header policy does not inspect or rewrite the destination: an OpenCode
+client keeps the header when a per-model endpoint override routes elsewhere,
+while a generic/custom client pointed at an OpenCode URL does not gain it.
 
 ## Model discovery deadline
 

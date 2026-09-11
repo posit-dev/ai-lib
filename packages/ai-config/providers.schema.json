@@ -25,7 +25,7 @@
                 "description": "Header value.",
                 "type": "string"
               },
-              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
               "propertyNames": {
                 "description": "Header name.",
                 "type": "string"
@@ -315,7 +315,7 @@
                 "description": "Header value.",
                 "type": "string"
               },
-              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
               "propertyNames": {
                 "description": "Header name.",
                 "type": "string"
@@ -590,7 +590,7 @@
                 "description": "Header value.",
                 "type": "string"
               },
-              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
               "propertyNames": {
                 "description": "Header name.",
                 "type": "string"
@@ -867,7 +867,7 @@
                       "description": "Header value.",
                       "type": "string"
                     },
-                    "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+                    "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
                     "propertyNames": {
                       "description": "Header name.",
                       "type": "string"
@@ -1161,7 +1161,7 @@
                       "description": "Header value.",
                       "type": "string"
                     },
-                    "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+                    "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
                     "propertyNames": {
                       "description": "Header name.",
                       "type": "string"
@@ -1451,7 +1451,7 @@
                       "description": "Header value.",
                       "type": "string"
                     },
-                    "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+                    "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
                     "propertyNames": {
                       "description": "Header name.",
                       "type": "string"
@@ -1741,7 +1741,7 @@
                       "description": "Header value.",
                       "type": "string"
                     },
-                    "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+                    "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
                     "propertyNames": {
                       "description": "Header name.",
                       "type": "string"
@@ -2046,7 +2046,7 @@
                       "description": "Header value.",
                       "type": "string"
                     },
-                    "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+                    "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
                     "propertyNames": {
                       "description": "Header name.",
                       "type": "string"
@@ -2336,7 +2336,7 @@
                       "description": "Header value.",
                       "type": "string"
                     },
-                    "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+                    "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
                     "propertyNames": {
                       "description": "Header name.",
                       "type": "string"
@@ -2649,7 +2649,7 @@
                       "description": "Header value.",
                       "type": "string"
                     },
-                    "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+                    "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
                     "propertyNames": {
                       "description": "Header name.",
                       "type": "string"
@@ -2954,7 +2954,7 @@
                       "description": "Header value.",
                       "type": "string"
                     },
-                    "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+                    "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
                     "propertyNames": {
                       "description": "Header name.",
                       "type": "string"
@@ -3244,7 +3244,7 @@
                       "description": "Header value.",
                       "type": "string"
                     },
-                    "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+                    "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
                     "propertyNames": {
                       "description": "Header name.",
                       "type": "string"
@@ -3534,7 +3534,7 @@
                       "description": "Header value.",
                       "type": "string"
                     },
-                    "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+                    "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
                     "propertyNames": {
                       "description": "Header name.",
                       "type": "string"
@@ -3824,7 +3824,7 @@
                       "description": "Header value.",
                       "type": "string"
                     },
-                    "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+                    "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
                     "propertyNames": {
                       "description": "Header name.",
                       "type": "string"
@@ -4114,7 +4114,7 @@
                       "description": "Header value.",
                       "type": "string"
                     },
-                    "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+                    "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
                     "propertyNames": {
                       "description": "Header name.",
                       "type": "string"
@@ -4404,7 +4404,7 @@
                       "description": "Header value.",
                       "type": "string"
                     },
-                    "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+                    "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
                     "propertyNames": {
                       "description": "Header name.",
                       "type": "string"
@@ -4694,7 +4694,7 @@
                       "description": "Header value.",
                       "type": "string"
                     },
-                    "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+                    "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
                     "propertyNames": {
                       "description": "Header name.",
                       "type": "string"
@@ -4994,7 +4994,7 @@
                 "description": "Header value.",
                 "type": "string"
               },
-              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
               "propertyNames": {
                 "description": "Header name.",
                 "type": "string"
@@ -5280,7 +5280,7 @@
                 "description": "Header value.",
                 "type": "string"
               },
-              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
               "propertyNames": {
                 "description": "Header name.",
                 "type": "string"
@@ -5566,7 +5566,7 @@
                 "description": "Header value.",
                 "type": "string"
               },
-              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
               "propertyNames": {
                 "description": "Header name.",
                 "type": "string"
@@ -5841,7 +5841,7 @@
                 "description": "Header value.",
                 "type": "string"
               },
-              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
               "propertyNames": {
                 "description": "Header name.",
                 "type": "string"
@@ -6131,7 +6131,7 @@
                 "description": "Header value.",
                 "type": "string"
               },
-              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
               "propertyNames": {
                 "description": "Header name.",
                 "type": "string"
@@ -6406,7 +6406,7 @@
                 "description": "Header value.",
                 "type": "string"
               },
-              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
               "propertyNames": {
                 "description": "Header name.",
                 "type": "string"
@@ -6704,7 +6704,7 @@
                 "description": "Header value.",
                 "type": "string"
               },
-              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
               "propertyNames": {
                 "description": "Header name.",
                 "type": "string"
@@ -6979,7 +6979,7 @@
                 "description": "Header value.",
                 "type": "string"
               },
-              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
               "propertyNames": {
                 "description": "Header name.",
                 "type": "string"
@@ -7254,7 +7254,7 @@
                 "description": "Header value.",
                 "type": "string"
               },
-              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
               "propertyNames": {
                 "description": "Header name.",
                 "type": "string"
@@ -7529,7 +7529,7 @@
                 "description": "Header value.",
                 "type": "string"
               },
-              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
               "propertyNames": {
                 "description": "Header name.",
                 "type": "string"
@@ -7804,7 +7804,7 @@
                 "description": "Header value.",
                 "type": "string"
               },
-              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
               "propertyNames": {
                 "description": "Header name.",
                 "type": "string"
@@ -8087,7 +8087,7 @@
                 "description": "Header value.",
                 "type": "string"
               },
-              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
               "propertyNames": {
                 "description": "Header name.",
                 "type": "string"
@@ -8362,7 +8362,7 @@
                 "description": "Header value.",
                 "type": "string"
               },
-              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
               "propertyNames": {
                 "description": "Header name.",
                 "type": "string"
@@ -8637,7 +8637,7 @@
                 "description": "Header value.",
                 "type": "string"
               },
-              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
               "propertyNames": {
                 "description": "Header name.",
                 "type": "string"
@@ -8912,7 +8912,7 @@
                 "description": "Header value.",
                 "type": "string"
               },
-              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
               "propertyNames": {
                 "description": "Header name.",
                 "type": "string"
@@ -9206,7 +9206,7 @@
                 "description": "Header value.",
                 "type": "string"
               },
-              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here.",
+              "description": "Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
               "propertyNames": {
                 "description": "Header name.",
                 "type": "string"
