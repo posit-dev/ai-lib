@@ -8052,7 +8052,7 @@
               "type": "object"
             },
             "product": {
-              "description": "Which OpenCode hosted product to use: `go` (subscription) or `zen` (pay-per-request, the default). Selects the API endpoint; an explicit `baseUrl` overrides the selection.",
+              "description": "Which OpenCode hosted product to use: `go` (subscription, the default) or `zen` (pay-per-request). Selects the API endpoint; an explicit `baseUrl` overrides the selection.",
               "enum": [
                 "go",
                 "zen"

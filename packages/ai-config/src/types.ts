@@ -233,12 +233,12 @@ export type OpencodeProductState =
 
 /**
  * The effective OpenCode product projection, attached to the resolved
- * `opencode` provider: the configured product (or the zen default) plus the
+ * `opencode` provider: the configured product (or the built-in default) plus the
  * selector's control state. ai-config owns this derivation from the same
  * layering that picks the endpoint.
  */
 export interface ResolvedOpencodeProduct {
-	/** The effective product: the configured value or the zen default. */
+	/** The effective product: the configured value or the built-in default. */
 	readonly product: OpencodeProduct;
 	/** Whether and why a product selector is editable. */
 	readonly state: OpencodeProductState;

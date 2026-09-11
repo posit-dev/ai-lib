@@ -9,12 +9,15 @@
  * upstream vendors behind OpenCode's own model ids, so no upstream family
  * table applies. The table below contains ONLY models verified by live
  * probing (2026-09-09, Zen free tier — the probe account had no paid Go/Zen
- * access); unknown ids get conservative defaults: chat + tools, no vision,
- * and no protocol stamp, so the chat client falls back to its
- * constructor-default wire protocol.
+ * access); unknown ids get conservative defaults: chat + tools, no vision.
+ *
+ * Capabilities are deliberately separate from ROUTING: the wire protocol a
+ * model is reached over is a documented service contract owned by
+ * `opencode-routing.ts`, independent of what a free-tier probe could reach.
+ * This helper therefore stamps no protocol — and must not: it has no product
+ * context, so an id-only answer (e.g. MiniMax, which is Messages on Go but
+ * Chat Completions on Zen) would be invented rather than derived.
  */
-
-import type { Protocol } from "../vocabulary.js";
 
 export interface OpencodeModelCapabilities {
 	family: string;
@@ -22,20 +25,11 @@ export interface OpencodeModelCapabilities {
 	maxOutputTokens: number;
 	supportsTools: boolean;
 	supportsImages: boolean;
-	/**
-	 * Wire-protocol stamp for probe-verified models. Absent means "no routing
-	 * decision" — the client's constructor-default `apiMode` applies.
-	 * `openai-responses` is stamped only where a live probe verified the
-	 * `/responses` route actually serves the model (none so far: every
-	 * probeable model returned 500 on `/responses`).
-	 */
-	protocol?: Protocol;
 }
 
 /**
  * Conservative unknown-model defaults. Chat Completions is the only
- * probe-verified inference route on both products, so tools are assumed and
- * no protocol is stamped.
+ * probe-verified inference route on both products, so tools are assumed.
  */
 const DEFAULT_CAPABILITIES: OpencodeModelCapabilities = {
 	family: "opencode",

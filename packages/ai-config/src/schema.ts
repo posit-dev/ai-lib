@@ -353,13 +353,13 @@ export const endpointsSchema = z.record(
  * The OpenCode hosted product selected on the single built-in `opencode`
  * provider. Persisted as a scalar (`"go" | "zen"`), never as a URL, so the
  * endpoint literals stay owned by the built-in catalog and can be updated
- * without being shadowed by saved config. Absent resolves to the zen
- * default; an explicit `baseUrl` overrides the product selection.
+ * without being shadowed by saved config. Absent resolves to the built-in
+ * default product (`go`); an explicit `baseUrl` overrides the selection.
  */
 export const opencodeProductSchema = z
 	.enum(OPENCODE_PRODUCTS)
 	.describe(
-		"Which OpenCode hosted product to use: `go` (subscription) or `zen` (pay-per-request, the default). Selects the API endpoint; an explicit `baseUrl` overrides the selection.",
+		"Which OpenCode hosted product to use: `go` (subscription, the default) or `zen` (pay-per-request). Selects the API endpoint; an explicit `baseUrl` overrides the selection.",
 	);
 
 /**

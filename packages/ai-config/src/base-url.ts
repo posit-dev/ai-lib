@@ -78,7 +78,8 @@ export const OPENCODE_ZEN_BASE_URL = `${OPENCODE_HOST}/zen/v1`;
  * The OpenCode hosted products selectable on the single built-in `opencode`
  * provider. The choice is persisted as the scalar `providers.opencode.product`
  * field (never as a URL) so the endpoint literals below stay owned by this
- * catalog. Default product: `zen` (probe-verified free tier, larger catalog).
+ * catalog. Default product: `go` (the subscription product; Zen remains
+ * selectable per user).
  */
 export const OPENCODE_PRODUCTS = ["go", "zen"] as const;
 
@@ -96,7 +97,7 @@ export const OPENCODE_PRODUCT_BASE_URLS: Readonly<Record<OpencodeProduct, string
 };
 
 /** The default OpenCode product when `providers.opencode.product` is unset. */
-export const OPENCODE_DEFAULT_PRODUCT: OpencodeProduct = "zen";
+export const OPENCODE_DEFAULT_PRODUCT: OpencodeProduct = "go";
 
 /**
  * Normalize an OpenRouter host or API-root URL to the SDK's `/api/v1` base.

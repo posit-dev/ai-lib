@@ -123,6 +123,10 @@ export type {
 export { getOpencodeModelCapabilities } from "./model-capabilities/opencode-helpers.js";
 export type { OpencodeModelCapabilities } from "./model-capabilities/opencode-helpers.js";
 export {
+	inferOpencodeProtocol,
+	opencodeProductForBaseUrl,
+} from "./model-capabilities/opencode-routing.js";
+export {
 	getOpenAIModelCapabilities,
 	openaiMaxInputTokens,
 } from "./model-capabilities/openai-helpers.js";
@@ -164,6 +168,7 @@ export {
 
 // --- Resolution helpers (public) -------------------------------------------
 export { resolveModels } from "./resolve-models.js";
+export type { ModelResolutionContext } from "./resolve-models.js";
 
 // --- Bare-host base URL correction ------------------------------------------
 export {

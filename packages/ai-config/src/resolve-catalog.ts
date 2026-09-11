@@ -366,7 +366,7 @@ function resolveConnectionProvenance(
 	// OpenCode: per-field sources for `product` and `baseUrl`, feeding the
 	// effective-product derivation in build-catalog. Authorship-based, so both
 	// fields report ABSENT when no retained source authors them — the built-in
-	// zen default/product must not masquerade as an administrator default.
+	// default product must not masquerade as an administrator default.
 	{
 		const product = fieldSourceFor("opencode", (block) => block?.product, false);
 		const baseUrl = fieldSourceFor("opencode", (block) => block?.baseUrl, false);

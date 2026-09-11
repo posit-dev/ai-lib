@@ -85,14 +85,16 @@ function familyDefaults(providerId: string, modelId: string): Partial<InferredMo
 		}
 		case "opencode": {
 			// Both products share one capability policy: a small probe-verified
-			// table over conservative defaults (opencode-helpers.ts).
-			const { protocol, ...caps } = getOpencodeModelCapabilities(modelId);
+			// table over conservative defaults (opencode-helpers.ts). No protocol
+			// is stamped here: routing is product-dependent (opencode-routing.ts)
+			// and this entrypoint has no product context, so an id-only answer
+			// would be invented rather than derived.
+			const caps = getOpencodeModelCapabilities(modelId);
 			return {
 				...caps,
 				// OpenCode publishes no separate context-window figure; treat the
 				// input limit as the window (same convention as deepseek).
 				maxContextLength: caps.maxInputTokens,
-				...(protocol !== undefined ? { protocol } : {}),
 			};
 		}
 		case "litellm":

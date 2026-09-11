@@ -146,7 +146,7 @@ export function buildCatalog(
  *
  * Inertness is AUTHORSHIP-based, not value-based: any authored effective
  * `baseUrl` — user, administrator-default, or enforced, even one equal to
- * today's Zen URL — shadows the catalog default and makes the product choice
+ * today's default URL — shadows the catalog default and makes the product choice
  * inert, so the check runs before the product-enforced check (an enforced
  * baseUrl is `base-url-override{source: "enforced"}`, not a product state).
  */
@@ -185,7 +185,7 @@ function getBuiltinBlock(
  *
  * The single `opencode` provider additionally resolves its product selection
  * here (decision: product resolves to a URL once, at catalog build): explicit
- * `baseUrl` > `product` selection > the zen built-in default.
+ * `baseUrl` > `product` selection > the built-in default product.
  */
 function resolveConnection(
 	id: BuiltinProviderId,

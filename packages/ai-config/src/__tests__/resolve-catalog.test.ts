@@ -1000,14 +1000,14 @@ describe("resolveProviderCatalog — legacy-positron-enforced (legacy Positron e
 });
 
 describe("resolveProviderCatalog — OpenCode built-in", () => {
-	it("resolves the zen default base URL, zen default product, and openai client kind", () => {
+	it("resolves the go default base URL, go default product, and openai client kind", () => {
 		const catalog = resolveProviderCatalog({ sources: [], envVars: {} });
 
 		const opencode = find(catalog, "opencode");
-		expect(opencode?.connection.baseUrl).toBe(OPENCODE_ZEN_BASE_URL);
+		expect(opencode?.connection.baseUrl).toBe(OPENCODE_GO_BASE_URL);
 		expect(opencode?.clientKind).toBe("openai");
 		expect(opencode?.opencodeProduct).toEqual({
-			product: "zen",
+			product: "go",
 			state: { state: "editable" },
 		});
 		// Nothing authored: no per-field sources are retained.
@@ -1070,24 +1070,24 @@ describe("resolveProviderCatalog — OpenCode built-in", () => {
 		});
 	});
 
-	it("yields base-url-override with the matching source at every layer, even equal-valued to the zen default", () => {
+	it("yields base-url-override with the matching source at every layer, even equal-valued to the go default", () => {
 		// Inertness is authorship-based: an authored baseUrl equal to today's
-		// Zen URL still shadows the catalog default and makes the selector
+		// default URL still shadows the catalog default and makes the selector
 		// inert — at the user, administrator-default, AND enforced layers.
 		for (const kind of ["user", "default", "enforced"] as const) {
 			const catalog = resolveProviderCatalog({
 				sources: [
 					source(kind, {
-						providers: { opencode: { baseUrl: OPENCODE_ZEN_BASE_URL } },
+						providers: { opencode: { baseUrl: OPENCODE_GO_BASE_URL } },
 					}),
 				],
 				envVars: {},
 			});
 
 			const opencode = find(catalog, "opencode");
-			expect(opencode?.connection.baseUrl).toBe(OPENCODE_ZEN_BASE_URL);
+			expect(opencode?.connection.baseUrl).toBe(OPENCODE_GO_BASE_URL);
 			expect(opencode?.opencodeProduct).toEqual({
-				product: "zen",
+				product: "go",
 				state: { state: "base-url-override", source: kind },
 			});
 		}
