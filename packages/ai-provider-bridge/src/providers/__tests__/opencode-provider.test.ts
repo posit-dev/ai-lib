@@ -479,6 +479,23 @@ describe("OpenCode protocol routing", () => {
 		expect(headers.get("user-agent")?.startsWith(HOST_USER_AGENT)).toBe(true);
 	});
 
+	it("never lets a custom x-goog-api-key header override the OpenCode credential", async () => {
+		const capture = createRawFetchCapture(async () => sseResponse());
+		vi.stubGlobal("fetch", capture.mock);
+
+		const client = registeredClient({
+			type: "apikey",
+			apiKey: "sk-test",
+			baseUrl: OPENCODE_ZEN_BASE_URL,
+			customHeaders: { "x-goog-api-key": "unrelated-google-key" },
+		});
+		await driveModel(client, "gemini-3.8-flash");
+
+		expect(String(capture.single()[0])).toContain(":streamGenerateContent");
+		const headers = new Headers(capture.single()[1]?.headers);
+		expect(headers.get("x-goog-api-key")).toBe("sk-test");
+	});
+
 	it("changes MiniMax's wire route across a product switch under one provider ID", async () => {
 		const capture = createRawFetchCapture(async () => sseResponse());
 		vi.stubGlobal("fetch", capture.mock);

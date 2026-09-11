@@ -126,7 +126,7 @@ A `ProviderConfigSource` declares _what it is_ via `kind`, not _where it sits_. 
 
 `mergeEnforced` (two-layer) and `mergeConfigFragments` (layered) remain exported as the low-level merge primitives, but consumers should assemble sources and call `resolveProviderCatalog` rather than merging by hand.
 
-#### `resolveModels(modelsBlock, discovered, providerConnection?): ResolvedModelInfo[]`
+#### `resolveModels(modelsBlock, discovered, providerConnection?, context?): ResolvedModelInfo[]`
 
 The one resolver that stays public because it needs runtime-discovered models.
 
@@ -135,10 +135,19 @@ function resolveModels(
   modelsBlock: ModelsBlock | undefined,
   discovered: readonly ModelInfoLike[],
   providerConnection?: ResolvedConnection,
+  context?: ModelResolutionContext, // { providerId?: string }
 ): ResolvedModelInfo[];
 ```
 
-Pipeline: start from discovered + custom models → apply `overrides` by id → filter to `allow` (exclusive allowlist, when non-empty) → subtract `deny` (always wins) → resolve each survivor's protocol and base URL. Routing precedence is user-configured (override/custom) → provider config → discovered-model inference. Each result gains `resolvedProtocol` and `resolvedBaseUrl`.
+Pipeline: start from discovered + custom models → apply `overrides` by id → filter to `allow` (exclusive allowlist, when non-empty) → subtract `deny` (always wins) → resolve each survivor's protocol and base URL. Routing precedence is user-configured (override/custom) → provider config → provider-aware inferred protocol (needs `context.providerId`) → discovered-model inference. Each result gains `resolvedProtocol` and `resolvedBaseUrl`.
+
+Pass `context.providerId` whenever the provider's inferred protocol depends on the effective destination. The built-in `opencode` provider is the case that requires it: the discovery-time protocol stamp knows only the provider's base URL, so a model-level `baseUrl` override that crosses OpenCode products (Go ↔ Zen) can change the documented wire route (e.g. MiniMax is Chat Completions on Zen but Anthropic Messages on Go). Without `{ providerId: "opencode" }`, the stale discovery stamp is trusted and the request goes out over the wrong protocol.
+
+```ts
+resolveModels(modelsBlock, discovered, connection, { providerId: "opencode" });
+```
+
+Omitting `context` preserves the pre-context behavior of trusting discovered stamps as-is, which is fine for single-endpoint providers.
 
 #### Defaults
 

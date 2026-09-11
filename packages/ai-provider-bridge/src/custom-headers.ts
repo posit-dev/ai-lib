@@ -8,6 +8,7 @@ const SDK_MANAGED_HEADER_NAMES = new Set([
 	"authorization",
 	"content-type",
 	"x-api-key",
+	"x-goog-api-key",
 ]);
 
 type HeaderSource = ConstructorParameters<typeof Headers>[0];

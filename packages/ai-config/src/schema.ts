@@ -449,15 +449,14 @@ const baseConnectionFields = {
 const GATEWAY_RESERVED_AUTH_HEADERS = {
 	litellm: new Set(["authorization", "x-api-key"]),
 	portkey: new Set(["authorization", "x-api-key", "x-portkey-api-key", "x-portkey-virtual-key"]),
+	opencode: new Set(["authorization", "x-api-key", "x-goog-api-key"]),
 } as const satisfies Partial<Record<BuiltinProviderId, ReadonlySet<string>>>;
 
+const GATEWAY_RESERVED_AUTH_HEADERS_BY_ID: Partial<Record<BuiltinProviderId, ReadonlySet<string>>> =
+	GATEWAY_RESERVED_AUTH_HEADERS;
+
 function gatewayCustomHeadersSchema(providerId: BuiltinProviderId) {
-	const reserved =
-		providerId === "litellm"
-			? GATEWAY_RESERVED_AUTH_HEADERS.litellm
-			: providerId === "portkey"
-				? GATEWAY_RESERVED_AUTH_HEADERS.portkey
-				: undefined;
+	const reserved = GATEWAY_RESERVED_AUTH_HEADERS_BY_ID[providerId];
 	if (!reserved) return customHeadersSchema;
 	return customHeadersSchema.superRefine((headers, ctx) => {
 		for (const name of Object.keys(headers)) {

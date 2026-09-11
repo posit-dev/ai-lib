@@ -229,6 +229,9 @@ describe("providersConfigSchema", () => {
 		["portkey", "x-api-key"],
 		["portkey", "X-Portkey-API-Key"],
 		["portkey", "x-portkey-virtual-key"],
+		["opencode", "Authorization"],
+		["opencode", "X-API-Key"],
+		["opencode", "X-Goog-API-Key"],
 	] as const)("rejects reserved %s authentication header %s", (providerId, headerName) => {
 		const result = providersConfigSchema.safeParse({
 			providers: {
