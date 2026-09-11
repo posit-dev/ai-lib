@@ -22,6 +22,7 @@ import {
 	suppressAiSdkDefaultErrorLogging,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
+import { mergeOpencodeHeaders } from "./opencode-request-headers";
 import { mergeProviderTools } from "./provider-tools";
 import { withRawHttpLogging } from "./raw-http-logging";
 
@@ -62,17 +63,25 @@ export class AnthropicClient implements ModelClient {
 	private readonly baseURL?: string;
 	private readonly customHeaders?: Record<string, string>;
 	private readonly logger?: Logger;
+	private readonly userAgent?: string;
 
 	constructor(
 		auth: AnthropicClientAuth,
 		baseURL?: string,
 		customHeaders?: Record<string, string>,
 		logger?: Logger,
+		/**
+		 * Host product User-Agent, applied only by endpoint-specific header
+		 * policies (e.g. OpenCode) on matching routes. When unset, requests
+		 * keep the SDK's default User-Agent.
+		 */
+		userAgent?: string,
 	) {
 		this.auth = auth;
 		this.baseURL = baseURL;
 		this.customHeaders = customHeaders;
 		this.logger = logger;
+		this.userAgent = userAgent;
 	}
 
 	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {
@@ -80,7 +89,14 @@ export class AnthropicClient implements ModelClient {
 		// trusted as given — bare-host correction happens at the config seam
 		// (see base-url.ts), not here.
 		const effectiveBaseUrl = params.baseUrl ?? this.baseURL;
-		const headers = safeSdkCustomHeaders(this.customHeaders);
+		// Endpoint-specific transport policy (OpenCode session routing): the
+		// generated session header wins over a static custom-header workaround;
+		// the host User-Agent fills in beneath an explicit custom one.
+		const headers = mergeOpencodeHeaders(safeSdkCustomHeaders(this.customHeaders), {
+			baseUrl: effectiveBaseUrl,
+			rootConversationId: params.metadata?.rootConversationId,
+			userAgent: this.userAgent,
+		});
 		// Anonymous mode (auth-less custom providers): a sentinel key keeps the
 		// SDK from inheriting ANTHROPIC_API_KEY, and a stripping middleware
 		// removes the auth headers the SDK adds. Raw HTTP logging sits

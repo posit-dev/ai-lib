@@ -10,6 +10,7 @@
  */
 
 import { additiveHeaderRecord } from "../custom-headers";
+import { mergeOpencodeHeaders } from "../model-clients/opencode-request-headers";
 import type { ApiKeyCredentials, Logger, ModelInfo, ProviderCredentials } from "../types";
 
 const DEFAULT_TTL = 60 * 60 * 1000; // 60 minutes
@@ -89,6 +90,14 @@ interface CachedModelFetcherCommonConfig<T extends ProviderCredentials = Provide
 	 * nor overwrite the cache.
 	 */
 	discoveryDeadlineMs?: number;
+
+	/**
+	 * Host product User-Agent. Endpoint-specific transport policies (e.g.
+	 * OpenCode) apply it to matching discovery requests beneath any explicit
+	 * custom User-Agent; on all other routes it is unused. Discovery never
+	 * receives a generated session header — it belongs to no conversation.
+	 */
+	userAgent?: string;
 
 	/** Logger for diagnostics */
 	logger: Logger;
@@ -253,7 +262,13 @@ export function createCachedModelFetcher<T extends ProviderCredentials = Provide
 				config.logger.debug(`${logPrefix} Fetching models from API`);
 				const apiKeyCreds = typedCredentials as Partial<ApiKeyCredentials>;
 				const providerHeaders = config.createHeaders(typedCredentials);
-				const headers = additiveHeaderRecord(providerHeaders, apiKeyCreds.customHeaders);
+				const mergedHeaders = additiveHeaderRecord(providerHeaders, apiKeyCreds.customHeaders);
+				// Endpoint-specific transport policy (e.g. OpenCode) may contribute
+				// the host User-Agent on matching routes — never a session header.
+				const headers = mergeOpencodeHeaders(mergedHeaders, {
+					baseUrl: apiUrl,
+					userAgent: config.userAgent,
+				});
 				const response = await fetch(apiUrl, { headers, signal: controller.signal });
 
 				if (!response.ok) {

@@ -11,6 +11,7 @@
 
 import * as z from "zod/v4";
 
+import { OPENCODE_PRODUCTS } from "./base-url.js";
 import { customProviderNameIssues } from "./custom-provider-name.js";
 import { validateUnsafeObjectKeys } from "./unsafe-object-key.js";
 import {
@@ -345,6 +346,52 @@ export const endpointsSchema = z.record(
 );
 
 // ---------------------------------------------------------------------------
+// Per-provider scalar connection fields
+// ---------------------------------------------------------------------------
+
+/**
+ * The OpenCode hosted product selected on the single built-in `opencode`
+ * provider. Persisted as a scalar (`"go" | "zen"`), never as a URL, so the
+ * endpoint literals stay owned by the built-in catalog and can be updated
+ * without being shadowed by saved config. Absent resolves to the zen
+ * default; an explicit `baseUrl` overrides the product selection.
+ */
+export const opencodeProductSchema = z
+	.enum(OPENCODE_PRODUCTS)
+	.describe(
+		"Which OpenCode hosted product to use: `go` (subscription) or `zen` (pay-per-request, the default). Selects the API endpoint; an explicit `baseUrl` overrides the selection.",
+	);
+
+/**
+ * Per-provider scalar connection fields, keyed by built-in provider ID — the
+ * ONE canonical definition for scalar fields that the named-section machinery
+ * (`CONNECTION_SECTION_SCHEMAS`, object sub-schemas) cannot express.
+ * Mirroring `gatewayCustomHeadersSchema(providerId)`'s per-ID
+ * parameterization, this map is consumed by BOTH the strict per-key block
+ * builder (`connectionBlockSchema`) and the permissive `allConnectionFields`
+ * superset, so `BuiltinProviderBlock`, enforced/default fragments, and
+ * `resolveConnectionFromBlock()` all see each field through one definition.
+ */
+const BUILTIN_SCALAR_CONNECTION_FIELDS = {
+	opencode: {
+		product: opencodeProductSchema.optional(),
+	},
+} satisfies Partial<Record<BuiltinProviderId, Record<string, z.ZodTypeAny>>>;
+
+/**
+ * The scalar-field shape for one built-in provider (empty for providers
+ * without scalar fields). Field optionality is already declared in
+ * {@link BUILTIN_SCALAR_CONNECTION_FIELDS}.
+ */
+function builtinScalarFields(providerId: BuiltinProviderId): Record<string, z.ZodTypeAny> {
+	// A widened view for indexing; the precise `typeof` of the canonical map
+	// above is what `allScalarConnectionFields` derives its shape from.
+	const byId: Partial<Record<BuiltinProviderId, Record<string, z.ZodTypeAny>>> =
+		BUILTIN_SCALAR_CONNECTION_FIELDS;
+	return byId[providerId] ?? {};
+}
+
+// ---------------------------------------------------------------------------
 // Connection field composition
 // ---------------------------------------------------------------------------
 
@@ -442,6 +489,18 @@ const CONNECTION_SECTION_SCHEMAS = {
 type ConnectionSectionName = keyof typeof CONNECTION_SECTION_SCHEMAS;
 
 /**
+ * Every provider-specific scalar connection field in one shape, derived from
+ * the canonical per-ID map so the permissive superset block cannot drift
+ * from the strict per-key blocks.
+ */
+type AllScalarConnectionFields =
+	(typeof BUILTIN_SCALAR_CONNECTION_FIELDS)[keyof typeof BUILTIN_SCALAR_CONNECTION_FIELDS];
+const allScalarConnectionFields: AllScalarConnectionFields = Object.assign(
+	{},
+	...Object.values(BUILTIN_SCALAR_CONNECTION_FIELDS),
+);
+
+/**
  * Superset of all connection fields (base + every sub-section, all optional).
  * Used for the **enforced** (loose) block shape and the permissive working
  * types — it is not a user-facing strict block.
@@ -454,6 +513,9 @@ const allConnectionFields = {
 	snowflake: snowflakeConfigSchema.optional(),
 	databricks: databricksConfigSchema.optional(),
 	positaiLogin: positaiLoginConfigSchema.optional(),
+	// Scalar fields ride the same canonical map as the strict per-key blocks,
+	// so the permissive superset can never drift from them.
+	...allScalarConnectionFields,
 };
 
 /**
@@ -486,6 +548,7 @@ function connectionBlockSchema<S extends ConnectionSectionName>(
 		.object({
 			...baseConnectionFields,
 			customHeaders: gatewayCustomHeadersSchema(providerId).optional(),
+			...builtinScalarFields(providerId),
 			...connectionSectionShape(sections),
 		})
 		.strict();
@@ -523,6 +586,7 @@ const BUILTIN_CONNECTION_SECTIONS = {
 	litellm: [],
 	portkey: [],
 	"posit-connect": [],
+	opencode: [],
 } as const satisfies Record<BuiltinProviderId, readonly ConnectionSectionName[]>;
 
 /**

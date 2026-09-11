@@ -56,6 +56,37 @@ branching on it; the strip helper is private to the module, so there is no way t
 - **Key presence and breakpoint eligibility cannot drift** — no session ID means no key _and_ a
   full marker strip, decided in one place rather than re-derived per client.
 
+### Endpoint-required transport headers (OpenCode)
+
+Host-supplied capability params are one kind of input; a distinct kind is **endpoint-required
+transport headers** — headers a specific service demands of every client, which the bridge owns
+because transport quirks are its charter. The single seam is
+`src/model-clients/opencode-request-headers.ts`, which privately owns the OpenCode endpoint
+literals (`opencode.ai` with API roots `/zen/go/v1` and `/zen/v1`), the route matcher
+(`isOpencodeEndpoint`), and the header merge (`mergeOpencodeHeaders`). The literals are
+deliberately not exported from any entrypoint: no configuration resolver, schema, form, or host
+consumes them. OpenCode behind another hostname (proxy/gateway alias) is out of scope for
+automatic detection — that would need an explicit configuration contract, not hostname inference.
+
+On matching routes, the `OpenAIClient` and `AnthropicClient` chat paths set
+`x-opencode-session` to `metadata.rootConversationId` (the host-owned root conversation identity;
+the bridge never derives, splits, or falls back when it is absent) and apply the host product
+User-Agent beneath any explicit custom one. The generated session value wins over a static
+custom-header workaround; a user's static session header on non-matching routes is never
+stripped. `ChatRequestMetadata` (`src/model-clients/ModelClient.ts`, root-exported) is the
+runtime metadata contract: `sessionId` remains the full structured identity consumed by the
+Posit AI Pass `Session-Id` header and the `prompt_cache_key` projection, while
+`rootConversationId` exists for endpoint routing policies like OpenCode's.
+
+Model discovery belongs to no conversation, so it never receives a session header — but matching
+OpenCode discovery requests do carry the host User-Agent: `createCachedModelFetcher` accepts an
+optional `userAgent` and applies the same policy at the fetch boundary. The host identity reaches
+the clients and fetchers through optional `userAgent` parameters on the OpenAI, OpenAI-compatible,
+and Anthropic registrars/factories, and through `ProviderRegistrationConfig.providerUserAgent`
+(distinct from `userAgent`, which identifies the host to Posit AI Pass, so a host can preserve a
+legacy Posit AI Pass identity while giving endpoint-policy providers a versioned one). With no
+host identity, SDK default User-Agent behavior is unchanged.
+
 ## Code Layout
 
 | Location                                         | What it does                                                                                                                                                                                                                                                                                  | VS Code deps? |
@@ -101,6 +132,12 @@ providers whose models live on different endpoints and is resolved below
 model overrides and protocol endpoints, but above provider-wide `baseUrl`.
 The full ladder is: model override/custom model → protocol endpoint →
 discovered model → provider-wide URL → client default.
+
+Clients preserve the supplied URL unchanged on the wire. Endpoint-specific
+header policy (the OpenCode seam above) only _inspects_ the resolved
+destination — `params.baseUrl ?? this.baseURL` — at request time, because a
+per-model endpoint override can change it in either direction; it never
+corrects or rewrites the URL.
 
 ## Model discovery deadline
 

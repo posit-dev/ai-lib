@@ -4,6 +4,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
+import { OPENCODE_GO_BASE_URL, OPENCODE_ZEN_BASE_URL } from "../base-url.js";
 import type { ProviderConfigSource } from "../resolve-catalog.js";
 import {
 	recoverValidStack,
@@ -995,5 +996,134 @@ describe("resolveProviderCatalog — legacy-positron-enforced (legacy Positron e
 		expect(find(catalog, "ghost")).toBeUndefined();
 		expect(find(catalog, "anthropic")?.enabled).toBe(true);
 		expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("invalid merged result"));
+	});
+});
+
+describe("resolveProviderCatalog — OpenCode built-in", () => {
+	it("resolves the zen default base URL, zen default product, and openai client kind", () => {
+		const catalog = resolveProviderCatalog({ sources: [], envVars: {} });
+
+		const opencode = find(catalog, "opencode");
+		expect(opencode?.connection.baseUrl).toBe(OPENCODE_ZEN_BASE_URL);
+		expect(opencode?.clientKind).toBe("openai");
+		expect(opencode?.opencodeProduct).toEqual({
+			product: "zen",
+			state: { state: "editable" },
+		});
+		// Nothing authored: no per-field sources are retained.
+		expect(opencode?.connectionProvenance.opencode).toBeUndefined();
+	});
+
+	it("resolves a configured product to its endpoint beneath an explicit baseUrl", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [source("user", { providers: { opencode: { product: "go" } } })],
+			envVars: {},
+		});
+
+		const opencode = find(catalog, "opencode");
+		expect(opencode?.connection.baseUrl).toBe(OPENCODE_GO_BASE_URL);
+		expect(opencode?.opencodeProduct).toEqual({
+			product: "go",
+			state: { state: "editable" },
+		});
+		expect(opencode?.connectionProvenance.opencode).toEqual({
+			product: "user",
+			baseUrl: undefined,
+		});
+	});
+
+	it("lets an explicit baseUrl win over the product selection", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("user", {
+					providers: {
+						opencode: { product: "go", baseUrl: "https://gateway.example.com/v1" },
+					},
+				}),
+			],
+			envVars: {},
+		});
+
+		const opencode = find(catalog, "opencode");
+		expect(opencode?.connection.baseUrl).toBe("https://gateway.example.com/v1");
+		// An authored baseUrl makes the product choice inert.
+		expect(opencode?.opencodeProduct).toEqual({
+			product: "go",
+			state: { state: "base-url-override", source: "user" },
+		});
+	});
+
+	it("reports an enforced product as product-enforced", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("enforced", { providers: { opencode: { product: "go" } } }),
+				source("user", { providers: { opencode: { product: "zen" } } }),
+			],
+			envVars: {},
+		});
+
+		const opencode = find(catalog, "opencode");
+		expect(opencode?.connection.baseUrl).toBe(OPENCODE_GO_BASE_URL);
+		expect(opencode?.opencodeProduct).toEqual({
+			product: "go",
+			state: { state: "product-enforced" },
+		});
+	});
+
+	it("yields base-url-override with the matching source at every layer, even equal-valued to the zen default", () => {
+		// Inertness is authorship-based: an authored baseUrl equal to today's
+		// Zen URL still shadows the catalog default and makes the selector
+		// inert — at the user, administrator-default, AND enforced layers.
+		for (const kind of ["user", "default", "enforced"] as const) {
+			const catalog = resolveProviderCatalog({
+				sources: [
+					source(kind, {
+						providers: { opencode: { baseUrl: OPENCODE_ZEN_BASE_URL } },
+					}),
+				],
+				envVars: {},
+			});
+
+			const opencode = find(catalog, "opencode");
+			expect(opencode?.connection.baseUrl).toBe(OPENCODE_ZEN_BASE_URL);
+			expect(opencode?.opencodeProduct).toEqual({
+				product: "zen",
+				state: { state: "base-url-override", source: kind },
+			});
+		}
+	});
+
+	it("prefers base-url-override over product-enforced when both are authored", () => {
+		// An enforced baseUrl resolves above any product selection, so it is
+		// a base-url state (source "enforced"), NOT a product state.
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("enforced", {
+					providers: { opencode: { product: "go", baseUrl: OPENCODE_GO_BASE_URL } },
+				}),
+			],
+			envVars: {},
+		});
+
+		expect(find(catalog, "opencode")?.opencodeProduct).toEqual({
+			product: "go",
+			state: { state: "base-url-override", source: "enforced" },
+		});
+	});
+
+	it("tracks the administrator-default product as an editable default source", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [source("default", { providers: { opencode: { product: "go" } } })],
+			envVars: {},
+		});
+
+		const opencode = find(catalog, "opencode");
+		expect(opencode?.connection.baseUrl).toBe(OPENCODE_GO_BASE_URL);
+		// A default-layer product is overridable: the selector stays editable.
+		expect(opencode?.opencodeProduct).toEqual({
+			product: "go",
+			state: { state: "editable" },
+		});
+		expect(opencode?.connectionProvenance.opencode?.product).toBe("default");
 	});
 });
