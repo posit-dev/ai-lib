@@ -6,7 +6,6 @@ import type { ResolvedProviderId } from "ai-config";
 
 import { createOpenAICompatibleFetchMiddleware } from "../model-clients/openai-compat-fetch";
 import { OpenAIClient } from "../model-clients/OpenAIClient";
-import { explicitUserAgentHeader } from "../model-clients/opencode-request-headers";
 import type { Logger, ModelInfo } from "../types";
 import type { ApiKeyCredentials } from "../types";
 import { createCachedModelFetcher } from "./cached-model-fetcher";
@@ -24,14 +23,9 @@ const OPENAI_COMPATIBLE_DEFAULTS = {
 	maxContextLength: 128_000,
 } satisfies Partial<ModelInfo>;
 
-function createOpenAICompatibleModelFetcher(
-	providerId: ResolvedProviderId,
-	logger: Logger,
-	userAgent?: string,
-) {
+function createOpenAICompatibleModelFetcher(providerId: ResolvedProviderId, logger: Logger) {
 	return createCachedModelFetcher<ApiKeyCredentials>({
 		providerId,
-		userAgent,
 		resolveUrl: (credentials) => {
 			const base = (credentials.baseUrl?.trim() || "").replace(/\/+$/, "");
 			return new URL("models", base + "/").toString();
@@ -56,52 +50,33 @@ function createOpenAICompatibleModelFetcher(
 	});
 }
 
-/**
- * @param userAgent - Host product User-Agent, applied by endpoint-specific
- *   header policies (e.g. OpenCode) on matching routes. An explicit custom
- *   `User-Agent` header always wins over it.
- */
-function createOpenAICompatibleClientFactory(userAgent?: string): ClientFactory {
-	return (credentials) => {
-		if (credentials.type !== "apikey") {
-			throw new Error(
-				`openai-compatible provider requires API key credentials, got: ${credentials.type}`,
-			);
-		}
-		// customHeaders are injected by the custom fetch wrapper; passing them
-		// to OpenAIClient's SDK `headers` option as well would be redundant.
-		// The User-Agent choice is resolved here — explicit custom value over
-		// the host default — because the client injects the selected identity
-		// at SDK level on policy-matched routes, ahead of the middleware's
-		// additive custom-header merge.
-		return new OpenAIClient({
-			apiKey: credentials.apiKey,
-			baseUrl: credentials.baseUrl?.trim(),
-			apiMode: "completions",
-			userAgent: explicitUserAgentHeader(credentials.customHeaders) ?? userAgent,
-			customFetch: createOpenAICompatibleFetchMiddleware(
-				"OpenAI Compatible",
-				credentials.apiKey,
-				credentials.customHeaders,
-			),
-		});
-	};
-}
+const openAICompatibleClientFactory: ClientFactory = (credentials) => {
+	if (credentials.type !== "apikey") {
+		throw new Error(
+			`openai-compatible provider requires API key credentials, got: ${credentials.type}`,
+		);
+	}
+	// customHeaders are injected by the custom fetch wrapper; passing them
+	// to OpenAIClient's SDK `headers` option as well would be redundant.
+	return new OpenAIClient({
+		apiKey: credentials.apiKey,
+		baseUrl: credentials.baseUrl?.trim(),
+		apiMode: "completions",
+		customFetch: createOpenAICompatibleFetchMiddleware(
+			"OpenAI Compatible",
+			credentials.apiKey,
+			credentials.customHeaders,
+		),
+	});
+};
 
 /** Register the built-in `openai-compatible` provider. */
-export function registerOpenAICompatibleProvider(
-	registry: ProviderRegistry,
-	logger: Logger,
-	userAgent?: string,
-): void {
+export function registerOpenAICompatibleProvider(registry: ProviderRegistry, logger: Logger): void {
 	registry.registerModelFetcher(
 		"openai-compatible",
-		createOpenAICompatibleModelFetcher("openai-compatible", logger, userAgent),
+		createOpenAICompatibleModelFetcher("openai-compatible", logger),
 	);
-	registry.registerClientFactory(
-		"openai-compatible",
-		createOpenAICompatibleClientFactory(userAgent),
-	);
+	registry.registerClientFactory("openai-compatible", openAICompatibleClientFactory);
 }
 
 /**
@@ -116,14 +91,7 @@ export function registerCustomOpenAICompatibleProvider(
 	registry: ProviderRegistry,
 	providerId: ResolvedProviderId,
 	logger: Logger,
-	userAgent?: string,
 ): void {
-	registry.registerModelFetcher(
-		providerId,
-		createOpenAICompatibleModelFetcher(providerId, logger, userAgent),
-	);
-	registry.registerClientFactory(
-		"openai-compatible",
-		createOpenAICompatibleClientFactory(userAgent),
-	);
+	registry.registerModelFetcher(providerId, createOpenAICompatibleModelFetcher(providerId, logger));
+	registry.registerClientFactory("openai-compatible", openAICompatibleClientFactory);
 }

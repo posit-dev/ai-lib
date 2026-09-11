@@ -27,7 +27,6 @@ import {
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 import { prepareExplicitOpenAIRequest } from "./openai-prompt-caching";
-import { mergeOpencodeHeaders } from "./opencode-request-headers";
 import { withRawHttpLogging } from "./raw-http-logging";
 
 export type OpenAIApiMode = "completions" | "responses";
@@ -49,12 +48,6 @@ export interface OpenAIClientConfig {
 	 */
 	customFetch?: (delegate: typeof globalThis.fetch) => typeof globalThis.fetch;
 	customHeaders?: Record<string, string>;
-	/**
-	 * Host product User-Agent, applied only by endpoint-specific header
-	 * policies (e.g. OpenCode) on matching routes. When unset, requests keep
-	 * the SDK's default User-Agent.
-	 */
-	userAgent?: string;
 }
 
 export class OpenAIClient implements ModelClient {
@@ -63,7 +56,6 @@ export class OpenAIClient implements ModelClient {
 	private readonly apiMode: OpenAIApiMode;
 	private readonly customFetch?: (delegate: typeof globalThis.fetch) => typeof globalThis.fetch;
 	private readonly customHeaders?: Record<string, string>;
-	private readonly userAgent?: string;
 
 	constructor(config: OpenAIClientConfig) {
 		this.apiKey = config.apiKey;
@@ -71,7 +63,6 @@ export class OpenAIClient implements ModelClient {
 		this.apiMode = config.apiMode;
 		this.customFetch = config.customFetch;
 		this.customHeaders = config.customHeaders;
-		this.userAgent = config.userAgent;
 	}
 
 	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {
@@ -122,17 +113,7 @@ export class OpenAIClient implements ModelClient {
 						return wireFetch(url, { ...init, headers });
 					}
 				: loggedFetch;
-		// Endpoint-specific transport policy (OpenCode session routing): on
-		// matching routes the generated session header wins over any static
-		// custom-header workaround, and the host User-Agent fills in beneath an
-		// explicit custom one. On the OpenAI-compatible path customHeaders are
-		// unset (the fetch middleware owns them); the SDK-level values set here
-		// then win the middleware's additive merge, giving the same precedence.
-		const headers = mergeOpencodeHeaders(safeSdkCustomHeaders(this.customHeaders), {
-			baseUrl: effectiveBaseUrl,
-			rootConversationId: params.metadata?.rootConversationId,
-			userAgent: this.userAgent,
-		});
+		const headers = safeSdkCustomHeaders(this.customHeaders);
 		const provider = createOpenAI({
 			apiKey: isEmptyKey ? "sk-placeholder" : this.apiKey,
 			...(effectiveBaseUrl && { baseURL: effectiveBaseUrl }),

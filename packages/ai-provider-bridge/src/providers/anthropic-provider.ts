@@ -55,11 +55,9 @@ function createAnthropicModelFetcher(
 	providerId: ResolvedProviderId,
 	includeHostedModels: boolean,
 	logger: Logger,
-	userAgent?: string,
 ) {
 	return createCachedModelFetcher<ApiKeyCredentials>({
 		providerId,
-		userAgent,
 		resolveUrl: (credentials) => {
 			const base = normalizeProviderBaseUrl(
 				credentials.baseUrl,
@@ -98,12 +96,7 @@ function createAnthropicModelFetcher(
 	});
 }
 
-/**
- * @param userAgent - Host product User-Agent, applied by endpoint-specific
- *   header policies (e.g. OpenCode) on matching routes beneath any explicit
- *   custom `User-Agent` header.
- */
-function createAnthropicClientFactory(logger: Logger, userAgent?: string): ClientFactory {
+function createAnthropicClientFactory(logger: Logger): ClientFactory {
 	return (credentials) => {
 		if (credentials.type !== "apikey") {
 			throw new Error(`Anthropic provider requires API key credentials, got: ${credentials.type}`);
@@ -113,32 +106,23 @@ function createAnthropicClientFactory(logger: Logger, userAgent?: string): Clien
 			credentials.baseUrl,
 			credentials.customHeaders,
 			logger,
-			userAgent,
 		);
 	};
 }
 
-export function registerAnthropicProvider(
-	registry: ProviderRegistry,
-	logger: Logger,
-	userAgent?: string,
-): void {
+export function registerAnthropicProvider(registry: ProviderRegistry, logger: Logger): void {
 	registry.registerModelFetcher(
 		"anthropic",
-		createAnthropicModelFetcher("anthropic", true, logger, userAgent),
+		createAnthropicModelFetcher("anthropic", true, logger),
 	);
-	registry.registerClientFactory("anthropic", createAnthropicClientFactory(logger, userAgent));
+	registry.registerClientFactory("anthropic", createAnthropicClientFactory(logger));
 }
 
 export function registerCustomAnthropicProvider(
 	registry: ProviderRegistry,
 	providerId: ResolvedProviderId,
 	logger: Logger,
-	userAgent?: string,
 ): void {
-	registry.registerModelFetcher(
-		providerId,
-		createAnthropicModelFetcher(providerId, false, logger, userAgent),
-	);
-	registry.registerClientFactory("anthropic", createAnthropicClientFactory(logger, userAgent));
+	registry.registerModelFetcher(providerId, createAnthropicModelFetcher(providerId, false, logger));
+	registry.registerClientFactory("anthropic", createAnthropicClientFactory(logger));
 }

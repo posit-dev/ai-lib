@@ -71,11 +71,9 @@ function createOpenAIModelFetcher(
 	providerId: ResolvedProviderId,
 	includeHostedModels: boolean,
 	logger: Logger,
-	userAgent?: string,
 ) {
 	return createCachedModelFetcher<ApiKeyCredentials>({
 		providerId,
-		userAgent,
 		resolveUrl: (credentials) => {
 			const base = normalizeProviderBaseUrl(credentials.baseUrl, OPENAI_HOST, OPENAI_API_VERSION);
 			return `${base}/models`;
@@ -108,47 +106,28 @@ function createOpenAIModelFetcher(
 	});
 }
 
-/**
- * @param userAgent - Host product User-Agent, applied by endpoint-specific
- *   header policies (e.g. OpenCode) on matching routes beneath any explicit
- *   custom `User-Agent` header.
- */
-function createOpenAIClientFactory(userAgent?: string): ClientFactory {
-	return (credentials) => {
-		if (credentials.type !== "apikey") {
-			throw new Error(`OpenAI provider requires API key credentials, got: ${credentials.type}`);
-		}
-		return new OpenAIClient({
-			apiKey: credentials.apiKey,
-			baseUrl: credentials.baseUrl,
-			apiMode: "responses",
-			customHeaders: credentials.customHeaders,
-			userAgent,
-		});
-	};
-}
+const openAIClientFactory: ClientFactory = (credentials) => {
+	if (credentials.type !== "apikey") {
+		throw new Error(`OpenAI provider requires API key credentials, got: ${credentials.type}`);
+	}
+	return new OpenAIClient({
+		apiKey: credentials.apiKey,
+		baseUrl: credentials.baseUrl,
+		apiMode: "responses",
+		customHeaders: credentials.customHeaders,
+	});
+};
 
-export function registerOpenAIProvider(
-	registry: ProviderRegistry,
-	logger: Logger,
-	userAgent?: string,
-): void {
-	registry.registerModelFetcher(
-		"openai",
-		createOpenAIModelFetcher("openai", true, logger, userAgent),
-	);
-	registry.registerClientFactory("openai", createOpenAIClientFactory(userAgent));
+export function registerOpenAIProvider(registry: ProviderRegistry, logger: Logger): void {
+	registry.registerModelFetcher("openai", createOpenAIModelFetcher("openai", true, logger));
+	registry.registerClientFactory("openai", openAIClientFactory);
 }
 
 export function registerCustomOpenAIProvider(
 	registry: ProviderRegistry,
 	providerId: ResolvedProviderId,
 	logger: Logger,
-	userAgent?: string,
 ): void {
-	registry.registerModelFetcher(
-		providerId,
-		createOpenAIModelFetcher(providerId, false, logger, userAgent),
-	);
-	registry.registerClientFactory("openai", createOpenAIClientFactory(userAgent));
+	registry.registerModelFetcher(providerId, createOpenAIModelFetcher(providerId, false, logger));
+	registry.registerClientFactory("openai", openAIClientFactory);
 }

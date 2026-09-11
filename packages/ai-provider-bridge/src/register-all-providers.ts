@@ -50,12 +50,10 @@ export interface ProviderRegistrationConfig {
 	/** User-Agent identifying the host to Posit AI Pass. */
 	userAgent?: string;
 	/**
-	 * Host product User-Agent for the direct OpenAI/Anthropic-family providers
-	 * (built-in and custom). Endpoint-specific transport policies (e.g.
-	 * OpenCode) apply it on matching routes — inference and discovery alike —
-	 * beneath any explicit custom `User-Agent` header. Distinct from
-	 * `userAgent` so a host can preserve a legacy Posit AI Pass identity while
-	 * giving endpoint-policy providers a versioned one.
+	 * Host product User-Agent for the direct providers (built-in and custom),
+	 * applied as a default beneath any explicit custom `User-Agent` header.
+	 * Distinct from `userAgent` so a host can preserve a legacy Posit AI Pass
+	 * identity while giving the direct providers a versioned one.
 	 */
 	providerUserAgent?: string;
 	/** If set, only these providers register; an empty list registers none. */
@@ -98,17 +96,14 @@ const PROVIDER_REGISTRARS = {
 			config.googleVertexCallbacks,
 			config.credentialEnvironment,
 		),
-	anthropic: (registry, logger, config) =>
-		registerAnthropicProvider(registry, logger, config.providerUserAgent),
+	anthropic: registerAnthropicProvider,
 	copilot: registerCopilotProvider,
-	openai: (registry, logger, config) =>
-		registerOpenAIProvider(registry, logger, config.providerUserAgent),
+	openai: registerOpenAIProvider,
 	openrouter: registerOpenRouterProvider,
 	ollama: registerOllamaProvider,
 	lmstudio: registerLMStudioProvider,
 	gemini: registerGeminiProvider,
-	"openai-compatible": (registry, logger, config) =>
-		registerOpenAICompatibleProvider(registry, logger, config.providerUserAgent),
+	"openai-compatible": registerOpenAICompatibleProvider,
 	"ms-foundry": (registry, logger, config) =>
 		registerFoundryProvider(registry, logger, config.credentialEnvironment),
 	"snowflake-cortex": (registry, logger, config) =>
@@ -119,8 +114,7 @@ const PROVIDER_REGISTRARS = {
 	portkey: registerPortkeyProvider,
 	"posit-connect": (registry, logger, config) =>
 		registerConnectProvider(registry, logger, config.connectCallbacks),
-	opencode: (registry, logger, config) =>
-		registerOpencodeProvider(registry, logger, config.providerUserAgent),
+	opencode: registerOpencodeProvider,
 } satisfies Record<ProviderId, ProviderRegistrar>;
 
 /**

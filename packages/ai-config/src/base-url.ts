@@ -60,13 +60,12 @@ export const PORTKEY_HOSTED_BASE_URL = `${PORTKEY_HOST}/${PORTKEY_API_VERSION}`;
 export const OPENROUTER_DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
 
 /**
- * Canonical OpenCode host. OpenCode's hosted model services (Go and Zen)
- * require every inference request to carry a stable conversation identity in
- * the `x-opencode-session` header and ask clients to send a product
- * User-Agent. The bridge's header policy matches exactly this host (no
- * subdomain/lookalike matching) and derives its API roots from the two base
- * URLs below, so the catalog defaults and the transport matcher share one
- * source of truth and cannot drift.
+ * Canonical OpenCode host, the shared root of the two product endpoints
+ * below. OpenCode's hosted model services (Go and Zen) require every
+ * inference request to carry a stable conversation identity in the
+ * `x-opencode-session` header; the built-in `opencode` provider applies that
+ * header itself (per request, from the host's root conversation identity), so
+ * this constant feeds only the endpoint literals — nothing matches on it.
  */
 export const OPENCODE_HOST = "https://opencode.ai";
 /** OpenCode Go API root (OpenAI-style `/v1` surface). */
@@ -87,9 +86,8 @@ export const OPENCODE_PRODUCTS = ["go", "zen"] as const;
 export type OpencodeProduct = (typeof OPENCODE_PRODUCTS)[number];
 
 /**
- * Product → API root. The matcher (`opencode-request-headers.ts` derives its
- * roots from these literals), the catalog defaults, and `resolveConnection`'s
- * product selection share this one source of truth.
+ * Product → API root. The catalog defaults and `resolveConnection`'s product
+ * selection share this one source of truth.
  */
 export const OPENCODE_PRODUCT_BASE_URLS: Readonly<Record<OpencodeProduct, string>> = {
 	go: OPENCODE_GO_BASE_URL,

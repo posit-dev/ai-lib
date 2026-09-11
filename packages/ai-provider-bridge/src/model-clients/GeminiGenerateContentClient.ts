@@ -43,7 +43,6 @@ import {
 	createStepLogger,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
-import { mergeOpencodeHeaders } from "./opencode-request-headers";
 import { withRawHttpLogging } from "./raw-http-logging";
 
 /**
@@ -241,25 +240,17 @@ export class GeminiGenerateContentClient implements ModelClient {
 	private readonly baseURL?: string;
 	private readonly customHeaders?: Record<string, string>;
 	private readonly logger?: Logger;
-	private readonly userAgent?: string;
 
 	constructor(
 		auth: GeminiGenerateContentAuth,
 		baseURL?: string,
 		customHeaders?: Record<string, string>,
 		logger?: Logger,
-		/**
-		 * Host product User-Agent, applied only by endpoint-specific header
-		 * policies (e.g. OpenCode) on matching routes. When unset, requests
-		 * keep the SDK's default User-Agent.
-		 */
-		userAgent?: string,
 	) {
 		this.auth = auth;
 		this.baseURL = baseURL;
 		this.customHeaders = customHeaders;
 		this.logger = logger;
-		this.userAgent = userAgent;
 	}
 
 	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {
@@ -278,16 +269,7 @@ export class GeminiGenerateContentClient implements ModelClient {
 		// is trusted as given — bare-host correction happens at the config seam
 		// (see base-url.ts), not here.
 		const effectiveBaseUrl = params.baseUrl ?? this.baseURL;
-		// Endpoint-specific transport policy (OpenCode session routing): the
-		// generated session header wins over a static custom-header workaround;
-		// the host User-Agent fills in beneath an explicit custom one. On
-		// non-OpenCode destinations the record is returned unchanged, so
-		// existing consumers (e.g. Databricks) are unaffected.
-		const headers = mergeOpencodeHeaders(safeSdkCustomHeaders(this.customHeaders), {
-			baseUrl: effectiveBaseUrl,
-			rootConversationId: params.metadata?.rootConversationId,
-			userAgent: this.userAgent,
-		});
+		const headers = safeSdkCustomHeaders(this.customHeaders);
 		// Bearer mode: the SDK has no `authToken` setting, so a fetch middleware
 		// owns `Authorization` and the required `apiKey` becomes a placeholder
 		// the middleware strips. API-key mode: the SDK's native scheme, no

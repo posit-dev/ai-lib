@@ -60,37 +60,30 @@ branching on it; the strip helper is private to the module, so there is no way t
 
 Host-supplied capability params are one kind of input; a distinct kind is **endpoint-required
 transport headers** — headers a specific service demands of every client, which the bridge owns
-because transport quirks are its charter. The single seam is
-`src/model-clients/opencode-request-headers.ts`, which owns the route matcher
-(`isOpencodeEndpoint`) and the header merge (`mergeOpencodeHeaders`). The endpoint literals
-themselves live in ai-config (`OPENCODE_GO_BASE_URL` / `OPENCODE_ZEN_BASE_URL` in
-`base-url.ts`) so the catalog's connection defaults and this matcher share one source of truth —
-the matcher derives its host and API roots from those constants, and configuration resolvers,
-schemas, forms, and hosts consume the ai-config constants, never this module. OpenCode behind
-another hostname (proxy/gateway alias) is out of scope for automatic detection — that would need
-an explicit configuration contract, not hostname inference.
+because transport quirks are its charter. OpenCode's hosted services require every inference
+request to carry a stable conversation identity in `x-opencode-session`, and the owner of that
+policy is the built-in `opencode` provider itself (`src/providers/opencode-provider.ts`): each
+chat request builds its protocol delegate with the header already in `customHeaders`, via
+`withOpencodeSessionHeader` — a copy of the credential headers with any case-variant of
+`x-opencode-session` replaced by `metadata.rootConversationId` (the host-owned root conversation
+identity; the bridge never derives, splits, or falls back when it is absent, and with no root
+identity a static workaround header survives untouched). Per-request delegate construction is
+free: each delegate holds only config and builds its SDK connection inside `chat()`. Because the
+header rides on the provider rather than a URL matcher, a per-request `baseUrl` override keeps it
+(harmless on a non-OpenCode destination), and a hand-configured custom provider pointed AT an
+OpenCode endpoint does not receive it — the built-in provider is the supported path. The endpoint
+literals themselves live in ai-config (`OPENCODE_GO_BASE_URL` / `OPENCODE_ZEN_BASE_URL` in
+`base-url.ts`) as the catalog's connection defaults.
+`ChatRequestMetadata` (`src/model-clients/ModelClient.ts`, root-exported) is the runtime metadata
+contract: `sessionId` remains the full structured identity consumed by the Posit AI Pass
+`Session-Id` header and the `prompt_cache_key` projection, while `rootConversationId` exists for
+provider-owned routing headers like OpenCode's.
 
-On matching routes, the `OpenAIClient`, `AnthropicClient`, and `GeminiGenerateContentClient` chat
-paths set `x-opencode-session` to `metadata.rootConversationId` (the host-owned root conversation
-identity; the bridge never derives, splits, or falls back when it is absent) and apply the host
-product User-Agent beneath any explicit custom one. The generated session value wins over a static
-custom-header workaround; a user's static session header on non-matching routes is never
-stripped. `ChatRequestMetadata` (`src/model-clients/ModelClient.ts`, root-exported) is the
-runtime metadata contract: `sessionId` remains the full structured identity consumed by the
-Posit AI Pass `Session-Id` header and the `prompt_cache_key` projection, while
-`rootConversationId` exists for endpoint routing policies like OpenCode's.
+Model discovery belongs to no conversation, so it never receives a session header — the OpenCode
+fetcher's only header is `Authorization: Bearer`.
 
-Model discovery belongs to no conversation, so it never receives a session header — but matching
-OpenCode discovery requests do carry the host User-Agent: `createCachedModelFetcher` accepts an
-optional `userAgent` and applies the same policy at the fetch boundary. The host identity reaches
-the clients and fetchers through optional `userAgent` parameters on the OpenAI, OpenAI-compatible,
-and Anthropic registrars/factories, and through `ProviderRegistrationConfig.providerUserAgent`
-(distinct from `userAgent`, which identifies the host to Posit AI Pass, so a host can preserve a
-legacy Posit AI Pass identity while giving endpoint-policy providers a versioned one). With no
-host identity, SDK default User-Agent behavior is unchanged.
-
-The built-in `opencode` provider dispatches each chat request to one of three delegates sharing
-the resolved API root — `OpenAIClient` (Chat Completions and Responses), `AnthropicClient`
+The built-in `opencode` provider builds one of three delegates per chat request against the
+resolved API root — `OpenAIClient` (Chat Completions and Responses), `AnthropicClient`
 (Messages), `GeminiGenerateContentClient` (generateContent) — selected by the normalized resolved
 protocol, with `inferOpencodeProtocol` (ai-config) filling in a protocol only when the caller
 omitted one. Authentication is per route and probe-verified (2026-09-11): the OpenAI routes read

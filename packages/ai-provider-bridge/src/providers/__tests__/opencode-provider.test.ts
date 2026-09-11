@@ -5,13 +5,12 @@
 /**
  * Built-in OpenCode provider behavioral contracts.
  *
- * Distinct from the custom-provider wire matrix in
- * `model-clients/__tests__/opencode-session-wire.test.ts` (which owns URL
- * matching and header-merge precedence): these pin the built-in
- * registration — the default (Go) URL, the resolved-`baseUrl` override
- * reaching discovery AND chat, the base-URL-partitioned discovery cache
- * (the product-switch regression), the constructor-default Chat Completions
- * route, and the host User-Agent arriving at both seams.
+ * Distinct from the session-header wire contracts in
+ * `model-clients/__tests__/opencode-session-wire.test.ts` (which owns the
+ * header-merge precedence matrix): these pin the built-in registration — the
+ * default (Go) URL, the resolved-`baseUrl` override reaching discovery AND
+ * chat, the base-URL-partitioned discovery cache (the product-switch
+ * regression), and the constructor-default Chat Completions route.
  */
 
 import type { ModelMessage } from "ai";
@@ -38,8 +37,6 @@ const cancellationToken: CancellationToken = {
 	onCancellationRequested: () => ({ dispose() {} }),
 };
 
-const HOST_USER_AGENT = "PositAssistant-Test/1.2.3+abc1234 (darwin)";
-
 const MESSAGES: ModelMessage[] = [{ role: "user", content: "Hello" }];
 
 afterEach(() => {
@@ -63,9 +60,9 @@ function modelsResponse(ids: string[]): Response {
 	);
 }
 
-function opencodeRegistry(userAgent?: string): ProviderRegistry {
+function opencodeRegistry(): ProviderRegistry {
 	const registry = new ProviderRegistry(logger);
-	registerOpencodeProvider(registry, logger, userAgent);
+	registerOpencodeProvider(registry, logger);
 	return registry;
 }
 
@@ -94,11 +91,11 @@ function capturedHeaders(call: Parameters<typeof fetch>): Headers {
 }
 
 describe("OpenCode built-in model discovery", () => {
-	it("fetches the default (Go) /models URL with bearer auth and the host User-Agent", async () => {
+	it("fetches the default (Go) /models URL with bearer auth", async () => {
 		const capture = createRawFetchCapture(async () => modelsResponse(["kimi-k2.5"]));
 		vi.stubGlobal("fetch", capture.mock);
 
-		const registry = opencodeRegistry(HOST_USER_AGENT);
+		const registry = opencodeRegistry();
 		const models = await registry.getModelsForProvider("opencode", {
 			type: "apikey",
 			apiKey: "sk-test",
@@ -109,7 +106,6 @@ describe("OpenCode built-in model discovery", () => {
 		expect(capture.calls.map((call) => call[0])).toEqual([`${OPENCODE_GO_BASE_URL}/models`]);
 		const headers = capturedHeaders(capture.calls[0]!);
 		expect(headers.get("authorization")).toBe("Bearer sk-test");
-		expect(headers.get("user-agent")).toBe(HOST_USER_AGENT);
 		// Discovery belongs to no conversation.
 		expect(headers.get("x-opencode-session")).toBeNull();
 	});
@@ -193,7 +189,6 @@ describe("OpenCode built-in chat", () => {
 		const registry = new ProviderRegistry(logger);
 		registerAllProviders(registry, logger, {
 			positAiBaseUrl: "https://api.posit.cloud",
-			providerUserAgent: HOST_USER_AGENT,
 		});
 		const client = registry.getClientForProviderOrKind("opencode", credentials, "openai");
 		if (!client) {
@@ -202,7 +197,7 @@ describe("OpenCode built-in chat", () => {
 		return client;
 	}
 
-	it("takes the constructor-default completions route and carries the session headers", async () => {
+	it("takes the constructor-default completions route and carries the session header", async () => {
 		const capture = createRawFetchCapture(async () => sseResponse());
 		vi.stubGlobal("fetch", capture.mock);
 
@@ -216,11 +211,10 @@ describe("OpenCode built-in chat", () => {
 		expect(url).toBe(`${OPENCODE_GO_BASE_URL}/chat/completions`);
 		const headers = new Headers(init?.headers);
 		expect(headers.get("x-opencode-session")).toBe("root-1");
-		expect(headers.get("user-agent")?.startsWith(HOST_USER_AGENT)).toBe(true);
 		expect(headers.get("authorization")).toBe("Bearer sk-test");
 	});
 
-	it("sends a configured baseUrl override to chat and turns the session header off", async () => {
+	it("sends a configured baseUrl override to chat and keeps the session header", async () => {
 		const capture = createRawFetchCapture(async () => sseResponse());
 		vi.stubGlobal("fetch", capture.mock);
 
@@ -233,9 +227,9 @@ describe("OpenCode built-in chat", () => {
 
 		const [url, init] = capture.single();
 		expect(url).toBe("https://gateway.example.com/v1/chat/completions");
-		// Destination-based policy: routing away from opencode.ai drops the
-		// generated session header.
-		expect(new Headers(init?.headers).get("x-opencode-session")).toBeNull();
+		// The header rides on the provider, not the destination: a base-URL
+		// override that routes away from opencode.ai keeps it (harmless there).
+		expect(new Headers(init?.headers).get("x-opencode-session")).toBe("root-1");
 	});
 
 	it("honors a per-request protocol stamp over the constructor default", async () => {
@@ -281,7 +275,6 @@ describe("OpenCode built-in chat", () => {
 		const registry = new ProviderRegistry(logger);
 		registerAllProviders(registry, logger, {
 			positAiBaseUrl: "https://api.posit.cloud",
-			providerUserAgent: HOST_USER_AGENT,
 		});
 		const credentials: ApiKeyCredentials = { type: "apikey", apiKey: "sk-test" };
 		const discovered = await registry.getModelsForProvider("opencode", credentials);
@@ -331,7 +324,6 @@ describe("OpenCode protocol routing", () => {
 		const registry = new ProviderRegistry(logger);
 		registerAllProviders(registry, logger, {
 			positAiBaseUrl: "https://api.posit.cloud",
-			providerUserAgent: HOST_USER_AGENT,
 		});
 		const client = registry.getClientForProviderOrKind("opencode", credentials, "openai");
 		if (!client) {
@@ -429,7 +421,6 @@ describe("OpenCode protocol routing", () => {
 		expect(headers.get("x-api-key")).toBe("sk-test");
 		expect(headers.get("authorization")).toBeNull();
 		expect(headers.get("x-opencode-session")).toBe("root-1");
-		expect(headers.get("user-agent")?.startsWith(HOST_USER_AGENT)).toBe(true);
 	});
 
 	it("routes a direct Claude call on Zen to /messages with a Messages-shaped body", async () => {
@@ -476,7 +467,6 @@ describe("OpenCode protocol routing", () => {
 		expect(headers.get("x-goog-api-key")).toBe("sk-test");
 		expect(headers.get("authorization")).toBeNull();
 		expect(headers.get("x-opencode-session")).toBe("root-1");
-		expect(headers.get("user-agent")?.startsWith(HOST_USER_AGENT)).toBe(true);
 	});
 
 	it("never lets a custom x-goog-api-key header override the OpenCode credential", async () => {

@@ -55,16 +55,16 @@ product and falls back to Chat Completions — it must not be silently classifie
 The family rules (generalizing the documented tables; OpenCode does not promise prefixes hold for
 future ids):
 
-| Model id prefix | Go                 | Zen                 |
-| --------------- | ------------------ | ------------------- |
-| `gpt-`          | `openai-responses` | `openai-responses`  |
-| `grok-`         | `openai-responses` | `openai-responses`  |
-| `muse-spark-`   | `openai-responses` | `openai-responses`  |
-| `claude-`       | (not listed)       | `anthropic-messages`|
-| `qwen`          | `anthropic-messages`| `anthropic-messages`|
-| `minimax-`      | `anthropic-messages`| `openai-chat`       |
-| `gemini-`       | (not listed)       | `google-generative` |
-| otherwise       | `openai-chat`      | `openai-chat`       |
+| Model id prefix | Go                   | Zen                  |
+| --------------- | -------------------- | -------------------- |
+| `gpt-`          | `openai-responses`   | `openai-responses`   |
+| `grok-`         | `openai-responses`   | `openai-responses`   |
+| `muse-spark-`   | `openai-responses`   | `openai-responses`   |
+| `claude-`       | (not listed)         | `anthropic-messages` |
+| `qwen`          | `anthropic-messages` | `anthropic-messages` |
+| `minimax-`      | `anthropic-messages` | `openai-chat`        |
+| `gemini-`       | (not listed)         | `google-generative`  |
+| otherwise       | `openai-chat`        | `openai-chat`        |
 
 "Not listed" falls through to Chat Completions; inference must never add Claude or Gemini to Go's
 catalog.
@@ -103,13 +103,13 @@ So each delegate runs in its SDK's native auth mode (`{ apiKey }` for Anthropic/
 matches the docs' per-model "AI SDK Package" column: the vendor SDK, native auth, OpenCode base
 URL.
 
-The destination-based header policy (`mergeOpencodeHeaders`: generated `x-opencode-session` from
-`metadata.rootConversationId` wins over static workarounds; host User-Agent beneath an explicit
-custom one; no headers on non-OpenCode destinations) applies on all three delegates —
-`GeminiGenerateContentClient` gained the same `userAgent` constructor parameter and request-time
-merge the OpenAI/Anthropic clients already had. Discovery carries the host User-Agent but never a
-session header, and the discovery cache stays partitioned by the resolved credential base URL so a
-product switch refetches.
+The session-header policy is owned by the provider, not a URL matcher: each chat request builds
+its delegate per request with `x-opencode-session` (from `metadata.rootConversationId`) already
+in `customHeaders` — the generated value wins over a static case-variant, and with no root
+identity nothing is generated and a static workaround survives. Per-request construction is free
+because each delegate builds its SDK connection inside `chat()`. Discovery carries
+`Authorization` only — never a session header — and the discovery cache stays partitioned by the
+resolved credential base URL so a product switch refetches.
 
 ## Gemini profile gating
 
