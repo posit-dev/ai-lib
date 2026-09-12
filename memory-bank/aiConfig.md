@@ -231,11 +231,19 @@ sets them, while `baseUrl`/`tenantId` are absent until some layer sets them.
 
 ### Model selection (`resolveModels`)
 
-`resolveModels(modelsBlock, discovered, providerConnection)` runs the per-provider
-model pipeline: discovery gate (`discovery: "auto" | "off"`) → merge discovered +
-`custom` models → apply `overrides` → `allow` filter (exclusive allowlist) →
-`deny` filter (always wins) → attach routing (protocol/baseUrl). It is pure and
-reusable independent of the catalog builder.
+`resolveModels(modelsBlock, discovered, providerConnection, context?)` runs the
+per-provider model pipeline: discovery gate (`discovery: "auto" | "off"`) → merge
+discovered + `custom` models → apply `overrides` → `allow` filter (exclusive
+allowlist) → `deny` filter (always wins) → attach routing (protocol/baseUrl). It
+is pure and reusable independent of the catalog builder.
+
+The optional fourth argument, `ModelResolutionContext { providerId }`, supplies
+the provider identity `ResolvedConnection` deliberately lacks. The built-in
+`opencode` provider uses it to recompute its product-dependent inferred protocol
+under the full routing context — the discovery-time stamp knew only the provider
+URL, while a canonical model-level URL override can point at the other OpenCode
+product and change the documented route (see the OpenCode Protocol Routing
+section below).
 
 Capacity overrides (`maxContextLength`, `maxInputTokens`, and
 `maxOutputTokens`) replace the corresponding values in both the resolved flat
@@ -253,7 +261,8 @@ the effective administrator limits rather than the original discovery facts.
   `legacyPositronSettings` reader) > built-in defaults. Object keys deep-merge
   across layers.
 - **Model protocol**: user config (override/custom) > provider protocol >
-  discovered model inference.
+  inferred routing (OpenCode: recomputed per model from the effective routing
+  URL) > discovered model inference.
 - **Model endpoint**: model override/custom model > provider
   `endpoints[resolvedProtocol]` > discovered model `baseUrl` > provider-wide
   `baseUrl` > client default.
@@ -467,6 +476,12 @@ Per-provider cases:
   `thinkingEffortLevels` are likewise borrowed from the upstream tables
   (mirroring `snowflake-cortex-provider.ts`). Both branches set `protocol`
   (`"anthropic-messages"` or `"openai-chat"`).
+- `opencode` → the probe-verified OpenCode capability table
+  (`opencode-helpers.ts`) over conservative defaults, with `maxContextLength`
+  set equal to `maxInputTokens`. It deliberately stamps **no protocol**:
+  OpenCode routing is product-dependent (`opencode-routing.ts`), and this
+  entrypoint has no product context, so an id-only answer would be invented,
+  not derived.
 - Protocol inference is intentionally limited to Snowflake and Bedrock Mantle;
   other provider families leave it `undefined`.
 - Anything else (`ms-foundry`, `openai-compatible`, custom provider ids) stays
@@ -650,6 +665,29 @@ Databricks' own example, which passes a dummy `api_key` and supplies
 `Authorization: Bearer` through `http_options`. A wrong guess degrades safely —
 the native gate simply never passes, so those models stay on a working route
 rather than a broken one.
+
+### OpenCode Protocol Routing (`opencode-routing.ts`)
+
+Like Databricks, OpenCode routing has its own entry point and is **not** routed
+through `inferModelCapabilities`: `inferOpencodeProtocol(modelId, baseUrl)`
+(`src/model-capabilities/opencode-routing.ts`) maps a catalog id plus the
+resolved connection URL (which selects the Go or Zen product) to the documented
+wire protocol, using exact product/model exceptions (none today) → anchored,
+lowercase family rules → a Chat Completions fallback. The full mapping,
+precedence, per-route authentication evidence, Gemini profile gating, and the
+future-model maintenance procedure live in `memory-bank/opencodeRouting.md`;
+the canonical sources are https://opencode.ai/docs/go.md and
+https://opencode.ai/docs/zen.md (endpoint tables reviewed 2026-09-11 UTC).
+
+Two separations are deliberate:
+
+- **Routing vs. capabilities.** The protocol comes from OpenCode's documented
+  endpoint tables; `opencode-helpers.ts` holds only probe-verified capability
+  overrides and stamps no protocol (see the per-provider case above).
+- **Product context vs. id-only inference.** `opencodeProductForBaseUrl`
+  classifies only the two canonical API roots; an absent URL means the built-in
+  default product, and an unrecognized proxy URL gets the conservative Chat
+  Completions fallback rather than a guessed product.
 
 ## Shape Guard
 

@@ -25,7 +25,7 @@ type UndocumentedVariantCase = {
 };
 
 const UNDOCUMENTED_VARIANT_CASES = [
-	{ name: "undocumented 3.7 Flash", id: "gemini-3.7-flash" },
+	{ name: "undocumented 3.9 Flash", id: "gemini-3.9-flash" },
 	{ name: "undocumented 3.9 Pro", id: "gemini-3.9-pro" },
 ] satisfies readonly UndocumentedVariantCase[];
 
@@ -103,6 +103,19 @@ describe("getGeminiGenerateContentProfile", () => {
 
 		expect(getGeminiGenerateContentProfile("gemini-3.6-flash")?.thinkingEffortLevels).toEqual([
 			"minimal",
+			"low",
+			"medium",
+			"high",
+		]);
+
+		// 3.7/3.8 Flash document no `minimal` level (ai.google.dev thinking docs,
+		// reviewed 2026-09-11) — the per-variant rules must not inherit it.
+		expect(getGeminiGenerateContentProfile("gemini-3.7-flash")?.thinkingEffortLevels).toEqual([
+			"low",
+			"medium",
+			"high",
+		]);
+		expect(getGeminiGenerateContentProfile("gemini-3.8-flash")?.thinkingEffortLevels).toEqual([
 			"low",
 			"medium",
 			"high",

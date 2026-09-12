@@ -32,7 +32,9 @@
  * Headers are additive only. SDK/provider-managed header names
  * (`Authorization`, `x-api-key`, `anthropic-version`, `Content-Type`, etc.)
  * are ignored, as are custom headers whose names collide with headers already
- * populated by the provider-specific request path.
+ * populated by the provider-specific request path. `User-Agent` is the one
+ * exception: an explicit value replaces the default Posit Assistant identity,
+ * and the SDK's library tokens are appended after it.
  */
 export interface ApiKeyCredentials {
 	type: "apikey";
@@ -113,6 +115,10 @@ export interface GoogleCloudCredentials {
  * default (`https://cognitiveservices.azure.com/.default`) when the user
  * does not supply one. A fresh entra configuration is synthesized from the
  * provider catalog and never persisted to the credential store.
+ *
+ * `customHeaders` follows the same additive policy as API-key credentials;
+ * an explicit `User-Agent` replaces the default Posit Assistant identity while
+ * preserving the SDK's appended library tokens.
  */
 export interface AzureEntraCredentials {
 	type: "azure-entra";

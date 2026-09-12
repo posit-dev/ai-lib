@@ -142,6 +142,36 @@ describe("watchResolvedProviderCatalog", () => {
 		).toEqual({ aws: { region: "configuration" } });
 	});
 
+	it("should fire on a product-only edit beneath a fixed baseUrl", async () => {
+		// A product-only edit beneath a fixed baseUrl changes no connection
+		// field — only the effective-product projection — so without the
+		// descriptor in the change signature live hosts would show a stale
+		// selector until restart.
+		await fixture.writeTypedConfig({
+			providers: {
+				opencode: { baseUrl: "https://gateway.example.com/v1", product: "zen" },
+			},
+		});
+		const probe = createChangeProbe();
+		const watcher = watchResolvedProviderCatalog(probe.handler, { configPath, logger: mockLogger });
+		await awaitReady(watcher);
+
+		const changed = probe.next((change) => change.connectionChanged, "product-only edit");
+		await fixture.writeTypedConfigAtomic({
+			providers: {
+				opencode: { baseUrl: "https://gateway.example.com/v1", product: "go" },
+			},
+		});
+		const change = await changed;
+		watcher.dispose();
+
+		expect(change.connectionChanged).toBe(true);
+		expect(change.catalog.find((provider) => provider.id === "opencode")?.opencodeProduct).toEqual({
+			product: "go",
+			state: { state: "base-url-override", source: "user" },
+		});
+	});
+
 	it("should stop firing after dispose", async () => {
 		await fixture.writeTypedConfig({});
 		const probe = createChangeProbe();

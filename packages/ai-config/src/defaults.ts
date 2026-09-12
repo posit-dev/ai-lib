@@ -10,6 +10,7 @@
  * configMapper and schema validation.
  */
 
+import { OPENCODE_DEFAULT_PRODUCT, OPENCODE_PRODUCT_BASE_URLS } from "./base-url.js";
 import type { ResolvedConnection } from "./types.js";
 import type { BuiltinProviderId } from "./vocabulary.js";
 
@@ -72,6 +73,19 @@ export const MS_FOUNDRY_DEFAULTS = {
 } as const satisfies ResolvedConnection;
 
 /**
+ * OpenCode default endpoint — derived from `OPENCODE_DEFAULT_PRODUCT` via
+ * `OPENCODE_PRODUCT_BASE_URLS` so a default-product change is a single edit
+ * in `base-url.ts`. A *default*, not an immutable endpoint: an explicit
+ * `providers.opencode.baseUrl` overrides it, and a configured
+ * `providers.opencode.product` re-selects the product endpoint in
+ * `resolveConnection` (explicit `baseUrl` > product selection > this
+ * default).
+ */
+export const OPENCODE_DEFAULTS = {
+	baseUrl: OPENCODE_PRODUCT_BASE_URLS[OPENCODE_DEFAULT_PRODUCT],
+} as const satisfies ResolvedConnection;
+
+/**
  * Map of built-in provider id → connection defaults.
  * Only providers that need non-empty defaults appear here.
  */
@@ -83,4 +97,5 @@ export const PROVIDER_CONNECTION_DEFAULTS: Readonly<
 	lmstudio: LMSTUDIO_DEFAULTS,
 	"google-vertex": GOOGLE_VERTEX_DEFAULTS,
 	"ms-foundry": MS_FOUNDRY_DEFAULTS,
+	opencode: OPENCODE_DEFAULTS,
 };

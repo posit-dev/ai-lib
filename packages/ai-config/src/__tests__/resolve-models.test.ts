@@ -4,6 +4,13 @@
 
 import { describe, it, expect } from "vitest";
 
+import {
+	OPENCODE_DEFAULT_PRODUCT,
+	OPENCODE_GO_BASE_URL,
+	OPENCODE_PRODUCT_BASE_URLS,
+	OPENCODE_ZEN_BASE_URL,
+} from "../base-url.js";
+import { inferOpencodeProtocol } from "../model-capabilities/opencode-routing.js";
 import { resolveModels } from "../resolve-models.js";
 import type { ModelInfoLike, ModelsBlock, ResolvedConnection } from "../types.js";
 
@@ -429,5 +436,125 @@ describe("resolveModels", () => {
 		expect(result[0].name).toBe("Model A (patched)");
 		expect(result[0].resolvedProtocol).toBe("openai-chat");
 		expect(result[1].id).toBe("custom-1");
+	});
+});
+
+describe("resolveModels — OpenCode provider context", () => {
+	const GO_CONNECTION: ResolvedConnection = { baseUrl: OPENCODE_GO_BASE_URL };
+	const ZEN_CONNECTION: ResolvedConnection = { baseUrl: OPENCODE_ZEN_BASE_URL };
+	const OPENCODE_CONTEXT = { providerId: "opencode" };
+
+	it("infers the product-dependent protocol from the provider URL (MiniMax)", () => {
+		const minimax = [makeModel("minimax-m3")];
+		expect(
+			resolveModels(undefined, minimax, GO_CONNECTION, OPENCODE_CONTEXT)[0].resolvedProtocol,
+		).toBe("anthropic-messages");
+		expect(
+			resolveModels(undefined, minimax, ZEN_CONNECTION, OPENCODE_CONTEXT)[0].resolvedProtocol,
+		).toBe("openai-chat");
+	});
+
+	it("recomputes the discovery-time stamp under the full context", () => {
+		// Discovery stamps with the provider URL; a stale/other-product stamp is
+		// not user intent and must be recomputed, not preserved.
+		const stamped = [makeModel("minimax-m3", { protocol: "openai-chat" })];
+		const result = resolveModels(undefined, stamped, GO_CONNECTION, OPENCODE_CONTEXT);
+		expect(result[0].resolvedProtocol).toBe("anthropic-messages");
+	});
+
+	it("recomputes from a cross-product model URL override", () => {
+		// The provider connection is Zen, but the model override points at the
+		// canonical Go root: inference must follow the model URL.
+		const block: ModelsBlock = {
+			overrides: { "minimax-m3": { baseUrl: OPENCODE_GO_BASE_URL } },
+		};
+		const result = resolveModels(
+			block,
+			[makeModel("minimax-m3")],
+			ZEN_CONNECTION,
+			OPENCODE_CONTEXT,
+		);
+		expect(result[0].resolvedProtocol).toBe("anthropic-messages");
+		expect(result[0].resolvedBaseUrl).toBe(OPENCODE_GO_BASE_URL);
+	});
+
+	it("keeps an explicit protocol when the model URL crosses products", () => {
+		const block: ModelsBlock = {
+			overrides: {
+				"minimax-m3": { protocol: "openai-chat", baseUrl: OPENCODE_GO_BASE_URL },
+			},
+		};
+		const result = resolveModels(
+			block,
+			[makeModel("minimax-m3")],
+			ZEN_CONNECTION,
+			OPENCODE_CONTEXT,
+		);
+		expect(result[0].resolvedProtocol).toBe("openai-chat");
+		expect(result[0].resolvedBaseUrl).toBe(OPENCODE_GO_BASE_URL);
+	});
+
+	it("ranks user and provider protocols above inference", () => {
+		const block: ModelsBlock = {
+			overrides: { "gpt-5.6-luna": { protocol: "openai-chat" } },
+		};
+		expect(
+			resolveModels(block, [makeModel("gpt-5.6-luna")], ZEN_CONNECTION, OPENCODE_CONTEXT)[0]
+				.resolvedProtocol,
+		).toBe("openai-chat");
+
+		const providerProtocol: ResolvedConnection = { ...ZEN_CONNECTION, protocol: "openai-chat" };
+		expect(
+			resolveModels(undefined, [makeModel("gpt-5.6-luna")], providerProtocol, OPENCODE_CONTEXT)[0]
+				.resolvedProtocol,
+		).toBe("openai-chat");
+	});
+
+	it("looks up endpoints[resolvedProtocol] AFTER inference", () => {
+		const connection: ResolvedConnection = {
+			...GO_CONNECTION,
+			endpoints: { "anthropic-messages": "https://messages.example.com/v1" },
+		};
+		const result = resolveModels(
+			undefined,
+			[makeModel("minimax-m3")],
+			connection,
+			OPENCODE_CONTEXT,
+		);
+		expect(result[0].resolvedProtocol).toBe("anthropic-messages");
+		expect(result[0].resolvedBaseUrl).toBe("https://messages.example.com/v1");
+	});
+
+	it("infers for declared custom models when discovery is off", () => {
+		const block: ModelsBlock = {
+			discovery: "off",
+			custom: [
+				{
+					id: "claude-opus-5",
+					name: "Claude Opus 5",
+					maxContextLength: 200000,
+					supportsTools: true,
+					supportsImages: false,
+					supportsToolResultImages: false,
+					supportsWebSearch: false,
+				},
+			],
+		};
+		const result = resolveModels(block, [], ZEN_CONNECTION, OPENCODE_CONTEXT);
+		expect(result[0].resolvedProtocol).toBe("anthropic-messages");
+	});
+
+	it("leaves other providers' discovered stamps untouched", () => {
+		const stamped = [makeModel("claude-x", { protocol: "anthropic" })];
+		const result = resolveModels(undefined, stamped, undefined, { providerId: "anthropic" });
+		expect(result[0].resolvedProtocol).toBe("anthropic-messages");
+	});
+
+	it("infers the default product's routing when the opencode connection carries no URL", () => {
+		// MiniMax is the product-dependent family, so it pins that the
+		// absent-URL path really consults the default product.
+		const defaultRoot = OPENCODE_PRODUCT_BASE_URLS[OPENCODE_DEFAULT_PRODUCT];
+		const result = resolveModels(undefined, [makeModel("minimax-m3")], undefined, OPENCODE_CONTEXT);
+		expect(result[0].resolvedProtocol).toBe(inferOpencodeProtocol("minimax-m3", defaultRoot));
 	});
 });

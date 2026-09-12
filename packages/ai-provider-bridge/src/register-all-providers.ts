@@ -33,6 +33,7 @@ import { registerLMStudioProvider } from "./providers/lmstudio-provider";
 import { registerOllamaProvider } from "./providers/ollama-provider";
 import { registerOpenAICompatibleProvider } from "./providers/openai-compatible-provider";
 import { registerOpenAIProvider } from "./providers/openai-provider";
+import { registerOpencodeProvider } from "./providers/opencode-provider";
 import { registerOpenRouterProvider } from "./providers/openrouter-provider";
 import { registerPortkeyProvider } from "./providers/portkey-provider";
 import { registerPositAiProvider } from "./providers/positai-provider";
@@ -46,6 +47,11 @@ import { PROVIDER_IDS, type Logger, type ProviderId } from "./types";
 export interface ProviderRegistrationConfig {
 	/** Posit AI Pass base URL, optionally resolved lazily when models are fetched. */
 	positAiBaseUrl: string | (() => string);
+	/**
+	 * Host product User-Agent. Sent to Posit AI Pass as-is, and applied by the
+	 * registry as the default `User-Agent` for every other provider whose
+	 * credentials carry `customHeaders`, beneath any explicit custom value.
+	 */
 	userAgent?: string;
 	/** If set, only these providers register; an empty list registers none. */
 	allowedProviders?: ProviderId[];
@@ -105,6 +111,7 @@ const PROVIDER_REGISTRARS = {
 	portkey: registerPortkeyProvider,
 	"posit-connect": (registry, logger, config) =>
 		registerConnectProvider(registry, logger, config.connectCallbacks),
+	opencode: registerOpencodeProvider,
 } satisfies Record<ProviderId, ProviderRegistrar>;
 
 /**
@@ -115,6 +122,7 @@ export function registerAllProviders(
 	logger: Logger,
 	config: ProviderRegistrationConfig,
 ): void {
+	registry.setDefaultUserAgent(config.userAgent);
 	for (const id of PROVIDER_IDS) {
 		if (!config.allowedProviders || config.allowedProviders.includes(id)) {
 			PROVIDER_REGISTRARS[id](registry, logger, config);

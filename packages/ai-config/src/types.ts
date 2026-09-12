@@ -16,6 +16,7 @@
 
 import type * as z from "zod/v4";
 
+import type { OpencodeProduct } from "./base-url.js";
 import { customProviderNameIssues } from "./custom-provider-name.js";
 import type {
 	builtinProviderBlockSchema,
@@ -194,6 +195,53 @@ export interface ResolvedConnectionProvenance {
 	};
 	/** Source of the resolved `baseUrl` — computed for `ms-foundry` only. */
 	readonly baseUrl?: ResolvedConnectionFieldSource;
+	/**
+	 * Per-field sources for the built-in `opencode` provider's `product` and
+	 * `baseUrl` fields. Unlike the ms-foundry block, a field is ABSENT when no
+	 * retained source authors it — the effective-product derivation
+	 * (`ResolvedOpencodeProduct`) keys on authorship, so the built-in zen
+	 * default must NOT report a source (a `POSIT_AI_PROVIDERS_DEFAULT`
+	 * authored value and the built-in default both surface as kind
+	 * `"default"` upstream and only authorship distinguishes them).
+	 */
+	readonly opencode?: {
+		readonly product?: ResolvedConnectionFieldSource;
+		readonly baseUrl?: ResolvedConnectionFieldSource;
+	};
+}
+
+/**
+ * Discriminated control state of the OpenCode product selector, derived once
+ * at catalog resolution (hosts consume, never reconstruct). The union is
+ * precedence-complete:
+ *
+ * - `"editable"` — no authored value pins the endpoint or the product; the
+ *   user may change the product.
+ * - `"product-enforced"` — an enforced `product` pins the choice.
+ * - `"base-url-override"` — an AUTHORED effective `baseUrl` makes the
+ *   product choice inert; `source` tells the UI whether the endpoint came
+ *   from the user, an administrator default (`POSIT_AI_PROVIDERS_DEFAULT`),
+ *   or an enforced overlay. Inertness is authorship-based, not value-based:
+ *   an authored `baseUrl` equal to today's Zen URL still yields
+ *   `base-url-override` with the matching source. (Connection env vars never
+ *   carry an opencode `baseUrl`, so `"environment"` is unreachable here.)
+ */
+export type OpencodeProductState =
+	| { readonly state: "editable" }
+	| { readonly state: "product-enforced" }
+	| { readonly state: "base-url-override"; readonly source: "user" | "default" | "enforced" };
+
+/**
+ * The effective OpenCode product projection, attached to the resolved
+ * `opencode` provider: the configured product (or the built-in default) plus the
+ * selector's control state. ai-config owns this derivation from the same
+ * layering that picks the endpoint.
+ */
+export interface ResolvedOpencodeProduct {
+	/** The effective product: the configured value or the built-in default. */
+	readonly product: OpencodeProduct;
+	/** Whether and why a product selector is editable. */
+	readonly state: OpencodeProductState;
 }
 
 /**
@@ -263,6 +311,14 @@ export interface ResolvedProvider {
 
 	/** Model policy and custom declarations, if configured. */
 	readonly models: ModelsBlock | undefined;
+
+	/**
+	 * Effective-product projection — present only on the built-in `opencode`
+	 * provider. Derived at resolution time from the same layering that picks
+	 * the endpoint; hosts initialize and gate their product selector from it
+	 * and never reconstruct it.
+	 */
+	readonly opencodeProduct?: ResolvedOpencodeProduct;
 }
 
 // ---------------------------------------------------------------------------

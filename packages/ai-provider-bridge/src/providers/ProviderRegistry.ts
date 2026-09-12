@@ -18,6 +18,8 @@ import type { ClientKind } from "ai-config";
 import type { ModelClient } from "../model-clients/ModelClient";
 import type { Logger, ModelInfo, ProviderId, ProviderCredentials } from "../types";
 
+const USER_AGENT_HEADER_NAME = "user-agent";
+
 // ---------------------------------------------------------------------------
 // Client-kind → factory-id mapping
 // ---------------------------------------------------------------------------
@@ -103,8 +105,45 @@ export type ClientFactory = (credentials: ProviderCredentials) => ModelClient;
 export class ProviderRegistry {
 	private modelFetchers = new Map<string, ClearableModelFetcher>();
 	private clientFactories = new Map<string, ClientFactory>();
+	private defaultUserAgent: string | undefined;
 
 	constructor(private readonly logger: Logger) {}
+
+	/**
+	 * Set the product identity added to provider credentials that support custom
+	 * headers. An explicit non-empty User-Agent always wins. Hosts may update the
+	 * value after registration; the latest value applies when credentials next
+	 * enter a fetcher or client factory.
+	 */
+	setDefaultUserAgent(userAgent: string | undefined): void {
+		this.defaultUserAgent = userAgent;
+	}
+
+	private withDefaultUserAgent(credentials: ProviderCredentials): ProviderCredentials {
+		if (
+			!this.defaultUserAgent ||
+			(credentials.type !== "apikey" && credentials.type !== "azure-entra")
+		) {
+			return credentials;
+		}
+
+		const customHeaderEntries = Object.entries(credentials.customHeaders ?? {});
+		if (
+			customHeaderEntries.some(
+				([name, value]) => name.toLowerCase() === USER_AGENT_HEADER_NAME && value.length > 0,
+			)
+		) {
+			return credentials;
+		}
+
+		const customHeaders = Object.fromEntries(
+			customHeaderEntries.filter(([name]) => name.toLowerCase() !== USER_AGENT_HEADER_NAME),
+		);
+		return {
+			...credentials,
+			customHeaders: { ...customHeaders, "User-Agent": this.defaultUserAgent },
+		};
+	}
 
 	/**
 	 * Register a model fetcher for a provider
@@ -148,7 +187,7 @@ export class ProviderRegistry {
 		}
 
 		try {
-			return await fetcher(credentials, metadata);
+			return await fetcher(this.withDefaultUserAgent(credentials), metadata);
 		} catch (error) {
 			this.logger.error(`Error fetching models for ${providerId}:`, error);
 			return [];
@@ -201,7 +240,7 @@ export class ProviderRegistry {
 			return null;
 		}
 
-		return factory(credentials);
+		return factory(this.withDefaultUserAgent(credentials));
 	}
 
 	/**
@@ -223,15 +262,17 @@ export class ProviderRegistry {
 		credentials: ProviderCredentials,
 		clientKind?: ClientKind,
 	): ModelClient | null {
+		const credentialsWithUserAgent = this.withDefaultUserAgent(credentials);
+
 		// Try direct registration first (built-ins and any manually registered)
 		const directFactory = this.clientFactories.get(providerId);
-		if (directFactory) return directFactory(credentials);
+		if (directFactory) return directFactory(credentialsWithUserAgent);
 
 		// Fall back to clientKind → factory id mapping
 		if (clientKind) {
 			const factoryId = resolveFactoryId(clientKind);
 			const kindFactory = this.clientFactories.get(factoryId);
-			if (kindFactory) return kindFactory(credentials);
+			if (kindFactory) return kindFactory(credentialsWithUserAgent);
 		}
 
 		this.logger.warn(`No client factory for ${providerId} (clientKind: ${clientKind})`);

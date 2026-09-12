@@ -27,6 +27,7 @@
  * relative to provider config, so the pipeline tracks them separately.
  */
 
+import { inferOpencodeProtocol } from "./model-capabilities/opencode-routing.js";
 import { resolveEndpoint } from "./resolve-connection.js";
 import type {
 	CustomModel,
@@ -78,6 +79,20 @@ interface PipelineEntry {
 }
 
 /**
+ * Explicit provider context for final resolution. `ResolvedConnection`
+ * deliberately carries no provider identity, so the caller supplies it here.
+ *
+ * The built-in `opencode` provider uses this to recompute its low-priority
+ * inferred protocol under the full routing context — the discovery-time stamp
+ * knew only the provider URL, while a model-level URL override can point at
+ * the other OpenCode product and change the documented route (e.g. MiniMax).
+ */
+export interface ModelResolutionContext {
+	/** The provider being resolved (built-in or custom). */
+	readonly providerId?: string;
+}
+
+/**
  * Apply the model-selection pipeline to a set of discovered models,
  * producing the final resolved model list with routing information.
  *
@@ -86,17 +101,21 @@ interface PipelineEntry {
  * @param providerConnection - The provider's resolved connection config (protocol,
  *   endpoints, baseUrl). Used to resolve per-model routing. May be undefined if
  *   no provider config exists.
+ * @param context - Explicit provider context (e.g. the provider id) for
+ *   provider-aware inferred-protocol recomputation. Optional; omitting it
+ *   preserves the pre-context behavior of trusting discovered stamps as-is.
  * @returns The resolved list of models with `resolvedProtocol` and `resolvedBaseUrl`.
  */
 export function resolveModels(
 	modelsBlock: ModelsBlock | undefined,
 	discovered: readonly ModelInfoLike[],
 	providerConnection?: ResolvedConnection,
+	context?: ModelResolutionContext,
 ): ResolvedModelInfo[] {
 	if (!modelsBlock) {
 		// No models block — pass through discovered models with routing resolved.
 		// Discovered protocol is built-in inference only (lowest precedence).
-		return discovered.map((m) => attachRouting(m, NO_USER_ROUTING, providerConnection));
+		return discovered.map((m) => attachRouting(m, NO_USER_ROUTING, providerConnection, context));
 	}
 
 	// 1. Discovery gate
@@ -146,7 +165,7 @@ export function resolveModels(
 	}
 
 	// 6. Resolve routing for each surviving model
-	return result.map((e) => attachRouting(e.model, e.userRouting, providerConnection));
+	return result.map((e) => attachRouting(e.model, e.userRouting, providerConnection, context));
 }
 
 /**
@@ -168,11 +187,29 @@ function attachRouting(
 	model: ModelInfoLike,
 	userRouting: UserRouting,
 	providerConnection: ResolvedConnection | undefined,
+	context: ModelResolutionContext | undefined,
 ): ResolvedModelInfo {
-	// Protocol: user routing → provider config → discovered model (inference).
-	// Normalize legacy bridge values ("anthropic" → "anthropic-messages", etc.)
-	// so endpoint lookup matches the widened Protocol enum.
-	const rawProtocol = userRouting.protocol ?? providerConnection?.protocol ?? model.protocol;
+	// Protocol: user routing → provider config → inferred OpenCode routing →
+	// discovered model stamp (inference). Normalize legacy bridge values
+	// ("anthropic" → "anthropic-messages", etc.) so endpoint lookup matches
+	// the widened Protocol enum.
+	//
+	// OpenCode recomputes its inferred stamp here rather than trusting the
+	// discovery-time one: a discovered stamp is not user intent, and only this
+	// seam sees the full context — a canonical model URL override pointing at
+	// the other OpenCode product changes the documented route. The inference
+	// context is the effective routing URL WITHOUT `endpoints[protocol]`:
+	// protocol-keyed endpoints are destinations for an already-selected
+	// protocol, never inputs that select one (no feedback loop).
+	const inferredProtocol =
+		context?.providerId === "opencode"
+			? inferOpencodeProtocol(
+					model.id,
+					userRouting.baseUrl ?? model.baseUrl ?? providerConnection?.baseUrl,
+				)
+			: undefined;
+	const rawProtocol =
+		userRouting.protocol ?? providerConnection?.protocol ?? inferredProtocol ?? model.protocol;
 	const resolvedProtocol = normalizeProtocol(rawProtocol);
 
 	// BaseUrl: user routing → provider endpoints[protocol] → discovered model → provider baseUrl

@@ -60,6 +60,44 @@ export const PORTKEY_HOSTED_BASE_URL = `${PORTKEY_HOST}/${PORTKEY_API_VERSION}`;
 export const OPENROUTER_DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
 
 /**
+ * Canonical OpenCode host, the shared root of the two product endpoints
+ * below. OpenCode's hosted model services (Go and Zen) require every
+ * inference request to carry a stable conversation identity in the
+ * `x-opencode-session` header; the built-in `opencode` provider applies that
+ * header itself (per request, from the host's root conversation identity), so
+ * this constant feeds only the endpoint literals — nothing matches on it.
+ */
+export const OPENCODE_HOST = "https://opencode.ai";
+/** OpenCode Go API root (OpenAI-style `/v1` surface). */
+export const OPENCODE_GO_BASE_URL = `${OPENCODE_HOST}/zen/go/v1`;
+/** OpenCode Zen API root (OpenAI-style `/v1` surface). */
+export const OPENCODE_ZEN_BASE_URL = `${OPENCODE_HOST}/zen/v1`;
+
+/**
+ * The OpenCode hosted products selectable on the single built-in `opencode`
+ * provider. The choice is persisted as the scalar `providers.opencode.product`
+ * field (never as a URL) so the endpoint literals below stay owned by this
+ * catalog. Default product: `go` (the subscription product; Zen remains
+ * selectable per user).
+ */
+export const OPENCODE_PRODUCTS = ["go", "zen"] as const;
+
+/** An OpenCode hosted product selectable on the built-in `opencode` provider. */
+export type OpencodeProduct = (typeof OPENCODE_PRODUCTS)[number];
+
+/**
+ * Product → API root. The catalog defaults and `resolveConnection`'s product
+ * selection share this one source of truth.
+ */
+export const OPENCODE_PRODUCT_BASE_URLS: Readonly<Record<OpencodeProduct, string>> = {
+	go: OPENCODE_GO_BASE_URL,
+	zen: OPENCODE_ZEN_BASE_URL,
+};
+
+/** The default OpenCode product when `providers.opencode.product` is unset. */
+export const OPENCODE_DEFAULT_PRODUCT: OpencodeProduct = "go";
+
+/**
  * Normalize an OpenRouter host or API-root URL to the SDK's `/api/v1` base.
  * Other paths are preserved after ordinary whitespace/trailing-slash cleanup.
  */

@@ -11,6 +11,7 @@
  * models (those need credentials + a runtime fetcher ai-config cannot hold).
  */
 
+import { OPENCODE_DEFAULT_PRODUCT, OPENCODE_PRODUCT_BASE_URLS } from "./base-url.js";
 import { PROVIDER_CONNECTION_DEFAULTS } from "./defaults.js";
 import type { EnablementLayer } from "./resolve-enabled.js";
 import { resolveEnabled } from "./resolve-enabled.js";
@@ -20,8 +21,10 @@ import type {
 	ProvidersConfig,
 	ProvidersMap,
 	ResolvedConnection,
+	ResolvedConnectionFieldSource,
 	ResolvedConnectionProvenance,
 	ResolvedCustomAuthPolicy,
+	ResolvedOpencodeProduct,
 	ResolvedProvider,
 } from "./types.js";
 import { mintCustomProviderId } from "./types.js";
@@ -37,6 +40,9 @@ import type { BuiltinProviderId, ClientKind } from "./vocabulary.js";
  * it. Most are identity mappings, but some differ:
  * - `bedrock` → `aws` (the client speaks AWS Bedrock)
  * - `snowflake-cortex` → `snowflake` (the client speaks Snowflake Cortex)
+ * - `opencode` → `openai` (both OpenCode products are OpenAI-style `/v1`
+ *   surfaces; the bridge still registers a per-id client factory, which wins
+ *   over the kind fallback, so it keeps its own default API mode)
  *
  * The `satisfies` constraint ensures a compile error if a built-in id is
  * added without a corresponding client-kind entry.
@@ -60,6 +66,7 @@ const BUILTIN_CLIENT_KIND = {
 	litellm: "litellm",
 	portkey: "portkey",
 	"posit-connect": "posit-connect",
+	opencode: "openai",
 } as const satisfies Record<BuiltinProviderId, ClientKind>;
 
 /**
@@ -89,14 +96,18 @@ export function buildCatalog(
 		const block = getBuiltinBlock(providers, id);
 		const enabled = resolveEnabled(id, enabledLayers);
 		const connection = resolveConnection(id, block);
+		const provenance = connectionProvenance.get(id) ?? {};
 
 		catalog.push({
 			id,
 			clientKind: BUILTIN_CLIENT_KIND[id],
 			enabled,
 			connection,
-			connectionProvenance: connectionProvenance.get(id) ?? {},
+			connectionProvenance: provenance,
 			models: block?.models,
+			...(id === "opencode"
+				? { opencodeProduct: resolveOpencodeProduct(block, provenance.opencode) }
+				: {}),
 		});
 	}
 
@@ -128,6 +139,33 @@ export function buildCatalog(
 // ---------------------------------------------------------------------------
 
 /**
+ * Derive the effective-product projection for the built-in `opencode`
+ * provider from the merged block and the per-field provenance resolved beside
+ * it. ai-config owns this derivation; hosts consume it and never reconstruct
+ * it.
+ *
+ * Inertness is AUTHORSHIP-based, not value-based: any authored effective
+ * `baseUrl` — user, administrator-default, or enforced, even one equal to
+ * today's default URL — shadows the catalog default and makes the product choice
+ * inert, so the check runs before the product-enforced check (an enforced
+ * baseUrl is `base-url-override{source: "enforced"}`, not a product state).
+ */
+function resolveOpencodeProduct(
+	block: BuiltinProviderBlock | undefined,
+	sources: ResolvedConnectionProvenance["opencode"],
+): ResolvedOpencodeProduct {
+	const product = block?.product ?? OPENCODE_DEFAULT_PRODUCT;
+	const baseUrlSource: ResolvedConnectionFieldSource | undefined = sources?.baseUrl;
+	if (baseUrlSource === "user" || baseUrlSource === "default" || baseUrlSource === "enforced") {
+		return { product, state: { state: "base-url-override", source: baseUrlSource } };
+	}
+	if (sources?.product === "enforced") {
+		return { product, state: { state: "product-enforced" } };
+	}
+	return { product, state: { state: "editable" } };
+}
+
+/**
  * Get a built-in provider block from the providers map.
  */
 function getBuiltinBlock(
@@ -144,6 +182,10 @@ function getBuiltinBlock(
  * Resolve the connection config for a built-in provider. Layering:
  * 1. User/enforced config block fields
  * 2. Built-in defaults (from PROVIDER_CONNECTION_DEFAULTS)
+ *
+ * The single `opencode` provider additionally resolves its product selection
+ * here (decision: product resolves to a URL once, at catalog build): explicit
+ * `baseUrl` > `product` selection > the built-in default product.
  */
 function resolveConnection(
 	id: BuiltinProviderId,
@@ -156,9 +198,14 @@ function resolveConnection(
 		return fromBlock;
 	}
 
-	// Layer: block values override defaults
+	// Layer: block values override defaults; for opencode, an authored
+	// `product` selects the product endpoint beneath an explicit baseUrl.
 	return {
-		baseUrl: fromBlock.baseUrl ?? defaults.baseUrl,
+		baseUrl:
+			fromBlock.baseUrl ??
+			(id === "opencode" && block?.product
+				? OPENCODE_PRODUCT_BASE_URLS[block.product]
+				: defaults.baseUrl),
 		endpoint: fromBlock.endpoint ?? defaults.endpoint,
 		customHeaders: fromBlock.customHeaders ?? defaults.customHeaders,
 		protocol: fromBlock.protocol ?? defaults.protocol,
