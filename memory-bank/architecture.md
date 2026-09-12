@@ -56,9 +56,10 @@ branching on it; the strip helper is private to the module, so there is no way t
 - **Key presence and breakpoint eligibility cannot drift** — no session ID means no key _and_ a
   full marker strip, decided in one place rather than re-derived per client.
 
-### Default direct-provider User-Agent
+### Default product User-Agent
 
-`ProviderRegistry` owns the host's default product identity. `registerAllProviders()` sets it once,
+`ProviderRegistry` owns the host's product identity. `registerAllProviders()` passes the one
+`userAgent` from its config to the Posit AI Pass client and sets the same value as the registry default,
 and all three credential handoff methods (`getModelsForProvider`, `getClientForProvider`, and
 `getClientForProviderOrKind`) add it to `customHeaders` immediately before invoking a fetcher or
 factory. The value is late-bound: a host may call `setDefaultUserAgent()` again, and subsequent

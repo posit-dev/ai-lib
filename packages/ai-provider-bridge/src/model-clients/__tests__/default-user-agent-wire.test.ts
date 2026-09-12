@@ -72,7 +72,7 @@ describe("default direct-provider User-Agent (wire)", () => {
 		const registry = new ProviderRegistry(logger);
 		registerAllProviders(registry, logger, {
 			positAiBaseUrl: "https://api.posit.cloud",
-			providerUserAgent: PRODUCT_USER_AGENT,
+			userAgent: PRODUCT_USER_AGENT,
 			allowedProviders: ["opencode"],
 		});
 		const client = registry.getClientForProvider("opencode", {
@@ -93,7 +93,7 @@ describe("default direct-provider User-Agent (wire)", () => {
 		const registry = new ProviderRegistry(logger);
 		registerAllProviders(registry, logger, {
 			positAiBaseUrl: "https://api.posit.cloud",
-			providerUserAgent: PRODUCT_USER_AGENT,
+			userAgent: PRODUCT_USER_AGENT,
 			allowedProviders: [],
 		});
 		const providerId = mintCustomProviderId("acme-openai");

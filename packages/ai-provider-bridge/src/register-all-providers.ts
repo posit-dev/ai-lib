@@ -47,15 +47,12 @@ import { PROVIDER_IDS, type Logger, type ProviderId } from "./types";
 export interface ProviderRegistrationConfig {
 	/** Posit AI Pass base URL, optionally resolved lazily when models are fetched. */
 	positAiBaseUrl: string | (() => string);
-	/** User-Agent identifying the host to Posit AI Pass. */
-	userAgent?: string;
 	/**
-	 * Host product User-Agent for the direct providers (built-in and custom),
-	 * applied as a default beneath any explicit custom `User-Agent` header.
-	 * Distinct from `userAgent` so a host can preserve a legacy Posit AI Pass
-	 * identity while giving the direct providers a versioned one.
+	 * Host product User-Agent. Sent to Posit AI Pass as-is, and applied by the
+	 * registry as the default `User-Agent` for every other provider whose
+	 * credentials carry `customHeaders`, beneath any explicit custom value.
 	 */
-	providerUserAgent?: string;
+	userAgent?: string;
 	/** If set, only these providers register; an empty list registers none. */
 	allowedProviders?: ProviderId[];
 	/** Pre-built by the caller; the bridge never constructs host callbacks. */
@@ -125,7 +122,7 @@ export function registerAllProviders(
 	logger: Logger,
 	config: ProviderRegistrationConfig,
 ): void {
-	registry.setDefaultUserAgent(config.providerUserAgent);
+	registry.setDefaultUserAgent(config.userAgent);
 	for (const id of PROVIDER_IDS) {
 		if (!config.allowedProviders || config.allowedProviders.includes(id)) {
 			PROVIDER_REGISTRARS[id](registry, logger, config);
