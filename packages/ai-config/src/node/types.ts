@@ -10,7 +10,7 @@ import type { SourcedConfigIssue } from "../config-issue.js";
 import type { Disposable as ConfigDisposable } from "../config-source.js";
 import type { LegacySettingsReader } from "../legacy-positron-settings/translate.js";
 import type { ProviderConfigSource } from "../resolve-catalog.js";
-import type { LoggerLike, ResolvedProvider } from "../types.js";
+import type { LoggerLike, ProvidersConfigFragment, ResolvedProvider } from "../types.js";
 
 // Re-export the pure logger type so node consumers can import it from here.
 export type { LoggerLike } from "../types.js";
@@ -99,6 +99,13 @@ export interface LoadCatalogOptions {
 	 * Load-path only; watch paths never apply it.
 	 */
 	readonly transformSource?: (source: ProviderConfigSource) => ProviderConfigSource;
+
+	/**
+	 * Config the host supplies beneath the user's file: ranked `default`, after
+	 * the POSIT_AI_PROVIDERS_DEFAULT fragment. For host-specific values such as
+	 * the OAuth client id a host is registered under.
+	 */
+	readonly hostDefaults?: ProvidersConfigFragment;
 }
 
 /**

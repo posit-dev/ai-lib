@@ -69,6 +69,16 @@ export function watchResolvedProviderCatalog(
 		...createLegacyPositronSourceProviders(opts, env),
 	];
 
+	if (opts.hostDefaults) {
+		const hostDefaults = opts.hostDefaults;
+		sourceProviders.push({
+			read: async () => ({
+				source: { kind: "default", label: "host defaults", config: hostDefaults },
+				issues: [],
+			}),
+		});
+	}
+
 	let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 	let disposed = false;
 	let previousCatalog: readonly ResolvedProvider[] | undefined;

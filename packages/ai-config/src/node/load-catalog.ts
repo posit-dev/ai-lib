@@ -32,6 +32,13 @@ export async function loadProviderCatalogReport(
 	const legacyProviders = createLegacyPositronSourceProviders(opts, env);
 	reports.push(...(await Promise.all(legacyProviders.map((provider) => provider.read()))));
 
+	if (opts.hostDefaults) {
+		reports.push({
+			source: { kind: "default", label: "host defaults", config: opts.hostDefaults },
+			issues: [],
+		});
+	}
+
 	const loaded = reports.flatMap((report) => (report.source ? [report.source] : []));
 	const sources = opts.transformSource ? loaded.map(opts.transformSource) : loaded;
 	const resolver = resolveProviderCatalogReport({
