@@ -52,6 +52,7 @@ export const PROVIDER_ENV_MAPPINGS: Record<string, ProviderEnvMapping> = {
 	},
 	gemini: {
 		apiKey: scrubbed("GEMINI_API_KEY"),
+		apiKeyAliases: [scrubbed("GOOGLE_API_KEY")],
 	},
 	openrouter: {
 		apiKey: scrubbed("OPENROUTER_API_KEY"),
