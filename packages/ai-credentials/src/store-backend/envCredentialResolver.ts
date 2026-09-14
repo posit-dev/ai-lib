@@ -62,12 +62,12 @@ function resolveFromMapping(
 ): ProviderCredentials | null {
 	// API key providers
 	if (mapping.apiKey) {
-		const apiKey = envVars[mapping.apiKey.name];
-		if (apiKey) {
-			return {
-				type: "apikey",
-				apiKey,
-			};
+		const names = [mapping.apiKey, ...(mapping.apiKeyAliases ?? [])];
+		for (const descriptor of names) {
+			const apiKey = envVars[descriptor.name];
+			if (apiKey) {
+				return { type: "apikey", apiKey };
+			}
 		}
 		return null;
 	}

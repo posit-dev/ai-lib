@@ -47,6 +47,19 @@ describe("resolveCredentialsFromEnv", () => {
 		expect(resolveCredentialsFromEnv("anthropic", {})).toBeNull();
 	});
 
+	it("falls back to GOOGLE_API_KEY for gemini", () => {
+		expect(resolveCredentialsFromEnv("gemini", { GOOGLE_API_KEY: "g-1" })).toEqual({
+			type: "apikey",
+			apiKey: "g-1",
+		});
+	});
+
+	it("prefers GEMINI_API_KEY over GOOGLE_API_KEY", () => {
+		expect(
+			resolveCredentialsFromEnv("gemini", { GEMINI_API_KEY: "gem", GOOGLE_API_KEY: "goog" }),
+		).toEqual({ type: "apikey", apiKey: "gem" });
+	});
+
 	it("returns null for an unknown provider", () => {
 		expect(resolveCredentialsFromEnv("nonexistent-provider", { SOME_KEY: "value" })).toBeNull();
 	});
