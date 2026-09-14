@@ -12,12 +12,16 @@ export type { AuthProviderMapping } from "ai-credentials/types";
 /**
  * Confirmed provider mappings only.
  * Add new entries as Positron's auth extension ships support for each provider.
+ *
+ * Auth provider ids equal catalog ids, except where another extension already
+ * owns the id: Copilot uses GitHub's "github", and the Connect gateway uses
+ * "posit-connect-llm" because Posit Publisher registers "posit-connect".
  */
 export const PROVIDER_MAP: Partial<Record<ProviderId, AuthProviderMapping>> = {
-	anthropic: { authProviderId: "anthropic-api", scopes: [], credentialType: "apikey" },
-	positai: { authProviderId: "posit-ai", scopes: ["positai"], credentialType: "oauth" },
-	openai: { authProviderId: "openai-api", scopes: [], credentialType: "apikey" },
-	gemini: { authProviderId: "google", scopes: [], credentialType: "apikey" },
+	anthropic: { authProviderId: "anthropic", scopes: [], credentialType: "apikey" },
+	positai: { authProviderId: "positai", scopes: ["positai"], credentialType: "oauth" },
+	openai: { authProviderId: "openai", scopes: [], credentialType: "apikey" },
+	gemini: { authProviderId: "gemini", scopes: [], credentialType: "apikey" },
 	litellm: { authProviderId: "litellm", scopes: [], credentialType: "apikey" },
 	portkey: { authProviderId: "portkey", scopes: [], credentialType: "apikey" },
 	// `posit-connect` as an auth provider id belongs to Posit Publisher, which
@@ -29,7 +33,7 @@ export const PROVIDER_MAP: Partial<Record<ProviderId, AuthProviderMapping>> = {
 		credentialType: "apikey",
 	},
 	bedrock: {
-		authProviderId: "amazon-bedrock",
+		authProviderId: "bedrock",
 		scopes: [],
 		credentialType: "aws-credentials",
 	},
@@ -57,13 +61,13 @@ export const PROVIDER_MAP: Partial<Record<ProviderId, AuthProviderMapping>> = {
 		fallbackScopes: [["read:user", "user:email", "repo", "workflow"], ["user:email"]],
 		credentialType: "apikey",
 	},
-	deepseek: { authProviderId: "deepseek-api", scopes: [], credentialType: "apikey" },
+	deepseek: { authProviderId: "deepseek", scopes: [], credentialType: "apikey" },
 	// Bearer-token provider: session.accessToken is a PAT or OAuth access token
 	// (the auth extension decides which); the workspace host comes from the
 	// `authentication.databricks.credentials` setting.
 	databricks: { authProviderId: "databricks", scopes: [], credentialType: "apikey" },
 	"google-vertex": {
-		authProviderId: "google-cloud",
+		authProviderId: "google-vertex",
 		scopes: [],
 		credentialType: "google-cloud",
 	},
