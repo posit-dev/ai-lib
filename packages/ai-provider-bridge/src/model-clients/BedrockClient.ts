@@ -175,7 +175,11 @@ export class BedrockClient implements ModelClient {
 						store: false,
 						forceReasoning: true,
 						reasoningEffort: mantleReasoningEffort,
-						reasoningSummary: "detailed",
+						// Use "auto" (the OpenAI default) rather than an explicit level:
+						// Bedrock rejects `reasoning.summary: "concise"/"detailed"` for
+						// some models (e.g. gpt-5.6-sol), and it doesn't return summary
+						// text either way, so the explicit level bought nothing.
+						reasoningSummary: "auto",
 						...(usesExplicitPromptCaching
 							? {
 									promptCacheOptions: EXPLICIT_PROMPT_CACHE_OPTIONS,

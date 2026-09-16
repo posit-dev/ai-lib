@@ -60,6 +60,7 @@ vi.mock("../tool-call-ids", () => ({
 }));
 
 import type { CancellationToken, Logger } from "../../types";
+import { AnthropicClient } from "../AnthropicClient";
 import { DeepSeekClient } from "../DeepSeekClient";
 import { GeminiGenerateContentClient } from "../GeminiGenerateContentClient";
 import type { ModelClientChatParams } from "../ModelClient";
@@ -217,6 +218,53 @@ describe("raw HTTP logging composition", () => {
 			reasoning_effort?: string;
 		};
 		expect(wireBody.reasoning_effort).toBe("high");
+	});
+
+	it("anthropic anonymous: the sentinel and auth headers are stripped before logging", async () => {
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(sseResponse(["data: [DONE]\n\n"]));
+
+		// apiKey === "" is the canonical anonymous signal (auth-less custom
+		// providers). The SDK must receive a non-empty sentinel so it cannot
+		// fall back to the ambient ANTHROPIC_API_KEY env var.
+		await new AnthropicClient({ apiKey: "" }).chat(params("claude-haiku-4-5"));
+		const options = createAnthropic.mock.calls[0]?.[0] as
+			| (SdkOptions & { apiKey?: string })
+			| undefined;
+		expect(typeof options?.apiKey).toBe("string");
+		expect(options?.apiKey).not.toBe("");
+		const sentinel = options!.apiKey!;
+		const sdkFetch = options?.fetch;
+		expect(sdkFetch).toBeDefined();
+
+		// Drive the installed fetch as the SDK would: x-api-key carries the
+		// sentinel, plus an Authorization header.
+		const response = await sdkFetch!("https://corp-proxy.example/v1/messages", {
+			method: "POST",
+			headers: {
+				"x-api-key": sentinel,
+				authorization: "Bearer should-not-survive",
+				"anthropic-version": "2023-06-01",
+				"content-type": "application/json",
+			},
+			body: "{}",
+		});
+		await response.text();
+
+		await waitFor(() => pairsComplete(1));
+		const { head } = splitMessage(readLog(listBaseNames()[0]!, "request"));
+		// Stripped BEFORE the logger: no header at all (not even a redacted
+		// placeholder), and the sentinel string appears nowhere.
+		expect(head).not.toContain("x-api-key");
+		expect(head).not.toContain("authorization");
+		expect(head).not.toContain(sentinel);
+		expect(head).toContain("anthropic-version");
+
+		// Sanity: the wire received the same stripped request.
+		const wireHeaders = new Headers(fetchSpy.mock.calls[0]?.[1]?.headers);
+		expect(wireHeaders.get("x-api-key")).toBeNull();
+		expect(wireHeaders.get("authorization")).toBeNull();
 	});
 
 	it("positai: logged request shows final auth headers (authorization redacted, x-api-key stripped)", async () => {

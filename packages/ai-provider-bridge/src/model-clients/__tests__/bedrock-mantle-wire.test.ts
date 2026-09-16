@@ -147,7 +147,7 @@ describe("Bedrock Mantle wire requests", () => {
 		expect(requestBody).toMatchObject({
 			model: "openai.gpt-5.5",
 			store: false,
-			reasoning: { effort: "none", summary: "detailed" },
+			reasoning: { effort: "none", summary: "auto" },
 			include: ["reasoning.encrypted_content"],
 		});
 		expect(requestBody).not.toHaveProperty("max_output_tokens");
@@ -190,7 +190,7 @@ describe("Bedrock Mantle wire requests", () => {
 			prompt_cache_key: "bedrock-conversation-1",
 			prompt_cache_options: { mode: "explicit", ttl: "30m" },
 			store: false,
-			reasoning: { effort: "high", summary: "detailed" },
+			reasoning: { effort: "high", summary: "auto" },
 		});
 		expect(breakpointPaths(requestBody)).toEqual([
 			"input[0].content[0].prompt_cache_breakpoint",

@@ -571,6 +571,25 @@ export const defaultBlockSchema = z
 	.strict();
 
 /**
+ * `apiKeyOptional` — declares that the endpoint does not require an API key
+ * (for example a localhost proxy that injects SSO credentials), so the
+ * provider can be used without configuring one.
+ *
+ * Authored only on custom `anthropic` entries: `openai-compatible`,
+ * `litellm`, and `portkey` are key-optional by kind (an authored value would
+ * be redundant), and no other kind's client supports anonymous access.
+ * Config fragments (enforced/default overlays) may carry the field for any
+ * custom entry, but the merged result is validated against the per-kind
+ * variant, so only anthropic survives full validation.
+ */
+const apiKeyOptionalField = z
+	.boolean()
+	.describe(
+		"Whether an API key is optional for this provider. Set to true when the endpoint authenticates another way, such as a local proxy that adds SSO credentials, so no API key needs to be configured.",
+	)
+	.optional();
+
+/**
  * A custom provider entry — a genuine discriminated union keyed on `type` (the
  * client kind). Each variant carries only its relevant connection sub-sections.
  * Restricted to the supported kinds (product-specific kinds assume built-in
@@ -588,7 +607,7 @@ function customProviderVariantSchema<K extends SupportedCustomClientKind>(kind: 
 
 export const customProviderEntrySchema = z.discriminatedUnion("type", [
 	customProviderVariantSchema("openai-compatible"),
-	customProviderVariantSchema("anthropic"),
+	customProviderVariantSchema("anthropic").extend({ apiKeyOptional: apiKeyOptionalField }),
 	customProviderVariantSchema("openai"),
 	customProviderVariantSchema("gemini"),
 	customProviderVariantSchema("aws"),
@@ -641,6 +660,7 @@ export const customProviderEntryFragmentSchema = z
 	.object({
 		type: z.enum(SUPPORTED_CUSTOM_CLIENT_KIND_VALUES).optional(),
 		...allConnectionFields,
+		apiKeyOptional: apiKeyOptionalField,
 	})
 	.strict();
 

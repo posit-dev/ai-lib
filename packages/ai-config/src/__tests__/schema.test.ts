@@ -363,6 +363,41 @@ describe("providersConfigSchema", () => {
 		});
 		expect(result.success).toBe(false);
 	});
+
+	// --- apiKeyOptional (auth-less custom providers) ---
+
+	it("accepts apiKeyOptional on a custom type:'anthropic' entry", () => {
+		const result = providersConfigSchema.safeParse({
+			providers: {
+				custom: {
+					"corp-proxy": {
+						type: "anthropic",
+						baseUrl: "http://localhost:8443",
+						apiKeyOptional: true,
+					},
+				},
+			},
+		});
+		expect(result.success).toBe(true);
+	});
+
+	it("rejects apiKeyOptional on other custom kinds (strict variants)", () => {
+		for (const type of ["openai-compatible", "openai", "gemini"] as const) {
+			const result = providersConfigSchema.safeParse({
+				providers: {
+					custom: { gw: { type, apiKeyOptional: true } },
+				},
+			});
+			expect(result.success).toBe(false);
+		}
+	});
+
+	it("rejects apiKeyOptional on built-in provider keys", () => {
+		const result = providersConfigSchema.safeParse({
+			providers: { anthropic: { apiKeyOptional: true } },
+		});
+		expect(result.success).toBe(false);
+	});
 });
 
 describe("providersConfigFragmentSchema", () => {
@@ -391,5 +426,17 @@ describe("providersConfigFragmentSchema", () => {
 			},
 		});
 		expect(result.success).toBe(false);
+	});
+
+	it("accepts apiKeyOptional on a custom fragment with type omitted", () => {
+		// Fragments are kind-relaxed so an admin overlay can pin the policy
+		// without repeating the entry; the merged result is validated against
+		// the per-kind variant (anthropic only).
+		const result = providersConfigFragmentSchema.safeParse({
+			providers: {
+				custom: { "corp-proxy": { apiKeyOptional: true } },
+			},
+		});
+		expect(result.success).toBe(true);
 	});
 });
