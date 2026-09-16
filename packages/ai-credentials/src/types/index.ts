@@ -22,7 +22,11 @@ export type {
 	ProviderCredentials,
 } from "./credentials.js";
 
-export { CONFIG_KEY_OVERRIDES, shapeCredentials } from "./credential-shaping.js";
+export {
+	CONFIG_KEY_OVERRIDES,
+	POSITRON_LEGACY_AUTH_PROVIDER_IDS,
+	shapeCredentials,
+} from "./credential-shaping.js";
 export type {
 	AuthProviderMapping,
 	CredentialConfig,

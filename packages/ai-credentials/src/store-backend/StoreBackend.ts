@@ -32,14 +32,15 @@ import {
  * structurally, but any backing with atomic per-key writes can serve it —
  * e.g. VS Code `SecretStorage` in an extension host.
  *
- * Lock-scope contract: `withLock` must serialize its critical section
- * against **every** writer of the same keys. The backend's OAuth acquisition
- * (generation compare-and-write) and AWS `preserve` mutations are
- * read-modify-write transactions that are only correct under that exclusion.
- * A backing that cannot provide it — e.g. an in-process mutex over a
- * per-window secret store — is only safe for configurations limited to
- * whole-record writes: API-key `replace`/`clear`, with no
- * `oauthConfigForProvider` and no AWS mutations.
+ * How much exclusion `withLock` gives is up to the backing: `SingleFileStore`
+ * locks across processes, VS Code `SecretStorage` only within one window.
+ *
+ * OAuth tolerates the weaker case. Every record carries a `generation`, and a
+ * refresh commits only while the stored record still holds the one it read, so
+ * the slower of two concurrent refreshes writes nothing.
+ *
+ * AWS `preserve` mutations have no such marker and do need a backing that
+ * excludes every writer of the same keys.
  */
 export interface StoreBackendStorage {
 	get<T>(key: string): Promise<T | undefined>;
@@ -596,11 +597,14 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 		return normalized.tokens ?? null;
 	}
 
+	const refreshGenerations = new Map<string, string | undefined>();
+
 	async function persistRefreshedTokens(providerId: string, tokens: TokenData): Promise<void> {
 		const key = keyFor(providerId);
 		if (!key) return;
 		const current = normalize(providerId, await readRecord(providerId));
 		if (!current?.source) return;
+		if (current.generation !== refreshGenerations.get(providerId)) return;
 		if (current.source.type !== "oauth-device" && current.source.type !== "oauth-u2m") return;
 		await store.set(key, authenticatedOAuthRecord(current.source, tokens, generationFactory()));
 	}
@@ -610,7 +614,24 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 		if (!key) return;
 		const current = normalize(providerId, await readRecord(providerId));
 		if (!current?.source) return;
+		if (current.generation !== refreshGenerations.get(providerId)) return;
 		await store.set(key, terminalOAuthRecord(current.source, generationFactory(), error));
+	}
+
+	/** Note the record's current generation, then run the refresh against it. */
+	async function withRefreshTransaction<T>(
+		providerId: string,
+		operation: () => Promise<T>,
+	): Promise<T> {
+		return store.withLock(async () => {
+			const current = normalize(providerId, await readRecord(providerId));
+			refreshGenerations.set(providerId, current?.generation);
+			try {
+				return await operation();
+			} finally {
+				refreshGenerations.delete(providerId);
+			}
+		});
 	}
 
 	const acquisition: AcquisitionBackendHooks | undefined = oauthConfigForProvider
@@ -622,7 +643,7 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 				finishAuthentication,
 				persistRefreshedTokens,
 				persistRefreshError,
-				withRefreshTransaction: (_providerId, operation) => store.withLock(operation),
+				withRefreshTransaction,
 				shapeToken: asyncShapeToken,
 				notifyReady(providerId) {
 					notifyReady?.(providerId);

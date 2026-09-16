@@ -391,4 +391,31 @@ describe("watchResolvedProviderCatalog", () => {
 		expect(probe.changes).toHaveLength(3);
 		expect(mockLogger.warn).toHaveBeenCalledTimes(warningsAfterAdd + 1);
 	});
+
+	it("keeps hostDefaults through a user-file rebuild", async () => {
+		await fixture.writeTypedConfigAtomic({
+			providers: { positai: { positaiLogin: { host: "login.example.test" } } },
+		});
+		const probe = createChangeProbe();
+		const watcher = watchResolvedProviderCatalog(probe.handler, {
+			configPath,
+			logger: mockLogger,
+			envVars: {},
+			hostDefaults: { providers: { positai: { positaiLogin: { clientId: "positron" } } } },
+		});
+		await awaitReady(watcher);
+
+		const changed = probe.next((change) => change.connectionChanged, "connection change");
+		await fixture.writeTypedConfigAtomic({
+			providers: { positai: { positaiLogin: { host: "login.other.test" } } },
+		});
+		const change = await changed;
+		watcher.dispose();
+
+		expect(change.catalog.find((p) => p.id === "positai")?.connection.positaiLogin).toEqual({
+			host: "login.other.test",
+			clientId: "positron",
+			scope: "prism",
+		});
+	});
 });

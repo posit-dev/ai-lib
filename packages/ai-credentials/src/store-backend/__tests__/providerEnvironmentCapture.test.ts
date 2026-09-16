@@ -57,6 +57,15 @@ describe("captureProviderEnvironment", () => {
 		expect(captured.environment.AZURE_CLIENT_ID).toBe("client");
 	});
 
+	it("captures and scrubs api key aliases", () => {
+		const captured = captureProviderEnvironment(["gemini"], {
+			GEMINI_API_KEY: "a",
+			GOOGLE_API_KEY: "b",
+		});
+		expect(captured.declaredNames).toEqual(["GEMINI_API_KEY", "GOOGLE_API_KEY"]);
+		expect(captured.scrubbedNames).toEqual(["GEMINI_API_KEY", "GOOGLE_API_KEY"]);
+	});
+
 	it("ignores custom and unknown provider ids without guessing their client kind", () => {
 		expect(
 			captureProviderEnvironment(["custom:corp", "unknown"], { OPENAI_API_KEY: "secret" }),

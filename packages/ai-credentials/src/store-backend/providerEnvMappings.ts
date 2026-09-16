@@ -59,6 +59,8 @@ export interface SdkCredentialEnvironment {
 
 export interface ProviderEnvMapping {
 	apiKey?: EnvironmentFieldDescriptor;
+	/** Older names for the same key, tried in order after `apiKey`. */
+	apiKeyAliases?: readonly EnvironmentFieldDescriptor[];
 	oauthM2m?: {
 		authType: EnvironmentFieldDescriptor;
 		host: EnvironmentFieldDescriptor;
@@ -131,6 +133,7 @@ function providerEnvironmentDescriptors(providerId: string): EnvironmentFieldDes
 	if (!mapping) return [];
 	return [
 		...(mapping.apiKey ? [mapping.apiKey] : []),
+		...(mapping.apiKeyAliases ?? []),
 		...(mapping.oauthM2m ? Object.values(mapping.oauthM2m) : []),
 		...(mapping.aws ? Object.values(mapping.aws) : []),
 		...(mapping.sdkCredentialEnvironment ? Object.values(mapping.sdkCredentialEnvironment) : []),

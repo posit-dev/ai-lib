@@ -54,8 +54,8 @@ import type { AuthProviderMapping, CredentialConfig } from "../../types/index.js
 import type { ProviderMap } from "../PositronBackend.js";
 
 const PROVIDER_MAP: Record<string, AuthProviderMapping> = {
-	anthropic: { authProviderId: "anthropic-api", scopes: [], credentialType: "apikey" },
-	positai: { authProviderId: "posit-ai", scopes: ["positai"], credentialType: "oauth" },
+	anthropic: { authProviderId: "anthropic", scopes: [], credentialType: "apikey" },
+	positai: { authProviderId: "positai", scopes: ["positai"], credentialType: "oauth" },
 	copilot: {
 		authProviderId: "github",
 		scopes: ["read:user"],
@@ -137,7 +137,7 @@ describe("createPositronBackend", () => {
 		const backend = makeBackend();
 
 		await backend.getCredentialsWithPrompt("anthropic");
-		expect(mockGetSession).toHaveBeenCalledWith("anthropic-api", [], { createIfNone: true });
+		expect(mockGetSession).toHaveBeenCalledWith("anthropic", [], { createIfNone: true });
 	});
 
 	it("fires onDidChangeCredentials on a matching session change", () => {
@@ -145,7 +145,7 @@ describe("createPositronBackend", () => {
 		const seen: string[][] = [];
 		backend.onDidChangeCredentials((ids) => seen.push(ids));
 
-		sessionChangeHook.callback?.({ provider: { id: "anthropic-api" } });
+		sessionChangeHook.callback?.({ provider: { id: "anthropic" } });
 		expect(seen).toEqual([["anthropic"]]);
 	});
 
