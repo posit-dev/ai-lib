@@ -38,7 +38,7 @@
  * coalescer) and identity-safe settlement cleanup replace it.
  */
 
-import { createHash } from "node:crypto";
+import { sha256Hex } from "./sha256";
 
 /**
  * Identity of a coalescible request. Two calls join the same flight only when
@@ -100,7 +100,7 @@ export function fingerprintHeaders(headers: Record<string, string>): string {
 		.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
 		.map(([name, value]) => `${name}: ${value}`)
 		.join("\n");
-	return createHash("sha256").update(canonical).digest("hex");
+	return sha256Hex(canonical);
 }
 
 function identityKey(identity: ModelRequestIdentity): string {

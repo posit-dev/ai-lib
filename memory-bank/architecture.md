@@ -201,7 +201,13 @@ Key contract points:
 
 - Request identity = operation namespace (`"model-discovery"`) + HTTP method +
   normalized URL + a SHA-256 fingerprint of the effective headers (lowercased
-  and sorted; raw secrets are never retained as map keys or logged).
+  and sorted; raw secrets are never retained as map keys or logged). The hash
+  is a local pure-TS implementation (`src/providers/sha256.ts`), not
+  `node:crypto`: the coalescer is reachable from `@assistant/core`'s
+  browser-facing public entry, which must bundle with esbuild
+  `platform: "browser"` (guarded by `scripts/tests/core-browser-public-entry.test.ts`
+  in the parent repo), and WebCrypto's async digest would force an async
+  fingerprint through identity construction.
 - The shared value is ONE decoded immutable (deep-frozen) payload — the
   `Response` is one-shot and cannot be shared — and each provider runs its
   own `parseResponse`/provider-id stamping over it.
