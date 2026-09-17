@@ -181,7 +181,7 @@ export class ProviderRegistry implements ModelRequestCoalescer {
 	 */
 	registerModelFetcher(providerId: string, fetcher: ModelFetcher): void {
 		// A replaced fetcher must not join a flight its predecessor started:
-		// retire the provider's outstanding shared requests first.
+		// raise the provider's join barrier first.
 		this.requestCoalescer.retireProvider(providerId);
 		this.modelFetchers.set(providerId, fetcher as ClearableModelFetcher);
 	}
@@ -231,8 +231,8 @@ export class ProviderRegistry implements ModelRequestCoalescer {
 	 * the next model fetch hits the API instead of returning stale data.
 	 */
 	clearAllModelCaches(): void {
-		// Retire all in-flight shared requests: a post-clear call must not
-		// join a pre-clear flight. Attached callers still finish.
+		// Bar new joins to all in-flight shared requests: a post-clear call
+		// must not join a pre-clear flight. Attached callers still finish.
 		this.requestCoalescer.retireAll();
 		for (const [providerId, fetcher] of this.modelFetchers) {
 			if (fetcher.clearCache) {
@@ -243,9 +243,9 @@ export class ProviderRegistry implements ModelRequestCoalescer {
 	}
 
 	clearModelCache(providerId: string): void {
-		// Retire exactly the in-flight shared requests this provider
-		// participates in; other providers' callers on a shared flight are
-		// not cancelled.
+		// Bar this provider from joining any flight started before now — even
+		// one it had no caller on; other providers' callers on a shared
+		// flight are not cancelled.
 		this.requestCoalescer.retireProvider(providerId);
 		const fetcher = this.modelFetchers.get(providerId);
 		if (fetcher?.clearCache) {

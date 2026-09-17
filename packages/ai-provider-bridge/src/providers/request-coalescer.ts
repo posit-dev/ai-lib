@@ -18,24 +18,31 @@
  * responses here would duplicate cache state and complicate clear/expiry
  * semantics.
  *
- * Clear/join contract:
- * - A call made after a provider clear NEVER joins or consumes a flight
- *   started before that clear (a clear-spanning request may answer its own
- *   callers but must not repopulate — see the fetcher's generation guard).
- *   Retirement at clear time is what bars the join.
+ * Clear/join contract (monotonic invalidation barriers):
+ * - Each flight is stamped with a creation sequence; each provider clear or
+ *   re-registration records the current sequence as that provider's barrier
+ *   (clear-all records a shared barrier). A provider joins only flights
+ *   newer than its barrier, so a call made after a provider clear NEVER
+ *   joins or consumes a flight started before that clear — even when the
+ *   cleared provider had no caller on the flight (a clear-spanning request
+ *   may answer its own callers but must not repopulate — see the fetcher's
+ *   generation guard).
  * - Joiners attached before the clear may finish and answer their callers.
  * - Clearing one provider does not cancel another provider's caller on a
- *   shared flight; retirement only bars new joins.
+ *   shared flight; barriers only bar new joins.
  * - Failure/timeout is never retained; settlement removes the entry
- *   identity-safely (a retired flight's cleanup never removes a newer flight).
+ *   identity-safely (a barred flight's cleanup never removes a newer flight).
  *
  * Cancellation: the executor receives only a coalescer-owned AbortSignal. No
  * individual joiner owns flight cancellation — a caller's own deadline still
- * releases it via the fetcher's race — and the flight's signal aborts only
- * once EVERY participant has detached (aborted), which bounds a shared
- * request to roughly the last participant's discovery deadline. There is no
- * disposal API: per-registry isolation (each ProviderRegistry owns its own
- * coalescer) and identity-safe settlement cleanup replace it.
+ * releases it via the fetcher's race — and the flight's entry is removed and
+ * its signal aborted once EVERY attached caller has detached, which bounds a
+ * shared request to roughly the last caller's discovery deadline. Removal
+ * happens before aborting so an abort-insensitive executor that never
+ * settles cannot leave the aborted flight joinable, dooming later calls to
+ * join it and time out. There is no disposal API: per-registry isolation
+ * (each ProviderRegistry owns its own coalescer) and identity-safe
+ * settlement cleanup replace it.
  */
 
 import { sha256Hex } from "./sha256";
@@ -63,8 +70,8 @@ export type ModelRequestExecutor = (signal: AbortSignal) => Promise<unknown>;
 
 /**
  * The narrow coalescer surface a model fetcher needs. `ProviderRegistry`
- * implements it so `clearModelCache(providerId)` can retire exactly the
- * identities that provider used.
+ * implements it so `clearModelCache(providerId)` can bar that provider from
+ * joining flights started before its clear.
  */
 export interface ModelRequestCoalescer {
 	coalesceModelRequest(
@@ -121,19 +128,25 @@ function freezePayload<T>(value: T): T {
 }
 
 interface Flight {
+	/** Map key, retained so detachment can remove the entry identity-safely. */
+	readonly key: string;
 	readonly controller: AbortController;
 	readonly promise: Promise<unknown>;
-	/** Providers whose callers are attached (drives provider-scoped retirement). */
-	readonly participants: Set<string>;
+	/** Creation order; a provider joins only flights newer than its barrier. */
+	readonly sequence: number;
 	/** Callers whose own signal aborted; the flight aborts when all detach. */
 	detached: number;
 	total: number;
-	/** Retired flights answer their attached callers but accept no new joins. */
-	retired: boolean;
 }
 
 export class InFlightRequestCoalescer implements ModelRequestCoalescer {
 	private readonly flights = new Map<string, Flight>();
+	/** Monotonic clock: flights take the next value; barriers record it. */
+	private clock = 0;
+	/** Latest clear/re-registration sequence per provider. */
+	private readonly providerBarriers = new Map<string, number>();
+	/** Latest clear-all sequence; applies to every provider. */
+	private allBarrier = 0;
 
 	coalesceModelRequest(
 		providerId: string,
@@ -143,8 +156,12 @@ export class InFlightRequestCoalescer implements ModelRequestCoalescer {
 	): Promise<unknown> {
 		const key = identityKey(identity);
 		const existing = this.flights.get(key);
-		if (existing && !existing.retired) {
-			this.attach(existing, providerId, caller);
+		if (
+			existing &&
+			!existing.controller.signal.aborted &&
+			existing.sequence > this.barrierFor(providerId)
+		) {
+			this.attach(existing, caller);
 			return existing.promise;
 		}
 
@@ -153,17 +170,17 @@ export class InFlightRequestCoalescer implements ModelRequestCoalescer {
 			.then(() => execute(controller.signal))
 			.then((payload) => freezePayload(payload));
 		const flight: Flight = {
+			key,
 			controller,
 			promise,
-			participants: new Set(),
+			sequence: ++this.clock,
 			detached: 0,
 			total: 0,
-			retired: false,
 		};
-		// A retired flight may still occupy the map while its callers finish;
+		// A barred flight may still occupy the map while its callers finish;
 		// a fresh call starts a new flight and replaces the entry.
 		this.flights.set(key, flight);
-		this.attach(flight, providerId, caller);
+		this.attach(flight, caller);
 		// Identity-safe settlement cleanup: success and failure alike are
 		// removed, and an earlier flight's cleanup never removes a newer one.
 		const cleanup = () => {
@@ -175,8 +192,12 @@ export class InFlightRequestCoalescer implements ModelRequestCoalescer {
 		return flight.promise;
 	}
 
-	private attach(flight: Flight, providerId: string, caller: AbortSignal): void {
-		flight.participants.add(providerId);
+	/** The clear/re-registration sequence a provider's joins must postdate. */
+	private barrierFor(providerId: string): number {
+		return Math.max(this.allBarrier, this.providerBarriers.get(providerId) ?? 0);
+	}
+
+	private attach(flight: Flight, caller: AbortSignal): void {
 		flight.total++;
 		if (caller.aborted) {
 			this.detach(flight);
@@ -188,29 +209,34 @@ export class InFlightRequestCoalescer implements ModelRequestCoalescer {
 	private detach(flight: Flight): void {
 		flight.detached++;
 		// No caller remains that can consume the result — cancel cooperatively
-		// so a hung server cannot pin the flight (and its map entry) forever.
+		// so a hung server cannot pin the flight. Remove the entry BEFORE
+		// aborting: an abort-insensitive executor may never settle, and
+		// settlement-only cleanup would leave the aborted flight joinable
+		// forever, so every later call would join it and time out without
+		// issuing a fresh request.
 		if (flight.detached >= flight.total) {
+			if (this.flights.get(flight.key) === flight) {
+				this.flights.delete(flight.key);
+			}
 			flight.controller.abort();
 		}
 	}
 
 	/**
-	 * Retire every flight the provider participates in: post-clear calls start
-	 * fresh flights instead of joining pre-clear ones. Attached callers are
-	 * not cancelled.
+	 * Bar the provider from joining any flight started before now: post-clear
+	 * calls start fresh flights instead of joining pre-clear ones, even when
+	 * the provider had no caller on those flights. Attached callers are not
+	 * cancelled.
 	 */
 	retireProvider(providerId: string): void {
-		for (const flight of this.flights.values()) {
-			if (flight.participants.has(providerId)) {
-				flight.retired = true;
-			}
-		}
+		this.providerBarriers.set(providerId, this.clock);
 	}
 
-	/** Retire all flights (clear-all). Attached callers are not cancelled. */
+	/**
+	 * Bar every provider from joining any flight started before now
+	 * (clear-all). Attached callers are not cancelled.
+	 */
 	retireAll(): void {
-		for (const flight of this.flights.values()) {
-			flight.retired = true;
-		}
+		this.allBarrier = this.clock;
 	}
 }

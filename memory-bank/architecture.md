@@ -212,17 +212,23 @@ Key contract points:
   `Response` is one-shot and cannot be shared — and each provider runs its
   own `parseResponse`/provider-id stamping over it.
 - The executor receives only a coalescer-owned `AbortSignal`; no individual
-  joiner owns cancellation. The flight's signal aborts once EVERY participant
-  has detached, which bounds a shared request to roughly the last
-  participant's existing fetcher deadline (no second caller-owned timer).
+  joiner owns cancellation. Once EVERY attached caller has detached, the
+  flight's map entry is removed and its signal aborted, which bounds a shared
+  request to roughly the last caller's existing fetcher deadline (no second
+  caller-owned timer). Removal happens before aborting so an abort-
+  insensitive executor that never settles cannot leave the aborted flight
+  joinable, dooming later calls to join it and time out.
 - In-flight only: completed results stay in each fetcher's own TTL cache;
   failure/timeout is never retained, and settlement removes the entry
-  identity-safely (a retired flight's cleanup never removes a newer flight).
-- Clear/join: a call made after `clearModelCache(providerId)` (or clear-all,
-  or re-registration of that provider) never joins a pre-clear flight —
-  retirement bars new joins — while joiners attached before the clear finish
-  and answer their callers, and clearing one provider never cancels another
-  provider's caller on a shared flight.
+  identity-safely (a barred flight's cleanup never removes a newer flight).
+- Clear/join (monotonic invalidation barriers): each flight is stamped with
+  a creation sequence; `clearModelCache(providerId)` or re-registration
+  records the current sequence as that provider's barrier (clear-all records
+  a shared barrier), and a provider joins only flights newer than its
+  barrier. A post-clear call therefore never joins a pre-clear flight — even
+  one the cleared provider had no caller on — while joiners attached before
+  the clear finish and answer their callers, and clearing one provider never
+  cancels another provider's caller on a shared flight.
 - No disposal API: each registry owns its coalescer, so a replaced registry
   cannot join an old registry's flights.
 

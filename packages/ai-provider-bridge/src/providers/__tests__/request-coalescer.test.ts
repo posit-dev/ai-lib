@@ -82,8 +82,11 @@ function makeFetcher(
 const credentials = (apiKey: string) =>
 	({ type: "apikey", providerId: "litellm", apiKey, baseUrl: "http://gateway.test" }) as const;
 
+// NB: `vi.waitFor` resolves when the callback returns without throwing (it
+// retries only on thrown errors), so a boolean condition needs the
+// truthy-wait of `vi.waitUntil`.
 async function waitFor(condition: () => boolean): Promise<void> {
-	await vi.waitFor(condition, { interval: 1, timeout: 1000 });
+	await vi.waitUntil(condition, { interval: 1, timeout: 1000 });
 }
 
 describe("registry-owned in-flight request coalescer", () => {
@@ -226,6 +229,89 @@ describe("registry-owned in-flight request coalescer", () => {
 		const freshModels = await postClear;
 		expect(freshModels.map((m) => `${m.providerId}:${m.id}`)).toEqual(["litellm:model-a"]);
 		expect(calls).toHaveLength(2);
+	});
+
+	it("a provider cleared before its first join starts a post-clear flight and never caches the pre-clear payload", async () => {
+		const { mock, calls } = makeGatedFetch();
+		vi.stubGlobal("fetch", mock);
+		const registry = new ProviderRegistry(logger);
+		registry.registerModelFetcher("litellm", makeFetcher(registry, "litellm"));
+		registry.registerModelFetcher("acme-litellm", makeFetcher(registry, "acme-litellm"));
+
+		// Only litellm is attached to the in-flight flight.
+		const preClearA = registry.getModelsForProvider("litellm", credentials("sk-same"));
+		await waitFor(() => calls.length === 1);
+
+		// Clear the provider that has NOT joined the flight.
+		registry.clearModelCache("acme-litellm");
+
+		// Its first request must not join the pre-clear flight.
+		const postClearB = registry.getModelsForProvider("acme-litellm", credentials("sk-same"));
+		await waitFor(() => calls.length === 2);
+
+		calls[0].release({ models: ["stale-model"] });
+		calls[1].release({ models: ["fresh-model"] });
+		const [modelsA, modelsB] = await Promise.all([preClearA, postClearB]);
+		expect(modelsA.map((m) => m.id)).toEqual(["stale-model"]);
+		expect(modelsB.map((m) => m.id)).toEqual(["fresh-model"]);
+
+		// The cleared provider cached its own post-clear payload, so a later
+		// call is TTL-served without a new request and never sees the
+		// pre-clear payload.
+		const cachedB = await registry.getModelsForProvider("acme-litellm", credentials("sk-same"));
+		expect(cachedB.map((m) => m.id)).toEqual(["fresh-model"]);
+		expect(calls).toHaveLength(2);
+	});
+
+	it("a provider re-registered before its first join cannot join the pre-registration flight", async () => {
+		const { mock, calls } = makeGatedFetch();
+		vi.stubGlobal("fetch", mock);
+		const registry = new ProviderRegistry(logger);
+		registry.registerModelFetcher("litellm", makeFetcher(registry, "litellm"));
+
+		// Only litellm is attached to the in-flight flight.
+		const preRegistrationA = registry.getModelsForProvider("litellm", credentials("sk-same"));
+		await waitFor(() => calls.length === 1);
+
+		// Re-register a second provider that has NOT joined the flight.
+		registry.registerModelFetcher("acme-litellm", makeFetcher(registry, "acme-litellm"));
+
+		const postRegistrationB = registry.getModelsForProvider("acme-litellm", credentials("sk-same"));
+		await waitFor(() => calls.length === 2);
+
+		calls[0].release();
+		calls[1].release();
+		const [modelsA, modelsB] = await Promise.all([preRegistrationA, postRegistrationB]);
+		expect(modelsA.map((m) => `${m.providerId}:${m.id}`)).toEqual(["litellm:model-a"]);
+		expect(modelsB.map((m) => `${m.providerId}:${m.id}`)).toEqual(["acme-litellm:model-a"]);
+		expect(calls).toHaveLength(2);
+	});
+
+	it("an executor that ignores cancellation cannot pin the flight: the next call re-executes", async () => {
+		// A fetch that observes the abort signal but deliberately never
+		// settles — the coalescer must not leave the aborted flight joinable.
+		const signals: AbortSignal[] = [];
+		vi.stubGlobal(
+			"fetch",
+			vi.fn((_url: unknown, options?: { signal?: AbortSignal }) => {
+				signals.push(options?.signal ?? new AbortController().signal);
+				return new Promise<Response>(() => {});
+			}),
+		);
+		const registry = new ProviderRegistry(logger);
+		registry.registerModelFetcher("litellm", makeFetcher(registry, "litellm", { deadlineMs: 30 }));
+
+		const timedOut = registry.getModelsForProvider("litellm", credentials("sk-one"));
+		await waitFor(() => signals.length === 1);
+		await expect(timedOut).resolves.toEqual([]);
+		// The only caller detached, so the flight's own signal aborted...
+		expect(signals[0].aborted).toBe(true);
+
+		// ...but the executor never settles. A later call must start a new
+		// executor instead of joining the doomed flight.
+		const retried = registry.getModelsForProvider("litellm", credentials("sk-one"));
+		await waitFor(() => signals.length === 2);
+		await expect(retried).resolves.toEqual([]);
 	});
 
 	it("clear-all retires every flight without cancelling attached callers", async () => {

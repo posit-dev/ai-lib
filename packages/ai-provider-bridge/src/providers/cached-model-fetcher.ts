@@ -75,19 +75,6 @@ interface CachedModelFetcherCommonConfig<T extends ProviderCredentials = Provide
 	 */
 	enrichModels?: (models: ModelInfo[], credentials: T, signal: AbortSignal) => Promise<ModelInfo[]>;
 
-	/**
-	 * Optional registry-owned in-flight request coalescer (request variant
-	 * only). When set, the base request executes through the coalescer: a
-	 * concurrent identical request — same "model-discovery" namespace, method,
-	 * normalized URL, and effective-header fingerprint — joins the in-flight
-	 * flight and shares its ONE decoded immutable payload instead of issuing
-	 * a second HTTP request; this provider still runs its own `parseResponse`
-	 * and stamping. Completed results remain owned by this fetcher's TTL
-	 * cache; the coalescer retains nothing past settlement. The flight runs
-	 * inside this fetcher's existing discovery deadline — no second timer.
-	 */
-	requestCoalescer?: ModelRequestCoalescer;
-
 	/** Static fallback models if API fails */
 	fallbackModels: ModelInfo[];
 
@@ -137,6 +124,21 @@ export interface CachedModelFetcherRequestConfig<
 
 	/** Function to parse API response into ModelInfo[] */
 	parseResponse: (data: unknown) => ModelInfo[];
+
+	/**
+	 * Optional registry-owned in-flight request coalescer. When set, the base
+	 * request executes through the coalescer: a concurrent identical request
+	 * — same "model-discovery" namespace, method, normalized URL, and
+	 * effective-header fingerprint — joins the in-flight flight and shares
+	 * its ONE decoded immutable payload instead of issuing a second HTTP
+	 * request; this provider still runs its own `parseResponse` and stamping.
+	 * Completed results remain owned by this fetcher's TTL cache; the
+	 * coalescer retains nothing past settlement. The flight runs inside this
+	 * fetcher's existing discovery deadline — no second timer. Declared only
+	 * on this variant: the `fetchFresh` variant owns its whole fetch and has
+	 * no base request to coalesce.
+	 */
+	requestCoalescer?: ModelRequestCoalescer;
 }
 
 /**
