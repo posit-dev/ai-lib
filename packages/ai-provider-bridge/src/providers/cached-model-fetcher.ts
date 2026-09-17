@@ -11,6 +11,8 @@
 
 import { additiveHeaderRecord } from "../custom-headers";
 import type { ApiKeyCredentials, Logger, ModelInfo, ProviderCredentials } from "../types";
+import type { ModelRequestCoalescer } from "./request-coalescer";
+import { fingerprintHeaders, normalizeRequestUrl } from "./request-coalescer";
 
 const DEFAULT_TTL = 60 * 60 * 1000; // 60 minutes
 
@@ -72,6 +74,19 @@ interface CachedModelFetcherCommonConfig<T extends ProviderCredentials = Provide
 	 * nested request so enrichment work is cancelled cooperatively.
 	 */
 	enrichModels?: (models: ModelInfo[], credentials: T, signal: AbortSignal) => Promise<ModelInfo[]>;
+
+	/**
+	 * Optional registry-owned in-flight request coalescer (request variant
+	 * only). When set, the base request executes through the coalescer: a
+	 * concurrent identical request — same "model-discovery" namespace, method,
+	 * normalized URL, and effective-header fingerprint — joins the in-flight
+	 * flight and shares its ONE decoded immutable payload instead of issuing
+	 * a second HTTP request; this provider still runs its own `parseResponse`
+	 * and stamping. Completed results remain owned by this fetcher's TTL
+	 * cache; the coalescer retains nothing past settlement. The flight runs
+	 * inside this fetcher's existing discovery deadline — no second timer.
+	 */
+	requestCoalescer?: ModelRequestCoalescer;
 
 	/** Static fallback models if API fails */
 	fallbackModels: ModelInfo[];
@@ -254,13 +269,42 @@ export function createCachedModelFetcher<T extends ProviderCredentials = Provide
 				const apiKeyCreds = typedCredentials as Partial<ApiKeyCredentials>;
 				const providerHeaders = config.createHeaders(typedCredentials);
 				const headers = additiveHeaderRecord(providerHeaders, apiKeyCreds.customHeaders);
-				const response = await fetch(apiUrl, { headers, signal: controller.signal });
 
-				if (!response.ok) {
-					throw new Error(`API returned ${response.status}`);
+				let data: unknown;
+				if (config.requestCoalescer) {
+					// Join an identical in-flight request (e.g. the same gateway
+					// configured under two provider ids) or start the flight. The
+					// shared value is the ONE decoded immutable payload — the
+					// Response is one-shot and cannot be shared — and this
+					// provider's own parse/stamp still runs below. The executor
+					// receives a coalescer-owned signal; this caller's deadline
+					// still bounds its wait via the race below.
+					data = await config.requestCoalescer.coalesceModelRequest(
+						config.providerId,
+						{
+							namespace: "model-discovery",
+							method: "GET",
+							url: normalizeRequestUrl(apiUrl),
+							headersFingerprint: fingerprintHeaders(headers),
+						},
+						controller.signal,
+						async (signal) => {
+							const response = await fetch(apiUrl, { headers, signal });
+							if (!response.ok) {
+								throw new Error(`API returned ${response.status}`);
+							}
+							return response.json();
+						},
+					);
+				} else {
+					const response = await fetch(apiUrl, { headers, signal: controller.signal });
+
+					if (!response.ok) {
+						throw new Error(`API returned ${response.status}`);
+					}
+
+					data = await response.json();
 				}
-
-				const data = await response.json();
 				freshModels = config.parseResponse(data);
 			}
 

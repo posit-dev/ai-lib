@@ -122,6 +122,7 @@ profile gating, and the future-model maintenance procedure live in
 | `src/provider-map.ts`                            | `PROVIDER_MAP` and `MAPPED_PROVIDER_IDS` -- maps logical provider IDs to Positron auth provider config                                                                                                                                                                                        | No            |
 | `src/credential-shaping.ts`                      | `shapeCredentials()` -- pure token-to-`ProviderCredentials` shaping over an injected `CredentialConfig`                                                                                                                                                                                       | No            |
 | `src/custom-headers.ts`                          | Header merging/filtering utilities for custom HTTP headers                                                                                                                                                                                                                                    | No            |
+| `src/providers/request-coalescer.ts`             | Registry-owned in-flight-only request coalescer for model discovery (single-flight join over one decoded immutable payload)                                                                                                                                                                   | No            |
 | `ai-credentials/src/positron/PositronBackend.ts` | `createPositronBackend` -- VS Code auth backend (in `ai-credentials`, not the bridge; replaces the removed `PositronCredentialProvider`)                                                                                                                                                      | **Yes**       |
 | `src/positron/VscodeLmClient.ts`                 | `VscodeLmClient` -- `ModelClient` implementation wrapping `vscode.LanguageModelChat`                                                                                                                                                                                                          | **Yes**       |
 | `src/positron/vscode-lm-models.ts`               | `listVscodeLmModels()`, `toProviderId()`, `isProviderId()`, vendor-to-provider mapping                                                                                                                                                                                                        | **Yes**       |
@@ -183,6 +184,41 @@ Discovery sources that do not use `createCachedModelFetcher` (Databricks,
 Posit AI Pass, Bedrock/Mantle, Google Vertex) own their transport and are not
 bounded by it — Vertex bounds each request with its own
 `AbortSignal.timeout(15000)`.
+
+## In-flight request coalescing (model discovery)
+
+When the same backend is configured under two provider ids (the built-in
+`litellm` plus a custom `type: "litellm"` gateway entry), a discovery pass
+launches both providers' fetches concurrently, producing identical duplicate
+HTTP requests. `ProviderRegistry` owns an in-flight-ONLY coalescer
+(`src/providers/request-coalescer.ts`): opted-in fetchers (LiteLLM only
+today, via the `requestCoalescer` config of `createCachedModelFetcher`) call
+the narrow registry method `coalesceModelRequest(providerId, identity,
+callerSignal, execute)`, and a concurrent identical request joins the
+in-flight flight instead of issuing a second request.
+
+Key contract points:
+
+- Request identity = operation namespace (`"model-discovery"`) + HTTP method +
+  normalized URL + a SHA-256 fingerprint of the effective headers (lowercased
+  and sorted; raw secrets are never retained as map keys or logged).
+- The shared value is ONE decoded immutable (deep-frozen) payload — the
+  `Response` is one-shot and cannot be shared — and each provider runs its
+  own `parseResponse`/provider-id stamping over it.
+- The executor receives only a coalescer-owned `AbortSignal`; no individual
+  joiner owns cancellation. The flight's signal aborts once EVERY participant
+  has detached, which bounds a shared request to roughly the last
+  participant's existing fetcher deadline (no second caller-owned timer).
+- In-flight only: completed results stay in each fetcher's own TTL cache;
+  failure/timeout is never retained, and settlement removes the entry
+  identity-safely (a retired flight's cleanup never removes a newer flight).
+- Clear/join: a call made after `clearModelCache(providerId)` (or clear-all,
+  or re-registration of that provider) never joins a pre-clear flight —
+  retirement bars new joins — while joiners attached before the clear finish
+  and answer their callers, and clearing one provider never cancels another
+  provider's caller on a shared flight.
+- No disposal API: each registry owns its coalescer, so a replaced registry
+  cannot join an old registry's flights.
 
 ## Credentials
 

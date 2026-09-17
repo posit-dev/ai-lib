@@ -72,6 +72,14 @@ export type {
 	ClearableModelFetcher,
 } from "./providers/cached-model-fetcher";
 
+// In-flight model-discovery request coalescing (registry-owned)
+export { InFlightRequestCoalescer } from "./providers/request-coalescer";
+export type {
+	ModelRequestCoalescer,
+	ModelRequestExecutor,
+	ModelRequestIdentity,
+} from "./providers/request-coalescer";
+
 // Positron auth-provider mapping (no vscode dependency — pure data)
 export { MAPPED_PROVIDER_IDS, PROVIDER_MAP } from "./provider-map";
 export type { AuthProviderMapping } from "./provider-map";
