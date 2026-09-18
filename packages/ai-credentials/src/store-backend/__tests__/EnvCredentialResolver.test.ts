@@ -127,6 +127,28 @@ describe("resolveCredentialsFromEnv", () => {
 	] as const)("returns null for %s non-secret environment config", (providerId, env) => {
 		expect(resolveCredentialsFromEnv(providerId, env)).toBeNull();
 	});
+
+	describe("Workbench-managed Databricks profile", () => {
+		it("ignores DATABRICKS_TOKEN when DATABRICKS_CONFIG_FILE is Workbench-managed", () => {
+			const env = {
+				DATABRICKS_TOKEN: "shell-pat",
+				DATABRICKS_CONFIG_FILE: "/home/user/.posit-workbench/databricks/cfg",
+			};
+			expect(resolveCredentialsFromEnv("databricks", env)).toBeNull();
+			expect(hasEnvCredentials("databricks", env)).toBe(false);
+		});
+
+		it("reads DATABRICKS_TOKEN when the config file is not Workbench-managed", () => {
+			const env = {
+				DATABRICKS_TOKEN: "shell-pat",
+				DATABRICKS_CONFIG_FILE: "/home/user/.databrickscfg",
+			};
+			expect(resolveCredentialsFromEnv("databricks", env)).toEqual({
+				type: "apikey",
+				apiKey: "shell-pat",
+			});
+		});
+	});
 });
 
 describe("hasEnvCredentials", () => {
