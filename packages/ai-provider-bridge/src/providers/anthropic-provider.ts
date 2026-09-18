@@ -55,6 +55,7 @@ function createAnthropicModelFetcher(
 	providerId: ResolvedProviderId,
 	includeHostedModels: boolean,
 	logger: Logger,
+	registry: ProviderRegistry,
 ) {
 	return createCachedModelFetcher<ApiKeyCredentials>({
 		providerId,
@@ -75,6 +76,7 @@ function createAnthropicModelFetcher(
 			...(credentials.apiKey !== "" ? { "x-api-key": credentials.apiKey } : {}),
 			"anthropic-version": "2023-06-01",
 		}),
+		requestCoalescer: registry,
 		parseResponse: (data: unknown) => {
 			const typedData = data as { data: Array<{ id: string; display_name: string }> };
 			const models = typedData.data.map((model) =>
@@ -113,7 +115,7 @@ function createAnthropicClientFactory(logger: Logger): ClientFactory {
 export function registerAnthropicProvider(registry: ProviderRegistry, logger: Logger): void {
 	registry.registerModelFetcher(
 		"anthropic",
-		createAnthropicModelFetcher("anthropic", true, logger),
+		createAnthropicModelFetcher("anthropic", true, logger, registry),
 	);
 	registry.registerClientFactory("anthropic", createAnthropicClientFactory(logger));
 }
@@ -123,6 +125,9 @@ export function registerCustomAnthropicProvider(
 	providerId: ResolvedProviderId,
 	logger: Logger,
 ): void {
-	registry.registerModelFetcher(providerId, createAnthropicModelFetcher(providerId, false, logger));
+	registry.registerModelFetcher(
+		providerId,
+		createAnthropicModelFetcher(providerId, false, logger, registry),
+	);
 	registry.registerClientFactory("anthropic", createAnthropicClientFactory(logger));
 }

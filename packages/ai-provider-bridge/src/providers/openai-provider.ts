@@ -71,6 +71,7 @@ function createOpenAIModelFetcher(
 	providerId: ResolvedProviderId,
 	includeHostedModels: boolean,
 	logger: Logger,
+	registry: ProviderRegistry,
 ) {
 	return createCachedModelFetcher<ApiKeyCredentials>({
 		providerId,
@@ -82,6 +83,7 @@ function createOpenAIModelFetcher(
 		createHeaders: (credentials) => ({
 			Authorization: `Bearer ${credentials.apiKey}`,
 		}),
+		requestCoalescer: registry,
 		parseResponse: (data) => {
 			const typedData = data as {
 				data: Array<{ id: string; object: string; owned_by: string }>;
@@ -119,7 +121,10 @@ const openAIClientFactory: ClientFactory = (credentials) => {
 };
 
 export function registerOpenAIProvider(registry: ProviderRegistry, logger: Logger): void {
-	registry.registerModelFetcher("openai", createOpenAIModelFetcher("openai", true, logger));
+	registry.registerModelFetcher(
+		"openai",
+		createOpenAIModelFetcher("openai", true, logger, registry),
+	);
 	registry.registerClientFactory("openai", openAIClientFactory);
 }
 
@@ -128,6 +133,9 @@ export function registerCustomOpenAIProvider(
 	providerId: ResolvedProviderId,
 	logger: Logger,
 ): void {
-	registry.registerModelFetcher(providerId, createOpenAIModelFetcher(providerId, false, logger));
+	registry.registerModelFetcher(
+		providerId,
+		createOpenAIModelFetcher(providerId, false, logger, registry),
+	);
 	registry.registerClientFactory("openai", openAIClientFactory);
 }

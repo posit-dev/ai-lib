@@ -185,7 +185,11 @@ const fetchOllamaCapabilities = async (
 // Static fallback models - conservative capabilities
 const OLLAMA_FALLBACK: ModelInfo[] = [];
 
-function createOllamaModelFetcher(providerId: ResolvedProviderId, logger: Logger) {
+function createOllamaModelFetcher(
+	providerId: ResolvedProviderId,
+	logger: Logger,
+	registry: ProviderRegistry,
+) {
 	return createCachedModelFetcher<LocalCredentials>({
 		providerId,
 		resolveUrl: (credentials) => {
@@ -195,6 +199,9 @@ function createOllamaModelFetcher(providerId: ResolvedProviderId, logger: Logger
 		createHeaders: () => ({
 			"Content-Type": "application/json",
 		}),
+		// Only the base /api/tags request joins; the per-model /api/show
+		// enrichment pass still runs per provider afterward.
+		requestCoalescer: registry,
 		parseResponse: (data: unknown) => {
 			const typedData = data as {
 				models: Array<{
@@ -268,7 +275,7 @@ const ollamaClientFactory: ClientFactory = (credentials) => {
 };
 
 export function registerOllamaProvider(registry: ProviderRegistry, logger: Logger): void {
-	registry.registerModelFetcher("ollama", createOllamaModelFetcher("ollama", logger));
+	registry.registerModelFetcher("ollama", createOllamaModelFetcher("ollama", logger, registry));
 	registry.registerClientFactory("ollama", ollamaClientFactory);
 }
 
@@ -277,6 +284,6 @@ export function registerCustomOllamaProvider(
 	providerId: ResolvedProviderId,
 	logger: Logger,
 ): void {
-	registry.registerModelFetcher(providerId, createOllamaModelFetcher(providerId, logger));
+	registry.registerModelFetcher(providerId, createOllamaModelFetcher(providerId, logger, registry));
 	registry.registerClientFactory("ollama", ollamaClientFactory);
 }

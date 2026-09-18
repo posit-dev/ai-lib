@@ -170,11 +170,15 @@ function parseLitellmModelInfoResponse(
 /**
  * Build a cached `/v1/model/info` fetcher for one gateway. Each call creates
  * its own `createCachedModelFetcher` instance, so every registered provider id
- * (the built-in plus each custom entry) gets an independent per-gateway cache.
+ * (the built-in plus each custom entry) gets an independent per-gateway TTL
+ * cache. Concurrent identical requests (the same gateway configured under two
+ * provider ids) are coalesced through the registry: they share one decoded
+ * payload in flight, and each provider still runs its own parse/stamp pass.
  */
 function createLitellmModelFetcher(
 	providerId: ResolvedProviderId,
 	logger: Logger,
+	registry: ProviderRegistry,
 ): ClearableModelFetcher {
 	return createCachedModelFetcher<ApiKeyCredentials>({
 		providerId,
@@ -187,6 +191,7 @@ function createLitellmModelFetcher(
 						Authorization: `Bearer ${credentials.apiKey}`,
 					}
 				: {},
+		requestCoalescer: registry,
 		parseResponse: (data) => parseLitellmModelInfoResponse(data, providerId),
 		fallbackModels: [],
 		logger,
@@ -255,7 +260,7 @@ const litellmClientFactory: ClientFactory = (credentials) => {
 
 /** Register the built-in `litellm` provider. */
 export function registerLitellmProvider(registry: ProviderRegistry, logger: Logger): void {
-	registry.registerModelFetcher("litellm", createLitellmModelFetcher("litellm", logger));
+	registry.registerModelFetcher("litellm", createLitellmModelFetcher("litellm", logger, registry));
 	registry.registerClientFactory("litellm", litellmClientFactory);
 }
 
@@ -275,6 +280,9 @@ export function registerCustomLitellmProvider(
 	providerId: ResolvedProviderId,
 	logger: Logger,
 ): void {
-	registry.registerModelFetcher(providerId, createLitellmModelFetcher(providerId, logger));
+	registry.registerModelFetcher(
+		providerId,
+		createLitellmModelFetcher(providerId, logger, registry),
+	);
 	registry.registerClientFactory("litellm", litellmClientFactory);
 }
