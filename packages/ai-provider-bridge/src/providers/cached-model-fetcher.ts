@@ -141,6 +141,25 @@ export interface CachedModelFetcherRequestConfig<
 	requestCoalescer?: ModelRequestCoalescer;
 
 	/**
+	 * Optional: substitute the URL used for coalescing identity. Consulted only
+	 * when `requestCoalescer` is set. Providers that carry a credential in the
+	 * request URL (e.g. Gemini's `?key=` query parameter) must strip it here —
+	 * the identity URL is retained as part of the coalescer's in-flight map
+	 * key, so it must never contain a secret. Pair with `identityHeaders` to
+	 * keep the stripped credential part of the identity through its hash.
+	 */
+	identityUrl?: (apiUrl: string, credentials: T) => string;
+
+	/**
+	 * Optional: extra name/value pairs folded into the coalescing header
+	 * fingerprint. Consulted only when `requestCoalescer` is set. Use for
+	 * credentials that are not request headers (e.g. a URL-carried API key
+	 * removed by `identityUrl`): the fingerprint is a SHA-256 hash, so the
+	 * secret shapes the identity without being retained or logged.
+	 */
+	identityHeaders?: (credentials: T) => Record<string, string>;
+
+	/**
 	 * Excluded on this variant so the union stays exclusive: `fetchFresh`
 	 * belongs to the provider-owned-fetch variant. Without this (and the
 	 * mirrored exclusions there), an object carrying both variants' fields
@@ -176,6 +195,8 @@ export interface CachedModelFetcherFetchFreshConfig<
 	createHeaders?: never;
 	parseResponse?: never;
 	requestCoalescer?: never;
+	identityUrl?: never;
+	identityHeaders?: never;
 }
 
 export type CachedModelFetcherConfig<T extends ProviderCredentials = ProviderCredentials> =
@@ -311,13 +332,21 @@ export function createCachedModelFetcher<T extends ProviderCredentials = Provide
 					// provider's own parse/stamp still runs below. The executor
 					// receives a coalescer-owned signal; this caller's deadline
 					// still bounds its wait via the race below.
+					// A credential carried in the request URL (e.g. Gemini's
+					// ?key=) is kept out of the retained identity key: the
+					// provider substitutes a secret-free identity URL and folds
+					// the secret into the hashed fingerprint instead.
+					const identityUrl = config.identityUrl?.(apiUrl, typedCredentials) ?? apiUrl;
+					const identityHeaders = config.identityHeaders
+						? { ...headers, ...config.identityHeaders(typedCredentials) }
+						: headers;
 					data = await config.requestCoalescer.coalesceModelRequest(
 						config.providerId,
 						{
 							namespace: "model-discovery",
 							method: "GET",
-							url: normalizeRequestUrl(apiUrl),
-							headersFingerprint: fingerprintHeaders(headers),
+							url: normalizeRequestUrl(identityUrl),
+							headersFingerprint: fingerprintHeaders(identityHeaders),
 						},
 						controller.signal,
 						async (signal) => {

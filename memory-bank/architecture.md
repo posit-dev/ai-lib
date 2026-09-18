@@ -191,18 +191,28 @@ When the same backend is configured under two provider ids (the built-in
 `litellm` plus a custom `type: "litellm"` gateway entry), a discovery pass
 launches both providers' fetches concurrently, producing identical duplicate
 HTTP requests. `ProviderRegistry` owns an in-flight-ONLY coalescer
-(`src/providers/request-coalescer.ts`): opted-in fetchers (LiteLLM only
-today, via the `requestCoalescer` config of `createCachedModelFetcher`) call
-the narrow registry method `coalesceModelRequest(providerId, identity,
-callerSignal, execute)`, and a concurrent identical request joins the
-in-flight flight instead of issuing a second request.
+(`src/providers/request-coalescer.ts`): every provider whose discovery is a
+single GET opts in via the `requestCoalescer` config of
+`createCachedModelFetcher` (litellm, openai-compatible, openai, ollama,
+lmstudio, openrouter, anthropic, deepseek, gemini) and calls the narrow
+registry method `coalesceModelRequest(providerId, identity, callerSignal,
+execute)`; a concurrent identical request joins the in-flight flight instead
+of issuing a second request. Providers that own their whole fetch
+(`fetchFresh`: portkey, databricks) have no base request to coalesce, and
+singleton-only providers (opencode) have no duplicate-entry scenario. Only
+the base request joins — a provider's `enrichModels` pass (e.g. Ollama's
+per-model `/api/show`) still runs per provider afterward.
 
 Key contract points:
 
 - Request identity = operation namespace (`"model-discovery"`) + HTTP method +
   normalized URL + a SHA-256 fingerprint of the effective headers (lowercased
-  and sorted; raw secrets are never retained as map keys or logged). The hash
-  is a local pure-TS implementation (`src/providers/sha256.ts`), not
+  and sorted; raw secrets are never retained as map keys or logged). Providers
+  that carry a credential in the request URL (Gemini's `?key=`) keep it out of
+  the retained identity key via the fetcher's `identityUrl` hook (strips the
+  query parameter) and `identityHeaders` hook (folds the key into the hashed
+  fingerprint). The hash is a local pure-TS implementation
+  (`src/providers/sha256.ts`), not
   `node:crypto`: the coalescer is reachable from `@assistant/core`'s
   browser-facing public entry, which must bundle with esbuild
   `platform: "browser"` (guarded by `scripts/tests/core-browser-public-entry.test.ts`
