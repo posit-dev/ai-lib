@@ -179,6 +179,7 @@ export {
 	LMSTUDIO_API_VERSION,
 	LMSTUDIO_HOST,
 	normalizeBaseUrlForProvider,
+	normalizeFoundryBaseUrl,
 	normalizeOpenRouterBaseUrl,
 	OPENCODE_DEFAULT_PRODUCT,
 	OPENCODE_GO_BASE_URL,
