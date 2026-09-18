@@ -77,6 +77,10 @@ describe("salvageProvidersConfig", () => {
 		["builtin collision", "anthropic", "collides with a built-in provider id"],
 		["reserved name", "default", "is a reserved key"],
 		["unsafe name", "__proto__", "is unsafe"],
+		["foreign auth id", "github", "collides with an authentication provider id"],
+		["foreign auth id", "posit-connect-llm", "collides with an authentication provider id"],
+		["foreign auth id", "custom-providers", "collides with an authentication provider id"],
+		["foreign auth id", "positron-custom-provider", "collides with an authentication provider id"],
 	] as const)("shares the strict custom-name policy for %s", (_name, customName, message) => {
 		const input = {
 			providers: { custom: { [customName]: { type: "openai-compatible" } } },
