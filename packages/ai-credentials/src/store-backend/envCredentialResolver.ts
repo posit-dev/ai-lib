@@ -35,6 +35,14 @@ export function resolveCredentialsFromEnv(
 	providerId: string,
 	envVars: Readonly<Record<string, string | undefined>> = process.env,
 ): ProviderCredentials | null {
+	// A Workbench-provisioned Databricks profile outranks DATABRICKS_TOKEN; the admin credential must not be overridable from the shell.
+	if (
+		providerId === "databricks" &&
+		(envVars.DATABRICKS_CONFIG_FILE ?? "").includes("posit-workbench")
+	) {
+		return null;
+	}
+
 	const mapping = PROVIDER_ENV_MAPPINGS[providerId];
 	if (!mapping) return null;
 
