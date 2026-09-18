@@ -96,6 +96,9 @@ describe("captureProviderEnvironment", () => {
 	it("captures every field a complete lazy SDK credential path needs", () => {
 		const env = {
 			GOOGLE_APPLICATION_CREDENTIALS: "/creds/adc.json",
+			GOOGLE_CLIENT_EMAIL: "svc@example.iam.gserviceaccount.com",
+			GOOGLE_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\\nabc\\n-----END PRIVATE KEY-----",
+			GOOGLE_PRIVATE_KEY_ID: "kid-1",
 			AZURE_TENANT_ID: "tenant",
 			AZURE_CLIENT_ID: "client",
 			AZURE_CLIENT_SECRET: "secret",
@@ -105,9 +108,16 @@ describe("captureProviderEnvironment", () => {
 		const captured = captureProviderEnvironment(["google-vertex", "ms-foundry"], env);
 
 		expect(captured.environment).toMatchObject(env);
+		// The private key is scrubbed from the host; the account identifiers stay ambient.
+		expect(captured.scrubbedNames).toContain("GOOGLE_PRIVATE_KEY");
+		expect(captured.scrubbedNames).not.toContain("GOOGLE_CLIENT_EMAIL");
+		expect(captured.scrubbedNames).not.toContain("GOOGLE_PRIVATE_KEY_ID");
 		// The reader reconstructs the full typed struct from the capture.
 		expect(readSdkCredentialEnvironment(captured.environment)).toEqual({
 			googleApplicationCredentials: "/creds/adc.json",
+			googleClientEmail: "svc@example.iam.gserviceaccount.com",
+			googlePrivateKey: "-----BEGIN PRIVATE KEY-----\\nabc\\n-----END PRIVATE KEY-----",
+			googlePrivateKeyId: "kid-1",
 			azureTenantId: "tenant",
 			azureClientId: "client",
 			azureClientSecret: "secret",
@@ -141,6 +151,9 @@ describe("readSdkCredentialEnvironment", () => {
 	it("returns undefined fields when the environment lacks them", () => {
 		expect(readSdkCredentialEnvironment({})).toEqual({
 			googleApplicationCredentials: undefined,
+			googleClientEmail: undefined,
+			googlePrivateKey: undefined,
+			googlePrivateKeyId: undefined,
 			azureTenantId: undefined,
 			azureClientId: undefined,
 			azureClientSecret: undefined,

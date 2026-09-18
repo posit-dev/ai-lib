@@ -3,6 +3,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { mintCustomProviderId } from "ai-config";
+import { captureProviderEnvironment } from "ai-credentials/store-backend";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const authMocks = vi.hoisted(() => ({
@@ -195,6 +196,27 @@ describe("resolveGoogleVertexAccessToken", () => {
 				credentials: expect.objectContaining({
 					client_email: inlineEnv.GOOGLE_CLIENT_EMAIL,
 					private_key: "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----",
+				}),
+			}),
+		);
+	});
+
+	it("mints from the captured provider environment a scrubbing host hands over", async () => {
+		authMocks.getAccessToken.mockResolvedValueOnce({ token: "inline-token" });
+		const captured = captureProviderEnvironment(["google-vertex"], {
+			...inlineEnv,
+			GOOGLE_PRIVATE_KEY_ID: "kid-1",
+			UNRELATED: "x",
+		});
+		expect(captured.scrubbedNames).toContain("GOOGLE_PRIVATE_KEY");
+		await expect(resolveGoogleVertexAccessToken(captured.environment)).resolves.toBe(
+			"inline-token",
+		);
+		expect(authMocks.googleAuth).toHaveBeenCalledWith(
+			expect.objectContaining({
+				credentials: expect.objectContaining({
+					client_email: inlineEnv.GOOGLE_CLIENT_EMAIL,
+					private_key_id: "kid-1",
 				}),
 			}),
 		);

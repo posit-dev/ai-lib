@@ -76,16 +76,18 @@ async function tokenFrom(auth: GoogleAuth): Promise<string | undefined> {
 export async function resolveGoogleVertexAccessToken(
 	credentialEnvironment?: Readonly<Record<string, string | undefined>>,
 ): Promise<string> {
-	const env = credentialEnvironment ?? process.env;
-	const clientEmail = env.GOOGLE_CLIENT_EMAIL;
-	const privateKey = env.GOOGLE_PRIVATE_KEY;
+	const sdkEnvironment = readSdkCredentialEnvironment(credentialEnvironment ?? process.env);
+	const clientEmail = sdkEnvironment.googleClientEmail;
+	const privateKey = sdkEnvironment.googlePrivateKey;
 	if (clientEmail && privateKey) {
 		const auth = new GoogleAuth({
 			credentials: {
 				client_email: clientEmail,
 				// google-auth-library needs literal newlines; pasted keys carry escaped `\n`.
 				private_key: privateKey.replace(/\\n/g, "\n"),
-				...(env.GOOGLE_PRIVATE_KEY_ID && { private_key_id: env.GOOGLE_PRIVATE_KEY_ID }),
+				...(sdkEnvironment.googlePrivateKeyId && {
+					private_key_id: sdkEnvironment.googlePrivateKeyId,
+				}),
 			},
 			scopes: [CLOUD_PLATFORM_SCOPE],
 		});
