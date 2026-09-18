@@ -50,6 +50,9 @@ export interface EnvironmentFieldDescriptor {
  */
 export interface SdkCredentialEnvironment {
 	readonly googleApplicationCredentials?: string;
+	readonly googleClientEmail?: string;
+	readonly googlePrivateKey?: string;
+	readonly googlePrivateKeyId?: string;
 	readonly azureTenantId?: string;
 	readonly azureClientId?: string;
 	readonly azureClientSecret?: string;
@@ -155,6 +158,9 @@ export function readSdkCredentialEnvironment(
 	const descriptors = sdkCredentialDescriptors();
 	return {
 		googleApplicationCredentials: readField(env, descriptors.googleApplicationCredentials),
+		googleClientEmail: readField(env, descriptors.googleClientEmail),
+		googlePrivateKey: readField(env, descriptors.googlePrivateKey),
+		googlePrivateKeyId: readField(env, descriptors.googlePrivateKeyId),
 		azureTenantId: readField(env, descriptors.azureTenantId),
 		azureClientId: readField(env, descriptors.azureClientId),
 		azureClientSecret: readField(env, descriptors.azureClientSecret),

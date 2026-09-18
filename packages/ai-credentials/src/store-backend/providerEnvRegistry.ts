@@ -105,11 +105,15 @@ export const PROVIDER_ENV_MAPPINGS: Record<string, ProviderEnvMapping> = {
 	"posit-connect": {
 		apiKey: scrubbed("CONNECT_API_KEY"),
 	},
-	// Google Application Default Credentials file, read directly by the
-	// google-auth-library SDK on the lazy Vertex credential path.
+	// Google Application Default Credentials file and the inline service-account
+	// fields, read by the google-auth-library SDK on the lazy Vertex credential
+	// path. The email and key id identify the account the way the Azure ids do.
 	"google-vertex": {
 		sdkCredentialEnvironment: {
 			googleApplicationCredentials: scrubbed("GOOGLE_APPLICATION_CREDENTIALS"),
+			googleClientEmail: ambient("GOOGLE_CLIENT_EMAIL"),
+			googlePrivateKey: scrubbed("GOOGLE_PRIVATE_KEY"),
+			googlePrivateKeyId: ambient("GOOGLE_PRIVATE_KEY_ID"),
 		},
 	},
 };
