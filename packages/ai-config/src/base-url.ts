@@ -107,3 +107,21 @@ export function normalizeBaseUrlForProvider(providerId: BuiltinProviderId, url: 
 	}
 	return url;
 }
+
+/**
+ * Normalize a Microsoft Foundry endpoint to its `/openai/v1` base URL: strips
+ * the query string, trailing slashes and any `/openai/deployments/...` suffix
+ * users paste from the portal. Empty input stays empty.
+ */
+export function normalizeFoundryBaseUrl(rawUrl: string): string {
+	let url = rawUrl.trim();
+	if (!url) return "";
+	const queryIndex = url.indexOf("?");
+	if (queryIndex !== -1) url = url.substring(0, queryIndex);
+	url = url.replace(/\/+$/, "");
+	if (!url) return "";
+	const deploymentIndex = url.indexOf("/openai/deployments/");
+	if (deploymentIndex !== -1) url = url.substring(0, deploymentIndex);
+	if (!url.endsWith("/openai/v1")) url += "/openai/v1";
+	return url;
+}

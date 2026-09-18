@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	normalizeBaseUrlForProvider,
+	normalizeFoundryBaseUrl,
 	normalizeOpenRouterBaseUrl,
 	OPENROUTER_DEFAULT_BASE_URL,
 } from "../base-url.js";
@@ -34,6 +35,28 @@ describe("normalizeBaseUrlForProvider", () => {
 
 	it("is total for empty input", () => {
 		expect(normalizeBaseUrlForProvider("anthropic", "")).toBe("");
+	});
+});
+
+describe("normalizeFoundryBaseUrl", () => {
+	it.each([
+		[
+			"https://r.openai.azure.com/openai/deployments/gpt-4o/chat/completions?api-version=2024-02-01",
+			"https://r.openai.azure.com/openai/v1",
+		],
+		[
+			"https://r.openai.azure.com/openai/deployments/gpt-4o",
+			"https://r.openai.azure.com/openai/v1",
+		],
+		["https://r.openai.azure.com/openai/v1", "https://r.openai.azure.com/openai/v1"],
+		["https://r.openai.azure.com/openai/v1/", "https://r.openai.azure.com/openai/v1"],
+		["https://r.openai.azure.com/", "https://r.openai.azure.com/openai/v1"],
+		["https://r.openai.azure.com", "https://r.openai.azure.com/openai/v1"],
+		["https://r.openai.azure.com?api-version=1", "https://r.openai.azure.com/openai/v1"],
+		["", ""],
+		["   ", ""],
+	])("normalizes %s", (input, expected) => {
+		expect(normalizeFoundryBaseUrl(input)).toBe(expected);
 	});
 });
 

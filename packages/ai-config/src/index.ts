@@ -168,6 +168,7 @@ export {
 	LMSTUDIO_API_VERSION,
 	LMSTUDIO_HOST,
 	normalizeBaseUrlForProvider,
+	normalizeFoundryBaseUrl,
 	normalizeOpenRouterBaseUrl,
 	OPENAI_API_VERSION,
 	OPENAI_HOST,
