@@ -32,9 +32,14 @@ export function hasManualAwsKeys(
 /**
  * Build the single credential-provider seam shared by every Bedrock route.
  * Both manual keys and the standard Node chain return the same provider shape.
+ *
+ * When `AWS_WEB_IDENTITY_TOKEN_FILE` is set, the chain's STS token exchange is
+ * pointed at the configured region via `clientConfig`; otherwise the region is
+ * omitted so an SSO profile's own `sso_region` applies.
  */
 export function createAwsCredentialProvider(
 	credentials: AwsCredentialSource,
+	env: Readonly<Record<string, string | undefined>> = process.env,
 ): () => Promise<ResolvedAwsCredentials> {
 	if (hasManualAwsKeys(credentials)) {
 		return async () => ({
@@ -44,5 +49,8 @@ export function createAwsCredentialProvider(
 		});
 	}
 
-	return fromNodeProviderChain({ profile: credentials.profile });
+	return fromNodeProviderChain({
+		profile: credentials.profile,
+		...(env.AWS_WEB_IDENTITY_TOKEN_FILE ? { clientConfig: { region: credentials.region } } : {}),
+	});
 }

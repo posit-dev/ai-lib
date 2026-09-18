@@ -23,6 +23,8 @@
  * (Notebooks) can resolve custom-provider credentials without @assistant/*.
  */
 
+import type { AuthProviderMapping } from "./credential-shaping.js";
+
 /**
  * Auth metadata derived from a custom provider's `clientKind`.
  */
@@ -133,3 +135,30 @@ export function resolveCustomAuthMapping(
 export const SUPPORTED_CUSTOM_CLIENT_KINDS: ReadonlySet<string> = new Set(
 	SUPPORTED_CUSTOM_CLIENT_KIND_VALUES,
 );
+
+/**
+ * Auth mapping for a `providers.custom` entry: read through the host's
+ * aggregate auth provider with the entry name as the scope, shaped by the
+ * kind's auth method. `undefined` for kinds with no session (local endpoints)
+ * or no descriptor.
+ */
+export function customProviderAuthMapping(
+	entryId: string,
+	clientKind: string,
+	aggregateAuthProviderId: string,
+): AuthProviderMapping | undefined {
+	const authMethodId = CUSTOM_CLIENT_KIND_AUTH_MAP.get(clientKind)?.authMethodId;
+	if (
+		authMethodId !== "apikey" &&
+		authMethodId !== "aws-credentials" &&
+		authMethodId !== "google-cloud"
+	) {
+		return undefined;
+	}
+	return {
+		authProviderId: aggregateAuthProviderId,
+		scopes: [entryId],
+		credentialType: authMethodId,
+		...(clientKind === "snowflake" ? { structuredBaseUrl: "snowflake" as const } : {}),
+	};
+}

@@ -25,12 +25,14 @@ export type {
 export {
 	CONFIG_KEY_OVERRIDES,
 	POSITRON_LEGACY_AUTH_PROVIDER_IDS,
+	serializeSessionToken,
 	shapeCredentials,
 } from "./credential-shaping.js";
 export type {
 	AuthProviderMapping,
 	CredentialConfig,
 	CredentialConfigTarget,
+	SessionTokenEnvelope,
 	StructuredBaseUrlSource,
 } from "./credential-shaping.js";
 
@@ -53,6 +55,7 @@ export { storageKeyFor } from "./storage-key.js";
 export {
 	CUSTOM_CLIENT_KIND_AUTH_DESCRIPTORS,
 	CUSTOM_CLIENT_KIND_AUTH_MAP,
+	customProviderAuthMapping,
 	resolveCustomAuthMapping,
 	SUPPORTED_CUSTOM_CLIENT_KIND_VALUES,
 	SUPPORTED_CUSTOM_CLIENT_KINDS,

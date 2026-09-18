@@ -10,9 +10,15 @@
  * lifecycle and passes it in.
  */
 
-import { registerAnthropicProvider } from "./providers/anthropic-provider";
+import type { ResolvedProviderId, SupportedCustomClientKind } from "ai-config";
+
+import {
+	registerAnthropicProvider,
+	registerCustomAnthropicProvider,
+} from "./providers/anthropic-provider";
 import {
 	registerBedrockProvider,
+	registerCustomBedrockProvider,
 	type BedrockProviderCallbacks,
 } from "./providers/bedrock-provider";
 import {
@@ -21,23 +27,46 @@ import {
 } from "./providers/connect-provider";
 import { registerCopilotProvider } from "./providers/copilot-provider";
 import { registerDatabricksProvider } from "./providers/databricks-provider";
-import { registerDeepSeekProvider } from "./providers/deepseek-provider";
-import { registerFoundryProvider } from "./providers/foundry-provider";
-import { registerGeminiProvider } from "./providers/gemini-provider";
 import {
+	registerCustomDeepSeekProvider,
+	registerDeepSeekProvider,
+} from "./providers/deepseek-provider";
+import {
+	registerCustomFoundryProvider,
+	registerFoundryProvider,
+} from "./providers/foundry-provider";
+import { registerCustomGeminiProvider, registerGeminiProvider } from "./providers/gemini-provider";
+import {
+	registerCustomGoogleVertexProvider,
 	registerGoogleVertexProvider,
 	type GoogleVertexProviderCallbacks,
 } from "./providers/google-vertex-provider";
-import { registerLitellmProvider } from "./providers/litellm-provider";
-import { registerLMStudioProvider } from "./providers/lmstudio-provider";
-import { registerOllamaProvider } from "./providers/ollama-provider";
-import { registerOpenAICompatibleProvider } from "./providers/openai-compatible-provider";
-import { registerOpenAIProvider } from "./providers/openai-provider";
-import { registerOpenRouterProvider } from "./providers/openrouter-provider";
-import { registerPortkeyProvider } from "./providers/portkey-provider";
+import {
+	registerCustomLitellmProvider,
+	registerLitellmProvider,
+} from "./providers/litellm-provider";
+import {
+	registerCustomLMStudioProvider,
+	registerLMStudioProvider,
+} from "./providers/lmstudio-provider";
+import { registerCustomOllamaProvider, registerOllamaProvider } from "./providers/ollama-provider";
+import {
+	registerCustomOpenAICompatibleProvider,
+	registerOpenAICompatibleProvider,
+} from "./providers/openai-compatible-provider";
+import { registerCustomOpenAIProvider, registerOpenAIProvider } from "./providers/openai-provider";
+import {
+	registerCustomOpenRouterProvider,
+	registerOpenRouterProvider,
+} from "./providers/openrouter-provider";
+import {
+	registerCustomPortkeyProvider,
+	registerPortkeyProvider,
+} from "./providers/portkey-provider";
 import { registerPositAiProvider } from "./providers/positai-provider";
 import type { ProviderRegistry } from "./providers/ProviderRegistry";
 import {
+	registerCustomSnowflakeProvider,
 	registerSnowflakeCortexProvider,
 	type SnowflakeProviderCallbacks,
 } from "./providers/snowflake-cortex-provider";
@@ -56,6 +85,8 @@ export interface ProviderRegistrationConfig {
 	connectCallbacks?: ConnectProviderCallbacks;
 	/** Host-captured environment for SDK credential constructors after ambient scrubbing. */
 	credentialEnvironment?: Readonly<Record<string, string | undefined>>;
+	/** `providers.custom` entries to register after the built-ins; independent of `allowedProviders`. */
+	customProviders?: ReadonlyArray<{ readonly id: ResolvedProviderId; readonly clientKind: string }>;
 }
 
 /**
@@ -107,8 +138,49 @@ const PROVIDER_REGISTRARS = {
 		registerConnectProvider(registry, logger, config.connectCallbacks),
 } satisfies Record<ProviderId, ProviderRegistrar>;
 
+type CustomProviderRegistrar = (
+	registry: ProviderRegistry,
+	providerId: ResolvedProviderId,
+	logger: Logger,
+	config: ProviderRegistrationConfig,
+) => void;
+
+/** One registrar per supported custom kind; each reads its callbacks from the same config the built-ins use. */
+const CUSTOM_PROVIDER_REGISTRARS = {
+	"openai-compatible": (registry, id, logger) =>
+		registerCustomOpenAICompatibleProvider(registry, id, logger),
+	anthropic: (registry, id, logger) => registerCustomAnthropicProvider(registry, id, logger),
+	openai: (registry, id, logger) => registerCustomOpenAIProvider(registry, id, logger),
+	gemini: (registry, id, logger) => registerCustomGeminiProvider(registry, id, logger),
+	aws: (registry, id, logger, config) =>
+		registerCustomBedrockProvider(registry, id, logger, config.bedrockCallbacks),
+	snowflake: (registry, id, logger, config) =>
+		registerCustomSnowflakeProvider(registry, id, logger, config.snowflakeCallbacks),
+	"google-vertex": (registry, id, logger, config) =>
+		registerCustomGoogleVertexProvider(
+			registry,
+			id,
+			logger,
+			config.googleVertexCallbacks,
+			config.credentialEnvironment,
+		),
+	ollama: (registry, id, logger) => registerCustomOllamaProvider(registry, id, logger),
+	lmstudio: (registry, id, logger) => registerCustomLMStudioProvider(registry, id, logger),
+	deepseek: (registry, id, logger) => registerCustomDeepSeekProvider(registry, id, logger),
+	openrouter: (registry, id, logger) => registerCustomOpenRouterProvider(registry, id, logger),
+	"ms-foundry": (registry, id, logger, config) =>
+		registerCustomFoundryProvider(registry, id, logger, config.credentialEnvironment),
+	litellm: (registry, id, logger) => registerCustomLitellmProvider(registry, id, logger),
+	portkey: (registry, id, logger) => registerCustomPortkeyProvider(registry, id, logger),
+} satisfies Record<SupportedCustomClientKind, CustomProviderRegistrar>;
+
 /**
  * Register every provider with the given registry, honoring `config.allowedProviders`.
+ *
+ * `config.customProviders` entries register after the built-ins, are not
+ * filtered by `allowedProviders`, and are looked up through
+ * `ProviderRegistry.getClientForProviderOrKind` because their client
+ * factories are keyed by kind.
  */
 export function registerAllProviders(
 	registry: ProviderRegistry,
@@ -119,5 +191,18 @@ export function registerAllProviders(
 		if (!config.allowedProviders || config.allowedProviders.includes(id)) {
 			PROVIDER_REGISTRARS[id](registry, logger, config);
 		}
+	}
+
+	for (const { id, clientKind } of config.customProviders ?? []) {
+		const registrar = (
+			CUSTOM_PROVIDER_REGISTRARS as Partial<Record<string, CustomProviderRegistrar>>
+		)[clientKind];
+		if (!registrar) {
+			throw new Error(`Unsupported custom provider kind: ${clientKind}`);
+		}
+		registrar(registry, id, logger, config);
+		logger.debug(
+			`[registerAllProviders] Registered ${clientKind} support for custom provider "${id}"`,
+		);
 	}
 }

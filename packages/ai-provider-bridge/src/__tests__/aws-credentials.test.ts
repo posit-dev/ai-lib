@@ -57,4 +57,22 @@ describe("createAwsCredentialProvider", () => {
 			sessionToken: "chain-token",
 		});
 	});
+
+	it("targets the configured region when AWS_WEB_IDENTITY_TOKEN_FILE is set", () => {
+		createAwsCredentialProvider(
+			{ region: "us-east-2", profile: "analytics" },
+			{ AWS_WEB_IDENTITY_TOKEN_FILE: "/var/run/secrets/token" },
+		);
+
+		expect(fromNodeProviderChain).toHaveBeenCalledWith({
+			profile: "analytics",
+			clientConfig: { region: "us-east-2" },
+		});
+	});
+
+	it("omits region when AWS_WEB_IDENTITY_TOKEN_FILE is unset, so an SSO profile's own region applies", () => {
+		createAwsCredentialProvider({ region: "us-east-2", profile: "analytics" }, {});
+
+		expect(fromNodeProviderChain).toHaveBeenCalledWith({ profile: "analytics" });
+	});
 });

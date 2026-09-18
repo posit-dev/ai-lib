@@ -261,6 +261,41 @@ export function shapeCredentials(
 	}
 }
 
+/** What an auth provider puts in a session token: exactly the fields `shapeCredentials` reads back. */
+export type SessionTokenEnvelope =
+	| {
+			readonly type: "google-cloud";
+			readonly project: string;
+			readonly location: string;
+			readonly accessToken?: string;
+	  }
+	| {
+			readonly type: "aws-credentials";
+			readonly accessKeyId: string;
+			readonly secretAccessKey: string;
+			readonly sessionToken?: string;
+	  };
+
+/**
+ * Serialize a session token for a `google-cloud` or `aws-credentials`
+ * mapping. Region and profile are not part of the envelope; the reader takes
+ * them from its own catalog.
+ */
+export function serializeSessionToken(envelope: SessionTokenEnvelope): string {
+	if (envelope.type === "google-cloud") {
+		const { project, location, accessToken } = envelope;
+		return JSON.stringify(
+			accessToken ? { project, location, token: accessToken } : { project, location },
+		);
+	}
+	const { accessKeyId, secretAccessKey, sessionToken } = envelope;
+	return JSON.stringify(
+		sessionToken
+			? { accessKeyId, secretAccessKey, sessionToken }
+			: { accessKeyId, secretAccessKey },
+	);
+}
+
 /** Narrowed local alias so the optional-accessToken spread above stays typed. */
 type GoogleCloudCredentialsResult = Extract<ProviderCredentials, { type: "google-cloud" }>;
 

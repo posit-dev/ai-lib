@@ -15,7 +15,11 @@
 
 import { describe, expect, it } from "vitest";
 
-import { type CredentialConfig, shapeCredentials } from "../credential-shaping.js";
+import {
+	type CredentialConfig,
+	serializeSessionToken,
+	shapeCredentials,
+} from "../credential-shaping.js";
 
 const SNOWFLAKE = { authProviderId: "snowflake-cortex", credentialType: "apikey" } as const;
 const AWS = { authProviderId: "bedrock", credentialType: "aws-credentials" } as const;
@@ -298,5 +302,33 @@ describe("shapeCredentials — providers.custom entries", () => {
 		expect(shapeCredentials("snowflake-cortex", SNOWFLAKE, "tok", cfg)).toMatchObject({
 			baseUrl: "https://corp.snowflakecomputing.com/api/v2/cortex/v1",
 		});
+	});
+});
+
+describe("serializeSessionToken", () => {
+	it("round-trips through shapeCredentials", () => {
+		const google = { type: "google-cloud" as const, project: "p", location: "l", accessToken: "t" };
+		expect(
+			shapeCredentials(
+				"google-vertex",
+				{ authProviderId: "google-vertex", credentialType: "google-cloud" },
+				serializeSessionToken(google),
+				config(),
+			),
+		).toEqual(google);
+		const aws = {
+			type: "aws-credentials" as const,
+			accessKeyId: "AK",
+			secretAccessKey: "SK",
+			sessionToken: "ST",
+		};
+		expect(
+			shapeCredentials(
+				"bedrock",
+				{ authProviderId: "bedrock", credentialType: "aws-credentials" },
+				serializeSessionToken(aws),
+				config({ getAws: () => ({ region: "eu-west-1" }) }),
+			),
+		).toEqual({ ...aws, region: "eu-west-1" });
 	});
 });

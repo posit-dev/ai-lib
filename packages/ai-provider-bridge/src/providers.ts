@@ -80,6 +80,10 @@ export type { SnowflakeProviderCallbacks } from "./providers/snowflake-cortex-pr
 export { registerAllProviders } from "./register-all-providers";
 export type { ProviderRegistrationConfig } from "./register-all-providers";
 
+// AWS credential provider
+export { createAwsCredentialProvider, hasManualAwsKeys } from "./aws-credentials";
+export type { AwsCredentialSource, ResolvedAwsCredentials } from "./aws-credentials";
+
 // Bedrock SSO utilities
 export { isAwsSsoProfileConfigured, parseAwsConfig } from "./providers/bedrock-sso";
 
