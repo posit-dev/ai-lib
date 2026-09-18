@@ -139,6 +139,15 @@ export interface CachedModelFetcherRequestConfig<
 	 * no base request to coalesce.
 	 */
 	requestCoalescer?: ModelRequestCoalescer;
+
+	/**
+	 * Excluded on this variant so the union stays exclusive: `fetchFresh`
+	 * belongs to the provider-owned-fetch variant. Without this (and the
+	 * mirrored exclusions there), an object carrying both variants' fields
+	 * could satisfy the union — especially through an intermediate variable —
+	 * while the runtime's variant check silently ignores one side.
+	 */
+	fetchFresh?: never;
 }
 
 /**
@@ -158,11 +167,32 @@ export interface CachedModelFetcherFetchFreshConfig<
 	 * cooperatively.
 	 */
 	fetchFresh: (credentials: T, signal: AbortSignal) => Promise<ModelInfo[]>;
+
+	/* Excluded on this variant (union exclusivity — see `fetchFresh?: never`
+	 * on the request variant): a provider-owned fetch has no base request to
+	 * resolve, header-build, parse, or coalesce. */
+	apiUrl?: never;
+	resolveUrl?: never;
+	createHeaders?: never;
+	parseResponse?: never;
+	requestCoalescer?: never;
 }
 
 export type CachedModelFetcherConfig<T extends ProviderCredentials = ProviderCredentials> =
 	| CachedModelFetcherRequestConfig<T>
 	| CachedModelFetcherFetchFreshConfig<T>;
+
+/**
+ * Runtime variant check. The `never`-typed exclusion fields keep the union
+ * exclusive at compile time, which defeats `"fetchFresh" in config`
+ * narrowing, so the check lives behind a predicate instead. The runtime
+ * semantics are unchanged.
+ */
+function isFetchFreshConfig<T extends ProviderCredentials>(
+	config: CachedModelFetcherConfig<T>,
+): config is CachedModelFetcherFetchFreshConfig<T> {
+	return "fetchFresh" in config;
+}
 
 /**
  * A ModelFetcher with an optional clearCache method for invalidation.
@@ -260,7 +290,7 @@ export function createCachedModelFetcher<T extends ProviderCredentials = Provide
 		// rejection is handled by it, and the result is never cached.
 		const discovery = (async (): Promise<ModelInfo[]> => {
 			let freshModels: ModelInfo[];
-			if ("fetchFresh" in config) {
+			if (isFetchFreshConfig(config)) {
 				config.logger.debug(`${logPrefix} Fetching models via provider-owned fetch`);
 				freshModels = await config.fetchFresh(typedCredentials, controller.signal);
 			} else {
