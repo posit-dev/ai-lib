@@ -24,6 +24,7 @@ import type { Logger } from "../../types";
 import {
 	registerCustomGoogleVertexProvider,
 	registerGoogleVertexProvider,
+	resolveGoogleVertexAccessToken,
 } from "../google-vertex-provider";
 import { ProviderRegistry } from "../ProviderRegistry";
 
@@ -170,6 +171,65 @@ describe("registerGoogleVertexProvider", () => {
 		expect(models).toEqual([]);
 		expect(onProviderStatusChange).toHaveBeenCalledWith(
 			expect.objectContaining({ providerId, status: "auth_error" }),
+		);
+	});
+});
+
+describe("resolveGoogleVertexAccessToken", () => {
+	const inlineEnv = {
+		GOOGLE_CLIENT_EMAIL: "svc@example.iam.gserviceaccount.com",
+		GOOGLE_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\\nabc\\n-----END PRIVATE KEY-----",
+	};
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		authMocks.getClient.mockResolvedValue({ getAccessToken: authMocks.getAccessToken });
+		authMocks.googleAuth.mockImplementation(() => ({ getClient: authMocks.getClient }));
+	});
+
+	it("mints from inline service-account env vars before ADC", async () => {
+		authMocks.getAccessToken.mockResolvedValueOnce({ token: "inline-token" });
+		await expect(resolveGoogleVertexAccessToken(inlineEnv)).resolves.toBe("inline-token");
+		expect(authMocks.googleAuth).toHaveBeenCalledWith(
+			expect.objectContaining({
+				credentials: expect.objectContaining({
+					client_email: inlineEnv.GOOGLE_CLIENT_EMAIL,
+					private_key: "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----",
+				}),
+			}),
+		);
+	});
+
+	it("includes GOOGLE_PRIVATE_KEY_ID when set", async () => {
+		authMocks.getAccessToken.mockResolvedValueOnce({ token: "inline-token" });
+		await resolveGoogleVertexAccessToken({ ...inlineEnv, GOOGLE_PRIVATE_KEY_ID: "kid-1" });
+		expect(authMocks.googleAuth).toHaveBeenCalledWith(
+			expect.objectContaining({
+				credentials: expect.objectContaining({ private_key_id: "kid-1" }),
+			}),
+		);
+	});
+
+	it("surfaces an inline failure instead of falling through to ADC", async () => {
+		authMocks.getAccessToken.mockRejectedValueOnce(new Error("bad key"));
+		await expect(resolveGoogleVertexAccessToken(inlineEnv)).rejects.toThrow(
+			"Inline service-account credentials failed: bad key",
+		);
+		expect(authMocks.googleAuth).toHaveBeenCalledTimes(1);
+	});
+
+	it("falls back to ADC when the inline vars are absent", async () => {
+		authMocks.getAccessToken.mockResolvedValueOnce({ token: "adc-token" });
+		await expect(resolveGoogleVertexAccessToken({})).resolves.toBe("adc-token");
+		expect(authMocks.googleAuth).toHaveBeenCalledWith(
+			expect.not.objectContaining({ credentials: expect.anything() }),
+		);
+	});
+
+	it("throws when ADC yields no token", async () => {
+		authMocks.getAccessToken.mockResolvedValueOnce({ token: null });
+		await expect(resolveGoogleVertexAccessToken({})).rejects.toThrow(
+			"Failed to obtain access token from Application Default Credentials",
 		);
 	});
 });
