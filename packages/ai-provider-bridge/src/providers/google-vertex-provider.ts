@@ -58,6 +58,58 @@ function isAuthError(error: unknown): boolean {
 // Cache TTL for models (1 hour) in milliseconds
 const MODEL_CACHE_TTL = 60 * 60 * 1000;
 
+const CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform";
+
+async function tokenFrom(auth: GoogleAuth): Promise<string | undefined> {
+	const client = await auth.getClient();
+	const { token } = await client.getAccessToken();
+	return token ?? undefined;
+}
+
+/**
+ * Resolve a cloud-platform access token: inline service-account env vars
+ * (`GOOGLE_CLIENT_EMAIL` + `GOOGLE_PRIVATE_KEY`, optional
+ * `GOOGLE_PRIVATE_KEY_ID`) first, Application Default Credentials otherwise.
+ * An inline failure is surfaced rather than masked by an ADC "no credentials"
+ * error, because setting both vars signals explicit intent.
+ */
+export async function resolveGoogleVertexAccessToken(
+	credentialEnvironment?: Readonly<Record<string, string | undefined>>,
+): Promise<string> {
+	const env = credentialEnvironment ?? process.env;
+	const clientEmail = env.GOOGLE_CLIENT_EMAIL;
+	const privateKey = env.GOOGLE_PRIVATE_KEY;
+	if (clientEmail && privateKey) {
+		const auth = new GoogleAuth({
+			credentials: {
+				client_email: clientEmail,
+				// google-auth-library needs literal newlines; pasted keys carry escaped `\n`.
+				private_key: privateKey.replace(/\\n/g, "\n"),
+				...(env.GOOGLE_PRIVATE_KEY_ID && { private_key_id: env.GOOGLE_PRIVATE_KEY_ID }),
+			},
+			scopes: [CLOUD_PLATFORM_SCOPE],
+		});
+		try {
+			const token = await tokenFrom(auth);
+			if (token) return token;
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			throw new Error(`Inline service-account credentials failed: ${message}`);
+		}
+	}
+	const auth = new GoogleAuth({
+		scopes: [CLOUD_PLATFORM_SCOPE],
+		keyFilename: credentialEnvironment
+			? readSdkCredentialEnvironment(credentialEnvironment).googleApplicationCredentials
+			: undefined,
+	});
+	const token = await tokenFrom(auth);
+	if (!token) {
+		throw new Error("Failed to obtain access token from Application Default Credentials");
+	}
+	return token;
+}
+
 /**
  * Resolve an access token for the Vertex AI REST API.
  * Uses a broker-provided token (e.g. from Positron auth ext) when available;
@@ -68,18 +120,7 @@ async function getAccessToken(
 	credentialEnvironment?: Readonly<Record<string, string | undefined>>,
 ): Promise<string> {
 	if (brokered) return brokered;
-	const auth = new GoogleAuth({
-		scopes: ["https://www.googleapis.com/auth/cloud-platform"],
-		keyFilename: credentialEnvironment
-			? readSdkCredentialEnvironment(credentialEnvironment).googleApplicationCredentials
-			: undefined,
-	});
-	const client = await auth.getClient();
-	const { token } = await client.getAccessToken();
-	if (!token) {
-		throw new Error("Failed to obtain access token from Application Default Credentials");
-	}
-	return token;
+	return resolveGoogleVertexAccessToken(credentialEnvironment);
 }
 
 /**
