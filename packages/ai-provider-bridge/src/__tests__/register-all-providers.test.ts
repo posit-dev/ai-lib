@@ -74,4 +74,31 @@ describe("registerAllProviders", () => {
 
 		expect(fetchMock).toHaveBeenCalledWith("https://second.example.com/models", expect.any(Object));
 	});
+
+	it("registers a per-id model fetcher and a kind-keyed client factory for each custom entry", () => {
+		const registry = new ProviderRegistry(logger());
+		registerAllProviders(registry, logger(), {
+			positAiBaseUrl: "https://api.posit.cloud",
+			allowedProviders: [],
+			customProviders: [{ id: "my-gateway" as never, clientKind: "openai-compatible" }],
+		});
+		expect(
+			registry.getClientForProviderOrKind(
+				"my-gateway",
+				{ type: "apikey", apiKey: "k", baseUrl: "https://gw.example/v1" },
+				"openai-compatible",
+			),
+		).not.toBeNull();
+		expect(registry.getClientForProvider("anthropic", { type: "apikey", apiKey: "k" })).toBeNull();
+	});
+
+	it("rejects a custom entry whose kind has no registrar", () => {
+		const registry = new ProviderRegistry(logger());
+		expect(() =>
+			registerAllProviders(registry, logger(), {
+				positAiBaseUrl: "https://api.posit.cloud",
+				customProviders: [{ id: "odd" as never, clientKind: "positai" as never }],
+			}),
+		).toThrow("Unsupported custom provider kind: positai");
+	});
 });
