@@ -100,7 +100,11 @@ function parseOpenRouterModelsForProvider(
 	});
 }
 
-function createOpenRouterModelFetcher(providerId: ResolvedProviderId, logger: Logger) {
+function createOpenRouterModelFetcher(
+	providerId: ResolvedProviderId,
+	logger: Logger,
+	registry: ProviderRegistry,
+) {
 	return createCachedModelFetcher<ApiKeyCredentials>({
 		providerId,
 		resolveUrl: (credentials) => `${normalizeOpenRouterBaseUrl(credentials.baseUrl)}/models`,
@@ -108,6 +112,7 @@ function createOpenRouterModelFetcher(providerId: ResolvedProviderId, logger: Lo
 		createHeaders: (credentials) => ({
 			Authorization: `Bearer ${credentials.apiKey}`,
 		}),
+		requestCoalescer: registry,
 		parseResponse: (data) => parseOpenRouterModelsForProvider(providerId, data),
 		fallbackModels: OPENROUTER_FALLBACK,
 		logger,
@@ -127,7 +132,10 @@ const openRouterClientFactory: ClientFactory = (credentials) => {
 };
 
 export function registerOpenRouterProvider(registry: ProviderRegistry, logger: Logger): void {
-	registry.registerModelFetcher("openrouter", createOpenRouterModelFetcher("openrouter", logger));
+	registry.registerModelFetcher(
+		"openrouter",
+		createOpenRouterModelFetcher("openrouter", logger, registry),
+	);
 	registry.registerClientFactory("openrouter", openRouterClientFactory);
 }
 
@@ -136,6 +144,9 @@ export function registerCustomOpenRouterProvider(
 	providerId: ResolvedProviderId,
 	logger: Logger,
 ): void {
-	registry.registerModelFetcher(providerId, createOpenRouterModelFetcher(providerId, logger));
+	registry.registerModelFetcher(
+		providerId,
+		createOpenRouterModelFetcher(providerId, logger, registry),
+	);
 	registry.registerClientFactory("openrouter", openRouterClientFactory);
 }

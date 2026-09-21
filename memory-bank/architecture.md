@@ -122,6 +122,7 @@ profile gating, and the future-model maintenance procedure live in
 | `src/provider-map.ts`                            | `PROVIDER_MAP` and `MAPPED_PROVIDER_IDS` -- maps logical provider IDs to Positron auth provider config                                                                                                                                                                                        | No            |
 | `src/credential-shaping.ts`                      | `shapeCredentials()` -- pure token-to-`ProviderCredentials` shaping over an injected `CredentialConfig`                                                                                                                                                                                       | No            |
 | `src/custom-headers.ts`                          | Header merging/filtering utilities for custom HTTP headers                                                                                                                                                                                                                                    | No            |
+| `src/providers/request-coalescer.ts`             | Registry-owned in-flight-only request coalescer for model discovery (single-flight join over one decoded immutable payload)                                                                                                                                                                   | No            |
 | `ai-credentials/src/positron/PositronBackend.ts` | `createPositronBackend` -- VS Code auth backend (in `ai-credentials`, not the bridge; replaces the removed `PositronCredentialProvider`)                                                                                                                                                      | **Yes**       |
 | `src/positron/VscodeLmClient.ts`                 | `VscodeLmClient` -- `ModelClient` implementation wrapping `vscode.LanguageModelChat`                                                                                                                                                                                                          | **Yes**       |
 | `src/positron/vscode-lm-models.ts`               | `listVscodeLmModels()`, `toProviderId()`, `isProviderId()`, vendor-to-provider mapping                                                                                                                                                                                                        | **Yes**       |
@@ -183,6 +184,63 @@ Discovery sources that do not use `createCachedModelFetcher` (Databricks,
 Posit AI Pass, Bedrock/Mantle, Google Vertex) own their transport and are not
 bounded by it — Vertex bounds each request with its own
 `AbortSignal.timeout(15000)`.
+
+## In-flight request coalescing (model discovery)
+
+When the same backend is configured under two provider ids (the built-in
+`litellm` plus a custom `type: "litellm"` gateway entry), a discovery pass
+launches both providers' fetches concurrently, producing identical duplicate
+HTTP requests. `ProviderRegistry` owns an in-flight-ONLY coalescer
+(`src/providers/request-coalescer.ts`): every provider whose discovery is a
+single GET opts in via the `requestCoalescer` config of
+`createCachedModelFetcher` (litellm, openai-compatible, openai, ollama,
+lmstudio, openrouter, anthropic, deepseek, gemini) and calls the narrow
+registry method `coalesceModelRequest(providerId, identity, callerSignal,
+execute)`; a concurrent identical request joins the in-flight flight instead
+of issuing a second request. Providers that own their whole fetch
+(`fetchFresh`: portkey, databricks) have no base request to coalesce, and
+singleton-only providers (opencode) have no duplicate-entry scenario. Only
+the base request joins — a provider's `enrichModels` pass (e.g. Ollama's
+per-model `/api/show`) still runs per provider afterward.
+
+Key contract points:
+
+- Request identity = operation namespace (`"model-discovery"`) + HTTP method +
+  normalized URL + a SHA-256 fingerprint of the effective headers (lowercased
+  and sorted; raw secrets are never retained as map keys or logged). Providers
+  that carry a credential in the request URL (Gemini's `?key=`) keep it out of
+  the retained identity key via the fetcher's `identityUrl` hook (strips the
+  query parameter) and `identityHeaders` hook (folds the key into the hashed
+  fingerprint). The hash is a local pure-TS implementation
+  (`src/providers/sha256.ts`), not
+  `node:crypto`: the coalescer is reachable from `@assistant/core`'s
+  browser-facing public entry, which must bundle with esbuild
+  `platform: "browser"` (guarded by `scripts/tests/core-browser-public-entry.test.ts`
+  in the parent repo), and WebCrypto's async digest would force an async
+  fingerprint through identity construction.
+- The shared value is ONE decoded immutable (deep-frozen) payload — the
+  `Response` is one-shot and cannot be shared — and each provider runs its
+  own `parseResponse`/provider-id stamping over it.
+- The executor receives only a coalescer-owned `AbortSignal`; no individual
+  joiner owns cancellation. Once EVERY attached caller has detached, the
+  flight's map entry is removed and its signal aborted, which bounds a shared
+  request to roughly the last caller's existing fetcher deadline (no second
+  caller-owned timer). Removal happens before aborting so an abort-
+  insensitive executor that never settles cannot leave the aborted flight
+  joinable, dooming later calls to join it and time out.
+- In-flight only: completed results stay in each fetcher's own TTL cache;
+  failure/timeout is never retained, and settlement removes the entry
+  identity-safely (a barred flight's cleanup never removes a newer flight).
+- Clear/join (monotonic invalidation barriers): each flight is stamped with
+  a creation sequence; `clearModelCache(providerId)` or re-registration
+  records the current sequence as that provider's barrier (clear-all records
+  a shared barrier), and a provider joins only flights newer than its
+  barrier. A post-clear call therefore never joins a pre-clear flight — even
+  one the cleared provider had no caller on — while joiners attached before
+  the clear finish and answer their callers, and clearing one provider never
+  cancels another provider's caller on a shared flight.
+- No disposal API: each registry owns its coalescer, so a replaced registry
+  cannot join an old registry's flights.
 
 ## Credentials
 

@@ -17,6 +17,12 @@ import type { ClientKind } from "ai-config";
 
 import type { ModelClient } from "../model-clients/ModelClient";
 import type { Logger, ModelInfo, ProviderId, ProviderCredentials } from "../types";
+import type {
+	ModelRequestCoalescer,
+	ModelRequestExecutor,
+	ModelRequestIdentity,
+} from "./request-coalescer";
+import { InFlightRequestCoalescer } from "./request-coalescer";
 
 const USER_AGENT_HEADER_NAME = "user-agent";
 
@@ -102,10 +108,16 @@ export type ClientFactory = (credentials: ProviderCredentials) => ModelClient;
  * The registry is used by ModelService to discover models and send requests
  * without hard-coded provider logic.
  */
-export class ProviderRegistry {
+export class ProviderRegistry implements ModelRequestCoalescer {
 	private modelFetchers = new Map<string, ClearableModelFetcher>();
 	private clientFactories = new Map<string, ClientFactory>();
 	private defaultUserAgent: string | undefined;
+	/**
+	 * In-flight-only request coalescer, owned per registry so a replaced
+	 * registry can never join an old registry's flight. Opted-in fetchers
+	 * reach it through {@link coalesceModelRequest}.
+	 */
+	private readonly requestCoalescer = new InFlightRequestCoalescer();
 
 	constructor(private readonly logger: Logger) {}
 
@@ -146,12 +158,31 @@ export class ProviderRegistry {
 	}
 
 	/**
+	 * Join an identical in-flight model-discovery request instead of issuing a
+	 * second HTTP request. Opted-in fetchers call this with their provider id
+	 * and the normalized request identity; see request-coalescer.ts for the
+	 * clear/join and cancellation contract. In-flight only — completed results
+	 * are owned by each fetcher's own TTL cache.
+	 */
+	coalesceModelRequest(
+		providerId: string,
+		identity: ModelRequestIdentity,
+		caller: AbortSignal,
+		execute: ModelRequestExecutor,
+	): Promise<unknown> {
+		return this.requestCoalescer.coalesceModelRequest(providerId, identity, caller, execute);
+	}
+
+	/**
 	 * Register a model fetcher for a provider
 	 *
 	 * @param providerId - Provider ID (e.g., "anthropic", "openrouter")
 	 * @param fetcher - Async function that returns models
 	 */
 	registerModelFetcher(providerId: string, fetcher: ModelFetcher): void {
+		// A replaced fetcher must not join a flight its predecessor started:
+		// raise the provider's join barrier first.
+		this.requestCoalescer.retireProvider(providerId);
 		this.modelFetchers.set(providerId, fetcher as ClearableModelFetcher);
 	}
 
@@ -200,6 +231,9 @@ export class ProviderRegistry {
 	 * the next model fetch hits the API instead of returning stale data.
 	 */
 	clearAllModelCaches(): void {
+		// Bar new joins to all in-flight shared requests: a post-clear call
+		// must not join a pre-clear flight. Attached callers still finish.
+		this.requestCoalescer.retireAll();
 		for (const [providerId, fetcher] of this.modelFetchers) {
 			if (fetcher.clearCache) {
 				this.logger.debug(`[ProviderRegistry] Clearing model cache for ${providerId}`);
@@ -209,6 +243,10 @@ export class ProviderRegistry {
 	}
 
 	clearModelCache(providerId: string): void {
+		// Bar this provider from joining any flight started before now — even
+		// one it had no caller on; other providers' callers on a shared
+		// flight are not cancelled.
+		this.requestCoalescer.retireProvider(providerId);
 		const fetcher = this.modelFetchers.get(providerId);
 		if (fetcher?.clearCache) {
 			this.logger.debug(`[ProviderRegistry] Clearing model cache for ${providerId}`);

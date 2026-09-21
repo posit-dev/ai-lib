@@ -11,6 +11,8 @@
 
 import { additiveHeaderRecord } from "../custom-headers";
 import type { ApiKeyCredentials, Logger, ModelInfo, ProviderCredentials } from "../types";
+import type { ModelRequestCoalescer } from "./request-coalescer";
+import { fingerprintHeaders, normalizeRequestUrl } from "./request-coalescer";
 
 const DEFAULT_TTL = 60 * 60 * 1000; // 60 minutes
 
@@ -122,6 +124,49 @@ export interface CachedModelFetcherRequestConfig<
 
 	/** Function to parse API response into ModelInfo[] */
 	parseResponse: (data: unknown) => ModelInfo[];
+
+	/**
+	 * Optional registry-owned in-flight request coalescer. When set, the base
+	 * request executes through the coalescer: a concurrent identical request
+	 * — same "model-discovery" namespace, method, normalized URL, and
+	 * effective-header fingerprint — joins the in-flight flight and shares
+	 * its ONE decoded immutable payload instead of issuing a second HTTP
+	 * request; this provider still runs its own `parseResponse` and stamping.
+	 * Completed results remain owned by this fetcher's TTL cache; the
+	 * coalescer retains nothing past settlement. The flight runs inside this
+	 * fetcher's existing discovery deadline — no second timer. Declared only
+	 * on this variant: the `fetchFresh` variant owns its whole fetch and has
+	 * no base request to coalesce.
+	 */
+	requestCoalescer?: ModelRequestCoalescer;
+
+	/**
+	 * Optional: substitute the URL used for coalescing identity. Consulted only
+	 * when `requestCoalescer` is set. Providers that carry a credential in the
+	 * request URL (e.g. Gemini's `?key=` query parameter) must strip it here —
+	 * the identity URL is retained as part of the coalescer's in-flight map
+	 * key, so it must never contain a secret. Pair with `identityHeaders` to
+	 * keep the stripped credential part of the identity through its hash.
+	 */
+	identityUrl?: (apiUrl: string, credentials: T) => string;
+
+	/**
+	 * Optional: extra name/value pairs folded into the coalescing header
+	 * fingerprint. Consulted only when `requestCoalescer` is set. Use for
+	 * credentials that are not request headers (e.g. a URL-carried API key
+	 * removed by `identityUrl`): the fingerprint is a SHA-256 hash, so the
+	 * secret shapes the identity without being retained or logged.
+	 */
+	identityHeaders?: (credentials: T) => Record<string, string>;
+
+	/**
+	 * Excluded on this variant so the union stays exclusive: `fetchFresh`
+	 * belongs to the provider-owned-fetch variant. Without this (and the
+	 * mirrored exclusions there), an object carrying both variants' fields
+	 * could satisfy the union — especially through an intermediate variable —
+	 * while the runtime's variant check silently ignores one side.
+	 */
+	fetchFresh?: never;
 }
 
 /**
@@ -141,11 +186,34 @@ export interface CachedModelFetcherFetchFreshConfig<
 	 * cooperatively.
 	 */
 	fetchFresh: (credentials: T, signal: AbortSignal) => Promise<ModelInfo[]>;
+
+	/* Excluded on this variant (union exclusivity — see `fetchFresh?: never`
+	 * on the request variant): a provider-owned fetch has no base request to
+	 * resolve, header-build, parse, or coalesce. */
+	apiUrl?: never;
+	resolveUrl?: never;
+	createHeaders?: never;
+	parseResponse?: never;
+	requestCoalescer?: never;
+	identityUrl?: never;
+	identityHeaders?: never;
 }
 
 export type CachedModelFetcherConfig<T extends ProviderCredentials = ProviderCredentials> =
 	| CachedModelFetcherRequestConfig<T>
 	| CachedModelFetcherFetchFreshConfig<T>;
+
+/**
+ * Runtime variant check. The `never`-typed exclusion fields keep the union
+ * exclusive at compile time, which defeats `"fetchFresh" in config`
+ * narrowing, so the check lives behind a predicate instead. The runtime
+ * semantics are unchanged.
+ */
+function isFetchFreshConfig<T extends ProviderCredentials>(
+	config: CachedModelFetcherConfig<T>,
+): config is CachedModelFetcherFetchFreshConfig<T> {
+	return "fetchFresh" in config;
+}
 
 /**
  * A ModelFetcher with an optional clearCache method for invalidation.
@@ -243,7 +311,7 @@ export function createCachedModelFetcher<T extends ProviderCredentials = Provide
 		// rejection is handled by it, and the result is never cached.
 		const discovery = (async (): Promise<ModelInfo[]> => {
 			let freshModels: ModelInfo[];
-			if ("fetchFresh" in config) {
+			if (isFetchFreshConfig(config)) {
 				config.logger.debug(`${logPrefix} Fetching models via provider-owned fetch`);
 				freshModels = await config.fetchFresh(typedCredentials, controller.signal);
 			} else {
@@ -254,13 +322,50 @@ export function createCachedModelFetcher<T extends ProviderCredentials = Provide
 				const apiKeyCreds = typedCredentials as Partial<ApiKeyCredentials>;
 				const providerHeaders = config.createHeaders(typedCredentials);
 				const headers = additiveHeaderRecord(providerHeaders, apiKeyCreds.customHeaders);
-				const response = await fetch(apiUrl, { headers, signal: controller.signal });
 
-				if (!response.ok) {
-					throw new Error(`API returned ${response.status}`);
+				let data: unknown;
+				if (config.requestCoalescer) {
+					// Join an identical in-flight request (e.g. the same gateway
+					// configured under two provider ids) or start the flight. The
+					// shared value is the ONE decoded immutable payload — the
+					// Response is one-shot and cannot be shared — and this
+					// provider's own parse/stamp still runs below. The executor
+					// receives a coalescer-owned signal; this caller's deadline
+					// still bounds its wait via the race below.
+					// A credential carried in the request URL (e.g. Gemini's
+					// ?key=) is kept out of the retained identity key: the
+					// provider substitutes a secret-free identity URL and folds
+					// the secret into the hashed fingerprint instead.
+					const identityUrl = config.identityUrl?.(apiUrl, typedCredentials) ?? apiUrl;
+					const identityHeaders = config.identityHeaders
+						? { ...headers, ...config.identityHeaders(typedCredentials) }
+						: headers;
+					data = await config.requestCoalescer.coalesceModelRequest(
+						config.providerId,
+						{
+							namespace: "model-discovery",
+							method: "GET",
+							url: normalizeRequestUrl(identityUrl),
+							headersFingerprint: fingerprintHeaders(identityHeaders),
+						},
+						controller.signal,
+						async (signal) => {
+							const response = await fetch(apiUrl, { headers, signal });
+							if (!response.ok) {
+								throw new Error(`API returned ${response.status}`);
+							}
+							return response.json();
+						},
+					);
+				} else {
+					const response = await fetch(apiUrl, { headers, signal: controller.signal });
+
+					if (!response.ok) {
+						throw new Error(`API returned ${response.status}`);
+					}
+
+					data = await response.json();
 				}
-
-				const data = await response.json();
 				freshModels = config.parseResponse(data);
 			}
 
