@@ -102,13 +102,15 @@ export async function resolveGoogleVertexAccessToken(
 			},
 			scopes: [CLOUD_PLATFORM_SCOPE],
 		});
+		let token: string | undefined;
 		try {
-			const token = await tokenFrom(auth);
-			if (token) return token;
+			token = await tokenFrom(auth);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			throw new InlineServiceAccountError(message);
 		}
+		if (!token) throw new InlineServiceAccountError("no access token was returned");
+		return token;
 	}
 	const auth = new GoogleAuth({
 		scopes: [CLOUD_PLATFORM_SCOPE],
