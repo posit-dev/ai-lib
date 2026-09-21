@@ -90,6 +90,39 @@ describe("registerGoogleVertexProvider", () => {
 		);
 	});
 
+	it("reports rejected inline service-account credentials as an auth error, not a network error", async () => {
+		authMocks.getAccessToken.mockRejectedValueOnce(new Error("invalid_rapt"));
+		const onProviderStatusChange = vi.fn().mockResolvedValue(undefined);
+		const registry = new ProviderRegistry(mockLogger);
+		registerGoogleVertexProvider(
+			registry,
+			mockLogger,
+			{ onProviderStatusChange },
+			{
+				GOOGLE_CLIENT_EMAIL: "svc@example.iam.gserviceaccount.com",
+				GOOGLE_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\\nabc\\n-----END PRIVATE KEY-----",
+			},
+		);
+
+		const models = await registry.getModelsForProvider("google-vertex", {
+			type: "google-cloud",
+			project: "my-project",
+			location: "us-central1",
+		});
+
+		expect(models).toEqual([]);
+		expect(onProviderStatusChange).toHaveBeenCalledWith(
+			expect.objectContaining({
+				providerId: "google-vertex",
+				status: "auth_error",
+				error: expect.objectContaining({
+					code: "inline_service_account_rejected",
+					message: expect.stringContaining("GOOGLE_CLIENT_EMAIL and GOOGLE_PRIVATE_KEY"),
+				}),
+			}),
+		);
+	});
+
 	it("uses a captured ADC path after the ambient environment is scrubbed", async () => {
 		const parentEnvironment: Record<string, string | undefined> = {
 			GOOGLE_APPLICATION_CREDENTIALS: "/secrets/service-account.json",
@@ -234,9 +267,10 @@ describe("resolveGoogleVertexAccessToken", () => {
 
 	it("surfaces an inline failure instead of falling through to ADC", async () => {
 		authMocks.getAccessToken.mockRejectedValueOnce(new Error("bad key"));
-		await expect(resolveGoogleVertexAccessToken(inlineEnv)).rejects.toThrow(
-			"Inline service-account credentials failed: bad key",
-		);
+		await expect(resolveGoogleVertexAccessToken(inlineEnv)).rejects.toMatchObject({
+			name: "InlineServiceAccountError",
+			message: "Inline service-account credentials failed: bad key",
+		});
 		expect(authMocks.googleAuth).toHaveBeenCalledTimes(1);
 	});
 

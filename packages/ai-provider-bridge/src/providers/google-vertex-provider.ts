@@ -32,12 +32,23 @@ export interface GoogleVertexProviderCallbacks {
 	}) => Promise<void>;
 }
 
+const INLINE_SERVICE_ACCOUNT_ERROR = "InlineServiceAccountError";
+
+/** The inline service-account variables were set but Google rejected them; ADC is deliberately not tried. */
+class InlineServiceAccountError extends Error {
+	constructor(cause: string) {
+		super(`Inline service-account credentials failed: ${cause}`);
+		this.name = INLINE_SERVICE_ACCOUNT_ERROR;
+	}
+}
+
 /**
  * Check whether an error from google-auth-library or the Vertex API indicates
  * expired / missing ADC credentials (similar to Bedrock's `isAuthError`).
  */
 function isAuthError(error: unknown): boolean {
 	if (!(error instanceof Error)) return false;
+	if (error.name === INLINE_SERVICE_ACCOUNT_ERROR) return true;
 	const msg = error.message;
 	// google-auth-library: refresh token revoked or expired
 	if (msg.includes("invalid_grant") || msg.includes("Token has been expired or revoked")) {
@@ -96,7 +107,7 @@ export async function resolveGoogleVertexAccessToken(
 			if (token) return token;
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
-			throw new Error(`Inline service-account credentials failed: ${message}`);
+			throw new InlineServiceAccountError(message);
 		}
 	}
 	const auth = new GoogleAuth({
@@ -387,9 +398,13 @@ function createGoogleVertexModelFetcher(
 
 				if (isAuthError(error)) {
 					const isBrokeredAuth = Boolean(credentials.accessToken);
-					const authMessage = isBrokeredAuth
-						? "Google Cloud authentication expired or is unavailable. Reconnect Google Cloud auth in Positron, then click Refresh Models."
-						: "Google Cloud credentials expired or missing. Run 'gcloud auth application-default login' to refresh, then click Refresh Models.";
+					const isInlineAuth =
+						error instanceof Error && error.name === INLINE_SERVICE_ACCOUNT_ERROR;
+					const authMessage = isInlineAuth
+						? "Google Cloud rejected the service-account credentials in GOOGLE_CLIENT_EMAIL and GOOGLE_PRIVATE_KEY. Fix them, or unset them to use Application Default Credentials, then click Refresh Models."
+						: isBrokeredAuth
+							? "Google Cloud authentication expired or is unavailable. Reconnect Google Cloud auth in Positron, then click Refresh Models."
+							: "Google Cloud credentials expired or missing. Run 'gcloud auth application-default login' to refresh, then click Refresh Models.";
 					logger.error(`[GoogleVertex] ${authMessage} Error: ${errorMsg}`);
 
 					await callbacks?.onProviderStatusChange?.({
@@ -397,7 +412,11 @@ function createGoogleVertexModelFetcher(
 						authMethodId: "google-cloud",
 						status: "auth_error",
 						error: {
-							code: isBrokeredAuth ? "google_cloud_auth_expired" : "adc_expired",
+							code: isInlineAuth
+								? "inline_service_account_rejected"
+								: isBrokeredAuth
+									? "google_cloud_auth_expired"
+									: "adc_expired",
 							message: authMessage,
 							action: {
 								label: "Refresh Models",
