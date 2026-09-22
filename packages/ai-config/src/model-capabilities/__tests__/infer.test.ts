@@ -74,6 +74,31 @@ describe("inferModelCapabilities", () => {
 		expect(alias.maxInputTokens).toBe(sol.maxInputTokens);
 	});
 
+	it("applies the GPT-6 envelope to bare and dated-suffix IDs", () => {
+		for (const modelId of ["gpt-6-sol", "gpt-6-luna", "gpt-6-sol-2026-09-22"]) {
+			const caps = inferModelCapabilities("openai", modelId);
+			expect(caps.facts.maxContextLength).toBe(1_050_000);
+			expect(caps.facts.maxOutputTokens).toBe(128_000);
+			expect(caps.facts.maxInputTokens).toBe(1_050_000 - 128_000);
+			expect(caps.facts.thinkingEffortLevels).toEqual([
+				"off",
+				"low",
+				"medium",
+				"high",
+				"xhigh",
+				"max",
+			]);
+		}
+	});
+
+	it("omits the off/none effort level for GPT-6 Astra", () => {
+		for (const modelId of ["gpt-6-astra", "gpt-6-astra-2026-09-08"]) {
+			const caps = inferModelCapabilities("openai", modelId);
+			expect(caps.facts.maxContextLength).toBe(1_050_000);
+			expect(caps.facts.thinkingEffortLevels).toEqual(["low", "medium", "high", "xhigh", "max"]);
+		}
+	});
+
 	it("keeps Mantle GPT-5.6 output unknown while completing the operational view", () => {
 		const caps = inferModelCapabilities("bedrock", "openai.gpt-5.6-sol");
 		expect(caps.facts.maxContextLength).toBe(1_000_000);

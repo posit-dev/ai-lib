@@ -62,6 +62,17 @@ const CAPABILITY_RULES: CapabilityRule[] = [
 		maxContextLength: 1_000_000,
 		thinkingEffortLevels: ["off", "low", "medium", "high", "xhigh", "max"],
 	},
+	// Opus 5.5 — 128k output, 1M context. Thinking is adaptive and always on
+	// (default effort "medium"), so "off" is not offered — same precedent as the
+	// Fable/Mythos rules above. Must precede the broader `^claude-opus-5` rule
+	// below, which would otherwise match `claude-opus-5-5`.
+	{
+		match: /^claude-opus-5[-.]5/,
+		family: "claude-5.5",
+		maxOutputTokens: 128_000,
+		maxContextLength: 1_000_000,
+		thinkingEffortLevels: ["low", "medium", "high", "xhigh", "max"],
+	},
 	// Opus 5 — 128k output, 1M context. Uses the `claude-<tier>-<version>` shape
 	// (`claude-opus-5`), matched here rather than under the name-as-tier Fable/
 	// Mythos rules above. Thinking is on by default (adaptive), but it can still
