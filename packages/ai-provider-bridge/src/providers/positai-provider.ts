@@ -22,6 +22,8 @@ import type { ProviderRegistry } from "./ProviderRegistry";
 const modelSupersessions: Record<string, string> = {
 	"claude-sonnet-4-5": "claude-sonnet-4-6",
 	"claude-opus-4-5": "claude-opus-4-6",
+	// Not served by the gateway yet; takes effect automatically once it is.
+	"claude-opus-5": "claude-opus-5-5",
 };
 
 function filterSupersededModels(models: ModelInfo[]): ModelInfo[] {

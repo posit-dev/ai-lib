@@ -20,6 +20,7 @@ import type { ClientFactory, ProviderRegistry } from "./ProviderRegistry";
  */
 const SUPPLEMENTAL_MODELS: ReadonlyArray<{ id: string; name: string }> = [
 	// { id: "claude-fable-5-1", name: "Claude Fable 5.1" },
+	{ id: "claude-opus-5-5", name: "Claude Opus 5.5" },
 ];
 
 /** Build a `ModelInfo` for an Anthropic model, enriched with inferred capabilities. */
