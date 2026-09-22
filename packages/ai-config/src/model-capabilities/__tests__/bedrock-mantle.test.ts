@@ -16,6 +16,7 @@ type SupportedFamilyCase = {
 const SUPPORTED_FAMILY_CASES = [
 	{ name: "GPT OSS", id: "openai.gpt-oss-120b", expectedProtocol: "openai-chat" },
 	{ name: "GPT 5.x", id: "openai.gpt-5.6-terra", expectedProtocol: "openai-responses" },
+	{ name: "GPT 6", id: "openai.gpt-6-astra", expectedProtocol: "openai-responses" },
 ] satisfies readonly SupportedFamilyCase[];
 
 describe("Bedrock Mantle capability rules", () => {
@@ -58,6 +59,22 @@ describe("Bedrock Mantle capability rules", () => {
 			expect(capabilities?.maxInputTokens).toBeUndefined();
 			expect(capabilities?.maxOutputTokens).toBeUndefined();
 		}
+	});
+
+	it("applies the documented GPT-6 Astra window and output ceiling", () => {
+		for (const id of ["openai.gpt-6-astra", "openai.gpt-6-astra-2026-09-08"]) {
+			const capabilities = getBedrockMantleModelCapabilities(id);
+			expect(capabilities?.maxContextLength).toBe(1_050_000);
+			expect(capabilities?.maxOutputTokens).toBe(128_000);
+			// Astra has no "none" effort level; Mantle maps "off" to "none".
+			expect(capabilities?.thinkingEffortLevels).toEqual(["low", "medium", "high", "xhigh", "max"]);
+		}
+	});
+
+	it("defaults unknown future GPT-6 IDs to the 1M family window", () => {
+		const capabilities = getBedrockMantleModelCapabilities("openai.gpt-6.1");
+		expect(capabilities?.maxContextLength).toBe(1_000_000);
+		expect(capabilities?.maxOutputTokens).toBeUndefined();
 	});
 
 	it.each([
