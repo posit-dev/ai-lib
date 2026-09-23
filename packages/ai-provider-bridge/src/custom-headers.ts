@@ -77,3 +77,14 @@ export function safeSdkCustomHeaders(
 
 	return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
+
+export function withDefaultUserAgent(
+	customHeaders: Record<string, string> | undefined,
+	userAgent: string | undefined,
+): Record<string, string> | undefined {
+	if (!userAgent) return customHeaders;
+	const configured = Object.keys(customHeaders ?? {}).some(
+		(name) => name.toLowerCase() === "user-agent",
+	);
+	return configured ? customHeaders : { ...customHeaders, "User-Agent": userAgent };
+}

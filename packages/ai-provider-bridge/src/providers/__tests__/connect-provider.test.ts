@@ -712,3 +712,89 @@ describe("connect chat routing", () => {
 		).rejects.toThrow(/cannot route protocol "openai-chat"/);
 	});
 });
+
+describe("connect user agent", () => {
+	const USER_AGENT = "posit-assistant/1.2.3 (positron; workbench; linux)";
+
+	function registryWithUserAgent(callbacks?: ConnectProviderCallbacks): ProviderRegistry {
+		const registry = new ProviderRegistry(logger);
+		registerConnectProvider(registry, logger, callbacks, USER_AGENT);
+		return registry;
+	}
+
+	it("identifies the host on both discovery requests", async () => {
+		const fetchMock = stubDiscoveryFetch();
+
+		await registryWithUserAgent().getModelsForProvider("posit-connect", credentials);
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			`${CONNECT_URL}/__api__/v1/oauth/integrations`,
+			expect.objectContaining({
+				headers: { "User-Agent": USER_AGENT, Authorization: "Key tok" },
+			}),
+		);
+		expect(fetchMock).toHaveBeenCalledWith(
+			`${ANTHROPIC_GATEWAY}/models`,
+			expect.objectContaining({
+				headers: {
+					"User-Agent": USER_AGENT,
+					"x-api-key": "tok",
+					"anthropic-version": "2023-06-01",
+				},
+			}),
+		);
+	});
+
+	it("identifies the host on Anthropic and Bedrock gateway chats alongside configured headers", async () => {
+		const client = registryWithUserAgent({
+			getAwsCredentials: mintSuccess(),
+		}).getClientForProvider("posit-connect", {
+			...credentials,
+			customHeaders: { "x-proxy-token": "t" },
+		})!;
+		const expectedHeaders = { "x-proxy-token": "t", "User-Agent": USER_AGENT };
+
+		await client.chat({
+			model: `${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`,
+			messages: [],
+			cancellationToken,
+			protocol: "anthropic-messages",
+			baseUrl: ANTHROPIC_GATEWAY,
+		});
+		await client.chat({
+			model: `${AWS_PREFIX}/${CONNECT_BEDROCK_MODEL_IDS[0]}`,
+			messages: [],
+			cancellationToken,
+			protocol: "bedrock-converse",
+			baseUrl: BEDROCK_GATEWAY,
+		});
+
+		expect(AnthropicClient).toHaveBeenCalledWith(
+			{ apiKey: "tok" },
+			ANTHROPIC_GATEWAY,
+			expectedHeaders,
+			logger,
+		);
+		expect(BedrockClient).toHaveBeenCalledWith(
+			expect.objectContaining({ customHeaders: expectedHeaders }),
+			logger,
+		);
+	});
+
+	it("lets a configured User-Agent header override the host identity", async () => {
+		const customHeaders = { "user-agent": "corp-proxy-client/1.0" };
+		const fetchMock = stubDiscoveryFetch();
+
+		await registryWithUserAgent().getModelsForProvider("posit-connect", {
+			...credentials,
+			customHeaders,
+		});
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			`${CONNECT_URL}/__api__/v1/oauth/integrations`,
+			expect.objectContaining({
+				headers: { "user-agent": "corp-proxy-client/1.0", Authorization: "Key tok" },
+			}),
+		);
+	});
+});

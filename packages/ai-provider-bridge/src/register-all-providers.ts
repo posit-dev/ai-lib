@@ -47,6 +47,7 @@ export interface ProviderRegistrationConfig {
 	/** Posit AI Pass base URL, optionally resolved lazily when models are fetched. */
 	positAiBaseUrl: string | (() => string);
 	userAgent?: string;
+	connectUserAgent?: string;
 	/** If set, only these providers register; an empty list registers none. */
 	allowedProviders?: ProviderId[];
 	/** Pre-built by the caller; the bridge never constructs host callbacks. */
@@ -104,7 +105,7 @@ const PROVIDER_REGISTRARS = {
 	litellm: registerLitellmProvider,
 	portkey: registerPortkeyProvider,
 	"posit-connect": (registry, logger, config) =>
-		registerConnectProvider(registry, logger, config.connectCallbacks),
+		registerConnectProvider(registry, logger, config.connectCallbacks, config.connectUserAgent),
 } satisfies Record<ProviderId, ProviderRegistrar>;
 
 /**

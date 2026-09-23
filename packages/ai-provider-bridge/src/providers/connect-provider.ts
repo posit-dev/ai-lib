@@ -40,7 +40,7 @@ import {
 	getConnectBedrockModelCapabilities,
 } from "ai-config";
 
-import { additiveHeaderRecord } from "../custom-headers";
+import { additiveHeaderRecord, withDefaultUserAgent } from "../custom-headers";
 import { createAbortControllerFromToken } from "../model-clients/ai-sdk-helpers";
 import { AnthropicClient } from "../model-clients/AnthropicClient";
 import { BedrockClient } from "../model-clients/BedrockClient";
@@ -453,6 +453,7 @@ function createConnectModelFetcher(
 	logger: Logger,
 	cache: ConnectIntegrationCache,
 	callbacks?: ConnectProviderCallbacks,
+	userAgent?: string,
 ) {
 	const fetcher = createCachedModelFetcher<ApiKeyCredentials>({
 		providerId,
@@ -465,7 +466,8 @@ function createConnectModelFetcher(
 		cacheKey: (credentials) =>
 			connectCredentialKey(credentials.baseUrl!.replace(/\/+$/, ""), credentials),
 		maxCacheEntries: CONNECT_CACHE_MAX_ENTRIES,
-		fetchFresh: async (credentials, signal) => {
+		fetchFresh: async (configuredCredentials, signal) => {
+			const credentials = withConnectUserAgent(configuredCredentials, userAgent);
 			const cacheGeneration = cache.currentGeneration();
 			const connectUrl = credentials.baseUrl!.replace(/\/+$/, "");
 			const credentialKey = await connectCredentialKey(connectUrl, credentials);
@@ -756,16 +758,32 @@ class ConnectClient implements ModelClient {
 	}
 }
 
+function withConnectUserAgent(
+	credentials: ApiKeyCredentials,
+	userAgent: string | undefined,
+): ApiKeyCredentials {
+	const customHeaders = withDefaultUserAgent(credentials.customHeaders, userAgent);
+	return customHeaders === credentials.customHeaders
+		? credentials
+		: { ...credentials, customHeaders };
+}
+
 function createConnectClientFactory(
 	logger: Logger,
 	cache: ConnectIntegrationCache,
 	callbacks?: ConnectProviderCallbacks,
+	userAgent?: string,
 ): ClientFactory {
 	return (credentials) => {
 		if (credentials.type !== "apikey") {
 			throw new Error(`Connect provider requires API key credentials, got: ${credentials.type}`);
 		}
-		return new ConnectClient(credentials, cache, logger, callbacks);
+		return new ConnectClient(
+			withConnectUserAgent(credentials, userAgent),
+			cache,
+			logger,
+			callbacks,
+		);
 	};
 }
 
@@ -773,6 +791,7 @@ export function registerConnectProvider(
 	registry: ProviderRegistry,
 	logger: Logger,
 	callbacks?: ConnectProviderCallbacks,
+	userAgent?: string,
 ): void {
 	// Shared between the fetcher (writer) and the client (reader) so chat can
 	// resolve user-configured models that carry no discovery stamp; stamped
@@ -780,10 +799,10 @@ export function registerConnectProvider(
 	const cache = new ConnectIntegrationCache();
 	registry.registerModelFetcher(
 		"posit-connect",
-		createConnectModelFetcher("posit-connect", logger, cache, callbacks),
+		createConnectModelFetcher("posit-connect", logger, cache, callbacks, userAgent),
 	);
 	registry.registerClientFactory(
 		"posit-connect",
-		createConnectClientFactory(logger, cache, callbacks),
+		createConnectClientFactory(logger, cache, callbacks, userAgent),
 	);
 }
