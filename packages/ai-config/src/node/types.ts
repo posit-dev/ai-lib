@@ -10,7 +10,7 @@ import type { SourcedConfigIssue } from "../config-issue.js";
 import type { Disposable as ConfigDisposable } from "../config-source.js";
 import type { LegacySettingsReader } from "../legacy-positron-settings/translate.js";
 import type { ProviderConfigSource } from "../resolve-catalog.js";
-import type { LoggerLike, ResolvedProvider } from "../types.js";
+import type { LoggerLike, ResolvedProvider, ResolvedProviderId } from "../types.js";
 
 // Re-export the pure logger type so node consumers can import it from here.
 export type { LoggerLike } from "../types.js";
@@ -165,4 +165,21 @@ export interface ProviderCatalogChange {
 
 	/** Whether the issue snapshot changed structurally. */
 	readonly issuesChanged: boolean;
+}
+
+/**
+ * How one provider differs between two catalogs, as classified by
+ * `diffProviderCatalogs`. The aggregate flags on {@link ProviderCatalogChange}
+ * are the OR of these per-provider flags.
+ */
+export interface ProviderCatalogEntryDiff {
+	readonly id: ResolvedProviderId;
+	/** `added`/`removed` entries have every category flag set. */
+	readonly change: "added" | "removed" | "updated";
+	/** The provider's `enabled` state changed. */
+	readonly enabled: boolean;
+	/** Client kind, connection, provenance, auth policy, or product changed. */
+	readonly connection: boolean;
+	/** Model policy or custom declarations changed. */
+	readonly models: boolean;
 }

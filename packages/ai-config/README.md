@@ -255,9 +255,13 @@ sub.dispose();
 
 `WatchCatalogOptions` extends `LoadCatalogOptions`. The `ProviderCatalogChange` event carries the full new `catalog`, complete `issues`, and four flags: `enabledChanged`, `connectionChanged`, `modelsChanged`, and `issuesChanged`.
 
+#### `diffProviderCatalogs(previous, current): readonly ProviderCatalogEntryDiff[]`
+
+The per-provider classifier behind the watcher's category flags. Returns one entry per changed provider (`change: "added" | "removed" | "updated"` plus `enabled`/`connection`/`models` flags; additions and removals set every flag) and omits unchanged providers. Hosts that install catalogs themselves use it so classification has one source of truth.
+
 #### Node-only types
 
-`LoadCatalogOptions`, `MutateConfigOptions`, `WatchCatalogOptions`, `ProviderCatalogChange`, `Disposable`, `LoggerLike`.
+`LoadCatalogOptions`, `MutateConfigOptions`, `WatchCatalogOptions`, `ProviderCatalogChange`, `ProviderCatalogEntryDiff`, `Disposable`, `LoggerLike`.
 
 ## `providers.json` shape
 
