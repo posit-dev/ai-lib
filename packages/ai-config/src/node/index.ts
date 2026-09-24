@@ -32,6 +32,8 @@
  * - `watchResolvedProviderCatalog(handler, opts)` — the **single watch seam**.
  *   Emits the resolved catalog and complete issue snapshot with typed change
  *   flags (enabled / connection / models / issues).
+ * - `diffProviderCatalogs(previous, current)` — the per-provider classifier
+ *   behind those flags, for hosts that diff catalogs they install.
  *
  * ### Model resolution
  * - `resolveModels(...)` — stays public because it genuinely needs
@@ -72,7 +74,9 @@ export type { LoadConfigSourcesOptions } from "./load-config.js";
 export { migrateProvidersSchemaReference, mutateProvidersConfig } from "./mutate-config.js";
 
 // --- Watch seam (the single, source-aware watch seam) ----------------------
-export { watchResolvedProviderCatalog } from "./watch-catalog.js";
+// `diffProviderCatalogs` is the watcher's per-provider classifier, exported so
+// hosts that install catalogs themselves share one classification.
+export { diffProviderCatalogs, watchResolvedProviderCatalog } from "./watch-catalog.js";
 
 // --- Types -----------------------------------------------------------------
 export type {
@@ -81,5 +85,6 @@ export type {
 	LoggerLike,
 	MutateConfigOptions,
 	ProviderCatalogChange,
+	ProviderCatalogEntryDiff,
 	WatchCatalogOptions,
 } from "./types.js";
