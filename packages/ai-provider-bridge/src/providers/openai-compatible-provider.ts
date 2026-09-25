@@ -45,7 +45,7 @@ function createOpenAICompatibleModelFetcher(
 
 			return typedData.data.map((model) => ({
 				id: model.id,
-				name: model.id,
+				name: `${model.id} (assistant-copy)`, // PoC marker
 				providerId,
 				...OPENAI_COMPATIBLE_DEFAULTS,
 			}));
