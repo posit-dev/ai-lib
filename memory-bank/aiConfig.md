@@ -645,6 +645,15 @@ text parts: the AI SDK otherwise rejects the whole chunk, and Databricks sends
 tool call arguments in the same chunk as reasoning (GPT OSS on classic serving
 completed every tool call with `{}`). Reasoning itself is still discarded.
 
+**GPT OSS is the exception: it stays on chat completions on the gateway.** Its
+streamed `mlflow/v1/responses` output carries `function_call` items with
+`arguments: ""` in every event (including `response.completed`) and no
+argument deltas, so every tool call reaches the client as `{}`; the same
+request non-streamed, or streamed over gateway chat completions, carries the
+arguments, and other hosted families (Qwen, Llama) stream them fine. The
+classifier therefore withholds the `mlflow-responses` stamp from `gpt-oss*`
+identities, and they fall back to `openai-chat` (which they advertise).
+
 The stamp is **gateway-only**: classic serving has no unified Responses route
 (`/serving-endpoints/responses` is native passthrough and refuses
 non-passthrough models), so serving keeps `openai-chat`. The advertised

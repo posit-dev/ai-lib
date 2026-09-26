@@ -221,6 +221,19 @@ function isResponsesCompatibleOpenAIId(modelId: string): boolean {
 	return /^gpt-5/.test(bare) || /^gpt-4o/.test(bare);
 }
 
+/**
+ * Whether the gateway's unified Responses API streams this model's tool calls
+ * intact. GPT OSS does not: its streamed `function_call` items carry
+ * `arguments: ""` in every event, `response.completed` included, with no
+ * `function_call_arguments.delta` events — so every tool call arrives with `{}`
+ * input. The same request non-streamed, or over the gateway's chat completions
+ * route, carries the arguments, and other hosted families (Qwen, Llama) stream
+ * them fine on Responses.
+ */
+function streamsUnifiedResponsesToolArguments(modelId: string): boolean {
+	return !/^gpt-oss/.test(modelId.toLowerCase());
+}
+
 // ---------------------------------------------------------------------------
 // Per-entity resolution
 // ---------------------------------------------------------------------------
@@ -240,6 +253,8 @@ interface EntityResolution {
 	readonly vendor: string | undefined;
 	readonly apiTypes: readonly string[];
 	readonly gatewayV2Supported: boolean;
+	/** Whether the unified MLflow Responses route may serve this entity. */
+	readonly unifiedResponsesEligible: boolean;
 }
 
 /** OpenAI table capabilities with the shared-context input reservation applied. */
@@ -353,6 +368,7 @@ function resolveEntity(
 		vendor: recognizedVendor(normalizedIdentity),
 		apiTypes: foundationModel?.api_types ?? [],
 		gatewayV2Supported: foundationModel?.ai_gateway_v2_supported === true,
+		unifiedResponsesEligible: streamsUnifiedResponsesToolArguments(normalizedIdentity),
 	} as const;
 
 	if (!nativeAllowed) {
@@ -586,7 +602,14 @@ export function inferDatabricksModelProfile(
 	// Gateway-only: classic serving has no unified Responses route
 	// (`/serving-endpoints/responses` is native passthrough and refuses
 	// non-passthrough models), so serving keeps chat completions.
-	if (input.surface === "gateway" && everyGatewayEntityAdvertises(GATEWAY_RESPONSES_API_TYPE)) {
+	//
+	// Advertising the route is not enough for every family: GPT OSS streams
+	// empty tool arguments on it (see `streamsUnifiedResponsesToolArguments`).
+	if (
+		input.surface === "gateway" &&
+		everyGatewayEntityAdvertises(GATEWAY_RESPONSES_API_TYPE) &&
+		resolutions.every((entity) => entity.unifiedResponsesEligible)
+	) {
 		return {
 			excluded: false,
 			protocol: "mlflow-responses",

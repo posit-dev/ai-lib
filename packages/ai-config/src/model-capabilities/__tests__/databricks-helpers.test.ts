@@ -379,6 +379,11 @@ describe("inferDatabricksModelProfile — unified MLflow Responses route", () =>
 		]);
 		expect(responseProtocol("gateway", [claude])).toBe("anthropic-messages");
 	});
+
+	it("keeps GPT OSS on chat, where its streamed tool arguments survive", () => {
+		const gptOss = foundationEntity("system.ai.gpt-oss-120b", [GATEWAY_CHAT, GATEWAY_RESPONSES]);
+		expect(responseProtocol("gateway", [gptOss])).toBe("openai-chat");
+	});
 });
 
 describe("inferDatabricksModelProfile — gateway chat availability", () => {
