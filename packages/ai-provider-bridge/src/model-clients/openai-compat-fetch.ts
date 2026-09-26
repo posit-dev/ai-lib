@@ -49,9 +49,18 @@
  * 6. Empty tool `type` `""` → `"function"` in tool call chunks
  *    Spec requires `type` to be `"function"`. Some providers send `""`.
  *
+ * 7. Array `content` → string (or `null`) in delta chunks
+ *    Spec requires `content` to be a string or null. Databricks streams
+ *    reasoning models (e.g. GPT OSS) with an array of content parts —
+ *    `{type: "reasoning", summary: [...]}` and `{type: "text", text}`. The AI
+ *    SDK rejects the whole chunk, and Databricks sends tool call arguments in
+ *    the same chunk as reasoning, so the tool call completes with `{}`. Text
+ *    parts are kept; reasoning parts are dropped (the chat completions path
+ *    has no reasoning channel to carry them).
+ *
  * ## Auth
  *
- * 7. Strip `Authorization` header when `apiKey === ""`
+ * 8. Strip `Authorization` header when `apiKey === ""`
  *    For unauthenticated endpoints (e.g., local servers with no auth).
  *    Only matches empty string — `undefined` means the caller manages
  *    auth separately (e.g. Foundry injects its own token).
@@ -89,12 +98,22 @@ interface MalformedToolCall {
 }
 
 /**
+ * A content part in an array-valued delta `content`. Databricks sends
+ * `{type: "reasoning", summary: [...]}` and `{type: "text", text}` parts.
+ */
+interface MalformedContentPart {
+	type?: string;
+	text?: unknown;
+}
+
+/**
  * A delta where `role` may be empty string instead of `"assistant"`,
- * and `tool_calls` may contain malformed entries.
+ * `content` may be an array of parts instead of a string, and `tool_calls`
+ * may contain malformed entries.
  */
 interface MalformedDelta {
 	role?: "assistant" | ""; // may be "" instead of "assistant"
-	content?: string | null;
+	content?: string | null | MalformedContentPart[]; // may be an array of parts
 	tool_calls?: MalformedToolCall[];
 }
 
@@ -375,6 +394,16 @@ function fixMalformedChunk(chunk: MalformedChatCompletionChunk, noArgTools: stri
 			delta.role = "assistant";
 		}
 
+		// Transform 7: Array content → string (or null).
+		// Spec: content is a string or null.
+		// Broken: Databricks streams reasoning models with an array of
+		// `{type: "reasoning"}` / `{type: "text"}` parts.
+		// Impact: AI SDK Zod validation rejects the chunk, dropping any tool
+		// call arguments it carries.
+		if (Array.isArray(delta.content)) {
+			delta.content = flattenContentParts(delta.content);
+		}
+
 		if (!Array.isArray(delta.tool_calls)) continue;
 
 		for (const tc of delta.tool_calls) {
@@ -402,4 +431,16 @@ function fixMalformedChunk(chunk: MalformedChatCompletionChunk, noArgTools: stri
 			}
 		}
 	}
+}
+
+/**
+ * Collapse array-valued delta `content` to the string the spec requires:
+ * the concatenated text of its `text` parts, or `null` when it has none.
+ * Reasoning parts are dropped.
+ */
+function flattenContentParts(parts: MalformedContentPart[]): string | null {
+	const text = parts
+		.flatMap((part) => (part.type === "text" && typeof part.text === "string" ? [part.text] : []))
+		.join("");
+	return text === "" ? null : text;
 }

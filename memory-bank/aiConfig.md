@@ -638,9 +638,12 @@ models it does not proxy natively. Endpoints advertising the
 routes to `{host}/ai-gateway/mlflow/v1` in the SDK's Responses mode. The chat
 surface loses on all three counts that matter: it rejects `store`, rejects
 `max_completion_tokens`, and streams reasoning as a `delta.content` block array
-that the OpenAI chunk schema cannot represent (so reasoning is discarded),
-while Responses accepts the same thinking controls and carries reasoning as
-first-class items.
+that the OpenAI chunk schema cannot represent, while Responses accepts the same
+thinking controls and carries reasoning as first-class items. On the chat
+surface the OpenAI-compatible fetch (transform 7) collapses that array to its
+text parts: the AI SDK otherwise rejects the whole chunk, and Databricks sends
+tool call arguments in the same chunk as reasoning (GPT OSS on classic serving
+completed every tool call with `{}`). Reasoning itself is still discarded.
 
 The stamp is **gateway-only**: classic serving has no unified Responses route
 (`/serving-endpoints/responses` is native passthrough and refuses
