@@ -41,6 +41,7 @@ describe("PROVIDER_MAP auth provider ids", () => {
 			gemini: "google",
 			litellm: "litellm",
 			portkey: "portkey",
+			opencode: "opencode",
 			"posit-connect": "posit-connect-llm",
 			"openai-compatible": "openai-compatible",
 			"ms-foundry": "foundry",
