@@ -76,9 +76,9 @@ describe("registerGoogleVertexProvider", () => {
 			error: {
 				code: "google_cloud_auth_expired",
 				message:
-					"Google Cloud authentication expired or is unavailable. Reconnect Google Cloud auth in Positron, then click Refresh Models.",
+					"Google Cloud authentication expired or is unavailable. Reconnect Google Cloud auth in Positron, then click Reload model list.",
 				action: {
-					label: "Refresh Models",
+					label: "Reload model list",
 					commandId: "refresh-models",
 				},
 			},

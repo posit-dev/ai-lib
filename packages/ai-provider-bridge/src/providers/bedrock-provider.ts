@@ -157,7 +157,7 @@ async function notifyBedrockAuthError(
 			code,
 			message,
 			action: {
-				label: "Refresh Models",
+				label: "Reload model list",
 				commandId: NOTIFICATION_ACTIONS.REFRESH_MODELS,
 			},
 		},
@@ -182,7 +182,7 @@ async function reportCredentialResolutionFailure(
 			providerId,
 			callbacks,
 			"sso_expired",
-			"AWS Bedrock credentials expired. Please run 'aws sso login' to refresh your session, then click Refresh Models. You may need additional options, like 'aws sso login --profile <profile-name>'.",
+			"AWS Bedrock credentials expired. Please run 'aws sso login' to refresh your session, then click Reload model list. You may need additional options, like 'aws sso login --profile <profile-name>'.",
 		);
 		return;
 	}
@@ -192,7 +192,7 @@ async function reportCredentialResolutionFailure(
 		providerId,
 		callbacks,
 		"auth_error",
-		"AWS Bedrock credentials are invalid or unavailable. Update your AWS credentials, then click Refresh Models.",
+		"AWS Bedrock credentials are invalid or unavailable. Update your AWS credentials, then click Reload model list.",
 	);
 }
 
@@ -425,7 +425,7 @@ function createBedrockModelFetcher(
 						providerId,
 						callbacks,
 						"auth_error",
-						"AWS Bedrock credentials were rejected by the API. Check your IAM permissions, then click Refresh Models.",
+						"AWS Bedrock credentials were rejected by the API. Check your IAM permissions, then click Reload model list.",
 					);
 
 					cachedModels = null;
