@@ -77,7 +77,8 @@ Re-exports the pure entry, plus:
   may include advanced fields that must be preserved server-side and never projected to a browser.
 - **Write seam**: `mutateProvidersConfig(mutator, opts)` — cross-process-safe mutation.
 - **Watch seam**: `watchResolvedProviderCatalog(handler, opts)` — emits typed `ProviderCatalogChange` events.
-- **Types**: `LoadCatalogOptions` (including the transitional `legacyPositronSettings` / `legacyPositronEnforcedSettings` options), `MutateConfigOptions`, `WatchCatalogOptions`, `ProviderCatalogChange`, `LoggerLike`, `Disposable`.
+- **Catalog diff**: `diffProviderCatalogs(previous, current)` — the watcher's per-provider classifier (added/removed/updated + enabled/connection/models flags); the watcher's aggregate flags are its OR. Exported for hosts that install catalogs themselves.
+- **Types**: `LoadCatalogOptions` (including the transitional `legacyPositronSettings` / `legacyPositronEnforcedSettings` options), `MutateConfigOptions`, `WatchCatalogOptions`, `ProviderCatalogChange`, `ProviderCatalogEntryDiff`, `LoggerLike`, `Disposable`.
 
 ## Schema Structure (`src/schema.ts`)
 

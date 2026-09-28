@@ -32,6 +32,7 @@ import { DEFAULT_ENV_VAR, ENFORCED_ENV_VAR, PROVIDERS_CONFIG_PATH } from "./path
 import type {
 	Disposable,
 	ProviderCatalogChange,
+	ProviderCatalogEntryDiff,
 	WatchCatalogHandle,
 	WatchCatalogOptions,
 } from "./types.js";
@@ -293,6 +294,63 @@ function toSignature(p: ResolvedProvider): ProviderSignature {
 }
 
 /**
+ * Classify, per provider ID, how `current` differs from `previous`.
+ *
+ * This is the single source of truth for catalog change classification: the
+ * watcher's aggregate flags are derived from it, and hosts that install
+ * catalogs themselves use it to scope their own effects. Unchanged providers
+ * are omitted, so an empty result means the catalogs are equivalent.
+ *
+ * An added or removed provider is reported with every category set. An
+ * auth-policy-only change (e.g. toggling a custom entry's `apiKeyOptional`)
+ * is activation-relevant — credentials must be re-synthesized — so it lands
+ * in the connection category, as do client-kind, provenance, and
+ * effective-product changes.
+ *
+ * Result order is stable: providers in `previous` order, then providers only
+ * in `current`.
+ */
+export function diffProviderCatalogs(
+	previous: readonly ResolvedProvider[],
+	current: readonly ResolvedProvider[],
+): readonly ProviderCatalogEntryDiff[] {
+	const prevById = new Map(previous.map((p) => [p.id, toSignature(p)]));
+	const currById = new Map(current.map((p) => [p.id, toSignature(p)]));
+	const allIds = new Set([...prevById.keys(), ...currById.keys()]);
+	const diffs: ProviderCatalogEntryDiff[] = [];
+
+	for (const id of allIds) {
+		const prev = prevById.get(id);
+		const curr = currById.get(id);
+
+		if (!prev || !curr) {
+			diffs.push({
+				id,
+				change: prev ? "removed" : "added",
+				enabled: true,
+				connection: true,
+				models: true,
+			});
+			continue;
+		}
+
+		const enabled = prev.enabled !== curr.enabled;
+		const connection =
+			prev.clientKind !== curr.clientKind ||
+			prev.connection !== curr.connection ||
+			prev.connectionProvenance !== curr.connectionProvenance ||
+			prev.authPolicy !== curr.authPolicy ||
+			prev.opencodeProduct !== curr.opencodeProduct;
+		const models = prev.models !== curr.models;
+		if (enabled || connection || models) {
+			diffs.push({ id, change: "updated", enabled, connection, models });
+		}
+	}
+
+	return diffs;
+}
+
+/**
  * Diff two catalogs and return change flags. Returns `undefined` if the
  * previous catalog is unknown (initial load — no diff possible).
  */
@@ -307,53 +365,14 @@ function diffCatalogs(
 		return undefined;
 	}
 
-	let enabledChanged = false;
-	let connectionChanged = false;
-	let modelsChanged = false;
+	const diffs = diffProviderCatalogs(previous, current);
+	const enabledChanged = diffs.some((d) => d.enabled);
+	const connectionChanged = diffs.some((d) => d.connection);
+	const modelsChanged = diffs.some((d) => d.models);
 	const issuesChanged = !issueSetsEqual(previousIssues ?? [], currentIssues);
 
-	// Build signature lookups by id
-	const prevById = new Map(previous.map((p) => [p.id as string, toSignature(p)]));
-	const currById = new Map(current.map((p) => [p.id as string, toSignature(p)]));
-
-	// Collect all provider ids from both catalogs
-	const allIds = new Set([...prevById.keys(), ...currById.keys()]);
-
-	for (const id of allIds) {
-		const prev = prevById.get(id);
-		const curr = currById.get(id);
-
-		if (!prev || !curr) {
-			// Provider added or removed — all categories change
-			enabledChanged = true;
-			connectionChanged = true;
-			modelsChanged = true;
-			continue;
-		}
-
-		// Compare each field group
-		if (prev.enabled !== curr.enabled) {
-			enabledChanged = true;
-		}
-		// An auth-policy-only change (e.g. toggling a custom entry's
-		// `apiKeyOptional`) is activation-relevant — credentials must be
-		// re-synthesized — so it lands in the connection category.
-		if (
-			prev.clientKind !== curr.clientKind ||
-			prev.connection !== curr.connection ||
-			prev.connectionProvenance !== curr.connectionProvenance ||
-			prev.authPolicy !== curr.authPolicy ||
-			prev.opencodeProduct !== curr.opencodeProduct
-		) {
-			connectionChanged = true;
-		}
-		if (prev.models !== curr.models) {
-			modelsChanged = true;
-		}
-	}
-
 	// If nothing changed, don't fire
-	if (!enabledChanged && !connectionChanged && !modelsChanged && !issuesChanged) {
+	if (diffs.length === 0 && !issuesChanged) {
 		return undefined;
 	}
 
