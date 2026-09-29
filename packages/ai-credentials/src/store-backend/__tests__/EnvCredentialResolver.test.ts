@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 
 import { hasEnvCredentials, resolveCredentialsFromEnv } from "../envCredentialResolver.js";
+import { captureProviderEnvironment } from "../providerEnvMappings.js";
 
 describe("resolveCredentialsFromEnv", () => {
 	it.each([
@@ -137,6 +138,15 @@ describe("resolveCredentialsFromEnv", () => {
 			};
 			expect(resolveCredentialsFromEnv("databricks", env)).toBeNull();
 			expect(hasEnvCredentials("databricks", env)).toBe(false);
+		});
+
+		it("ignores DATABRICKS_TOKEN from a captured environment when Workbench manages the profile", () => {
+			const captured = captureProviderEnvironment(["databricks"], {
+				DATABRICKS_TOKEN: "shell-pat",
+				DATABRICKS_CONFIG_FILE: "/home/user/.posit-workbench/databricks/cfg",
+			});
+			expect(resolveCredentialsFromEnv("databricks", captured.environment)).toBeNull();
+			expect(captured.scrubbedNames).not.toContain("DATABRICKS_CONFIG_FILE");
 		});
 
 		it("reads DATABRICKS_TOKEN when the config file is not Workbench-managed", () => {

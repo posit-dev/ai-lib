@@ -18,7 +18,11 @@
  */
 
 import type { ProviderCredentials } from "../types/credentials.js";
-import { PROVIDER_ENV_MAPPINGS, type ProviderEnvMapping } from "./providerEnvMappings.js";
+import {
+	PROVIDER_ENV_MAPPINGS,
+	type ProviderEnvMapping,
+	readSdkCredentialEnvironment,
+} from "./providerEnvMappings.js";
 
 /**
  * Attempt to resolve credentials for a provider from environment variables.
@@ -38,7 +42,7 @@ export function resolveCredentialsFromEnv(
 	// A Workbench-provisioned Databricks profile outranks DATABRICKS_TOKEN; the admin credential must not be overridable from the shell.
 	if (
 		providerId === "databricks" &&
-		(envVars.DATABRICKS_CONFIG_FILE ?? "").includes("posit-workbench")
+		(readSdkCredentialEnvironment(envVars).databricksConfigFile ?? "").includes("posit-workbench")
 	) {
 		return null;
 	}

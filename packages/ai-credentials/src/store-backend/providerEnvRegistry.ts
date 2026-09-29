@@ -93,6 +93,10 @@ export const PROVIDER_ENV_MAPPINGS: Record<string, ProviderEnvMapping> = {
 			clientId: scrubbed("DATABRICKS_CLIENT_ID"),
 			clientSecret: scrubbed("DATABRICKS_CLIENT_SECRET"),
 		},
+		// Captured so a Workbench-managed profile still outranks DATABRICKS_TOKEN after capture.
+		sdkCredentialEnvironment: {
+			databricksConfigFile: ambient("DATABRICKS_CONFIG_FILE"),
+		},
 	},
 	litellm: {
 		apiKey: scrubbed("LITELLM_API_KEY"),

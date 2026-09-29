@@ -58,6 +58,7 @@ export interface SdkCredentialEnvironment {
 	readonly azureClientSecret?: string;
 	readonly azureClientCertificatePath?: string;
 	readonly azureClientCertificatePassword?: string;
+	readonly databricksConfigFile?: string;
 }
 
 export interface ProviderEnvMapping {
@@ -166,6 +167,7 @@ export function readSdkCredentialEnvironment(
 		azureClientSecret: readField(env, descriptors.azureClientSecret),
 		azureClientCertificatePath: readField(env, descriptors.azureClientCertificatePath),
 		azureClientCertificatePassword: readField(env, descriptors.azureClientCertificatePassword),
+		databricksConfigFile: readField(env, descriptors.databricksConfigFile),
 	};
 }
 
