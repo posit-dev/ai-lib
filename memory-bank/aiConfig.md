@@ -235,16 +235,21 @@ sets them, while `baseUrl`/`tenantId` are absent until some layer sets them.
 `resolveModels(modelsBlock, discovered, providerConnection, context?)` runs the
 per-provider model pipeline: discovery gate (`discovery: "auto" | "off"`) → merge
 discovered + `custom` models → apply `overrides` → `allow` filter (exclusive
-allowlist) → `deny` filter (always wins) → attach routing (protocol/baseUrl). It
+allowlist) → `deny` filter (always wins) → attach routing (protocol/baseUrl) →
+finalize web-search capability (when a serving context is passed; see below). It
 is pure and reusable independent of the catalog builder.
 
-The optional fourth argument, `ModelResolutionContext { providerId }`, supplies
-the provider identity `ResolvedConnection` deliberately lacks. The built-in
-`opencode` provider uses it to recompute its product-dependent inferred protocol
-under the full routing context — the discovery-time stamp knew only the provider
-URL, while a canonical model-level URL override can point at the other OpenCode
-product and change the documented route (see the OpenCode Protocol Routing
-section below).
+The optional fourth argument, `ModelResolutionContext`, supplies provider-level
+context `ResolvedConnection` deliberately lacks:
+
+- `providerId` — the built-in `opencode` provider uses it to recompute its
+  product-dependent inferred protocol under the full routing context — the
+  discovery-time stamp knew only the provider URL, while a canonical model-level
+  URL override can point at the other OpenCode product and change the documented
+  route (see the OpenCode Protocol Routing section below).
+- `webSearchServing` — the provider's web-search serving context (from
+  `resolveWebSearchServing`). When present, each surviving model's final
+  `supportsWebSearch` is computed after overrides and routing are resolved.
 
 Capacity overrides (`maxContextLength`, `maxInputTokens`, and
 `maxOutputTokens`) replace the corresponding values in both the resolved flat
@@ -504,6 +509,56 @@ here, with three improvements over that copy: the `openai` case now derives
 the DeepSeek table, and `supportsImages` is derived from media types as
 described above).
 
+### Web-search capability finalization (`web-search.ts`)
+
+Discovery and the capability tables report _intrinsic_ model metadata (e.g.
+the Mantle family rule marks documented GPT-5.4/5.5/5.6 IDs
+`supportsWebSearch: true`). Whether a model may actually advertise the hosted
+web-search toggle depends on the resolved serving context — effective route,
+effective endpoint, provider kind, AWS region, FIPS policy — which only
+exists after `resolveModels()` has applied overrides and routing.
+`web-search.ts` owns that final step so every host computes the same final
+`supportsWebSearch` from the same inputs:
+
+- `resolveWebSearchServing(provider, facts)` builds the serving context
+  (`openai-builtin`/`gemini-builtin` with the client base URL,
+  `openai-custom`, `gemini-custom`, or `bedrock-mantle` with region and FIPS
+  flag), or `undefined` for providers outside the policy, whose models keep
+  their already-resolved capability unchanged. `facts`
+  (`WebSearchServingFacts`) must come from the host's _effective_
+  credentials — the catalog connection overlaid on the stored credential,
+  exactly what the client is built with — because a stored base URL, AWS
+  region, or profile the catalog lacks still changes where requests go. The
+  finalizer checks the endpoint as `model.resolvedBaseUrl ?? clientBaseUrl`,
+  matching send-time precedence. The async AWS FIPS read is the host's job
+  (the bridge's `resolveBedrockTransport`); an unknown FIPS flag fails
+  closed.
+- `finalizeWebSearchCapability(model, explicit, serving)` computes the final
+  value. The explicit `supportsWebSearch` override is kept separate from the
+  discovered value until this step, so a deliberate opt-in or opt-out
+  survives finalization.
+
+The policy rules, in order:
+
+1. A non-Responses effective route never has hosted search on OpenAI or
+   Bedrock, regardless of any override. (OpenAI client kinds treat an
+   unresolved protocol as the Responses route — the provider factory builds
+   `OpenAIClient` in Responses mode; Bedrock treats it as the
+   Converse/Anthropic heuristic route, no search.)
+2. Built-in OpenAI on its canonical Responses endpoint defaults to `true`;
+   an explicit `false` wins.
+3. A redirected built-in OpenAI endpoint defaults to `false`; an explicit
+   `true` may opt in when the gateway genuinely serves Responses search.
+4. A custom OpenAI provider defaults to `false` and requires explicit `true`
+   plus Responses routing.
+5. Bedrock requires a documented Mantle GPT family (re-derived from the
+   model ID via `getBedrockMantleModelCapabilities`, so an explicit `true`
+   cannot manufacture eligibility for gpt-oss or unknown families), the
+   Mantle Responses route, a web-search-enabled region (`us-east-1`,
+   `us-east-2`, `us-west-2` — deliberately narrower than Mantle inference
+   availability), and no FIPS veto. An explicit `false` disables it; an
+   explicit `true` cannot bypass the service gates.
+
 ### Databricks Native Routing (`databricks-helpers.ts`, `gemini-generate-content.ts`)
 
 Databricks fronts many vendors behind one workspace and exposes native
@@ -720,36 +775,37 @@ the bridge's `ModelInfo` — compatible by contract, not by import.
 
 ## Code Layout
 
-| Location                              | What it does                                                                                                                                     |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `src/vocabulary.ts`                   | Provider-ID / protocol / client-kind / reserved-key value tuples + type guards                                                                   |
-| `src/schema.ts`                       | Zod schemas (full + enforced variants) for `providers.json`                                                                                      |
-| `src/types.ts`                        | Types inferred from Zod + resolution outputs + branded `CustomProviderId` / `mintCustomProviderId`                                               |
-| `src/defaults.ts`                     | Built-in provider connection defaults; `PROVIDER_CONNECTION_DEFAULTS`                                                                            |
-| `src/enforce.ts`                      | `mergeEnforced()` deep-merge of enforced over user config                                                                                        |
-| `src/resolve-enabled.ts`              | `resolveEnabled()` enablement precedence ladder                                                                                                  |
-| `src/resolve-connection.ts`           | Internal baseUrl/endpoint resolution precedence                                                                                                  |
-| `src/resolve-models.ts`               | `resolveModels()` model selection + routing pipeline                                                                                             |
-| `src/model-capabilities/*-helpers.ts` | Per-provider capability tables (moved from the bridge, ai-lib#9)                                                                                 |
-| `src/model-capabilities/infer.ts`     | `inferModelCapabilities()` — baseline + provider-family merge, Snowflake protocol rule                                                           |
-| `src/index.ts`                        | Pure entrypoint exports                                                                                                                          |
-| `src/node/paths.ts`                   | `AI_CONFIG_DIR`, `PROVIDERS_CONFIG_PATH`, enforced env-var name, lockfile path                                                                   |
-| `src/node/types.ts`                   | Node seam option/result types (`LoadCatalogOptions`, `ProviderCatalogChange`, `Disposable`, …)                                                   |
-| `src/resolve-catalog.ts`              | `resolveProviderCatalog()` — pure deep resolver seam; owns the precedence stack + sealed-enforced invariant                                      |
-| `src/base-url.ts`                     | Legacy bare-host correction plus `normalizeOpenRouterBaseUrl()` / `OPENROUTER_DEFAULT_BASE_URL`, shared by OpenRouter discovery, chat, and forms |
-| `src/edit-jsonc.ts`                   | Pure validation-free JSONC diff-to-edits transformer + JSON serialization normalization                                                          |
-| `src/config-source.ts`                | `ProviderConfigSource` + internal `ProviderConfigSourceProvider` loader machinery                                                                |
-| `src/legacy-positron-settings/`       | PROVIDER-SETTINGS-MIGRATION: legacy settings map, translator, and internal source builders                                                       |
-| `src/build-catalog.ts`                | `buildCatalog()` — assemble `ResolvedProvider[]` from merged config + enablement layers (pure entry)                                             |
-| `src/node/load-config.ts`             | `loadConfigSourceReports()` / readers — silently assemble `{ source?, issues }` reports; compatibility wrapper renders and returns sources       |
-| `src/node/parse-jsonc.ts`             | Internal JSONC parser; comments/trailing commas, null-prototype object materialization, `SyntaxError` on invalid input                           |
-| `src/node/parse-providers-config.ts`  | Internal strict `parseProvidersConfig()` mutation seam + tolerant `parseProvidersConfigTolerant()` read seam                                     |
-| `src/node/load-catalog.ts`            | Canonical `loadProviderCatalogReport()` seam + bare-catalog `loadResolvedProviderCatalog()` compatibility wrapper                                |
-| `src/node/mutate-config.ts`           | `mutateProvidersConfig()` — locked, atomic, serialized mutation                                                                                  |
-| `src/node/watch-catalog.ts`           | `watchResolvedProviderCatalog()` — watch, reload, diff, emit typed changes                                                                       |
-| `src/node/index.ts`                   | Node entrypoint; re-exports pure entry + filesystem seams                                                                                        |
-| `providers.schema.json`               | Generated JSON Schema, exported for editor validation                                                                                            |
-| `scripts/generate-schema.ts`          | Regenerates `providers.schema.json` from the Zod schemas                                                                                         |
+| Location                               | What it does                                                                                                                                     |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src/vocabulary.ts`                    | Provider-ID / protocol / client-kind / reserved-key value tuples + type guards                                                                   |
+| `src/schema.ts`                        | Zod schemas (full + enforced variants) for `providers.json`                                                                                      |
+| `src/types.ts`                         | Types inferred from Zod + resolution outputs + branded `CustomProviderId` / `mintCustomProviderId`                                               |
+| `src/defaults.ts`                      | Built-in provider connection defaults; `PROVIDER_CONNECTION_DEFAULTS`                                                                            |
+| `src/enforce.ts`                       | `mergeEnforced()` deep-merge of enforced over user config                                                                                        |
+| `src/resolve-enabled.ts`               | `resolveEnabled()` enablement precedence ladder                                                                                                  |
+| `src/resolve-connection.ts`            | Internal baseUrl/endpoint resolution precedence                                                                                                  |
+| `src/resolve-models.ts`                | `resolveModels()` model selection + routing pipeline                                                                                             |
+| `src/model-capabilities/*-helpers.ts`  | Per-provider capability tables (moved from the bridge, ai-lib#9)                                                                                 |
+| `src/model-capabilities/infer.ts`      | `inferModelCapabilities()` — baseline + provider-family merge, Snowflake protocol rule                                                           |
+| `src/model-capabilities/web-search.ts` | `resolveWebSearchServing()` / `finalizeWebSearchCapability()` — hosted web-search capability finalization over the resolved serving context      |
+| `src/index.ts`                         | Pure entrypoint exports                                                                                                                          |
+| `src/node/paths.ts`                    | `AI_CONFIG_DIR`, `PROVIDERS_CONFIG_PATH`, enforced env-var name, lockfile path                                                                   |
+| `src/node/types.ts`                    | Node seam option/result types (`LoadCatalogOptions`, `ProviderCatalogChange`, `Disposable`, …)                                                   |
+| `src/resolve-catalog.ts`               | `resolveProviderCatalog()` — pure deep resolver seam; owns the precedence stack + sealed-enforced invariant                                      |
+| `src/base-url.ts`                      | Legacy bare-host correction plus `normalizeOpenRouterBaseUrl()` / `OPENROUTER_DEFAULT_BASE_URL`, shared by OpenRouter discovery, chat, and forms |
+| `src/edit-jsonc.ts`                    | Pure validation-free JSONC diff-to-edits transformer + JSON serialization normalization                                                          |
+| `src/config-source.ts`                 | `ProviderConfigSource` + internal `ProviderConfigSourceProvider` loader machinery                                                                |
+| `src/legacy-positron-settings/`        | PROVIDER-SETTINGS-MIGRATION: legacy settings map, translator, and internal source builders                                                       |
+| `src/build-catalog.ts`                 | `buildCatalog()` — assemble `ResolvedProvider[]` from merged config + enablement layers (pure entry)                                             |
+| `src/node/load-config.ts`              | `loadConfigSourceReports()` / readers — silently assemble `{ source?, issues }` reports; compatibility wrapper renders and returns sources       |
+| `src/node/parse-jsonc.ts`              | Internal JSONC parser; comments/trailing commas, null-prototype object materialization, `SyntaxError` on invalid input                           |
+| `src/node/parse-providers-config.ts`   | Internal strict `parseProvidersConfig()` mutation seam + tolerant `parseProvidersConfigTolerant()` read seam                                     |
+| `src/node/load-catalog.ts`             | Canonical `loadProviderCatalogReport()` seam + bare-catalog `loadResolvedProviderCatalog()` compatibility wrapper                                |
+| `src/node/mutate-config.ts`            | `mutateProvidersConfig()` — locked, atomic, serialized mutation                                                                                  |
+| `src/node/watch-catalog.ts`            | `watchResolvedProviderCatalog()` — watch, reload, diff, emit typed changes                                                                       |
+| `src/node/index.ts`                    | Node entrypoint; re-exports pure entry + filesystem seams                                                                                        |
+| `providers.schema.json`                | Generated JSON Schema, exported for editor validation                                                                                            |
+| `scripts/generate-schema.ts`           | Regenerates `providers.schema.json` from the Zod schemas                                                                                         |
 
 ## Invariants & Design Decisions
 
