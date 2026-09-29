@@ -12,15 +12,12 @@
 
 export {
 	CONFIG_KEY_OVERRIDES,
-	CUSTOM_CLIENT_KIND_AUTH_MAP,
 	customProviderAuthMapping,
-	serializeSessionToken,
 	shapeCredentials,
 } from "ai-credentials/types";
 export type {
 	AuthProviderMapping,
 	CredentialConfig,
 	CredentialConfigTarget,
-	SessionTokenEnvelope,
 	StructuredBaseUrlSource,
 } from "ai-credentials/types";
