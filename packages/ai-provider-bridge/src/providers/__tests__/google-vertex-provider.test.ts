@@ -335,6 +335,8 @@ describe("resolveGoogleVertexAccessToken", () => {
 			Object.assign(new Error("unavailable"), { response: { status: 503 } }),
 		],
 		["throttling", Object.assign(new Error("rate limited"), { response: { status: 429 } })],
+		["a request timeout", Object.assign(new Error("request timed out"), { name: "TimeoutError" })],
+		["an aborted request", Object.assign(new Error("aborted"), { name: "AbortError" })],
 	])("passes %s through unchanged instead of blaming the credentials", async (_label, error) => {
 		authMocks.getAccessToken.mockRejectedValueOnce(error);
 		await expect(resolveGoogleVertexAccessToken(inlineEnv)).rejects.toBe(error);

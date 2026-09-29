@@ -87,6 +87,9 @@ function isTransientTokenError(error: unknown): boolean {
 	if (typeof error !== "object" || error === null) return false;
 	const status = (error as { response?: { status?: unknown } }).response?.status;
 	if (typeof status === "number") return status === 429 || status >= 500;
+	// Request timeouts arrive as named aborts with no error code.
+	const name = (error as { name?: unknown }).name;
+	if (name === "AbortError" || name === "TimeoutError") return true;
 	const code = (error as { code?: unknown }).code;
 	return typeof code === "string" && TRANSIENT_NETWORK_CODES.has(code);
 }
