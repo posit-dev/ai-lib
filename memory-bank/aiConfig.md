@@ -581,14 +581,15 @@ Classification rules, in order:
   not read — splits change independently of the configuration observed here);
   the native route requires every entity to resolve to the same protocol
   (mixed/empty/ambiguous prefers unified MLflow Responses when every entity
-  advertises it, then falls back to `openai-chat` when chat is unanimously
-  advertised); capabilities aggregate conservatively across
+  advertises it and is eligible, then falls back to `openai-chat` when chat is
+  unanimously advertised); capabilities aggregate conservatively across
   same-protocol entities (minimum numeric limits, intersection of
   media-type/effort-level sets, boolean AND, `vendor`/`family` only when
   unanimous); and the whole computation is entity-order invariant.
 - **Fallback stamps are always explicit**, never `undefined`: a gateway endpoint
-  gets `mlflow-responses` when unanimously advertised, otherwise `openai-chat`
-  wherever chat exists. `undefined` stays reserved for providers that made no
+  gets `mlflow-responses` when every entity advertises it and can stream tool
+  arguments on that route (unlike GPT OSS), otherwise `openai-chat` wherever
+  chat exists. `undefined` stays reserved for providers that made no
   routing decision at all.
 
 **Two documented limitations, not fixed here:**
@@ -633,13 +634,14 @@ table's levels.
 completions.** The gateway exposes `/ai-gateway/mlflow/v1/responses` alongside
 `/ai-gateway/mlflow/v1/chat/completions`. It is a different API from the
 `openai/v1/responses` **native passthrough**, which Databricks refuses for
-models it does not proxy natively. Endpoints advertising the
-`mlflow/v1/responses` api_type are therefore stamped `mlflow-responses`, which
-routes to `{host}/ai-gateway/mlflow/v1` in the SDK's Responses mode. The chat
-surface loses on all three counts that matter: it rejects `store`, rejects
-`max_completion_tokens`, and streams reasoning as a `delta.content` block array
-that the OpenAI chunk schema cannot represent, while Responses accepts the same
-thinking controls and carries reasoning as first-class items. On the chat
+models it does not proxy natively. When every served entity advertises
+`mlflow/v1/responses` and can stream tool arguments on it, the endpoint is
+stamped `mlflow-responses`. This routes to `{host}/ai-gateway/mlflow/v1` in the
+SDK's Responses mode. The chat surface loses on all three counts that matter:
+it rejects `store` and `max_completion_tokens`, and streams reasoning as a
+`delta.content` block array that the OpenAI chunk schema cannot represent,
+while Responses accepts those thinking controls and carries reasoning as
+first-class items. On the chat
 surface the OpenAI-compatible fetch (transform 7) collapses that array to its
 text parts: the AI SDK otherwise rejects the whole chunk, and Databricks can
 send tool call arguments in the same chunk as reasoning (GPT OSS on classic

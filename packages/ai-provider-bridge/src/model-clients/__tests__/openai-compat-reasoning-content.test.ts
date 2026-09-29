@@ -100,6 +100,19 @@ describe("createOpenAICompatibleFetch — array delta.content", () => {
 		expect(toolCalls).toEqual([{ city: "Paris" }]);
 	});
 
+	it("keeps co-chunked tool arguments when content contains a non-object part", async () => {
+		const malformed = [...toolCallStream];
+		malformed[1] = chunk({
+			content: [null, ...reasoning("Calling get_weather")],
+			tool_calls: [{ index: 0, function: { arguments: '{"city":"Paris"}' } }],
+		});
+		const collected = await parts(malformed);
+
+		expect(collected.filter((p) => p.type === "error")).toEqual([]);
+		const toolCalls = collected.flatMap((p) => (p.type === "tool-call" ? [p.input] : []));
+		expect(toolCalls).toEqual([{ city: "Paris" }]);
+	});
+
 	it("keeps text parts and drops reasoning parts without stream errors", async () => {
 		const collected = await parts(textStream);
 

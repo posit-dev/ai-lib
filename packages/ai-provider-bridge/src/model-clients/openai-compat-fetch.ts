@@ -99,22 +99,13 @@ interface MalformedToolCall {
 }
 
 /**
- * A content part in an array-valued delta `content`. Databricks sends
- * `{type: "reasoning", summary: [...]}` and `{type: "text", text}` parts.
- */
-interface MalformedContentPart {
-	type?: string;
-	text?: unknown;
-}
-
-/**
  * A delta where `role` may be empty string instead of `"assistant"`,
  * `content` may be an array of parts instead of a string, and `tool_calls`
  * may contain malformed entries.
  */
 interface MalformedDelta {
 	role?: "assistant" | ""; // may be "" instead of "assistant"
-	content?: string | null | MalformedContentPart[]; // may be an array of parts
+	content?: string | null | unknown[]; // may be an array of untrusted content parts
 	tool_calls?: MalformedToolCall[];
 }
 
@@ -434,21 +425,24 @@ function fixMalformedChunk(chunk: MalformedChatCompletionChunk, noArgTools: stri
 	}
 }
 
-/** Content part types whose `text` is visible output rather than reasoning. */
-const TEXT_PART_TYPES: ReadonlySet<string> = new Set(["text", "output_text"]);
-
 /**
  * Collapse array-valued delta `content` to the string the spec requires:
  * the concatenated text of its text parts, or `null` when it has none.
  * Every other part type (reasoning included) is dropped deliberately.
  */
-function flattenContentParts(parts: MalformedContentPart[]): string | null {
-	const text = parts
-		.flatMap((part) =>
-			part.type !== undefined && TEXT_PART_TYPES.has(part.type) && typeof part.text === "string"
-				? [part.text]
-				: [],
-		)
-		.join("");
+function flattenContentParts(parts: unknown[]): string | null {
+	let text = "";
+	for (const part of parts) {
+		if (
+			typeof part === "object" &&
+			part !== null &&
+			"type" in part &&
+			(part.type === "text" || part.type === "output_text") &&
+			"text" in part &&
+			typeof part.text === "string"
+		) {
+			text += part.text;
+		}
+	}
 	return text === "" ? null : text;
 }

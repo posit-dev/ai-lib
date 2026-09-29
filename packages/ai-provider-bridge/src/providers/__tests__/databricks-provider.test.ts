@@ -181,6 +181,21 @@ const FOUNDATION_MODELS_FIXTURE = {
 				],
 			},
 		},
+		// GPT OSS advertises both routes, but its Responses stream drops tool arguments.
+		{
+			name: "databricks-gpt-oss-120b",
+			config: {
+				served_entities: [
+					{
+						foundation_model: {
+							name: "databricks-gpt-oss-120b",
+							api_types: ["mlflow/v1/chat/completions", "mlflow/v1/responses"],
+							ai_gateway_v2_supported: true,
+						},
+					},
+				],
+			},
+		},
 		// Embeddings model — excluded (never advertises the chat api_type)
 		{
 			name: "databricks-gte-large-en",
@@ -361,6 +376,7 @@ describe("registerDatabricksProvider model fetcher", () => {
 		expect(models.map((m) => [m.id, m.protocol])).toEqual([
 			["databricks-claude-opus-4-8", "anthropic-messages"],
 			["databricks-llama-4-maverick", "openai-chat"],
+			["databricks-gpt-oss-120b", "openai-chat"],
 		]);
 		expect(models[0]).toMatchObject({
 			name: "Claude Opus 4.8",
@@ -371,6 +387,22 @@ describe("registerDatabricksProvider model fetcher", () => {
 			supportsImages: true,
 		});
 		expect(workspace.urlsCalled()).toEqual([PROBE_URL, FOUNDATION_LIST_URL]);
+	});
+
+	it("routes discovered gateway GPT OSS over chat even when Responses is advertised", async () => {
+		const workspace = stubWorkspaceFetch({ probeStatus: 200 });
+		const models = await registry.getModelsForProvider("databricks", CREDENTIALS);
+		const gptOss = models.find((model) => model.id === "databricks-gpt-oss-120b");
+		if (!gptOss) throw new Error("GPT OSS endpoint was not discovered");
+
+		expect(gptOss.protocol).toBe("openai-chat");
+		await runChat(registry.getClientForProvider("databricks", CREDENTIALS), {
+			model: gptOss.id,
+			protocol: gptOss.protocol,
+		});
+		expect(workspace.chatRequests.map((request) => request.url)).toEqual([
+			`${HOST}/ai-gateway/mlflow/v1/chat/completions`,
+		]);
 	});
 
 	it("probes once per registration and shares the pin with concurrent callers", async () => {
@@ -674,7 +706,7 @@ describe("registerDatabricksProvider route seam", () => {
 	it("routes gateway unified MLflow Responses under /ai-gateway/mlflow/v1", async () => {
 		expect(
 			await routedUrl(200, {
-				model: "databricks-gpt-oss-120b",
+				model: "databricks-qwen3-235b-a22b",
 				protocol: "mlflow-responses",
 			}),
 		).toBe(`${HOST}/ai-gateway/mlflow/v1/responses`);

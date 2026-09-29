@@ -19,9 +19,10 @@
  * The rules are deliberately a **positive identification**: a native protocol is
  * stamped only when the endpoint's structure, the model's identity, and (on the
  * gateway surface) the advertised `api_types` all agree. A non-native gateway
- * endpoint uses unified MLflow Responses when every entity advertises it, then
- * falls back to an explicit `openai-chat` stamp when every entity advertises
- * chat. `undefined` is never returned as a protocol.
+ * endpoint uses unified MLflow Responses when every entity advertises it and
+ * streams tool arguments on it (GPT OSS does not), then falls back to an
+ * explicit `openai-chat` stamp when every entity advertises chat. `undefined`
+ * is never returned as a protocol.
  *
  * Two outcomes exist because unavailability is real: on the gateway surface an
  * endpoint whose entities cannot all serve any supported route must not be
@@ -592,8 +593,8 @@ export function inferDatabricksModelProfile(
 
 	// --- Unified MLflow Responses, preferred over chat completions ---
 	// The gateway exposes a unified Responses API alongside chat completions.
-	// For everything that did not qualify for a native vendor route it is the
-	// better target: chat completions rejects `store`, rejects
+	// For eligible models that did not qualify for a native vendor route it is
+	// the better target: chat completions rejects `store`, rejects
 	// `max_completion_tokens`, and streams reasoning as a block array that the
 	// OpenAI chunk schema cannot represent (so reasoning is dropped), while
 	// Responses carries reasoning as first-class items and accepts the same
