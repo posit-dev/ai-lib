@@ -78,6 +78,14 @@ export interface ProviderRegistrationConfig {
 	/** Posit AI Pass base URL, optionally resolved lazily when models are fetched. */
 	positAiBaseUrl: string | (() => string);
 	/**
+	 * Login hosts that may have issued the Posit AI Pass token, in preference
+	 * order (bare hosts or `https://` URLs), read at each lookup. Enables the
+	 * account-email lookup while setup is pending; the token is sent only to
+	 * the first host whose public keys verify it. Omit to disable the lookup
+	 * (e.g. on shared multi-user servers).
+	 */
+	getPositAiAuthHostCandidates?: () => readonly string[];
+	/**
 	 * Host product User-Agent. Sent to Posit AI Pass as-is, and applied by the
 	 * registry as the default `User-Agent` for every other provider whose
 	 * credentials carry `customHeaders`, beneath any explicit custom value.
@@ -118,7 +126,13 @@ type ProviderRegistrar = (
  */
 const PROVIDER_REGISTRARS = {
 	positai: (registry, logger, config) =>
-		registerPositAiProvider(registry, config.positAiBaseUrl, config.userAgent, logger),
+		registerPositAiProvider(
+			registry,
+			config.positAiBaseUrl,
+			config.userAgent,
+			logger,
+			config.getPositAiAuthHostCandidates,
+		),
 	bedrock: (registry, logger, config) =>
 		registerBedrockProvider(registry, logger, config.bedrockCallbacks),
 	"google-vertex": (registry, logger, config) =>
