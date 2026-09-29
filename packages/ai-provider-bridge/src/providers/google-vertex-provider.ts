@@ -155,7 +155,7 @@ export async function resolveGoogleVertexAccessToken(
 /**
  * Resolve an access token for the Vertex AI REST API.
  * Uses a broker-provided token (e.g. from Positron auth ext) when available;
- * otherwise falls back to Application Default Credentials.
+ * otherwise an inline service account, then Application Default Credentials.
  */
 async function getAccessToken(
 	brokered?: string,
@@ -428,7 +428,8 @@ function createGoogleVertexModelFetcher(
 				if (isAuthError(error)) {
 					const isBrokeredAuth = Boolean(credentials.accessToken);
 					const isInlineAuth =
-						error instanceof Error && error.name === INLINE_SERVICE_ACCOUNT_ERROR;
+						!isBrokeredAuth &&
+						inlineServiceAccount(credentialEnvironment ?? process.env) !== undefined;
 					const authMessage = isInlineAuth
 						? "Google Cloud rejected the service-account credentials in GOOGLE_CLIENT_EMAIL and GOOGLE_PRIVATE_KEY. Fix them, or unset them to use Application Default Credentials, then click Reload model list."
 						: isBrokeredAuth

@@ -90,6 +90,33 @@ describe("registerGoogleVertexProvider", () => {
 		);
 	});
 
+	it("points inline service-account users at their variables when Vertex rejects the minted token", async () => {
+		const onProviderStatusChange = vi.fn().mockResolvedValue(undefined);
+		const registry = new ProviderRegistry(mockLogger);
+		registerGoogleVertexProvider(
+			registry,
+			mockLogger,
+			{ onProviderStatusChange },
+			{
+				GOOGLE_CLIENT_EMAIL: "svc@example.iam.gserviceaccount.com",
+				GOOGLE_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\\nabc\\n-----END PRIVATE KEY-----",
+			},
+		);
+
+		await registry.getModelsForProvider("google-vertex", {
+			type: "google-cloud",
+			project: "my-project",
+			location: "us-central1",
+		});
+
+		expect(onProviderStatusChange).toHaveBeenCalledWith(
+			expect.objectContaining({
+				status: "auth_error",
+				error: expect.objectContaining({ code: "inline_service_account_rejected" }),
+			}),
+		);
+	});
+
 	it("reports rejected inline service-account credentials as an auth error, not a network error", async () => {
 		authMocks.getAccessToken.mockRejectedValueOnce(new Error("invalid_rapt"));
 		const onProviderStatusChange = vi.fn().mockResolvedValue(undefined);
