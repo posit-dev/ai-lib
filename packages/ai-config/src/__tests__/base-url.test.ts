@@ -62,6 +62,11 @@ describe("normalizeFoundryBaseUrl", () => {
 		["https://r.openai.azure.com/", "https://r.openai.azure.com/openai/v1"],
 		["https://r.openai.azure.com", "https://r.openai.azure.com/openai/v1"],
 		["https://r.openai.azure.com?api-version=1", "https://r.openai.azure.com/openai/v1"],
+		["https://r.openai.azure.com/openai/v1#section", "https://r.openai.azure.com/openai/v1"],
+		[
+			"https://r.openai.azure.com/openai/v1/responses#frag?not-a-query",
+			"https://r.openai.azure.com/openai/v1",
+		],
 		["", ""],
 		["   ", ""],
 	])("normalizes %s", (input, expected) => {

@@ -157,8 +157,8 @@ const FOUNDRY_V1_PATH = "/openai/v1";
 export function normalizeFoundryBaseUrl(rawUrl: string): string {
 	let url = rawUrl.trim();
 	if (!url) return "";
-	const queryIndex = url.indexOf("?");
-	if (queryIndex !== -1) url = url.substring(0, queryIndex);
+	const suffixIndex = url.search(/[?#]/);
+	if (suffixIndex !== -1) url = url.substring(0, suffixIndex);
 	url = url.replace(/\/+$/, "");
 	if (!url) return "";
 	const deploymentIndex = url.indexOf("/openai/deployments/");
