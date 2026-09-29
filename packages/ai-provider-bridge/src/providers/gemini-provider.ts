@@ -3,13 +3,17 @@
  *--------------------------------------------------------------------------------------------*/
 
 import type { ResolvedProviderId } from "ai-config";
-import { GEMINI_API_VERSION, GEMINI_HOST, inferModelCapabilities } from "ai-config";
+import {
+	GEMINI_API_VERSION,
+	GEMINI_HOST,
+	inferModelCapabilities,
+	isGeminiWebSearchVerified,
+} from "ai-config";
 
 import {
 	getGeminiInteractionsProfile,
 	hasGeminiInteractionsProfile,
 	isGeminiApiChatModel,
-	isGeminiWebSearchVerified,
 } from "../model-capabilities/gemini-interactions";
 import { GeminiClient } from "../model-clients/GeminiClient";
 import type { Logger, ModelInfo } from "../types";

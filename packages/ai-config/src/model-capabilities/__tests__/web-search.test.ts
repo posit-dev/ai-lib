@@ -289,7 +289,7 @@ describe("finalizeWebSearchCapability", () => {
 			});
 		});
 
-		it("keeps the discovered capability on the canonical endpoint", () => {
+		it("enables a verified model on the canonical endpoint", () => {
 			expect(
 				finalizeWebSearchCapability(
 					makeResolved("gemini-3.8-flash", VERIFIED),
@@ -327,6 +327,18 @@ describe("finalizeWebSearchCapability", () => {
 				finalizeWebSearchCapability(
 					makeResolved("gemini-3.8-flash", VERIFIED),
 					false,
+					GEMINI_BUILTIN,
+				),
+			).toBe(false);
+		});
+
+		it("never enables an unverified model, even when an override opts it in", () => {
+			// resolveModels applies overrides onto the model record before
+			// finalization, so an override leaves supportsWebSearch true here.
+			expect(
+				finalizeWebSearchCapability(
+					makeResolved("gemini-2.5-flash", { supportsWebSearch: true }),
+					true,
 					GEMINI_BUILTIN,
 				),
 			).toBe(false);

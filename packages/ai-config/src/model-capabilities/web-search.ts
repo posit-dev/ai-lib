@@ -28,8 +28,8 @@
  *    `false` disables it; an explicit `true` cannot bypass the service gates.
  * 6. Gemini search grounding is implemented only by `GeminiClient` against
  *    Google's hosted Interactions endpoint, so only the built-in `gemini`
- *    provider on its canonical endpoint may keep its (verified-model-gated)
- *    discovered capability. A redirected built-in endpoint and every custom
+ *    provider on its canonical endpoint may advertise it, and only for a
+ *    verified model ID. A redirected built-in endpoint and every custom
  *    Gemini provider resolve to `false`, regardless of any override.
  * 7. Providers outside this policy keep their already-resolved capability
  *    unchanged (no context is built for them).
@@ -40,6 +40,7 @@ import { BEDROCK_DEFAULTS } from "../defaults.js";
 import type { ResolvedConnection, ResolvedModelInfo } from "../types.js";
 import type { ClientKind } from "../vocabulary.js";
 import { getBedrockMantleModelCapabilities } from "./bedrock-mantle-helpers.js";
+import { isGeminiWebSearchVerified } from "./gemini-api-helpers.js";
 
 /**
  * AWS regions where Bedrock Mantle web search is available — deliberately
@@ -158,9 +159,10 @@ export function finalizeWebSearchCapability(
 		if (!isCanonicalGeminiEndpoint(model.resolvedBaseUrl)) {
 			return false;
 		}
-		// The discovered value already carries the verified-model gate;
-		// an explicit `true` cannot bypass it.
-		return model.supportsWebSearch;
+		// Like the Bedrock family rule, the verified-model gate is re-derived
+		// from the model ID rather than read from the (possibly overridden)
+		// model record, so an explicit `true` cannot bypass it.
+		return isGeminiWebSearchVerified(model.id);
 	}
 
 	if (serving.kind === "bedrock-mantle") {

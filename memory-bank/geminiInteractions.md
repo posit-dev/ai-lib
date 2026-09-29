@@ -144,8 +144,10 @@ on `POST /v1beta/interactions`.
   re-check model IDs. Advertisement is the catalog's job: `buildGeminiModel`
   sets `supportsWebSearch` from `googleHosted && isGeminiWebSearchVerified(id)`.
   Like thinking profiles, the verified list (`WEB_SEARCH_VERIFIED_MODELS` in
-  `gemini-interactions.ts`) is **fail-closed** against fail-open discovery:
-  an unverified future model gets no toggle. Gemini 2.5 is deliberately
+  ai-config's `gemini-api-helpers.ts`) is **fail-closed** against fail-open
+  discovery: an unverified future model gets no toggle. ai-config's
+  `finalizeWebSearchCapability` re-derives the same predicate from the model
+  ID, so a `supportsWebSearch: true` model override cannot enable it. Gemini 2.5 is deliberately
   excluded — its grounding bills per _prompt_ (~$35 vs ~$14 per 1,000), and
   it rejects built-in Search combined with function tools (verified live
   2026-09-05), which PA always sends. Custom Gemini endpoints and Vertex

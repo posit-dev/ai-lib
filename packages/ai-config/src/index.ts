@@ -110,6 +110,7 @@ export type {
 	GeminiGenerateContentThinking,
 } from "./model-capabilities/gemini-generate-content.js";
 export { getGeminiModelCapabilities } from "./model-capabilities/gemini-helpers.js";
+export { isGeminiWebSearchVerified } from "./model-capabilities/gemini-api-helpers.js";
 export { getGemmaModelCapabilities } from "./model-capabilities/gemma-helpers.js";
 export {
 	classifyLitellmModel,
