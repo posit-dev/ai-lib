@@ -14,6 +14,7 @@
 
 import type { SourcedConfigIssue } from "./config-issue.js";
 import type { ProviderConfigSource } from "./resolve-catalog.js";
+import type { ProvidersConfigFragment } from "./types.js";
 
 /**
  * A resource that can be disposed.
@@ -44,4 +45,19 @@ export interface ProviderConfigSourceProvider {
 	read(): ProviderConfigSourceReadReport | Promise<ProviderConfigSourceReadReport>;
 	/** Subscribe to change signals. Returns a disposable. Optional for static sources. */
 	watch?(onChange: () => void): Disposable;
+}
+
+/** The host's `hostDefaults` fragment as a static `default` source; none when the host passes none. */
+export function createHostDefaultsSourceProviders(
+	hostDefaults: ProvidersConfigFragment | undefined,
+): ProviderConfigSourceProvider[] {
+	if (!hostDefaults) return [];
+	return [
+		{
+			read: () => ({
+				source: { kind: "default", label: "host defaults", config: hostDefaults },
+				issues: [],
+			}),
+		},
+	];
 }

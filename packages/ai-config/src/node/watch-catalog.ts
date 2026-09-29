@@ -20,6 +20,7 @@ import * as path from "path";
 
 import { formatConfigIssue } from "../config-issue.js";
 import type { SourcedConfigIssue } from "../config-issue.js";
+import { createHostDefaultsSourceProviders } from "../config-source.js";
 import type {
 	ProviderConfigSourceProvider,
 	ProviderConfigSourceReadReport,
@@ -68,17 +69,8 @@ export function watchResolvedProviderCatalog(
 		createEnvSourceProvider("default", opts.defaultEnvVar ?? DEFAULT_ENV_VAR, env),
 		// PROVIDER-SETTINGS-MIGRATION(legacy-positron)
 		...createLegacyPositronSourceProviders(opts, env),
+		...createHostDefaultsSourceProviders(opts.hostDefaults),
 	];
-
-	if (opts.hostDefaults) {
-		const hostDefaults = opts.hostDefaults;
-		sourceProviders.push({
-			read: async () => ({
-				source: { kind: "default", label: "host defaults", config: hostDefaults },
-				issues: [],
-			}),
-		});
-	}
 
 	let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 	let disposed = false;

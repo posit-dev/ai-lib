@@ -6,6 +6,7 @@
 
 import { formatConfigIssue } from "../config-issue.js";
 import type { SourcedConfigIssue } from "../config-issue.js";
+import { createHostDefaultsSourceProviders } from "../config-source.js";
 import { createLegacyPositronSourceProviders } from "../legacy-positron-settings/sources.js";
 import { resolveProviderCatalogReport } from "../resolve-catalog.js";
 import type { ResolvedProvider } from "../types.js";
@@ -29,15 +30,11 @@ export async function loadProviderCatalogReport(
 		env,
 	});
 
-	const legacyProviders = createLegacyPositronSourceProviders(opts, env);
-	reports.push(...(await Promise.all(legacyProviders.map((provider) => provider.read()))));
-
-	if (opts.hostDefaults) {
-		reports.push({
-			source: { kind: "default", label: "host defaults", config: opts.hostDefaults },
-			issues: [],
-		});
-	}
+	const extraProviders = [
+		...createLegacyPositronSourceProviders(opts, env),
+		...createHostDefaultsSourceProviders(opts.hostDefaults),
+	];
+	reports.push(...(await Promise.all(extraProviders.map((provider) => provider.read()))));
 
 	const loaded = reports.flatMap((report) => (report.source ? [report.source] : []));
 	const sources = opts.transformSource ? loaded.map(opts.transformSource) : loaded;
