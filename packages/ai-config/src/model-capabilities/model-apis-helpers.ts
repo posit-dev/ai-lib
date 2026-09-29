@@ -73,7 +73,9 @@ const MODEL_APIS_CAPABILITIES: Record<string, Partial<ModelInfo>> = {
 		supportsImages: false,
 		supportsToolResultImages: false,
 		supportedInputMediaTypes: [],
-		maxOutputTokens: 384_000,
+		// Baseten Model APIs rejects max_tokens above 262,144 for this model,
+		// lower than DeepSeek's native API limit of 384K.
+		maxOutputTokens: 262_144,
 		maxContextLength: 250_000,
 		maxInputTokens: 250_000,
 	},
