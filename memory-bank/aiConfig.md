@@ -641,18 +641,24 @@ surface loses on all three counts that matter: it rejects `store`, rejects
 that the OpenAI chunk schema cannot represent, while Responses accepts the same
 thinking controls and carries reasoning as first-class items. On the chat
 surface the OpenAI-compatible fetch (transform 7) collapses that array to its
-text parts: the AI SDK otherwise rejects the whole chunk, and Databricks sends
-tool call arguments in the same chunk as reasoning (GPT OSS on classic serving
-completed every tool call with `{}`). Reasoning itself is still discarded.
+text parts: the AI SDK otherwise rejects the whole chunk, and Databricks can
+send tool call arguments in the same chunk as reasoning (GPT OSS on classic
+serving completed every tool call with `{}`). With that transform in place the
+block array no longer breaks tool calls, so the remaining reason to prefer
+Responses here is reasoning fidelity: chat still discards the reasoning.
 
 **GPT OSS is the exception: it stays on chat completions on the gateway.** Its
 streamed `mlflow/v1/responses` output carries `function_call` items with
 `arguments: ""` in every event (including `response.completed`) and no
 argument deltas, so every tool call reaches the client as `{}`; the same
-request non-streamed, or streamed over gateway chat completions, carries the
-arguments, and other hosted families (Qwen, Llama) stream them fine. The
-classifier therefore withholds the `mlflow-responses` stamp from `gpt-oss*`
-identities, and they fall back to `openai-chat` (which they advertise).
+request non-streamed carries the arguments, and other hosted families (Qwen,
+Llama) stream them fine. The classifier therefore withholds the
+`mlflow-responses` stamp from `gpt-oss*` identities, and they fall back to
+`openai-chat` (which they advertise). Chat completions is the better of two
+imperfect routes rather than a clean one: it streams the arguments, but it has
+also been observed to drop GPT OSS output entirely on large, tool-heavy
+requests (observed 2026-09, on both surfaces; re-test before relaxing the
+rule).
 
 The stamp is **gateway-only**: classic serving has no unified Responses route
 (`/serving-endpoints/responses` is native passthrough and refuses

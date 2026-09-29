@@ -5,8 +5,8 @@
 /**
  * Shared OpenAI-compatible fetch wrapper.
  *
- * Many OpenAI-compatible providers (Snowflake Cortex, MS Foundry, generic
- * endpoints) return responses that deviate from the OpenAI Chat Completions
+ * Many OpenAI-compatible providers (Snowflake Cortex, MS Foundry, Databricks,
+ * generic endpoints) return responses that deviate from the OpenAI Chat Completions
  * spec in small but breaking ways. The AI SDK's Zod schema validation
  * rejects these malformed chunks, crashing the stream.
  *
@@ -53,10 +53,11 @@
  *    Spec requires `content` to be a string or null. Databricks streams
  *    reasoning models (e.g. GPT OSS) with an array of content parts —
  *    `{type: "reasoning", summary: [...]}` and `{type: "text", text}`. The AI
- *    SDK rejects the whole chunk, and Databricks sends tool call arguments in
- *    the same chunk as reasoning, so the tool call completes with `{}`. Text
- *    parts are kept; reasoning parts are dropped (the chat completions path
- *    has no reasoning channel to carry them).
+ *    SDK rejects the whole chunk, and Databricks can send tool call arguments
+ *    in the same chunk as reasoning, so the tool call completes with `{}`.
+ *    Text parts (`text` or `output_text`) are kept; every other part type,
+ *    reasoning included, is dropped (the chat completions path has no
+ *    reasoning channel to carry them).
  *
  * ## Auth
  *
@@ -399,7 +400,7 @@ function fixMalformedChunk(chunk: MalformedChatCompletionChunk, noArgTools: stri
 		// Broken: Databricks streams reasoning models with an array of
 		// `{type: "reasoning"}` / `{type: "text"}` parts.
 		// Impact: AI SDK Zod validation rejects the chunk, dropping any tool
-		// call arguments it carries.
+		// call arguments it can carry alongside the reasoning.
 		if (Array.isArray(delta.content)) {
 			delta.content = flattenContentParts(delta.content);
 		}
@@ -433,14 +434,21 @@ function fixMalformedChunk(chunk: MalformedChatCompletionChunk, noArgTools: stri
 	}
 }
 
+/** Content part types whose `text` is visible output rather than reasoning. */
+const TEXT_PART_TYPES: ReadonlySet<string> = new Set(["text", "output_text"]);
+
 /**
  * Collapse array-valued delta `content` to the string the spec requires:
- * the concatenated text of its `text` parts, or `null` when it has none.
- * Reasoning parts are dropped.
+ * the concatenated text of its text parts, or `null` when it has none.
+ * Every other part type (reasoning included) is dropped deliberately.
  */
 function flattenContentParts(parts: MalformedContentPart[]): string | null {
 	const text = parts
-		.flatMap((part) => (part.type === "text" && typeof part.text === "string" ? [part.text] : []))
+		.flatMap((part) =>
+			part.type !== undefined && TEXT_PART_TYPES.has(part.type) && typeof part.text === "string"
+				? [part.text]
+				: [],
+		)
 		.join("");
 	return text === "" ? null : text;
 }

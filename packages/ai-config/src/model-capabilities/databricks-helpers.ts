@@ -226,9 +226,11 @@ function isResponsesCompatibleOpenAIId(modelId: string): boolean {
  * intact. GPT OSS does not: its streamed `function_call` items carry
  * `arguments: ""` in every event, `response.completed` included, with no
  * `function_call_arguments.delta` events — so every tool call arrives with `{}`
- * input. The same request non-streamed, or over the gateway's chat completions
- * route, carries the arguments, and other hosted families (Qwen, Llama) stream
- * them fine on Responses.
+ * input. The same request non-streamed carries the arguments, and other hosted
+ * families (Qwen, Llama) stream them fine on Responses. Chat completions is the
+ * better of two imperfect routes for GPT OSS: it streams the arguments, though
+ * it has also been observed to drop output entirely on large, tool-heavy
+ * requests (observed 2026-09; re-test before relaxing this rule).
  */
 function streamsUnifiedResponsesToolArguments(modelId: string): boolean {
 	return !/^gpt-oss/.test(modelId.toLowerCase());

@@ -107,4 +107,17 @@ describe("createOpenAICompatibleFetch — array delta.content", () => {
 		const text = collected.flatMap((p) => (p.type === "text-delta" ? [p.text] : [])).join("");
 		expect(text).toBe("Hello!");
 	});
+
+	it("keeps output_text parts and ignores parts without string text", async () => {
+		const collected = await parts([
+			chunk({ role: "assistant", content: "" }),
+			chunk({ content: [{ type: "output_text", text: "Hi" }] }),
+			chunk({ content: [{ type: "text", text: 42 }] }),
+			chunk({ content: "" }, "stop"),
+		]);
+
+		expect(collected.filter((p) => p.type === "error")).toEqual([]);
+		const text = collected.flatMap((p) => (p.type === "text-delta" ? [p.text] : [])).join("");
+		expect(text).toBe("Hi");
+	});
 });
