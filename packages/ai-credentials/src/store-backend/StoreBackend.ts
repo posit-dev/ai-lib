@@ -35,12 +35,14 @@ import {
  * How much exclusion `withLock` gives is up to the backing: `SingleFileStore`
  * locks across processes, VS Code `SecretStorage` only within one window.
  *
- * OAuth tolerates the weaker case. Every record carries a `generation`, and a
- * refresh commits only while the stored record still holds the one it read, so
- * the slower of two concurrent refreshes writes nothing.
+ * Every OAuth record carries a `generation`, and a refresh commits only while the
+ * stored record still holds the one it read. Under a cross-process lock that makes
+ * concurrent refreshes safe. Under a per-window lock it only narrows the race: the
+ * generation check and the write are separate steps, so two windows can both pass
+ * the check before either writes.
  *
- * AWS `preserve` mutations have no such marker and do need a backing that
- * excludes every writer of the same keys.
+ * AWS `preserve` mutations have no such marker and need a backing that excludes
+ * every writer of the same keys.
  */
 export interface StoreBackendStorage {
 	get<T>(key: string): Promise<T | undefined>;

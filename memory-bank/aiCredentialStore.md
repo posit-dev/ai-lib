@@ -88,10 +88,12 @@ The backend consumes storage through the `StoreBackendStorage` interface defined
 structurally, and non-file backings (e.g. VS Code SecretStorage) can be injected.
 `withLock`'s lock scope is the backing's contract. AWS preserve mutations merge fields
 into the current record, so they need exclusion against every writer of the same keys.
-OAuth does not: each record carries a `generation`, and a commit lands only while the
-stored record still holds the one the operation read. So a backing with in-process
-exclusion alone (VS Code SecretStorage) stays safe for OAuth and for whole-record
-API-key replace/clear, which is last-writer-wins by design.
+OAuth records carry a `generation`, and a commit lands only while the stored record
+still holds the one the operation read. Under a cross-process lock (`SingleFileStore`)
+that makes concurrent OAuth commits safe. Under in-process exclusion alone (VS Code
+SecretStorage) it only narrows the race: the generation check and the write are
+separate steps, so two windows can both pass the check before either writes. Whole-record
+API-key replace/clear is last-writer-wins by design under either backing.
 
 ```ts
 import { createDefaultStore, getDefaultStorePath } from "ai-credentials/store";
