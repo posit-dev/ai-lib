@@ -123,6 +123,33 @@ describe("registerGoogleVertexProvider", () => {
 		);
 	});
 
+	it("reports a dropped inline token exchange as a network error, not rejected credentials", async () => {
+		authMocks.getAccessToken.mockRejectedValueOnce(
+			Object.assign(new Error("socket hang up"), { code: "ECONNRESET" }),
+		);
+		const onProviderStatusChange = vi.fn().mockResolvedValue(undefined);
+		const registry = new ProviderRegistry(mockLogger);
+		registerGoogleVertexProvider(
+			registry,
+			mockLogger,
+			{ onProviderStatusChange },
+			{
+				GOOGLE_CLIENT_EMAIL: "svc@example.iam.gserviceaccount.com",
+				GOOGLE_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\\nabc\\n-----END PRIVATE KEY-----",
+			},
+		);
+
+		await registry.getModelsForProvider("google-vertex", {
+			type: "google-cloud",
+			project: "my-project",
+			location: "us-central1",
+		});
+
+		expect(onProviderStatusChange).toHaveBeenCalledWith(
+			expect.objectContaining({ providerId: "google-vertex", status: "network_error" }),
+		);
+	});
+
 	it("uses a captured ADC path after the ambient environment is scrubbed", async () => {
 		const parentEnvironment: Record<string, string | undefined> = {
 			GOOGLE_APPLICATION_CREDENTIALS: "/secrets/service-account.json",
@@ -272,6 +299,27 @@ describe("resolveGoogleVertexAccessToken", () => {
 			message: "Inline service-account credentials failed: bad key",
 		});
 		expect(authMocks.googleAuth).toHaveBeenCalledTimes(1);
+	});
+
+	it.each([
+		["a connection reset", Object.assign(new Error("socket hang up"), { code: "ECONNRESET" })],
+		[
+			"a token-service outage",
+			Object.assign(new Error("unavailable"), { response: { status: 503 } }),
+		],
+		["throttling", Object.assign(new Error("rate limited"), { response: { status: 429 } })],
+	])("passes %s through unchanged instead of blaming the credentials", async (_label, error) => {
+		authMocks.getAccessToken.mockRejectedValueOnce(error);
+		await expect(resolveGoogleVertexAccessToken(inlineEnv)).rejects.toBe(error);
+	});
+
+	it("treats a token-endpoint rejection as rejected credentials", async () => {
+		authMocks.getAccessToken.mockRejectedValueOnce(
+			Object.assign(new Error("invalid_grant"), { response: { status: 400 } }),
+		);
+		await expect(resolveGoogleVertexAccessToken(inlineEnv)).rejects.toMatchObject({
+			name: "InlineServiceAccountError",
+		});
 	});
 
 	it("falls back to ADC when the inline vars are absent", async () => {

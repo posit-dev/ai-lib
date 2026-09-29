@@ -71,6 +71,26 @@ const MODEL_CACHE_TTL = 60 * 60 * 1000;
 
 const CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform";
 
+const TRANSIENT_NETWORK_CODES: ReadonlySet<string> = new Set([
+	"ECONNRESET",
+	"ETIMEDOUT",
+	"ECONNREFUSED",
+	"ECONNABORTED",
+	"ENOTFOUND",
+	"EAI_AGAIN",
+	"ENETUNREACH",
+	"EHOSTUNREACH",
+]);
+
+/** A token-exchange failure that says nothing about the credentials: throttling, a server error, or no response. */
+function isTransientTokenError(error: unknown): boolean {
+	if (typeof error !== "object" || error === null) return false;
+	const status = (error as { response?: { status?: unknown } }).response?.status;
+	if (typeof status === "number") return status === 429 || status >= 500;
+	const code = (error as { code?: unknown }).code;
+	return typeof code === "string" && TRANSIENT_NETWORK_CODES.has(code);
+}
+
 /** The inline service account from `GOOGLE_CLIENT_EMAIL` and `GOOGLE_PRIVATE_KEY`, or undefined when either is unset. */
 function inlineServiceAccount(
 	env: Readonly<Record<string, string | undefined>>,
@@ -112,6 +132,7 @@ export async function resolveGoogleVertexAccessToken(
 		try {
 			token = await tokenFrom(auth);
 		} catch (err) {
+			if (isTransientTokenError(err)) throw err;
 			const message = err instanceof Error ? err.message : String(err);
 			throw new InlineServiceAccountError(message);
 		}
