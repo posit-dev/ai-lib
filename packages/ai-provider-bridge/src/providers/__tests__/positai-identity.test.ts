@@ -120,6 +120,7 @@ function setup(getAuthHostCandidates?: () => readonly string[]) {
 	registerPositAiProvider(registry, API, "test/1.0", logger, getAuthHostCandidates);
 	return {
 		registry,
+		logger,
 		list: (accessToken: string | undefined) =>
 			registry.getModelsForProvider("positai", {
 				type: "oauth",
@@ -453,5 +454,28 @@ describe("Posit AI Pass account email", () => {
 		await list(await signToken(stagingKey, 42));
 
 		expect(state()).toEqual({ modelFetchState: "agreement_pending", modelFetchStatusCode: 403 });
+	});
+
+	// JSON parse errors quote the start of the input, and a custom fetch's
+	// rejection can carry request details; neither may reach the logs.
+	it.each<[string, Handler]>([
+		["a body that isn't JSON", () => new Response("b@example.com, not JSON", { status: 200 })],
+		[
+			"a fetch rejection naming the account",
+			() => Promise.reject(new TypeError("request for b@example.com failed")),
+		],
+	])("logs no profile or request details after %s", async (_name, me) => {
+		mockFetch({
+			[`${STAGING}/.well-known/jwks.json`]: jwksRoute(stagingKey),
+			[`${STAGING}/api/users/me`]: me,
+		});
+		const { list, state, logger } = setup(() => [STAGING]);
+		const token = await signToken(stagingKey, 42);
+
+		await list(token);
+
+		expect(state()).toEqual({ modelFetchState: "agreement_pending", modelFetchStatusCode: 403 });
+		const logged = Object.values(logger).flatMap((fn) => fn.mock.calls.flat().map(String));
+		expect(logged.filter((line) => line.includes("b@example") || line.includes(token))).toEqual([]);
 	});
 });

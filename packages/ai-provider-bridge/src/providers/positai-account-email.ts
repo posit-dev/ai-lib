@@ -9,13 +9,18 @@
  *
  * The lookup sends the bearer token to a login host's `/api/users/me`. That is
  * a new destination for the token, and stored tokens outlive auth-host edits,
- * so the token is only sent to a host that provably issued it: the token's
- * RS256 signature must verify against that host's public JWKS. The token's
- * `iss` claim names no host, so it can't be used for this. Every failure
- * (no candidates, bad host, bad signature, JWKS or lookup failure, timeout)
- * resolves to `undefined`; the lookup never rejects.
+ * so the token is only sent to a candidate host that publishes the key that
+ * signed it: the token's RS256 signature must verify against that host's
+ * public JWKS. This guards against misrouting, such as sending a staging token
+ * to production after the host is switched. It does not prove the host is the
+ * issuer: public keys can be republished by anyone. Candidates must therefore
+ * come from trusted configuration, which already controls where PA signs in
+ * and refreshes tokens. The token's `iss` claim names no host, so it can't be
+ * used instead. Every failure (no candidates, bad host, bad signature, JWKS or
+ * lookup failure, timeout) resolves to `undefined`; the lookup never rejects.
  *
- * Never log the token, the email, or the `/api/users/me` body.
+ * Never log the token, the email, the `/api/users/me` body, or the text of an
+ * error raised while fetching or parsing it (JSON parse errors quote the input).
  */
 
 import type { Logger } from "../types";
@@ -160,7 +165,7 @@ export function createPositAiAccountEmailLookup(
 		try {
 			return await Promise.race([resolveEmail(token, origins, controller.signal), timeout]);
 		} catch (error) {
-			logger.debug(`${LOG_PREFIX} Account email lookup failed: ${describeError(error)}`);
+			logger.debug(`${LOG_PREFIX} Account email lookup failed: ${lookupFailureCategory(error)}`);
 			return undefined;
 		} finally {
 			clearTimeout(timer);
@@ -372,4 +377,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function describeError(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * A fixed description of a failed identity lookup. The error's own text can
+ * quote the profile body or request details, so it is never logged.
+ */
+function lookupFailureCategory(error: unknown): string {
+	if (error instanceof SyntaxError) return "response wasn't JSON";
+	if (error instanceof Error && error.name === "AbortError") return "aborted";
+	return "request failed";
 }
