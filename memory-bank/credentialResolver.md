@@ -99,7 +99,9 @@ credentials, and refresh grants. A per-provider mutex and jittered
 proactive-refresh window prevent duplicate renewal in one process. The store
 backend adds a provider-scoped transaction around stored refresh: check, lock,
 re-read, adopt another process's result when possible, otherwise refresh and
-persist the rotated token. Environment M2M tokens never enter that transaction
+persist the rotated token. The transaction notes the record's generation, and the
+refreshed tokens or a refresh error persist only while the record still holds it,
+so a refresh that another writer overtook writes nothing. Environment M2M tokens never enter that transaction
 because their derived tokens live only in process memory.
 
 ### Refresh failure policy — terminal vs. transient
@@ -145,6 +147,8 @@ M2M `clientCredentialsAuth`. Explicit stored credentials win over environment
 credentials. With environment-only configuration, `DATABRICKS_TOKEN` wins
 unless `DATABRICKS_AUTH_TYPE=oauth-m2m`; environment M2M requires
 `DATABRICKS_HOST`, `DATABRICKS_CLIENT_ID`, and `DATABRICKS_CLIENT_SECRET`.
+When `DATABRICKS_CONFIG_FILE` points at a `posit-workbench` path, the admin-managed
+profile outranks `DATABRICKS_TOKEN` and the environment resolves nothing.
 Status exposes only source, origin, readiness, expiry, and sanitized workspace
 metadata.
 
@@ -152,8 +156,10 @@ The Databricks entry in `PROVIDER_ENV_MAPPINGS` declares both PAT and M2M
 names. `StoreBackend` reads M2M fields through that mapping, and
 `captureProviderEnvironment` enumerates the same fields, so an authenticated
 host cannot omit `DATABRICKS_CLIENT_SECRET` from its capture/scrub inventory.
-The same single-source guarantee covers the Vertex ADC path
-(`GOOGLE_APPLICATION_CREDENTIALS`) and the Azure SDK names (`AZURE_*`): both
+The same single-source guarantee covers the Vertex credentials (the ADC path
+`GOOGLE_APPLICATION_CREDENTIALS` and the inline service account
+`GOOGLE_CLIENT_EMAIL`/`GOOGLE_PRIVATE_KEY`/`GOOGLE_PRIVATE_KEY_ID`), the Azure SDK
+names (`AZURE_*`), and the Databricks `DATABRICKS_CONFIG_FILE` marker: all
 are declared as `sdkCredentialEnvironment` descriptors on their provider
 entries and consumed by the bridge exclusively through
 `readSdkCredentialEnvironment`.
@@ -205,6 +211,11 @@ resolve without any host-application import:
   `SUPPORTED_CUSTOM_CLIENT_KIND_VALUES ⊆ CLIENT_KIND_VALUES`. Custom
   `anthropic`, `openai`, and `gemini` map to required `apikey` auth;
   product-bound `positai`, `copilot`, and `databricks` remain excluded.
+- **Custom-provider auth mapping and session tokens (`customProviderAuthMapping`,
+  `serializeSessionToken`)** — `customProviderAuthMapping` returns a custom
+  entry's mapping: the host's aggregate auth provider, with the entry name as the
+  scope. `serializeSessionToken` writes the Google Cloud and AWS session tokens in
+  the shape `shapeCredentials` reads back.
 
 ## On-disk format — `StoredProviderCredentials`
 
@@ -257,8 +268,10 @@ Every mapped field is an `EnvironmentFieldDescriptor` (`{ name, scrub }`), so
 one declaration drives env resolution, host capture/scrubbing, and SDK
 credential construction. `scrub: true` means captured AND deleted from the
 ambient environment; `scrub: false` means captured only (the non-secret Azure
-tenant/client IDs, which user code may legitimately read). Fields a provider
-SDK reads directly are declared under `sdkCredentialEnvironment`, keyed by the
+tenant/client IDs, which user code may legitimately read). Fields read outside
+the API-key and OAuth mappings (by a provider SDK directly, or by a
+credential-source check such as the Workbench Databricks marker) are declared
+under `sdkCredentialEnvironment`, keyed by the
 semantic fields of `SdkCredentialEnvironment` — a misspelled key is a compile
 error, and a behavioral test proves every declared key is represented in the
 reader's result.

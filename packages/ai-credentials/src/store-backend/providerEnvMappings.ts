@@ -43,8 +43,8 @@ export interface EnvironmentFieldDescriptor {
 }
 
 /**
- * Typed view of the environment values provider SDKs read directly (Azure
- * Identity, Google ADC). Assembled by `readSdkCredentialEnvironment` from
+ * Typed view of the environment values read outside the API-key and OAuth
+ * mappings (see `sdkCredentialEnvironment`). Assembled by `readSdkCredentialEnvironment` from
  * the `sdkCredentialEnvironment` descriptors; the descriptor keys are typed
  * against this struct so a misspelled semantic key is a compile error.
  */
@@ -79,9 +79,10 @@ export interface ProviderEnvMapping {
 		sessionToken?: EnvironmentFieldDescriptor;
 	};
 	/**
-	 * Environment variables the provider's SDK reads directly (bypassing the
-	 * credential resolver), keyed by the semantic field of
-	 * `SdkCredentialEnvironment` they populate.
+	 * Environment variables read outside the provider's API-key and OAuth
+	 * mappings: by the provider's SDK directly (Azure Identity, Google ADC) or
+	 * by a credential-source check such as the Workbench-managed Databricks
+	 * profile. Keyed by the semantic field of `SdkCredentialEnvironment` they populate.
 	 */
 	sdkCredentialEnvironment?: Partial<
 		Record<keyof SdkCredentialEnvironment, EnvironmentFieldDescriptor>
