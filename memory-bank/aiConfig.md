@@ -520,13 +520,19 @@ exists after `resolveModels()` has applied overrides and routing.
 `web-search.ts` owns that final step so every host computes the same final
 `supportsWebSearch` from the same inputs:
 
-- `resolveWebSearchServing(provider, awsFips?)` builds the serving context
-  (`openai-builtin`, `openai-custom`, or `bedrock-mantle` with region and
-  FIPS flag), or `undefined` for providers outside the policy, whose models
-  keep their already-resolved capability unchanged. The async AWS FIPS read
-  is the host's job (the bridge's `resolveBedrockTransport`); an unknown
-  FIPS flag fails safe because Mantle discovery already withholds Mantle
-  models under FIPS and the client vetoes the route at request time.
+- `resolveWebSearchServing(provider, facts)` builds the serving context
+  (`openai-builtin`/`gemini-builtin` with the client base URL,
+  `openai-custom`, `gemini-custom`, or `bedrock-mantle` with region and FIPS
+  flag), or `undefined` for providers outside the policy, whose models keep
+  their already-resolved capability unchanged. `facts`
+  (`WebSearchServingFacts`) must come from the host's _effective_
+  credentials — the catalog connection overlaid on the stored credential,
+  exactly what the client is built with — because a stored base URL, AWS
+  region, or profile the catalog lacks still changes where requests go. The
+  finalizer checks the endpoint as `model.resolvedBaseUrl ?? clientBaseUrl`,
+  matching send-time precedence. The async AWS FIPS read is the host's job
+  (the bridge's `resolveBedrockTransport`); an unknown FIPS flag fails
+  closed.
 - `finalizeWebSearchCapability(model, explicit, serving)` computes the final
   value. The explicit `supportsWebSearch` override is kept separate from the
   discovered value until this step, so a deliberate opt-in or opt-out

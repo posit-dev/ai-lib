@@ -173,7 +173,7 @@ export {
 	finalizeWebSearchCapability,
 	resolveWebSearchServing,
 } from "./model-capabilities/web-search.js";
-export type { WebSearchServing } from "./model-capabilities/web-search.js";
+export type { WebSearchServing, WebSearchServingFacts } from "./model-capabilities/web-search.js";
 export type { ModelResolutionContext } from "./resolve-models.js";
 
 // --- Bare-host base URL correction ------------------------------------------

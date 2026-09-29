@@ -37,7 +37,7 @@
 
 import { GEMINI_API_VERSION, GEMINI_HOST, OPENAI_API_VERSION, OPENAI_HOST } from "../base-url.js";
 import { BEDROCK_DEFAULTS } from "../defaults.js";
-import type { ResolvedConnection, ResolvedModelInfo } from "../types.js";
+import type { ResolvedModelInfo } from "../types.js";
 import type { ClientKind } from "../vocabulary.js";
 import { getBedrockMantleModelCapabilities } from "./bedrock-mantle-helpers.js";
 import { isGeminiWebSearchVerified } from "./gemini-api-helpers.js";
@@ -66,9 +66,17 @@ const GEMINI_CANONICAL_BASE_URL = `${GEMINI_HOST}/${GEMINI_API_VERSION}`;
  * none of these keep their discovered/declared capability untouched.
  */
 export type WebSearchServing =
-	| { readonly kind: "openai-builtin" }
+	| {
+			readonly kind: "openai-builtin";
+			/** See {@link WebSearchServingFacts.clientBaseUrl}. */
+			readonly clientBaseUrl?: string;
+	  }
 	| { readonly kind: "openai-custom" }
-	| { readonly kind: "gemini-builtin" }
+	| {
+			readonly kind: "gemini-builtin";
+			/** See {@link WebSearchServingFacts.clientBaseUrl}. */
+			readonly clientBaseUrl?: string;
+	  }
 	| { readonly kind: "gemini-custom" }
 	| {
 			readonly kind: "bedrock-mantle";
@@ -84,31 +92,58 @@ export type WebSearchServing =
 	  };
 
 /**
+ * The serving facts a request will actually use, taken from the host's
+ * *effective* credentials — the same merged credentials (catalog connection
+ * overlaid on the stored credential) the client is constructed with. The
+ * catalog connection alone is not enough: a stored credential can carry a
+ * base URL, AWS region, or profile the catalog does not, and eligibility
+ * must describe the endpoint and region requests go to.
+ */
+export interface WebSearchServingFacts {
+	/**
+	 * The base URL the provider's client is constructed with, which serves
+	 * every model without a per-model routing URL (`model.resolvedBaseUrl`
+	 * wins over it, exactly as at send time). `undefined` means the client's
+	 * built-in default, i.e. the canonical endpoint.
+	 */
+	readonly clientBaseUrl?: string;
+	/** Effective AWS region; `undefined` applies the built-in default. */
+	readonly awsRegion?: string;
+	/**
+	 * Whether AWS FIPS endpoints are mandated for the effective region and
+	 * profile; `undefined` when the host could not determine it.
+	 */
+	readonly awsFips?: boolean;
+}
+
+/**
  * Build the serving context for one catalog provider, or `undefined` when
- * the provider is outside the web-search policy (rule 6).
+ * the provider is outside the web-search policy (rule 7).
  *
- * @param provider - The resolved catalog entry (id, clientKind, connection).
- * @param awsFips - The host-resolved FIPS flag for AWS providers; pass
- *   `undefined` when unknown.
+ * @param provider - The resolved catalog entry's identity (id, clientKind).
+ * @param facts - The effective serving facts (see {@link WebSearchServingFacts}).
  */
 export function resolveWebSearchServing(
 	provider: {
 		readonly id: string;
 		readonly clientKind: ClientKind;
-		readonly connection?: ResolvedConnection;
 	},
-	awsFips?: boolean,
+	facts: WebSearchServingFacts = {},
 ): WebSearchServing | undefined {
 	if (provider.clientKind === "openai") {
 		// Among built-ins only `openai` itself has the "openai" client kind;
 		// every other built-in (databricks, ms-foundry, openai-compatible, …)
 		// has its own kind and stays outside the policy.
-		return { kind: provider.id === "openai" ? "openai-builtin" : "openai-custom" };
+		return provider.id === "openai"
+			? { kind: "openai-builtin", clientBaseUrl: facts.clientBaseUrl }
+			: { kind: "openai-custom" };
 	}
 	if (provider.clientKind === "gemini") {
 		// Likewise, only the built-in `gemini` provider is Google-hosted;
 		// custom Gemini providers get their own resolved ids.
-		return { kind: provider.id === "gemini" ? "gemini-builtin" : "gemini-custom" };
+		return provider.id === "gemini"
+			? { kind: "gemini-builtin", clientBaseUrl: facts.clientBaseUrl }
+			: { kind: "gemini-custom" };
 	}
 	if (provider.clientKind === "aws") {
 		return {
@@ -116,8 +151,8 @@ export function resolveWebSearchServing(
 			// The resolved connection deliberately omits the built-in region
 			// default (it is applied at credential-synthesis time), so apply
 			// the same last-resort fallback here.
-			awsRegion: provider.connection?.aws?.region ?? BEDROCK_DEFAULTS.aws.region,
-			awsFips,
+			awsRegion: facts.awsRegion ?? BEDROCK_DEFAULTS.aws.region,
+			awsFips: facts.awsFips,
 		};
 	}
 	return undefined;
@@ -156,7 +191,7 @@ export function finalizeWebSearchCapability(
 		if (explicit === false) {
 			return false;
 		}
-		if (!isCanonicalGeminiEndpoint(model.resolvedBaseUrl)) {
+		if (!isCanonicalGeminiEndpoint(model.resolvedBaseUrl ?? serving.clientBaseUrl)) {
 			return false;
 		}
 		// Like the Bedrock family rule, the verified-model gate is re-derived
@@ -206,7 +241,7 @@ export function finalizeWebSearchCapability(
 	}
 	if (serving.kind === "openai-builtin") {
 		// Rule 2 vs 3: only the canonical endpoint defaults on.
-		return isCanonicalOpenAIEndpoint(model.resolvedBaseUrl);
+		return isCanonicalOpenAIEndpoint(model.resolvedBaseUrl ?? serving.clientBaseUrl);
 	}
 	// Rule 4: custom OpenAI providers require explicit opt-in.
 	return false;

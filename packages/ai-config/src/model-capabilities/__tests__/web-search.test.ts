@@ -54,16 +54,28 @@ describe("resolveWebSearchServing", () => {
 		});
 	});
 
+	it("carries the effective client base URL for built-in OpenAI and Gemini", () => {
+		const facts = { clientBaseUrl: "https://gateway.example.com/v1" };
+		expect(resolveWebSearchServing({ id: "openai", clientKind: "openai" }, facts)).toEqual({
+			kind: "openai-builtin",
+			clientBaseUrl: "https://gateway.example.com/v1",
+		});
+		expect(resolveWebSearchServing({ id: "gemini", clientKind: "gemini" }, facts)).toEqual({
+			kind: "gemini-builtin",
+			clientBaseUrl: "https://gateway.example.com/v1",
+		});
+	});
+
 	it("classifies AWS providers with the effective region and FIPS flag", () => {
 		expect(
 			resolveWebSearchServing(
-				{ id: "bedrock", clientKind: "aws", connection: { aws: { region: "us-west-2" } } },
-				false,
+				{ id: "bedrock", clientKind: "aws" },
+				{ awsRegion: "us-west-2", awsFips: false },
 			),
 		).toEqual({ kind: "bedrock-mantle", awsRegion: "us-west-2", awsFips: false });
 	});
 
-	it("falls back to the default Bedrock region when the connection omits one", () => {
+	it("falls back to the default Bedrock region when the facts omit one", () => {
 		expect(resolveWebSearchServing({ id: "bedrock", clientKind: "aws" })).toEqual({
 			kind: "bedrock-mantle",
 			awsRegion: "us-east-1",
@@ -124,6 +136,26 @@ describe("finalizeWebSearchCapability", () => {
 					OPENAI_BUILTIN,
 				),
 			).toBe(false);
+		});
+
+		it("defaults off when the client itself is redirected (credential base URL)", () => {
+			// No per-model routing URL: requests go to the client's base URL.
+			expect(
+				finalizeWebSearchCapability(makeResolved("gpt-5.6-sol"), undefined, {
+					kind: "openai-builtin",
+					clientBaseUrl: "https://gateway.example.com/v1",
+				}),
+			).toBe(false);
+		});
+
+		it("lets a per-model routing URL win over the client base URL, as at send time", () => {
+			expect(
+				finalizeWebSearchCapability(
+					makeResolved("gpt-5.6-sol", { resolvedBaseUrl: "https://api.openai.com/v1" }),
+					undefined,
+					{ kind: "openai-builtin", clientBaseUrl: "https://gateway.example.com/v1" },
+				),
+			).toBe(true);
 		});
 
 		it("allows an explicit opt-in on a redirected Responses endpoint", () => {
@@ -319,6 +351,15 @@ describe("finalizeWebSearchCapability", () => {
 					true,
 					GEMINI_BUILTIN,
 				),
+			).toBe(false);
+		});
+
+		it("fails closed when the client itself is redirected (credential base URL)", () => {
+			expect(
+				finalizeWebSearchCapability(makeResolved("gemini-3.8-flash", VERIFIED), undefined, {
+					kind: "gemini-builtin",
+					clientBaseUrl: "https://gateway.example.com/gemini",
+				}),
 			).toBe(false);
 		});
 
