@@ -10,6 +10,7 @@
  * lifecycle and passes it in.
  */
 
+import { isSupportedCustomClientKind } from "ai-config";
 import type { ResolvedProviderId, SupportedCustomClientKind } from "ai-config";
 
 import {
@@ -92,7 +93,10 @@ export interface ProviderRegistrationConfig {
 	/** Host-captured environment for SDK credential constructors after ambient scrubbing. */
 	credentialEnvironment?: Readonly<Record<string, string | undefined>>;
 	/** `providers.custom` entries to register after the built-ins; independent of `allowedProviders`. */
-	customProviders?: ReadonlyArray<{ readonly id: ResolvedProviderId; readonly clientKind: string }>;
+	customProviders?: ReadonlyArray<{
+		readonly id: ResolvedProviderId;
+		readonly clientKind: SupportedCustomClientKind;
+	}>;
 }
 
 /**
@@ -202,13 +206,11 @@ export function registerAllProviders(
 	}
 
 	for (const { id, clientKind } of config.customProviders ?? []) {
-		const registrar = (
-			CUSTOM_PROVIDER_REGISTRARS as Partial<Record<string, CustomProviderRegistrar>>
-		)[clientKind];
-		if (!registrar) {
-			throw new Error(`Unsupported custom provider kind: ${clientKind}`);
+		// Untyped callers (e.g. kinds read over IPC) can still pass an unsupported kind.
+		if (!isSupportedCustomClientKind(clientKind)) {
+			throw new Error(`Unsupported custom provider kind: ${String(clientKind)}`);
 		}
-		registrar(registry, id, logger, config);
+		CUSTOM_PROVIDER_REGISTRARS[clientKind](registry, id, logger, config);
 		logger.debug(
 			`[registerAllProviders] Registered ${clientKind} support for custom provider "${id}"`,
 		);
