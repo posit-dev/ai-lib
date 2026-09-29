@@ -13,7 +13,7 @@
 import type * as ai from "ai";
 import * as vscode from "vscode";
 
-import type { ModelClient } from "../model-clients/ModelClient";
+import type { ChatRequestMetadata, ModelClient } from "../model-clients/ModelClient";
 import {
 	hasImagesInToolResults,
 	transformToolResultImagesForCompletions,
@@ -78,9 +78,9 @@ export class VscodeLmClient implements ModelClient {
 		/** VS Code LM-specific: tool invocation mode. */
 		toolMode?: "auto" | "required";
 		cancellationToken: CancellationToken;
-		metadata?: {
-			sessionId?: string;
-		};
+		// The shared request metadata contract; only `sessionId` maps onto the
+		// external VS Code LM API — the rest is bridge-internal routing data.
+		metadata?: ChatRequestMetadata;
 	}): Promise<AsyncIterable<LMStreamPart>> {
 		let messages = [...params.messages];
 

@@ -20,6 +20,7 @@ export const PROVIDERS_CONFIG_VERSION = 1;
 export {
 	BUILTIN_PROVIDER_IDS,
 	CLIENT_KIND_VALUES,
+	CUSTOM_KIND_API_KEY_OPTIONAL_DEFAULT,
 	isBuiltinProviderId,
 	PROTOCOL_VALUES,
 	RESERVED_PROVIDER_KEYS,
@@ -39,6 +40,7 @@ export {
 	azureConfigSchema,
 	customModelSchema,
 	customProviderEntrySchema,
+	opencodeProductSchema,
 	providersConfigFragmentSchema,
 	providersConfigSchema,
 } from "./schema.js";
@@ -64,11 +66,15 @@ export type {
 	ModelsBlock,
 	ProvidersConfig,
 	ProvidersMap,
+	ResolvedAuthPolicySource,
 	ResolvedConnection,
 	ResolvedConnectionFieldSource,
 	ResolvedConnectionProvenance,
 	ResolvedConnectionValueProvenance,
+	ResolvedCustomAuthPolicy,
+	OpencodeProductState,
 	ResolvedModelInfo,
+	ResolvedOpencodeProduct,
 	ResolvedProvider,
 	ResolvedProviderId,
 	InferredModelCapabilities,
@@ -114,6 +120,12 @@ export type {
 	LitellmModelClassificationInput,
 	LitellmModelFamily,
 } from "./model-capabilities/litellm-helpers.js";
+export { getOpencodeModelCapabilities } from "./model-capabilities/opencode-helpers.js";
+export type { OpencodeModelCapabilities } from "./model-capabilities/opencode-helpers.js";
+export {
+	inferOpencodeProtocol,
+	opencodeProductForBaseUrl,
+} from "./model-capabilities/opencode-routing.js";
 export {
 	getOpenAIModelCapabilities,
 	openaiMaxInputTokens,
@@ -149,6 +161,7 @@ export {
 	MS_FOUNDRY_DEFAULT_SCOPE,
 	MS_FOUNDRY_DEFAULTS,
 	OLLAMA_DEFAULTS,
+	OPENCODE_DEFAULTS,
 	POSIT_AI_DEFAULTS,
 	PROVIDER_CONNECTION_DEFAULTS,
 } from "./defaults.js";
@@ -160,6 +173,7 @@ export {
 	resolveWebSearchServing,
 } from "./model-capabilities/web-search.js";
 export type { WebSearchServing } from "./model-capabilities/web-search.js";
+export type { ModelResolutionContext } from "./resolve-models.js";
 
 // --- Bare-host base URL correction ------------------------------------------
 export {
@@ -171,6 +185,12 @@ export {
 	LMSTUDIO_HOST,
 	normalizeBaseUrlForProvider,
 	normalizeOpenRouterBaseUrl,
+	OPENCODE_DEFAULT_PRODUCT,
+	OPENCODE_GO_BASE_URL,
+	OPENCODE_HOST,
+	OPENCODE_PRODUCT_BASE_URLS,
+	OPENCODE_PRODUCTS,
+	OPENCODE_ZEN_BASE_URL,
 	OPENAI_API_VERSION,
 	OPENAI_HOST,
 	OPENROUTER_DEFAULT_BASE_URL,
@@ -178,6 +198,7 @@ export {
 	PORTKEY_HOST,
 	PORTKEY_HOSTED_BASE_URL,
 } from "./base-url.js";
+export type { OpencodeProduct } from "./base-url.js";
 
 // --- Deep resolver seam (owns the precedence stack) ------------------------
 export { resolveProviderCatalog, resolveProviderCatalogReport } from "./resolve-catalog.js";

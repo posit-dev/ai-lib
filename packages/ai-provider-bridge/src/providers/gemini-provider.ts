@@ -78,6 +78,7 @@ function createGeminiModelFetcher(
 	providerId: ResolvedProviderId,
 	googleHosted: boolean,
 	logger: Logger,
+	registry: ProviderRegistry,
 ) {
 	return createCachedModelFetcher<ApiKeyCredentials>({
 		providerId,
@@ -90,6 +91,16 @@ function createGeminiModelFetcher(
 		},
 		hasCredentials: (credentials) => Boolean(credentials.apiKey),
 		createHeaders: () => ({}), // No auth headers needed - key is in URL
+		requestCoalescer: registry,
+		// The API key rides in the `?key=` query parameter, so the coalescing
+		// identity strips it from the retained URL key and folds it into the
+		// hashed header fingerprint instead.
+		identityUrl: (apiUrl) => {
+			const url = new URL(apiUrl);
+			url.searchParams.delete("key");
+			return url.toString();
+		},
+		identityHeaders: (credentials) => ({ "x-identity-api-key": credentials.apiKey }),
 		parseResponse: (data) => {
 			// Parse Google's model list format
 			const typedData = data as {
@@ -151,7 +162,10 @@ function createGeminiClientFactory(logger: Logger): ClientFactory {
 }
 
 export function registerGeminiProvider(registry: ProviderRegistry, logger: Logger): void {
-	registry.registerModelFetcher("gemini", createGeminiModelFetcher("gemini", true, logger));
+	registry.registerModelFetcher(
+		"gemini",
+		createGeminiModelFetcher("gemini", true, logger, registry),
+	);
 	registry.registerClientFactory("gemini", createGeminiClientFactory(logger));
 }
 
@@ -160,6 +174,9 @@ export function registerCustomGeminiProvider(
 	providerId: ResolvedProviderId,
 	logger: Logger,
 ): void {
-	registry.registerModelFetcher(providerId, createGeminiModelFetcher(providerId, false, logger));
+	registry.registerModelFetcher(
+		providerId,
+		createGeminiModelFetcher(providerId, false, logger, registry),
+	);
 	registry.registerClientFactory("gemini", createGeminiClientFactory(logger));
 }

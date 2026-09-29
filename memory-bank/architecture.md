@@ -56,6 +56,61 @@ branching on it; the strip helper is private to the module, so there is no way t
 - **Key presence and breakpoint eligibility cannot drift** — no session ID means no key _and_ a
   full marker strip, decided in one place rather than re-derived per client.
 
+### Default product User-Agent
+
+`ProviderRegistry` owns the host's product identity. `registerAllProviders()` passes the one
+`userAgent` from its config to the Posit AI Pass client and sets the same value as the registry default,
+and all three credential handoff methods (`getModelsForProvider`, `getClientForProvider`, and
+`getClientForProviderOrKind`) add it to `customHeaders` immediately before invoking a fetcher or
+factory. The value is late-bound: a host may call `setDefaultUserAgent()` again, and subsequent
+requests use the latest value without rebuilding registrations. A non-empty case-insensitive
+`User-Agent` already present in `customHeaders` wins over the default.
+
+This reaches `ApiKeyCredentials` and `AzureEntraCredentials`, the credential variants that carry
+`customHeaders`. OAuth, local, AWS, and Google Cloud credentials pass through unchanged, so
+Bedrock, Vertex, Copilot, Ollama, and LM Studio are outside this default. Direct SDK clients pass
+the identity through their `headers` option and let the SDK append its library tokens. Fetch
+middleware sees the SDK's existing User-Agent later, so `additiveHeaders` and
+`additiveHeaderRecord` prepend the custom product identity there; the merge is idempotent.
+
+### Endpoint-required transport headers (OpenCode)
+
+Host-supplied capability params are one kind of input; a distinct kind is **endpoint-required
+transport headers** — headers a specific service demands of every client, which the bridge owns
+because transport quirks are its charter. OpenCode's hosted services require every inference
+request to carry a stable conversation identity in `x-opencode-session`, and the owner of that
+policy is the built-in `opencode` provider itself (`src/providers/opencode-provider.ts`): each
+chat request builds its protocol delegate with the header already in `customHeaders`, via
+`withOpencodeSessionHeader` — a copy of the credential headers with any case-variant of
+`x-opencode-session` replaced by `metadata.rootConversationId` (the host-owned root conversation
+identity; the bridge never derives, splits, or falls back when it is absent, and with no root
+identity a static workaround header survives untouched). Per-request delegate construction is
+free: each delegate holds only config and builds its SDK connection inside `chat()`. Because the
+header rides on the provider rather than a URL matcher, a per-request `baseUrl` override keeps it
+(harmless on a non-OpenCode destination), and a hand-configured custom provider pointed AT an
+OpenCode endpoint does not receive it — the built-in provider is the supported path. The endpoint
+literals themselves live in ai-config (`OPENCODE_GO_BASE_URL` / `OPENCODE_ZEN_BASE_URL` in
+`base-url.ts`) as the catalog's connection defaults.
+`ChatRequestMetadata` (`src/model-clients/ModelClient.ts`, root-exported) is the runtime metadata
+contract: `sessionId` remains the full structured identity consumed by the Posit AI Pass
+`Session-Id` header and the `prompt_cache_key` projection, while `rootConversationId` exists for
+provider-owned routing headers like OpenCode's.
+
+Model discovery belongs to no conversation, so the OpenCode provider never generates a session
+header there. Its provider-generated header is only `Authorization: Bearer`; allowed credential
+`customHeaders`, including the registry's default User-Agent, remain additive.
+
+The built-in `opencode` provider builds one of three delegates per chat request against the
+resolved API root — `OpenAIClient` (Chat Completions and Responses), `AnthropicClient`
+(Messages), `GeminiGenerateContentClient` (generateContent) — selected by the normalized resolved
+protocol, with `inferOpencodeProtocol` (ai-config) filling in a protocol only when the caller
+omitted one. Authentication is per route and probe-verified (2026-09-11): the OpenAI routes read
+`Authorization: Bearer`, while Messages and generateContent read the vendor-native key headers
+(`x-api-key`, `x-goog-api-key`), so the native delegates run in their SDKs' native auth modes —
+the opposite of Databricks, where every route is Bearer. The full mapping, precedence, Gemini
+profile gating, and the future-model maintenance procedure live in
+`memory-bank/opencodeRouting.md`.
+
 ## Code Layout
 
 | Location                                         | What it does                                                                                                                                                                                                                                                                                  | VS Code deps? |
@@ -67,6 +122,7 @@ branching on it; the strip helper is private to the module, so there is no way t
 | `src/provider-map.ts`                            | `PROVIDER_MAP` and `MAPPED_PROVIDER_IDS` -- maps logical provider IDs to Positron auth provider config                                                                                                                                                                                        | No            |
 | `src/credential-shaping.ts`                      | `shapeCredentials()` -- pure token-to-`ProviderCredentials` shaping over an injected `CredentialConfig`                                                                                                                                                                                       | No            |
 | `src/custom-headers.ts`                          | Header merging/filtering utilities for custom HTTP headers                                                                                                                                                                                                                                    | No            |
+| `src/providers/request-coalescer.ts`             | Registry-owned in-flight-only request coalescer for model discovery (single-flight join over one decoded immutable payload)                                                                                                                                                                   | No            |
 | `ai-credentials/src/positron/PositronBackend.ts` | `createPositronBackend` -- VS Code auth backend (in `ai-credentials`, not the bridge; replaces the removed `PositronCredentialProvider`)                                                                                                                                                      | **Yes**       |
 | `src/positron/VscodeLmClient.ts`                 | `VscodeLmClient` -- `ModelClient` implementation wrapping `vscode.LanguageModelChat`                                                                                                                                                                                                          | **Yes**       |
 | `src/positron/vscode-lm-models.ts`               | `listVscodeLmModels()`, `toProviderId()`, `isProviderId()`, vendor-to-provider mapping                                                                                                                                                                                                        | **Yes**       |
@@ -102,6 +158,11 @@ model overrides and protocol endpoints, but above provider-wide `baseUrl`.
 The full ladder is: model override/custom model → protocol endpoint →
 discovered model → provider-wide URL → client default.
 
+Clients preserve the supplied URL unchanged on the wire. The OpenCode provider's
+session-header policy does not inspect or rewrite the destination: an OpenCode
+client keeps the header when a per-model endpoint override routes elsewhere,
+while a generic/custom client pointed at an OpenCode URL does not gain it.
+
 ## Model discovery deadline
 
 `createCachedModelFetcher` owns one configurable discovery deadline
@@ -123,6 +184,63 @@ Discovery sources that do not use `createCachedModelFetcher` (Databricks,
 Posit AI Pass, Bedrock/Mantle, Google Vertex) own their transport and are not
 bounded by it — Vertex bounds each request with its own
 `AbortSignal.timeout(15000)`.
+
+## In-flight request coalescing (model discovery)
+
+When the same backend is configured under two provider ids (the built-in
+`litellm` plus a custom `type: "litellm"` gateway entry), a discovery pass
+launches both providers' fetches concurrently, producing identical duplicate
+HTTP requests. `ProviderRegistry` owns an in-flight-ONLY coalescer
+(`src/providers/request-coalescer.ts`): every provider whose discovery is a
+single GET opts in via the `requestCoalescer` config of
+`createCachedModelFetcher` (litellm, openai-compatible, openai, ollama,
+lmstudio, openrouter, anthropic, deepseek, gemini) and calls the narrow
+registry method `coalesceModelRequest(providerId, identity, callerSignal,
+execute)`; a concurrent identical request joins the in-flight flight instead
+of issuing a second request. Providers that own their whole fetch
+(`fetchFresh`: portkey, databricks) have no base request to coalesce, and
+singleton-only providers (opencode) have no duplicate-entry scenario. Only
+the base request joins — a provider's `enrichModels` pass (e.g. Ollama's
+per-model `/api/show`) still runs per provider afterward.
+
+Key contract points:
+
+- Request identity = operation namespace (`"model-discovery"`) + HTTP method +
+  normalized URL + a SHA-256 fingerprint of the effective headers (lowercased
+  and sorted; raw secrets are never retained as map keys or logged). Providers
+  that carry a credential in the request URL (Gemini's `?key=`) keep it out of
+  the retained identity key via the fetcher's `identityUrl` hook (strips the
+  query parameter) and `identityHeaders` hook (folds the key into the hashed
+  fingerprint). The hash is a local pure-TS implementation
+  (`src/providers/sha256.ts`), not
+  `node:crypto`: the coalescer is reachable from `@assistant/core`'s
+  browser-facing public entry, which must bundle with esbuild
+  `platform: "browser"` (guarded by `scripts/tests/core-browser-public-entry.test.ts`
+  in the parent repo), and WebCrypto's async digest would force an async
+  fingerprint through identity construction.
+- The shared value is ONE decoded immutable (deep-frozen) payload — the
+  `Response` is one-shot and cannot be shared — and each provider runs its
+  own `parseResponse`/provider-id stamping over it.
+- The executor receives only a coalescer-owned `AbortSignal`; no individual
+  joiner owns cancellation. Once EVERY attached caller has detached, the
+  flight's map entry is removed and its signal aborted, which bounds a shared
+  request to roughly the last caller's existing fetcher deadline (no second
+  caller-owned timer). Removal happens before aborting so an abort-
+  insensitive executor that never settles cannot leave the aborted flight
+  joinable, dooming later calls to join it and time out.
+- In-flight only: completed results stay in each fetcher's own TTL cache;
+  failure/timeout is never retained, and settlement removes the entry
+  identity-safely (a barred flight's cleanup never removes a newer flight).
+- Clear/join (monotonic invalidation barriers): each flight is stamped with
+  a creation sequence; `clearModelCache(providerId)` or re-registration
+  records the current sequence as that provider's barrier (clear-all records
+  a shared barrier), and a provider joins only flights newer than its
+  barrier. A post-clear call therefore never joins a pre-clear flight — even
+  one the cleared provider had no caller on — while joiners attached before
+  the clear finish and answer their callers, and clearing one provider never
+  cancels another provider's caller on a shared flight.
+- No disposal API: each registry owns its coalescer, so a replaced registry
+  cannot join an old registry's flights.
 
 ## Credentials
 

@@ -172,7 +172,8 @@ export function createOpenAICompatibleFetch(
  *   `x-databricks-use-coding-agent-mode`). On this fetch path they are
  *   additive only — SDK/provider-managed names are ignored, and a
  *   customHeaders entry whose name collides with a header already populated
- *   by the OpenAI SDK is silently skipped.
+ *   by the OpenAI SDK is silently skipped. `User-Agent` is the exception: the
+ *   custom product identity is prepended to the SDK's existing tokens.
  * @param options - Per-provider switches; see {@link OpenAICompatibleFetchOptions}.
  */
 export function createOpenAICompatibleFetchMiddleware(

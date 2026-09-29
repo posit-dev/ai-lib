@@ -49,7 +49,11 @@ function parseDeepSeekModelsForProvider(
 	});
 }
 
-function createDeepSeekModelFetcher(providerId: ResolvedProviderId, logger: Logger) {
+function createDeepSeekModelFetcher(
+	providerId: ResolvedProviderId,
+	logger: Logger,
+	registry: ProviderRegistry,
+) {
 	return createCachedModelFetcher<ApiKeyCredentials>({
 		providerId,
 		resolveUrl: (credentials) => {
@@ -62,6 +66,7 @@ function createDeepSeekModelFetcher(providerId: ResolvedProviderId, logger: Logg
 		createHeaders: (credentials) => ({
 			Authorization: `Bearer ${credentials.apiKey}`,
 		}),
+		requestCoalescer: registry,
 		parseResponse: (data) => parseDeepSeekModelsForProvider(providerId, data),
 		fallbackModels: [],
 		logger,
@@ -79,7 +84,10 @@ const deepSeekClientFactory: ClientFactory = (credentials) => {
 };
 
 export function registerDeepSeekProvider(registry: ProviderRegistry, logger: Logger): void {
-	registry.registerModelFetcher("deepseek", createDeepSeekModelFetcher("deepseek", logger));
+	registry.registerModelFetcher(
+		"deepseek",
+		createDeepSeekModelFetcher("deepseek", logger, registry),
+	);
 	registry.registerClientFactory("deepseek", deepSeekClientFactory);
 }
 
@@ -88,6 +96,9 @@ export function registerCustomDeepSeekProvider(
 	providerId: ResolvedProviderId,
 	logger: Logger,
 ): void {
-	registry.registerModelFetcher(providerId, createDeepSeekModelFetcher(providerId, logger));
+	registry.registerModelFetcher(
+		providerId,
+		createDeepSeekModelFetcher(providerId, logger, registry),
+	);
 	registry.registerClientFactory("deepseek", deepSeekClientFactory);
 }

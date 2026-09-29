@@ -47,7 +47,9 @@ export { storageKeyFor } from "./storage-key.js";
 
 // Custom-provider auth descriptors (moved from node's ProviderCatalogService)
 export {
+	CUSTOM_CLIENT_KIND_AUTH_DESCRIPTORS,
 	CUSTOM_CLIENT_KIND_AUTH_MAP,
+	resolveCustomAuthMapping,
 	SUPPORTED_CUSTOM_CLIENT_KIND_VALUES,
 	SUPPORTED_CUSTOM_CLIENT_KINDS,
 } from "./auth-descriptors.js";

@@ -22,9 +22,10 @@
  * - Gemini 3.x uses a categorical `thinkingLevel`, and the valid level set
  *   differs per variant — not per tier: `gemini-3-pro-preview` accepts only
  *   `low`/`high`, 3.1 Pro adds `medium`, the Flash and Flash-Lite variants
- *   accept all four, and `gemini-3.1-flash-lite-image` accepts only
- *   `minimal`/`high`. Each documented 3.x variant therefore gets its own
- *   exact rule; an undocumented 3.x name is not recognized at all (see below).
+ *   through 3.6 accept all four, 3.7/3.8 Flash drop `minimal`, and
+ *   `gemini-3.1-flash-lite-image` accepts only `minimal`/`high`. Each
+ *   documented 3.x variant therefore gets its own exact rule; an
+ *   undocumented 3.x name is not recognized at all (see below).
  *   No 3.x variant can disable thinking, so "off" is never advertised there.
  *
  * A variant that cannot be positively recognized returns `undefined`. That is
@@ -154,6 +155,18 @@ const VARIANT_RULES: readonly VariantRule[] = [
 	{
 		match: /^gemini-3\.6-flash(?:$|[-.])/,
 		thinking: { control: "level", levels: LEVELS_WITH_MINIMAL },
+	},
+	{
+		// Verified against https://ai.google.dev/gemini-api/docs/thinking
+		// (page updated 2026-09-09 UTC, reviewed 2026-09-11): 3.7 Flash
+		// documents `low`/`medium`/`high` — no `minimal`, unlike 3.5/3.6 Flash.
+		match: /^gemini-3\.7-flash(?:$|[-.])/,
+		thinking: { control: "level", levels: LEVELS_LOW_MEDIUM_HIGH },
+	},
+	{
+		// Same source and review date as 3.7 Flash: identical level set.
+		match: /^gemini-3\.8-flash(?:$|[-.])/,
+		thinking: { control: "level", levels: LEVELS_LOW_MEDIUM_HIGH },
 	},
 ];
 

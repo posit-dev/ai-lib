@@ -345,8 +345,8 @@ function createGoogleVertexModelFetcher(
 				if (isAuthError(error)) {
 					const isBrokeredAuth = Boolean(credentials.accessToken);
 					const authMessage = isBrokeredAuth
-						? "Google Cloud authentication expired or is unavailable. Reconnect Google Cloud auth in Positron, then click Refresh Models."
-						: "Google Cloud credentials expired or missing. Run 'gcloud auth application-default login' to refresh, then click Refresh Models.";
+						? "Google Cloud authentication expired or is unavailable. Reconnect Google Cloud auth in Positron, then click Reload model list."
+						: "Google Cloud credentials expired or missing. Run 'gcloud auth application-default login' to refresh, then click Reload model list.";
 					logger.error(`[GoogleVertex] ${authMessage} Error: ${errorMsg}`);
 
 					await callbacks?.onProviderStatusChange?.({
@@ -357,7 +357,7 @@ function createGoogleVertexModelFetcher(
 							code: isBrokeredAuth ? "google_cloud_auth_expired" : "adc_expired",
 							message: authMessage,
 							action: {
-								label: "Refresh Models",
+								label: "Reload model list",
 								commandId: NOTIFICATION_ACTIONS.REFRESH_MODELS,
 							},
 						},

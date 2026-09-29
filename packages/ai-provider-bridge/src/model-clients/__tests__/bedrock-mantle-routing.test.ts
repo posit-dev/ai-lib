@@ -98,7 +98,7 @@ describe("Bedrock Mantle protocol routing", () => {
 						store: false,
 						forceReasoning: true,
 						reasoningEffort: "none",
-						reasoningSummary: "detailed",
+						reasoningSummary: "auto",
 					},
 				},
 			}),

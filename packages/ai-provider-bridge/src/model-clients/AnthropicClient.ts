@@ -29,6 +29,17 @@ import { withRawHttpLogging } from "./raw-http-logging";
 const WEB_SEARCH_MAX_USES = 5;
 
 /**
+ * Non-empty sentinel passed to the AI SDK for anonymous (auth-less custom
+ * provider) connections, where `apiKey === ""` is the canonical signal. The
+ * SDK falls back to the ambient `ANTHROPIC_API_KEY` env var when given an
+ * empty/undefined key, so an explicit non-empty value is required to stay
+ * anonymous; the fetch middleware strips the resulting `x-api-key` (and any
+ * `Authorization`) header before the request is logged or sent, so the
+ * sentinel never reaches the wire or the raw logs.
+ */
+const ANONYMOUS_API_KEY_SENTINEL = "pa-anonymous-api-key";
+
+/**
  * How this client authenticates to the Anthropic Messages API.
  *
  * The two schemes are mutually exclusive on the wire: `apiKey` sends
@@ -70,14 +81,30 @@ export class AnthropicClient implements ModelClient {
 		// (see base-url.ts), not here.
 		const effectiveBaseUrl = params.baseUrl ?? this.baseURL;
 		const headers = safeSdkCustomHeaders(this.customHeaders);
+		// Anonymous mode (auth-less custom providers): a sentinel key keeps the
+		// SDK from inheriting ANTHROPIC_API_KEY, and a stripping middleware
+		// removes the auth headers the SDK adds. Raw HTTP logging sits
+		// innermost (wrapping the global fetch) so the log records the physical
+		// wire call after the strip — neither the sentinel nor a real key from
+		// the environment can reach the wire or the logs.
+		const isAnonymous = "apiKey" in this.auth && this.auth.apiKey === "";
 		const loggedFetch = withRawHttpLogging(undefined, {
 			provider: "anthropic",
 			model: params.model,
 		});
+		const wireFetch = loggedFetch ?? globalThis.fetch;
+		const effectiveFetch = isAnonymous
+			? async (url: string | URL | globalThis.Request, init?: RequestInit) => {
+					const headers = new Headers(init?.headers);
+					headers.delete("x-api-key");
+					headers.delete("authorization");
+					return wireFetch(url, { ...init, headers });
+				}
+			: loggedFetch;
 		const provider = createAnthropic({
-			...anthropicAuthSettings(this.auth),
+			...(isAnonymous ? { apiKey: ANONYMOUS_API_KEY_SENTINEL } : anthropicAuthSettings(this.auth)),
 			...(effectiveBaseUrl && { baseURL: effectiveBaseUrl }),
-			...(loggedFetch && { fetch: loggedFetch }),
+			...(effectiveFetch && { fetch: effectiveFetch }),
 			...(headers && { headers }),
 		});
 		const model = provider(params.model);

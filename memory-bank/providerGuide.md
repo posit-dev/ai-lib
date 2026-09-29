@@ -244,11 +244,17 @@ If the provider's models support thinking/reasoning:
 
 ## Custom Headers Support
 
-New providers should support the `customHeaders` field from `ApiKeyCredentials`. The pattern:
+New providers should support the `customHeaders` field from `ApiKeyCredentials`. The
+`ProviderRegistry` injects the host's default product `User-Agent` into credentials before they
+reach a fetcher or client factory, so a provider gets that identity for free when it forwards
+`customHeaders`. An explicit non-empty `User-Agent` replaces the default; the SDK's own library
+tokens remain appended after it.
 
-- **Model discovery** (via `createCachedModelFetcher`): Pass `credentials.customHeaders` -- the fetcher handles merging (additive only, provider headers win on collision).
+The forwarding pattern is:
+
+- **Model discovery** (via `createCachedModelFetcher`): Pass `credentials.customHeaders` -- the fetcher handles merging (additive only, provider headers win on collision except for User-Agent composition).
 - **Direct-SDK chat**: Pass `customHeaders` to the AI SDK's `headers` option. See `AnthropicClient.ts` or `OpenAIClient.ts` for the pattern.
-- **OpenAI-compatible chat** (via `createOpenAICompatibleFetchMiddleware`): Pass `customHeaders` -- the middleware handles merging.
+- **OpenAI-compatible chat** (via `createOpenAICompatibleFetchMiddleware`): Pass `customHeaders` -- the middleware prepends the product identity to the SDK's existing User-Agent.
 
 See `src/custom-headers.ts` for the shared filtering/merging utilities.
 

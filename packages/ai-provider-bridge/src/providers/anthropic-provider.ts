@@ -20,6 +20,7 @@ import type { ClientFactory, ProviderRegistry } from "./ProviderRegistry";
  */
 const SUPPLEMENTAL_MODELS: ReadonlyArray<{ id: string; name: string }> = [
 	// { id: "claude-fable-5-1", name: "Claude Fable 5.1" },
+	{ id: "claude-opus-5-5", name: "Claude Opus 5.5" },
 ];
 
 /** Build a `ModelInfo` for an Anthropic model, enriched with inferred capabilities. */
@@ -55,6 +56,7 @@ function createAnthropicModelFetcher(
 	providerId: ResolvedProviderId,
 	includeHostedModels: boolean,
 	logger: Logger,
+	registry: ProviderRegistry,
 ) {
 	return createCachedModelFetcher<ApiKeyCredentials>({
 		providerId,
@@ -66,11 +68,16 @@ function createAnthropicModelFetcher(
 			);
 			return `${base}/models`;
 		},
-		hasCredentials: (credentials) => Boolean(credentials.apiKey),
+		// An empty-string key is the canonical anonymous signal (auth-less
+		// custom providers whose endpoint needs no key, e.g. an
+		// SSO-authenticating proxy): discovery proceeds without a credential
+		// header. Only a MISSING key falls back to the static model list.
+		hasCredentials: (credentials) => typeof credentials.apiKey === "string",
 		createHeaders: (credentials) => ({
-			"x-api-key": credentials.apiKey,
+			...(credentials.apiKey !== "" ? { "x-api-key": credentials.apiKey } : {}),
 			"anthropic-version": "2023-06-01",
 		}),
+		requestCoalescer: registry,
 		parseResponse: (data: unknown) => {
 			const typedData = data as { data: Array<{ id: string; display_name: string }> };
 			const models = typedData.data.map((model) =>
@@ -109,7 +116,7 @@ function createAnthropicClientFactory(logger: Logger): ClientFactory {
 export function registerAnthropicProvider(registry: ProviderRegistry, logger: Logger): void {
 	registry.registerModelFetcher(
 		"anthropic",
-		createAnthropicModelFetcher("anthropic", true, logger),
+		createAnthropicModelFetcher("anthropic", true, logger, registry),
 	);
 	registry.registerClientFactory("anthropic", createAnthropicClientFactory(logger));
 }
@@ -119,6 +126,9 @@ export function registerCustomAnthropicProvider(
 	providerId: ResolvedProviderId,
 	logger: Logger,
 ): void {
-	registry.registerModelFetcher(providerId, createAnthropicModelFetcher(providerId, false, logger));
+	registry.registerModelFetcher(
+		providerId,
+		createAnthropicModelFetcher(providerId, false, logger, registry),
+	);
 	registry.registerClientFactory("anthropic", createAnthropicClientFactory(logger));
 }

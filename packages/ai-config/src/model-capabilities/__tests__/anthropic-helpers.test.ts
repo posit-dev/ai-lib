@@ -53,6 +53,23 @@ describe("getAnthropicModelCapabilities", () => {
 		expect(caps?.thinkingEffortLevels).toEqual(["low", "medium", "high", "xhigh", "max"]);
 	});
 
+	it.each([
+		{ name: "bare ID", id: "claude-opus-5-5" },
+		{ name: "Bedrock-prefixed ID", id: "anthropic.claude-opus-5-5" },
+	])("matches $name to the Opus 5.5 rule with always-on adaptive thinking", ({ id }) => {
+		const caps = getAnthropicModelCapabilities(id);
+		expect(caps?.family).toBe("claude-5.5");
+		expect(caps?.maxContextLength).toBe(1_000_000);
+		expect(caps?.maxOutputTokens).toBe(128_000);
+		expect(caps?.thinkingEffortLevels).toEqual(["low", "medium", "high", "xhigh", "max"]);
+	});
+
+	it("still matches plain claude-opus-5 to the generic Opus 5 rule", () => {
+		const caps = getAnthropicModelCapabilities("claude-opus-5");
+		expect(caps?.family).toBe("claude-5");
+		expect(caps?.thinkingEffortLevels).toContain("off");
+	});
+
 	it("uses a conservative fallback for an unrecognized Claude model", () => {
 		expect(getAnthropicModelCapabilities("claude-opus-6")?.maxOutputTokens).toBe(64_000);
 	});

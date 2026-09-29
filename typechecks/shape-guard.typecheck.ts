@@ -27,11 +27,15 @@
 import type {
 	BUILTIN_PROVIDER_IDS,
 	CLIENT_KIND_VALUES,
+	CUSTOM_KIND_API_KEY_OPTIONAL_DEFAULT,
 	MODEL_METADATA_FIELD_NAMES,
 	PROTOCOL_VALUES,
 	SUPPORTED_CUSTOM_CLIENT_KIND_VALUES as AI_CONFIG_SUPPORTED_CUSTOM_CLIENT_KIND_VALUES,
 } from "ai-config";
-import type { SUPPORTED_CUSTOM_CLIENT_KIND_VALUES } from "ai-credentials/types";
+import type {
+	CUSTOM_CLIENT_KIND_AUTH_DESCRIPTORS,
+	SUPPORTED_CUSTOM_CLIENT_KIND_VALUES,
+} from "ai-credentials/types";
 import type {
 	ModelInfo,
 	NonIdentityClientKind,
@@ -158,6 +162,37 @@ const _supportedCustomKindsEqual: TupleEqual<
 > = true;
 
 // ---------------------------------------------------------------------------
+// Assertion 7: apiKeyOptional kind defaults — ai-config ≡ ai-credentials
+//
+// ai-config mirrors the kind-level `apiKeyOptional` defaults locally (no
+// import edge between the leaf packages) so it can resolve a custom entry's
+// effective auth policy. Both maps are `as const`, so the literal boolean
+// types are visible here; this assertion fails to compile if any value
+// diverges. Key-set equality is already covered by assertion 6 plus each
+// map's own `satisfies Record<SupportedCustomClientKind, …>`.
+// ---------------------------------------------------------------------------
+
+// Each key maps to `true` on agreement and `false` on mismatch; indexing the
+// mapped type unions the per-key results. The mismatch branch must be `false`,
+// never `never`: `never` is absorbed by any union (`true | never` collapses to
+// `true`) and `[never] extends [true]` PASSES, so a `never` branch would let
+// one — or even every — mismatch slip through.
+type ApiKeyOptionalDefaultsMatch = {
+	[K in keyof typeof CUSTOM_CLIENT_KIND_AUTH_DESCRIPTORS]: [
+		(typeof CUSTOM_KIND_API_KEY_OPTIONAL_DEFAULT)[K],
+	] extends [(typeof CUSTOM_CLIENT_KIND_AUTH_DESCRIPTORS)[K]["apiKeyOptional"]]
+		? [(typeof CUSTOM_CLIENT_KIND_AUTH_DESCRIPTORS)[K]["apiKeyOptional"]] extends [
+				(typeof CUSTOM_KIND_API_KEY_OPTIONAL_DEFAULT)[K],
+			]
+			? true
+			: false
+		: false;
+}[keyof typeof CUSTOM_CLIENT_KIND_AUTH_DESCRIPTORS];
+
+const _apiKeyOptionalDefaultsMatch: [ApiKeyOptionalDefaultsMatch] extends [true] ? true : never =
+	true;
+
+// ---------------------------------------------------------------------------
 // Suppress unused-variable warnings
 // ---------------------------------------------------------------------------
 
@@ -168,3 +203,4 @@ void _nonIdentityTargetsAreProviderIds;
 void _clientKindsCovered;
 void _customClientKindsCovered;
 void _supportedCustomKindsEqual;
+void _apiKeyOptionalDefaultsMatch;

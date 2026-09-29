@@ -17,6 +17,14 @@ import type { ClientKind } from "ai-config";
 
 import type { ModelClient } from "../model-clients/ModelClient";
 import type { Logger, ModelInfo, ProviderId, ProviderCredentials } from "../types";
+import type {
+	ModelRequestCoalescer,
+	ModelRequestExecutor,
+	ModelRequestIdentity,
+} from "./request-coalescer";
+import { InFlightRequestCoalescer } from "./request-coalescer";
+
+const USER_AGENT_HEADER_NAME = "user-agent";
 
 // ---------------------------------------------------------------------------
 // Client-kind → factory-id mapping
@@ -100,11 +108,70 @@ export type ClientFactory = (credentials: ProviderCredentials) => ModelClient;
  * The registry is used by ModelService to discover models and send requests
  * without hard-coded provider logic.
  */
-export class ProviderRegistry {
+export class ProviderRegistry implements ModelRequestCoalescer {
 	private modelFetchers = new Map<string, ClearableModelFetcher>();
 	private clientFactories = new Map<string, ClientFactory>();
+	private defaultUserAgent: string | undefined;
+	/**
+	 * In-flight-only request coalescer, owned per registry so a replaced
+	 * registry can never join an old registry's flight. Opted-in fetchers
+	 * reach it through {@link coalesceModelRequest}.
+	 */
+	private readonly requestCoalescer = new InFlightRequestCoalescer();
 
 	constructor(private readonly logger: Logger) {}
+
+	/**
+	 * Set the product identity added to provider credentials that support custom
+	 * headers. An explicit non-empty User-Agent always wins. Hosts may update the
+	 * value after registration; the latest value applies when credentials next
+	 * enter a fetcher or client factory.
+	 */
+	setDefaultUserAgent(userAgent: string | undefined): void {
+		this.defaultUserAgent = userAgent;
+	}
+
+	private withDefaultUserAgent(credentials: ProviderCredentials): ProviderCredentials {
+		if (
+			!this.defaultUserAgent ||
+			(credentials.type !== "apikey" && credentials.type !== "azure-entra")
+		) {
+			return credentials;
+		}
+
+		const customHeaderEntries = Object.entries(credentials.customHeaders ?? {});
+		if (
+			customHeaderEntries.some(
+				([name, value]) => name.toLowerCase() === USER_AGENT_HEADER_NAME && value.length > 0,
+			)
+		) {
+			return credentials;
+		}
+
+		const customHeaders = Object.fromEntries(
+			customHeaderEntries.filter(([name]) => name.toLowerCase() !== USER_AGENT_HEADER_NAME),
+		);
+		return {
+			...credentials,
+			customHeaders: { ...customHeaders, "User-Agent": this.defaultUserAgent },
+		};
+	}
+
+	/**
+	 * Join an identical in-flight model-discovery request instead of issuing a
+	 * second HTTP request. Opted-in fetchers call this with their provider id
+	 * and the normalized request identity; see request-coalescer.ts for the
+	 * clear/join and cancellation contract. In-flight only — completed results
+	 * are owned by each fetcher's own TTL cache.
+	 */
+	coalesceModelRequest(
+		providerId: string,
+		identity: ModelRequestIdentity,
+		caller: AbortSignal,
+		execute: ModelRequestExecutor,
+	): Promise<unknown> {
+		return this.requestCoalescer.coalesceModelRequest(providerId, identity, caller, execute);
+	}
 
 	/**
 	 * Register a model fetcher for a provider
@@ -113,6 +180,9 @@ export class ProviderRegistry {
 	 * @param fetcher - Async function that returns models
 	 */
 	registerModelFetcher(providerId: string, fetcher: ModelFetcher): void {
+		// A replaced fetcher must not join a flight its predecessor started:
+		// raise the provider's join barrier first.
+		this.requestCoalescer.retireProvider(providerId);
 		this.modelFetchers.set(providerId, fetcher as ClearableModelFetcher);
 	}
 
@@ -148,7 +218,7 @@ export class ProviderRegistry {
 		}
 
 		try {
-			return await fetcher(credentials, metadata);
+			return await fetcher(this.withDefaultUserAgent(credentials), metadata);
 		} catch (error) {
 			this.logger.error(`Error fetching models for ${providerId}:`, error);
 			return [];
@@ -161,6 +231,9 @@ export class ProviderRegistry {
 	 * the next model fetch hits the API instead of returning stale data.
 	 */
 	clearAllModelCaches(): void {
+		// Bar new joins to all in-flight shared requests: a post-clear call
+		// must not join a pre-clear flight. Attached callers still finish.
+		this.requestCoalescer.retireAll();
 		for (const [providerId, fetcher] of this.modelFetchers) {
 			if (fetcher.clearCache) {
 				this.logger.debug(`[ProviderRegistry] Clearing model cache for ${providerId}`);
@@ -170,6 +243,10 @@ export class ProviderRegistry {
 	}
 
 	clearModelCache(providerId: string): void {
+		// Bar this provider from joining any flight started before now — even
+		// one it had no caller on; other providers' callers on a shared
+		// flight are not cancelled.
+		this.requestCoalescer.retireProvider(providerId);
 		const fetcher = this.modelFetchers.get(providerId);
 		if (fetcher?.clearCache) {
 			this.logger.debug(`[ProviderRegistry] Clearing model cache for ${providerId}`);
@@ -201,7 +278,7 @@ export class ProviderRegistry {
 			return null;
 		}
 
-		return factory(credentials);
+		return factory(this.withDefaultUserAgent(credentials));
 	}
 
 	/**
@@ -223,15 +300,17 @@ export class ProviderRegistry {
 		credentials: ProviderCredentials,
 		clientKind?: ClientKind,
 	): ModelClient | null {
+		const credentialsWithUserAgent = this.withDefaultUserAgent(credentials);
+
 		// Try direct registration first (built-ins and any manually registered)
 		const directFactory = this.clientFactories.get(providerId);
-		if (directFactory) return directFactory(credentials);
+		if (directFactory) return directFactory(credentialsWithUserAgent);
 
 		// Fall back to clientKind → factory id mapping
 		if (clientKind) {
 			const factoryId = resolveFactoryId(clientKind);
 			const kindFactory = this.clientFactories.get(factoryId);
-			if (kindFactory) return kindFactory(credentials);
+			if (kindFactory) return kindFactory(credentialsWithUserAgent);
 		}
 
 		this.logger.warn(`No client factory for ${providerId} (clientKind: ${clientKind})`);

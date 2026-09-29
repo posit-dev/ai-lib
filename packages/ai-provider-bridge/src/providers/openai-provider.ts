@@ -27,9 +27,12 @@ const OPENAI_DEFAULT_CAPABILITIES = {
 	maxOutputTokens: 16384,
 };
 
-// Static fallback models for Responses API - current as of March 2026
+// Static fallback models for Responses API - current as of September 2026
 // Only includes models confirmed to support Responses API
 const OPENAI_FALLBACK_ROWS = [
+	{ id: "gpt-6-astra", name: "GPT-6 Astra" },
+	{ id: "gpt-6-sol", name: "GPT-6 Sol" },
+	{ id: "gpt-6-luna", name: "GPT-6 Luna" },
 	{ id: "gpt-5.4", name: "GPT-5.4" },
 	{ id: "gpt-5.4-mini", name: "GPT-5.4 Mini" },
 	{ id: "gpt-5.4-nano", name: "GPT-5.4 Nano" },
@@ -71,6 +74,7 @@ function createOpenAIModelFetcher(
 	providerId: ResolvedProviderId,
 	includeHostedModels: boolean,
 	logger: Logger,
+	registry: ProviderRegistry,
 ) {
 	return createCachedModelFetcher<ApiKeyCredentials>({
 		providerId,
@@ -82,6 +86,7 @@ function createOpenAIModelFetcher(
 		createHeaders: (credentials) => ({
 			Authorization: `Bearer ${credentials.apiKey}`,
 		}),
+		requestCoalescer: registry,
 		parseResponse: (data) => {
 			const typedData = data as {
 				data: Array<{ id: string; object: string; owned_by: string }>;
@@ -89,7 +94,8 @@ function createOpenAIModelFetcher(
 			// Filter to GPT models only (skip embeddings, audio, etc.)
 			const chatModels = typedData.data.filter(
 				(model) =>
-					(model.id.startsWith("gpt-5") ||
+					(model.id.startsWith("gpt-6") ||
+						model.id.startsWith("gpt-5") ||
 						model.id.startsWith("gpt-4") ||
 						model.id.startsWith("o")) &&
 					!model.id.includes("instruct"), // Exclude legacy instruct models
@@ -119,7 +125,10 @@ const openAIClientFactory: ClientFactory = (credentials) => {
 };
 
 export function registerOpenAIProvider(registry: ProviderRegistry, logger: Logger): void {
-	registry.registerModelFetcher("openai", createOpenAIModelFetcher("openai", true, logger));
+	registry.registerModelFetcher(
+		"openai",
+		createOpenAIModelFetcher("openai", true, logger, registry),
+	);
 	registry.registerClientFactory("openai", openAIClientFactory);
 }
 
@@ -128,6 +137,9 @@ export function registerCustomOpenAIProvider(
 	providerId: ResolvedProviderId,
 	logger: Logger,
 ): void {
-	registry.registerModelFetcher(providerId, createOpenAIModelFetcher(providerId, false, logger));
+	registry.registerModelFetcher(
+		providerId,
+		createOpenAIModelFetcher(providerId, false, logger, registry),
+	);
 	registry.registerClientFactory("openai", openAIClientFactory);
 }

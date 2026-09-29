@@ -38,7 +38,11 @@ export type {
 } from "./providers/ProviderRegistry";
 
 // ModelClient interface and shared params type
-export type { ModelClient, ModelClientChatParams } from "./model-clients/ModelClient";
+export type {
+	ChatRequestMetadata,
+	ModelClient,
+	ModelClientChatParams,
+} from "./model-clients/ModelClient";
 
 // AI SDK types surfaced through the bridge so consumers can use the public API
 // without importing `ai` directly: `ModelMessage` appears in ModelClient.chat's
@@ -67,6 +71,14 @@ export type {
 	CachedModelFetcherConfig,
 	ClearableModelFetcher,
 } from "./providers/cached-model-fetcher";
+
+// In-flight model-discovery request coalescing (registry-owned)
+export { InFlightRequestCoalescer } from "./providers/request-coalescer";
+export type {
+	ModelRequestCoalescer,
+	ModelRequestExecutor,
+	ModelRequestIdentity,
+} from "./providers/request-coalescer";
 
 // Positron auth-provider mapping (no vscode dependency — pure data)
 export { MAPPED_PROVIDER_IDS, PROVIDER_MAP } from "./provider-map";

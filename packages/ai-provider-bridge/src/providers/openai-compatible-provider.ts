@@ -23,7 +23,11 @@ const OPENAI_COMPATIBLE_DEFAULTS = {
 	maxContextLength: 128_000,
 } satisfies Partial<ModelInfo>;
 
-function createOpenAICompatibleModelFetcher(providerId: ResolvedProviderId, logger: Logger) {
+function createOpenAICompatibleModelFetcher(
+	providerId: ResolvedProviderId,
+	logger: Logger,
+	registry: ProviderRegistry,
+) {
 	return createCachedModelFetcher<ApiKeyCredentials>({
 		providerId,
 		resolveUrl: (credentials) => {
@@ -33,6 +37,7 @@ function createOpenAICompatibleModelFetcher(providerId: ResolvedProviderId, logg
 		hasCredentials: (credentials) => Boolean(credentials.baseUrl?.trim()),
 		createHeaders: (credentials): Record<string, string> =>
 			credentials.apiKey ? { Authorization: `Bearer ${credentials.apiKey}` } : {},
+		requestCoalescer: registry,
 		parseResponse: (data) => {
 			const typedData = data as {
 				data: Array<{ id: string; object?: string; owned_by?: string }>;
@@ -74,7 +79,7 @@ const openAICompatibleClientFactory: ClientFactory = (credentials) => {
 export function registerOpenAICompatibleProvider(registry: ProviderRegistry, logger: Logger): void {
 	registry.registerModelFetcher(
 		"openai-compatible",
-		createOpenAICompatibleModelFetcher("openai-compatible", logger),
+		createOpenAICompatibleModelFetcher("openai-compatible", logger, registry),
 	);
 	registry.registerClientFactory("openai-compatible", openAICompatibleClientFactory);
 }
@@ -92,6 +97,9 @@ export function registerCustomOpenAICompatibleProvider(
 	providerId: ResolvedProviderId,
 	logger: Logger,
 ): void {
-	registry.registerModelFetcher(providerId, createOpenAICompatibleModelFetcher(providerId, logger));
+	registry.registerModelFetcher(
+		providerId,
+		createOpenAICompatibleModelFetcher(providerId, logger, registry),
+	);
 	registry.registerClientFactory("openai-compatible", openAICompatibleClientFactory);
 }

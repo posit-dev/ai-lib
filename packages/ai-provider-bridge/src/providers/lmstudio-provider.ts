@@ -65,7 +65,11 @@ const estimateContextLength = (name: string): number => {
 // Static fallback models - conservative capabilities
 const LMSTUDIO_FALLBACK: ModelInfo[] = [];
 
-function createLMStudioModelFetcher(providerId: ResolvedProviderId, logger: Logger) {
+function createLMStudioModelFetcher(
+	providerId: ResolvedProviderId,
+	logger: Logger,
+	registry: ProviderRegistry,
+) {
 	return createCachedModelFetcher<LocalCredentials>({
 		providerId,
 		resolveUrl: (credentials) => {
@@ -80,6 +84,7 @@ function createLMStudioModelFetcher(providerId: ResolvedProviderId, logger: Logg
 		createHeaders: () => ({
 			"Content-Type": "application/json",
 		}),
+		requestCoalescer: registry,
 		parseResponse: (data: unknown) => {
 			const typedData = data as {
 				data: Array<{
@@ -135,7 +140,10 @@ const lmStudioClientFactory: ClientFactory = (credentials) => {
 };
 
 export function registerLMStudioProvider(registry: ProviderRegistry, logger: Logger): void {
-	registry.registerModelFetcher("lmstudio", createLMStudioModelFetcher("lmstudio", logger));
+	registry.registerModelFetcher(
+		"lmstudio",
+		createLMStudioModelFetcher("lmstudio", logger, registry),
+	);
 	registry.registerClientFactory("lmstudio", lmStudioClientFactory);
 }
 
@@ -144,6 +152,9 @@ export function registerCustomLMStudioProvider(
 	providerId: ResolvedProviderId,
 	logger: Logger,
 ): void {
-	registry.registerModelFetcher(providerId, createLMStudioModelFetcher(providerId, logger));
+	registry.registerModelFetcher(
+		providerId,
+		createLMStudioModelFetcher(providerId, logger, registry),
+	);
 	registry.registerClientFactory("lmstudio", lmStudioClientFactory);
 }

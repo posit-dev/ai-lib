@@ -4,6 +4,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
+import { OPENCODE_GO_BASE_URL, OPENCODE_ZEN_BASE_URL } from "../base-url.js";
 import type { ProviderConfigSource } from "../resolve-catalog.js";
 import {
 	recoverValidStack,
@@ -204,6 +205,141 @@ describe("resolveProviderCatalog — tightened-schema recovery", () => {
 		expect(find(catalog, "anthropic")?.enabled).toBe(false);
 		expect(find(catalog, "bedrock")?.connection.snowflake).toBeUndefined();
 		expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("invalid merged result"));
+	});
+});
+
+describe("resolveProviderCatalog — custom provider auth policy", () => {
+	const anthropicEntry = {
+		type: "anthropic",
+		baseUrl: "http://localhost:8443",
+	} as const;
+
+	it("resolves the kind default when no source authors apiKeyOptional", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("user", {
+					providers: {
+						custom: {
+							"corp-proxy": { ...anthropicEntry },
+							gateway: { type: "openai-compatible", baseUrl: "https://gw.example.com" },
+						},
+					},
+				}),
+			],
+			envVars: {},
+		});
+
+		// anthropic requires a key by kind; openai-compatible is key-optional.
+		expect(find(catalog, "corp-proxy")?.authPolicy).toEqual({
+			apiKeyOptional: false,
+			source: "kind-default",
+		});
+		expect(find(catalog, "gateway")?.authPolicy).toEqual({
+			apiKeyOptional: true,
+			source: "kind-default",
+		});
+		// Built-in providers carry no auth policy.
+		expect(find(catalog, "anthropic")?.authPolicy).toBeUndefined();
+	});
+
+	it("a user-authored true relaxes a custom anthropic entry", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("user", {
+					providers: {
+						custom: { "corp-proxy": { ...anthropicEntry, apiKeyOptional: true } },
+					},
+				}),
+			],
+			envVars: {},
+		});
+
+		expect(find(catalog, "corp-proxy")?.authPolicy).toEqual({
+			apiKeyOptional: true,
+			source: "user",
+		});
+	});
+
+	it("enforced false shadows a user-authored true (value AND provenance)", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				// enforced fragment sets only the policy; user completes `type`.
+				source("enforced", {
+					providers: { custom: { "corp-proxy": { apiKeyOptional: false } } },
+				}),
+				source("user", {
+					providers: {
+						custom: { "corp-proxy": { ...anthropicEntry, apiKeyOptional: true } },
+					},
+				}),
+			],
+			envVars: {},
+		});
+
+		expect(find(catalog, "corp-proxy")?.authPolicy).toEqual({
+			apiKeyOptional: false,
+			source: "enforced",
+		});
+	});
+
+	it("attributes provenance to enforced even when user authors the SAME value", () => {
+		// Equal values: comparing effective vs. authored cannot distinguish an
+		// overridable default from an enforced pin — provenance must come from
+		// the retained source stack.
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("enforced", {
+					providers: { custom: { "corp-proxy": { apiKeyOptional: true } } },
+				}),
+				source("user", {
+					providers: {
+						custom: { "corp-proxy": { ...anthropicEntry, apiKeyOptional: true } },
+					},
+				}),
+			],
+			envVars: {},
+		});
+
+		expect(find(catalog, "corp-proxy")?.authPolicy).toEqual({
+			apiKeyOptional: true,
+			source: "enforced",
+		});
+	});
+
+	it("a default-layer value applies when user is silent, and user overrides it", () => {
+		const defaulted = resolveProviderCatalog({
+			sources: [
+				source("default", {
+					providers: { custom: { "corp-proxy": { apiKeyOptional: true } } },
+				}),
+				source("user", {
+					providers: { custom: { "corp-proxy": { ...anthropicEntry } } },
+				}),
+			],
+			envVars: {},
+		});
+		expect(find(defaulted, "corp-proxy")?.authPolicy).toEqual({
+			apiKeyOptional: true,
+			source: "default",
+		});
+
+		const overridden = resolveProviderCatalog({
+			sources: [
+				source("default", {
+					providers: { custom: { "corp-proxy": { apiKeyOptional: true } } },
+				}),
+				source("user", {
+					providers: {
+						custom: { "corp-proxy": { ...anthropicEntry, apiKeyOptional: false } },
+					},
+				}),
+			],
+			envVars: {},
+		});
+		expect(find(overridden, "corp-proxy")?.authPolicy).toEqual({
+			apiKeyOptional: false,
+			source: "user",
+		});
 	});
 });
 
@@ -860,5 +996,134 @@ describe("resolveProviderCatalog — legacy-positron-enforced (legacy Positron e
 		expect(find(catalog, "ghost")).toBeUndefined();
 		expect(find(catalog, "anthropic")?.enabled).toBe(true);
 		expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("invalid merged result"));
+	});
+});
+
+describe("resolveProviderCatalog — OpenCode built-in", () => {
+	it("resolves the go default base URL, go default product, and openai client kind", () => {
+		const catalog = resolveProviderCatalog({ sources: [], envVars: {} });
+
+		const opencode = find(catalog, "opencode");
+		expect(opencode?.connection.baseUrl).toBe(OPENCODE_GO_BASE_URL);
+		expect(opencode?.clientKind).toBe("openai");
+		expect(opencode?.opencodeProduct).toEqual({
+			product: "go",
+			state: { state: "editable" },
+		});
+		// Nothing authored: no per-field sources are retained.
+		expect(opencode?.connectionProvenance.opencode).toBeUndefined();
+	});
+
+	it("resolves a configured product to its endpoint beneath an explicit baseUrl", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [source("user", { providers: { opencode: { product: "go" } } })],
+			envVars: {},
+		});
+
+		const opencode = find(catalog, "opencode");
+		expect(opencode?.connection.baseUrl).toBe(OPENCODE_GO_BASE_URL);
+		expect(opencode?.opencodeProduct).toEqual({
+			product: "go",
+			state: { state: "editable" },
+		});
+		expect(opencode?.connectionProvenance.opencode).toEqual({
+			product: "user",
+			baseUrl: undefined,
+		});
+	});
+
+	it("lets an explicit baseUrl win over the product selection", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("user", {
+					providers: {
+						opencode: { product: "go", baseUrl: "https://gateway.example.com/v1" },
+					},
+				}),
+			],
+			envVars: {},
+		});
+
+		const opencode = find(catalog, "opencode");
+		expect(opencode?.connection.baseUrl).toBe("https://gateway.example.com/v1");
+		// An authored baseUrl makes the product choice inert.
+		expect(opencode?.opencodeProduct).toEqual({
+			product: "go",
+			state: { state: "base-url-override", source: "user" },
+		});
+	});
+
+	it("reports an enforced product as product-enforced", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("enforced", { providers: { opencode: { product: "go" } } }),
+				source("user", { providers: { opencode: { product: "zen" } } }),
+			],
+			envVars: {},
+		});
+
+		const opencode = find(catalog, "opencode");
+		expect(opencode?.connection.baseUrl).toBe(OPENCODE_GO_BASE_URL);
+		expect(opencode?.opencodeProduct).toEqual({
+			product: "go",
+			state: { state: "product-enforced" },
+		});
+	});
+
+	it("yields base-url-override with the matching source at every layer, even equal-valued to the go default", () => {
+		// Inertness is authorship-based: an authored baseUrl equal to today's
+		// default URL still shadows the catalog default and makes the selector
+		// inert — at the user, administrator-default, AND enforced layers.
+		for (const kind of ["user", "default", "enforced"] as const) {
+			const catalog = resolveProviderCatalog({
+				sources: [
+					source(kind, {
+						providers: { opencode: { baseUrl: OPENCODE_GO_BASE_URL } },
+					}),
+				],
+				envVars: {},
+			});
+
+			const opencode = find(catalog, "opencode");
+			expect(opencode?.connection.baseUrl).toBe(OPENCODE_GO_BASE_URL);
+			expect(opencode?.opencodeProduct).toEqual({
+				product: "go",
+				state: { state: "base-url-override", source: kind },
+			});
+		}
+	});
+
+	it("prefers base-url-override over product-enforced when both are authored", () => {
+		// An enforced baseUrl resolves above any product selection, so it is
+		// a base-url state (source "enforced"), NOT a product state.
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("enforced", {
+					providers: { opencode: { product: "go", baseUrl: OPENCODE_GO_BASE_URL } },
+				}),
+			],
+			envVars: {},
+		});
+
+		expect(find(catalog, "opencode")?.opencodeProduct).toEqual({
+			product: "go",
+			state: { state: "base-url-override", source: "enforced" },
+		});
+	});
+
+	it("tracks the administrator-default product as an editable default source", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [source("default", { providers: { opencode: { product: "go" } } })],
+			envVars: {},
+		});
+
+		const opencode = find(catalog, "opencode");
+		expect(opencode?.connection.baseUrl).toBe(OPENCODE_GO_BASE_URL);
+		// A default-layer product is overridable: the selector stays editable.
+		expect(opencode?.opencodeProduct).toEqual({
+			product: "go",
+			state: { state: "editable" },
+		});
+		expect(opencode?.connectionProvenance.opencode?.product).toBe("default");
 	});
 });
