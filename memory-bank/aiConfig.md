@@ -162,7 +162,10 @@ Config flows through three stages: **assemble sources → resolve → watch**. P
    `POSIT_AI_PROVIDERS_DEFAULT` (both remain strict JSON and are validated against the relaxed
    `providersConfigFragmentSchema`), plus the legacy Positron layers the
    loader opted into (`legacyPositronSettings` → `legacy-positron`,
-   `legacyPositronEnforcedSettings` → `legacy-positron-enforced`). Each
+   `legacyPositronEnforcedSettings` → `legacy-positron-enforced`), and the
+   host's `hostDefaults` fragment when the loader passes one (also `default`,
+   read after `POSIT_AI_PROVIDERS_DEFAULT`, for host-specific values such as
+   the OAuth client id the host is registered under). Each
    reader returns `{ source?, issues }`; present sources are tagged with their
    `kind` (`enforced` / `legacy-positron-enforced` / `user` /
    `legacy-positron` / `default`).
