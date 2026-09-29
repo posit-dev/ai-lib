@@ -14,7 +14,7 @@ import { createVertex } from "@ai-sdk/google-vertex";
 import { createVertexAnthropic } from "@ai-sdk/google-vertex/anthropic";
 import type { LanguageModelV3 } from "@ai-sdk/provider";
 import { streamText } from "ai";
-import { OAuth2Client, type GoogleAuthOptions } from "google-auth-library";
+import { OAuth2Client, type GoogleAuthOptions, type JWTInput } from "google-auth-library";
 
 import { sanitizeToolCallIdsForAnthropic } from "../tool-call-ids";
 import type { LMStreamPart, Logger, Protocol } from "../types";
@@ -55,6 +55,8 @@ export interface GoogleVertexClientConfig {
 	 * When set, the Vertex SDK uses this token directly instead of resolving ADC.
 	 */
 	accessToken?: string;
+	/** Inline service account (`GOOGLE_CLIENT_EMAIL` + `GOOGLE_PRIVATE_KEY`), used when no token is brokered. */
+	serviceAccount?: JWTInput;
 	/** Captured ADC file path supplied by a host that scrubbed process.env. */
 	googleApplicationCredentials?: string;
 }
@@ -73,6 +75,12 @@ export class GoogleVertexClient implements ModelClient {
 			const authClient = new OAuth2Client();
 			authClient.setCredentials({ access_token: this.config.accessToken });
 			return { authClient };
+		}
+		if (this.config.serviceAccount) {
+			return {
+				credentials: this.config.serviceAccount,
+				scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+			};
 		}
 		return this.config.googleApplicationCredentials
 			? { keyFilename: this.config.googleApplicationCredentials }

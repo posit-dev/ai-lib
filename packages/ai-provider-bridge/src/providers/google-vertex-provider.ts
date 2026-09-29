@@ -5,7 +5,7 @@
 import type { ResolvedProviderId } from "ai-config";
 import { getAnthropicModelCapabilities } from "ai-config";
 import { readSdkCredentialEnvironment } from "ai-credentials/store-backend";
-import { GoogleAuth } from "google-auth-library";
+import { GoogleAuth, type JWTInput } from "google-auth-library";
 
 import { GoogleVertexClient } from "../model-clients/GoogleVertexClient";
 import type { Logger, ModelInfo, ProviderCredentials } from "../types";
@@ -71,6 +71,24 @@ const MODEL_CACHE_TTL = 60 * 60 * 1000;
 
 const CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform";
 
+/** The inline service account from `GOOGLE_CLIENT_EMAIL` and `GOOGLE_PRIVATE_KEY`, or undefined when either is unset. */
+function inlineServiceAccount(
+	env: Readonly<Record<string, string | undefined>>,
+): JWTInput | undefined {
+	const sdkEnvironment = readSdkCredentialEnvironment(env);
+	const clientEmail = sdkEnvironment.googleClientEmail;
+	const privateKey = sdkEnvironment.googlePrivateKey;
+	if (!clientEmail || !privateKey) return undefined;
+	return {
+		client_email: clientEmail,
+		// google-auth-library needs literal newlines; pasted keys carry escaped `\n`.
+		private_key: privateKey.replace(/\\n/g, "\n"),
+		...(sdkEnvironment.googlePrivateKeyId && {
+			private_key_id: sdkEnvironment.googlePrivateKeyId,
+		}),
+	};
+}
+
 async function tokenFrom(auth: GoogleAuth): Promise<string | undefined> {
 	const client = await auth.getClient();
 	const { token } = await client.getAccessToken();
@@ -87,21 +105,9 @@ async function tokenFrom(auth: GoogleAuth): Promise<string | undefined> {
 export async function resolveGoogleVertexAccessToken(
 	credentialEnvironment?: Readonly<Record<string, string | undefined>>,
 ): Promise<string> {
-	const sdkEnvironment = readSdkCredentialEnvironment(credentialEnvironment ?? process.env);
-	const clientEmail = sdkEnvironment.googleClientEmail;
-	const privateKey = sdkEnvironment.googlePrivateKey;
-	if (clientEmail && privateKey) {
-		const auth = new GoogleAuth({
-			credentials: {
-				client_email: clientEmail,
-				// google-auth-library needs literal newlines; pasted keys carry escaped `\n`.
-				private_key: privateKey.replace(/\\n/g, "\n"),
-				...(sdkEnvironment.googlePrivateKeyId && {
-					private_key_id: sdkEnvironment.googlePrivateKeyId,
-				}),
-			},
-			scopes: [CLOUD_PLATFORM_SCOPE],
-		});
+	const serviceAccount = inlineServiceAccount(credentialEnvironment ?? process.env);
+	if (serviceAccount) {
+		const auth = new GoogleAuth({ credentials: serviceAccount, scopes: [CLOUD_PLATFORM_SCOPE] });
 		let token: string | undefined;
 		try {
 			token = await tokenFrom(auth);
@@ -482,6 +488,7 @@ function createGoogleVertexClientFactory(
 				project: credentials.project,
 				location: credentials.location,
 				accessToken: credentials.accessToken,
+				serviceAccount: inlineServiceAccount(credentialEnvironment ?? process.env),
 				googleApplicationCredentials: credentialEnvironment
 					? readSdkCredentialEnvironment(credentialEnvironment).googleApplicationCredentials
 					: undefined,

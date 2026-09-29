@@ -90,4 +90,48 @@ describe("GoogleVertexClient captured authentication", () => {
 			}),
 		);
 	});
+
+	it("authenticates Gemini and Anthropic requests with a captured inline service account", async () => {
+		const captured = Object.freeze({
+			GOOGLE_CLIENT_EMAIL: "sa@project-id.iam.gserviceaccount.com",
+			GOOGLE_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\\nabc\\n-----END PRIVATE KEY-----",
+		});
+		const registry = new ProviderRegistry(logger);
+		registerGoogleVertexProvider(registry, logger, undefined, captured);
+		const client = registry.getClientForProvider("google-vertex", {
+			type: "google-cloud",
+			project: "project-id",
+			location: "us-central1",
+		});
+		if (!client) throw new Error("google-vertex client factory was not registered");
+		const cancellationToken = {
+			isCancellationRequested: false,
+			onCancellationRequested: () => ({ dispose() {} }),
+		};
+		const messages = [
+			{ role: "user" as const, content: [{ type: "text" as const, text: "hello" }] },
+		];
+
+		await client.chat({ model: "gemini-2.5-pro", messages, cancellationToken });
+		await client.chat({
+			model: "claude-sonnet-4-5",
+			protocol: "anthropic-messages",
+			messages,
+			cancellationToken,
+		});
+
+		const expectedAuth = {
+			googleAuthOptions: {
+				credentials: {
+					client_email: "sa@project-id.iam.gserviceaccount.com",
+					private_key: "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----",
+				},
+				scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+			},
+		};
+		expect(mocks.createVertex).toHaveBeenLastCalledWith(expect.objectContaining(expectedAuth));
+		expect(mocks.createVertexAnthropic).toHaveBeenLastCalledWith(
+			expect.objectContaining(expectedAuth),
+		);
+	});
 });
