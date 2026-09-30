@@ -68,13 +68,22 @@ const TRANSIENT_NETWORK_CODES: ReadonlySet<string> = new Set([
 /** A token-exchange failure that says nothing about the credentials: throttling, a server error, or no response. */
 function isTransientTokenError(error: unknown): boolean {
 	if (typeof error !== "object" || error === null) return false;
-	const status = (error as { response?: { status?: unknown } }).response?.status;
-	if (typeof status === "number") return status === 429 || status >= 500;
+	if (
+		"response" in error &&
+		typeof error.response === "object" &&
+		error.response !== null &&
+		"status" in error.response
+	) {
+		const { status } = error.response;
+		if (typeof status === "number") return status === 429 || status >= 500;
+	}
 	// Request timeouts arrive as named aborts with no error code.
-	const name = (error as { name?: unknown }).name;
-	if (name === "AbortError" || name === "TimeoutError") return true;
-	const code = (error as { code?: unknown }).code;
-	return typeof code === "string" && TRANSIENT_NETWORK_CODES.has(code);
+	if ("name" in error && (error.name === "AbortError" || error.name === "TimeoutError")) {
+		return true;
+	}
+	return (
+		"code" in error && typeof error.code === "string" && TRANSIENT_NETWORK_CODES.has(error.code)
+	);
 }
 
 /** The inline service account, or undefined unless both the email and the private key are set. */
