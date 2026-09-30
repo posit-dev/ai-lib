@@ -18,7 +18,10 @@ import type {
 } from "../CredentialProvider.js";
 import type { Logger, ProviderCredentials, TokenData } from "../types/index.js";
 import { normalizeDatabricksHost, requireBareAuthHost, storageKeyFor } from "../types/index.js";
-import { resolveCredentialsFromEnv } from "./envCredentialResolver.js";
+import {
+	isWorkbenchManagedDatabricks,
+	resolveCredentialsFromEnv,
+} from "./envCredentialResolver.js";
 import { PROVIDER_ENV_MAPPINGS } from "./providerEnvMappings.js";
 import {
 	storedProviderCredentialsSchema,
@@ -256,6 +259,8 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 			const credentials = resolveCredentialsFromEnv(providerId, env);
 			return credentials ? { kind: "credentials", credentials } : { kind: "none" };
 		}
+
+		if (isWorkbenchManagedDatabricks(env)) return { kind: "none" };
 
 		// External build variants ship an empty PROVIDER_ENV_MAPPINGS; guard the
 		// dereference so Databricks resolution degrades to "none" there.

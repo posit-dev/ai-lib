@@ -148,7 +148,8 @@ credentials. With environment-only configuration, `DATABRICKS_TOKEN` wins
 unless `DATABRICKS_AUTH_TYPE=oauth-m2m`; environment M2M requires
 `DATABRICKS_HOST`, `DATABRICKS_CLIENT_ID`, and `DATABRICKS_CLIENT_SECRET`.
 When `DATABRICKS_CONFIG_FILE` points at a `posit-workbench` path, the admin-managed
-profile outranks `DATABRICKS_TOKEN` and the environment resolves nothing.
+profile outranks every Databricks credential in the environment (`DATABRICKS_TOKEN`
+and the M2M variables alike) and the environment resolves nothing.
 Status exposes only source, origin, readiness, expiry, and sanitized workspace
 metadata.
 

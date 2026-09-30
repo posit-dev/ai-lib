@@ -39,18 +39,25 @@ export function resolveCredentialsFromEnv(
 	providerId: string,
 	envVars: Readonly<Record<string, string | undefined>> = process.env,
 ): ProviderCredentials | null {
-	// A Workbench-provisioned Databricks profile outranks DATABRICKS_TOKEN; the admin credential must not be overridable from the shell.
-	if (
-		providerId === "databricks" &&
-		(readSdkCredentialEnvironment(envVars).databricksConfigFile ?? "").includes("posit-workbench")
-	) {
-		return null;
-	}
+	if (providerId === "databricks" && isWorkbenchManagedDatabricks(envVars)) return null;
 
 	const mapping = PROVIDER_ENV_MAPPINGS[providerId];
 	if (!mapping) return null;
 
 	return resolveFromMapping(mapping, envVars);
+}
+
+/**
+ * Whether Posit Workbench provisioned the Databricks profile. The admin
+ * credential then outranks every Databricks credential in the shell (PAT and
+ * M2M alike), so environment resolution yields nothing.
+ */
+export function isWorkbenchManagedDatabricks(
+	envVars: Readonly<Record<string, string | undefined>>,
+): boolean {
+	return (readSdkCredentialEnvironment(envVars).databricksConfigFile ?? "").includes(
+		"posit-workbench",
+	);
 }
 
 /**
