@@ -233,6 +233,11 @@ values. The source is the highest-precedence kept source that sets the field;
 `authMode`/`scope` fall back to `"default"` (built-in defaults) when no source
 sets them, while `baseUrl`/`tenantId` are absent until some layer sets them.
 
+For `ollama` and `lmstudio` it records the source of `endpoint` the same way,
+falling back to `"default"`. Hosts that store their own local endpoint let it
+win only over a `"default"` source, so an enforced or environment endpoint
+holds even when its value equals the built-in one.
+
 ### Model selection (`resolveModels`)
 
 `resolveModels(modelsBlock, discovered, providerConnection, context?)` runs the

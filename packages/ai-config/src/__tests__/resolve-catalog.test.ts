@@ -718,6 +718,39 @@ describe("resolveProviderCatalog — ms-foundry field provenance", () => {
 	});
 });
 
+describe("resolveProviderCatalog — local endpoint provenance", () => {
+	it("reports the built-in default when no source sets the endpoint", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [source("user", { providers: {} })],
+			envVars: {},
+		});
+		expect(find(catalog, "ollama")?.connectionProvenance.endpoint).toBe("default");
+		expect(find(catalog, "lmstudio")?.connectionProvenance.endpoint).toBe("default");
+	});
+
+	it("reports enforced even when the enforced value equals the built-in default", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("enforced", {
+					providers: { ollama: { endpoint: "http://localhost:11434" } },
+				}),
+				source("user", { providers: {} }),
+			],
+			envVars: {},
+		});
+		expect(find(catalog, "ollama")?.connectionProvenance.endpoint).toBe("enforced");
+	});
+
+	it("attributes env and user endpoints to their sources", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [source("user", { providers: { lmstudio: { endpoint: "http://user-box:1234" } } })],
+			envVars: { OLLAMA_ENDPOINT: "http://env-box:11434" },
+		});
+		expect(find(catalog, "ollama")?.connectionProvenance.endpoint).toBe("environment");
+		expect(find(catalog, "lmstudio")?.connectionProvenance.endpoint).toBe("user");
+	});
+});
+
 describe("resolveProviderCatalog — snowflake + legacy vertex env vars", () => {
 	it("folds SNOWFLAKE_* env vars into snowflake-cortex connection", () => {
 		const catalog = resolveProviderCatalog({
