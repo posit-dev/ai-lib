@@ -646,6 +646,74 @@ describe("generalized store-backed acquisition", () => {
 			expect(text).toContain("transient");
 			expect(text).not.toContain("x".repeat(250));
 		});
+
+		describe("when another window commits during the refresh", () => {
+			/** A sign-in or refresh from a window whose lock does not exclude this one. */
+			function otherWindowRecord(): StoredProviderCredentials {
+				const expiresAt = new Date(Date.now() + 3_600_000).toISOString();
+				return {
+					...expiredPositaiRecord(),
+					generation: "other-window-generation",
+					oauthAuth: {
+						tokenData: {
+							accessToken: "other-access",
+							refreshToken: "other-refresh",
+							expiresAt,
+							tokenType: "Bearer",
+							scope: "prism",
+						},
+						expiresAt,
+						scope: "prism",
+					},
+				};
+			}
+
+			/** Stub fetch so the token-endpoint response is held until `respond` is called. */
+			function holdTokenEndpoint() {
+				let requested!: () => void;
+				const requestSeen = new Promise<void>((resolve) => {
+					requested = resolve;
+				});
+				let respond!: (response: Response) => void;
+				const response = new Promise<Response>((resolve) => {
+					respond = resolve;
+				});
+				vi.stubGlobal(
+					"fetch",
+					vi.fn(() => {
+						requested();
+						return response;
+					}),
+				);
+				return { requestSeen, respond };
+			}
+
+			it.each([
+				[
+					"rotated tokens",
+					ok({ access_token: "fresh-access", refresh_token: "fresh-refresh", expires_in: 3600 }),
+				],
+				["an invalid_grant rejection", err(400, { error: "invalid_grant" })],
+			])(
+				"keeps the other window's record when the refresh returns %s",
+				async (_label, response) => {
+					await seedExpiredPositai();
+					const tokenEndpoint = holdTokenEndpoint();
+					const provider = createProvider();
+
+					// SingleFileStore.set does not take the cross-process lock, so this
+					// write lands mid-refresh the way a per-window-locked writer's would.
+					const refresh = provider.getCredentials("positai");
+					await tokenEndpoint.requestSeen;
+					const newer = otherWindowRecord();
+					await store.set("auth:positai:oauth", newer);
+					tokenEndpoint.respond(response);
+					await refresh;
+
+					expect(await storedPositai()).toEqual(newer);
+				},
+			);
+		});
 	});
 
 	describe("AcquisitionEngine refresh policy", () => {
