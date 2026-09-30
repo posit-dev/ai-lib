@@ -56,7 +56,14 @@ export type AuthenticationStartResult =
 /** Strict semantic inputs accepted by the store-backed credential controller. */
 export type CredentialSourceInput =
 	| { type: "api-key"; apiKey: string; baseUrl?: string }
-	| { type: "oauth-device" }
+	| {
+			type: "oauth-device";
+			/**
+			 * Server the device-code token was issued for, recorded for providers
+			 * that declare `deviceSignIn` (see `AuthMethodDescriptor`).
+			 */
+			serverUrl?: string;
+	  }
 	| { type: "oauth-u2m"; workspaceHost: string }
 	| {
 			type: "oauth-m2m";

@@ -52,6 +52,19 @@ export interface StoreBackendStorage {
 export interface AuthMethodDescriptor {
 	authMethodId: string;
 	apiKeyOptional?: boolean;
+	/**
+	 * Set when the provider's credential is acquired by an OAuth device-code
+	 * sign-in against a host-configured server rather than entered directly
+	 * (Posit Connect). `serverUrl` is the currently configured server, already
+	 * normalized, or `undefined` until one is configured.
+	 *
+	 * The backend then offers an implicit `oauth-device` source, binds each
+	 * sign-in to `serverUrl`, and honors a stored token only while `serverUrl`
+	 * still names the server that issued it — so a token is never resolved,
+	 * refreshed, or reported as authenticated for a different server. Records
+	 * of any other source are ignored.
+	 */
+	deviceSignIn?: { serverUrl: string | undefined };
 }
 
 export interface CreateStoreBackendOptions {
@@ -135,6 +148,9 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 				: record.authenticated === false
 					? "unauthenticated"
 					: undefined);
+
+		const deviceSignIn = resolveAuthMethod(providerId)?.deviceSignIn;
+		if (deviceSignIn) return normalizeDeviceSignIn(record, readiness, deviceSignIn.serverUrl);
 
 		if (record.source === "oauth-m2m" && record.clientCredentialsAuth) {
 			return {
@@ -319,7 +335,8 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 			const environment = environmentResolution(providerId);
 			return environment.kind === "oauth-m2m" ? environment.source : undefined;
 		}
-		if (resolveAuthMethod(providerId)?.authMethodId === "oauth") {
+		const descriptor = resolveAuthMethod(providerId);
+		if (descriptor?.authMethodId === "oauth" || descriptor?.deviceSignIn) {
 			return { type: "oauth-device", origin: "implicit" };
 		}
 		return undefined;
@@ -539,6 +556,13 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 			const generation = generationFactory();
 			let source: CredentialSourceInput = { type: "oauth-device" };
 			if (normalized?.source) source = normalized.source;
+			const deviceSignIn = resolveAuthMethod(providerId)?.deviceSignIn;
+			if (deviceSignIn) {
+				if (!deviceSignIn.serverUrl) {
+					throw new Error(`Sign-in for ${providerId} requires a configured server URL`);
+				}
+				source = { type: "oauth-device", serverUrl: deviceSignIn.serverUrl };
+			}
 			if (source.type !== "oauth-device" && source.type !== "oauth-u2m") {
 				throw new Error(`Stored source ${source.type} is not interactive`);
 			}
@@ -742,7 +766,7 @@ function pendingRecord(
 		source: source.type,
 		configured: true,
 		authenticated: false,
-		oauthAuth: source.type === "oauth-u2m" ? { workspaceHost: source.workspaceHost } : undefined,
+		oauthAuth: oauthIdentity(source),
 	};
 }
 
@@ -768,7 +792,7 @@ function authenticatedOAuthRecord(
 			},
 			expiresAt,
 			scope: tokens.scope,
-			...(source.type === "oauth-u2m" ? { workspaceHost: source.workspaceHost } : {}),
+			...oauthIdentity(source),
 		},
 	};
 }
@@ -794,7 +818,48 @@ function terminalOAuthRecord(
 		configured: true,
 		authenticated: false,
 		error,
-		oauthAuth: source.type === "oauth-u2m" ? { workspaceHost: source.workspaceHost } : undefined,
+		oauthAuth: oauthIdentity(source),
+	};
+}
+
+/** Non-secret identity an interactive OAuth record keeps across its lifecycle. */
+function oauthIdentity(
+	source: Extract<CredentialSourceInput, { type: "oauth-device" | "oauth-u2m" }>,
+): { workspaceHost: string } | { serverUrl: string } | undefined {
+	if (source.type === "oauth-u2m") return { workspaceHost: source.workspaceHost };
+	return source.serverUrl ? { serverUrl: source.serverUrl } : undefined;
+}
+
+/**
+ * Normalize a record for a provider that declares `deviceSignIn`. Only an
+ * `oauth-device` record counts, and its token only while the server it was
+ * issued for is still the configured one: a mismatch reads as signed out, so
+ * status, `readTokens`, and refresh all refuse to send the token elsewhere.
+ * Switching back to the issuing server makes the token usable again, which
+ * is safe for the same reason.
+ */
+function normalizeDeviceSignIn(
+	record: StoredProviderCredentials,
+	readiness: NormalizedStored["readiness"] | undefined,
+	serverUrl: string | undefined,
+): NormalizedStored {
+	if (record.source !== "oauth-device") {
+		return { readiness: "unauthenticated", generation: record.generation };
+	}
+	const issuer = record.oauthAuth?.serverUrl;
+	const source: CredentialSourceInput = issuer
+		? { type: "oauth-device", serverUrl: issuer }
+		: { type: "oauth-device" };
+	if (!issuer || issuer !== serverUrl) {
+		return { readiness: "unauthenticated", generation: record.generation, source };
+	}
+	const effective = readiness ?? "unauthenticated";
+	return {
+		readiness: effective,
+		generation: record.generation,
+		source,
+		tokens: effective === "ready" ? storedTokens(record) : undefined,
+		error: record.error,
 	};
 }
 

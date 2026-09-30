@@ -11,12 +11,13 @@
 
 import { existsSync } from "node:fs";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
 	createSingleFileStoreFixture,
 	type SingleFileStoreFixture,
 } from "../../../tests/helpers/single-file-store-fixture.js";
+import { AcquisitionEngine } from "../../acquisition.js";
 import { storageKeyFor } from "../../types/index.js";
 import type { AuthMethodDescriptor } from "../StoreBackend.js";
 import { createStoreBackend } from "../StoreBackend.js";
@@ -609,6 +610,140 @@ describe("createStoreBackend", () => {
 					sessionToken: "legacy-session",
 				},
 			});
+		});
+	});
+
+	describe("deviceSignIn providers (API key acquired by device-code sign-in)", () => {
+		const SERVER_A = "https://connect-a.example";
+		const SERVER_B = "https://connect-b.example";
+		const key = storageKeyFor("connect", "apikey");
+		const tokens = {
+			accessToken: "issued-by-a",
+			refreshToken: "refresh-a",
+			expiresIn: 3600,
+			tokenType: "Bearer",
+			scope: "",
+		};
+
+		function createConnectBackend(server: { url: string | undefined }) {
+			return createStoreBackend({
+				store,
+				resolveAuthMethod: (id) =>
+					id === "connect"
+						? { authMethodId: "apikey", deviceSignIn: { serverUrl: server.url } }
+						: undefined,
+				oauthConfigForProvider: () =>
+					server.url
+						? {
+								grantType: "device-code",
+								clientId: "client",
+								scope: "",
+								deviceAuthorizationEndpoint: `${server.url}/device`,
+								tokenEndpoint: `${server.url}/token`,
+								credentialBaseUrl: server.url,
+							}
+						: undefined,
+				env: {},
+			});
+		}
+
+		async function signIn(backend: ReturnType<typeof createConnectBackend>): Promise<void> {
+			const hooks = backend.acquisition;
+			if (!hooks) throw new Error("expected acquisition hooks");
+			const generation = await hooks.beginAuthentication("connect");
+			expect(await hooks.commitAuthentication("connect", generation, tokens)).toBe("committed");
+		}
+
+		it("offers an implicit device source and shapes the token as the server's API key", async () => {
+			const server = { url: SERVER_A };
+			const backend = createConnectBackend(server);
+			const hooks = backend.acquisition;
+			const grant = await hooks?.configForProvider("connect");
+			if (!hooks || !grant) throw new Error("expected an implicit device-code grant");
+
+			await signIn(backend);
+
+			expect(await store.get<StoredProviderCredentials>(key)).toMatchObject({
+				source: "oauth-device",
+				oauthAuth: { serverUrl: SERVER_A },
+			});
+			expect((await backend.getCredentialStatus("connect")).authenticated).toBe(true);
+			expect(hooks.shapeToken("connect", "issued-by-a", grant)).toEqual({
+				type: "apikey",
+				apiKey: "issued-by-a",
+				baseUrl: SERVER_A,
+			});
+		});
+
+		it("never yields a token for a server other than the one that issued it", async () => {
+			const server = { url: SERVER_A };
+			const backend = createConnectBackend(server);
+			await signIn(backend);
+
+			server.url = SERVER_B;
+			expect(await backend.acquisition?.readTokens("connect")).toBeNull();
+			expect(await backend.getCredentialStatus("connect")).toMatchObject({
+				authenticated: false,
+				readiness: "unauthenticated",
+			});
+
+			server.url = SERVER_A;
+			expect((await backend.acquisition?.readTokens("connect"))?.accessToken).toBe("issued-by-a");
+		});
+
+		it("does not refresh a token against a different server", async () => {
+			const server = { url: SERVER_A };
+			const backend = createConnectBackend(server);
+			const hooks = backend.acquisition;
+			if (!hooks) throw new Error("expected acquisition hooks");
+			const generation = await hooks.beginAuthentication("connect");
+			await hooks.commitAuthentication("connect", generation, { ...tokens, expiresIn: 1 });
+			server.url = SERVER_B;
+
+			const fetchSpy = vi.fn();
+			vi.stubGlobal("fetch", fetchSpy);
+			try {
+				const engine = new AcquisitionEngine(hooks);
+				expect(await engine.getCredentials("connect")).toEqual({
+					handled: true,
+					credentials: null,
+				});
+				expect(fetchSpy).not.toHaveBeenCalled();
+			} finally {
+				vi.unstubAllGlobals();
+			}
+		});
+
+		it("binds a new sign-in to the configured server and rejects one without it", async () => {
+			const server: { url: string | undefined } = { url: undefined };
+			const backend = createConnectBackend(server);
+			await expect(backend.acquisition?.beginAuthentication("connect")).rejects.toThrow(
+				/requires a configured server URL/,
+			);
+
+			server.url = SERVER_A;
+			await signIn(backend);
+			server.url = SERVER_B;
+			await signIn(backend);
+			expect((await store.get<StoredProviderCredentials>(key))?.oauthAuth?.serverUrl).toBe(
+				SERVER_B,
+			);
+			expect((await backend.getCredentialStatus("connect")).authenticated).toBe(true);
+		});
+
+		it("ignores records from any other source, such as a pasted API key", async () => {
+			await store.set<StoredProviderCredentials>(key, {
+				source: "api-key",
+				apiKeyAuth: { apiKey: "pasted", baseUrl: SERVER_A },
+			});
+			const backend = createConnectBackend({ url: SERVER_A });
+
+			expect(await backend.getCredentials("connect")).toBeNull();
+			expect(await backend.getCredentialStatus("connect")).toMatchObject({
+				configured: false,
+				authenticated: false,
+			});
+			expect(await backend.acquisition?.configForProvider("connect")).toBeDefined();
 		});
 	});
 });

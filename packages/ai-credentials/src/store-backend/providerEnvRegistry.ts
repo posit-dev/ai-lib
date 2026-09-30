@@ -99,11 +99,6 @@ export const PROVIDER_ENV_MAPPINGS: Record<string, ProviderEnvMapping> = {
 	portkey: {
 		apiKey: scrubbed("PORTKEY_API_KEY"),
 	},
-	// The standard Posit Connect API-key variable (rsconnect/connectapi
-	// convention); pairs with ai-config's POSIT_CONNECT_URL connection var.
-	"posit-connect": {
-		apiKey: scrubbed("CONNECT_API_KEY"),
-	},
 	// One OpenCode workspace key serves both hosted products (Go and Zen),
 	// so a single variable covers the single built-in `opencode` provider.
 	opencode: {
