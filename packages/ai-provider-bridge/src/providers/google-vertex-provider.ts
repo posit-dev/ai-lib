@@ -4,9 +4,13 @@
 
 import type { ResolvedProviderId } from "ai-config";
 import { getAnthropicModelCapabilities } from "ai-config";
-import { readSdkCredentialEnvironment } from "ai-credentials/store-backend";
-import { GoogleAuth, type JWTInput } from "google-auth-library";
 
+import {
+	type GoogleVertexCredentialSource,
+	isInlineServiceAccountError,
+	mintGoogleVertexAccessToken,
+	resolveGoogleVertexCredentialSource,
+} from "../google-vertex-credentials";
 import { GoogleVertexClient } from "../model-clients/GoogleVertexClient";
 import type { Logger, ModelInfo, ProviderCredentials } from "../types";
 import { NOTIFICATION_ACTIONS } from "../types";
@@ -32,23 +36,13 @@ export interface GoogleVertexProviderCallbacks {
 	}) => Promise<void>;
 }
 
-const INLINE_SERVICE_ACCOUNT_ERROR = "InlineServiceAccountError";
-
-/** The inline service-account variables were set but Google rejected them; ADC is deliberately not tried. */
-class InlineServiceAccountError extends Error {
-	constructor(cause: string) {
-		super(`Inline service-account credentials failed: ${cause}`);
-		this.name = INLINE_SERVICE_ACCOUNT_ERROR;
-	}
-}
-
 /**
  * Check whether an error from google-auth-library or the Vertex API indicates
  * expired / missing ADC credentials (similar to Bedrock's `isAuthError`).
  */
 function isAuthError(error: unknown): boolean {
 	if (!(error instanceof Error)) return false;
-	if (error.name === INLINE_SERVICE_ACCOUNT_ERROR) return true;
+	if (isInlineServiceAccountError(error)) return true;
 	const msg = error.message;
 	// google-auth-library: refresh token revoked or expired
 	if (msg.includes("invalid_grant") || msg.includes("Token has been expired or revoked")) {
@@ -69,104 +63,27 @@ function isAuthError(error: unknown): boolean {
 // Cache TTL for models (1 hour) in milliseconds
 const MODEL_CACHE_TTL = 60 * 60 * 1000;
 
-const CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform";
-
-const TRANSIENT_NETWORK_CODES: ReadonlySet<string> = new Set([
-	"ECONNRESET",
-	"ETIMEDOUT",
-	"ECONNREFUSED",
-	"ECONNABORTED",
-	"ENOTFOUND",
-	"EAI_AGAIN",
-	"ENETUNREACH",
-	"EHOSTUNREACH",
-]);
-
-/** A token-exchange failure that says nothing about the credentials: throttling, a server error, or no response. */
-function isTransientTokenError(error: unknown): boolean {
-	if (typeof error !== "object" || error === null) return false;
-	const status = (error as { response?: { status?: unknown } }).response?.status;
-	if (typeof status === "number") return status === 429 || status >= 500;
-	// Request timeouts arrive as named aborts with no error code.
-	const name = (error as { name?: unknown }).name;
-	if (name === "AbortError" || name === "TimeoutError") return true;
-	const code = (error as { code?: unknown }).code;
-	return typeof code === "string" && TRANSIENT_NETWORK_CODES.has(code);
-}
-
-/** The inline service account from `GOOGLE_CLIENT_EMAIL` and `GOOGLE_PRIVATE_KEY`, or undefined when either is unset. */
-function inlineServiceAccount(
-	env: Readonly<Record<string, string | undefined>>,
-): JWTInput | undefined {
-	const sdkEnvironment = readSdkCredentialEnvironment(env);
-	const clientEmail = sdkEnvironment.googleClientEmail;
-	const privateKey = sdkEnvironment.googlePrivateKey;
-	if (!clientEmail || !privateKey) return undefined;
-	return {
-		client_email: clientEmail,
-		// google-auth-library needs literal newlines; pasted keys carry escaped `\n`.
-		private_key: privateKey.replace(/\\n/g, "\n"),
-		...(sdkEnvironment.googlePrivateKeyId && {
-			private_key_id: sdkEnvironment.googlePrivateKeyId,
-		}),
-	};
-}
-
-async function tokenFrom(auth: GoogleAuth): Promise<string | undefined> {
-	const client = await auth.getClient();
-	const { token } = await client.getAccessToken();
-	return token ?? undefined;
-}
-
-/**
- * Resolve a cloud-platform access token: inline service-account env vars
- * (`GOOGLE_CLIENT_EMAIL` + `GOOGLE_PRIVATE_KEY`, optional
- * `GOOGLE_PRIVATE_KEY_ID`) first, Application Default Credentials otherwise.
- * An inline failure is surfaced rather than masked by an ADC "no credentials"
- * error, because setting both vars signals explicit intent.
- */
-export async function resolveGoogleVertexAccessToken(
-	credentialEnvironment?: Readonly<Record<string, string | undefined>>,
-): Promise<string> {
-	const serviceAccount = inlineServiceAccount(credentialEnvironment ?? process.env);
-	if (serviceAccount) {
-		const auth = new GoogleAuth({ credentials: serviceAccount, scopes: [CLOUD_PLATFORM_SCOPE] });
-		let token: string | undefined;
-		try {
-			token = await tokenFrom(auth);
-		} catch (err) {
-			if (isTransientTokenError(err)) throw err;
-			const message = err instanceof Error ? err.message : String(err);
-			throw new InlineServiceAccountError(message);
-		}
-		if (!token) throw new InlineServiceAccountError("no access token was returned");
-		return token;
-	}
-	const auth = new GoogleAuth({
-		scopes: [CLOUD_PLATFORM_SCOPE],
-		keyFilename: credentialEnvironment
-			? readSdkCredentialEnvironment(credentialEnvironment).googleApplicationCredentials
-			: undefined,
-	});
-	const token = await tokenFrom(auth);
-	if (!token) {
-		throw new Error("Failed to obtain access token from Application Default Credentials");
-	}
-	return token;
-}
-
-/**
- * Resolve an access token for the Vertex AI REST API.
- * Uses a broker-provided token (e.g. from Positron auth ext) when available;
- * otherwise an inline service account, then Application Default Credentials.
- */
-async function getAccessToken(
-	brokered?: string,
-	credentialEnvironment?: Readonly<Record<string, string | undefined>>,
-): Promise<string> {
-	if (brokered) return brokered;
-	return resolveGoogleVertexAccessToken(credentialEnvironment);
-}
+/** What to tell the user when Google rejects the credential source discovery used. */
+const AUTH_ERROR_GUIDANCE: Record<
+	GoogleVertexCredentialSource["kind"],
+	{ code: string; message: string }
+> = {
+	brokered: {
+		code: "google_cloud_auth_expired",
+		message:
+			"Google Cloud authentication expired or is unavailable. Reconnect Google Cloud auth in Positron, then click Reload model list.",
+	},
+	inline: {
+		code: "inline_service_account_rejected",
+		message:
+			"Google Cloud rejected the service-account credentials in GOOGLE_CLIENT_EMAIL and GOOGLE_PRIVATE_KEY. Fix them, or unset them to use Application Default Credentials, then click Reload model list.",
+	},
+	adc: {
+		code: "adc_expired",
+		message:
+			"Google Cloud credentials expired or missing. Run 'gcloud auth application-default login' to refresh, then click Reload model list.",
+	},
+};
 
 /**
  * Fetch models from a single Vertex AI publisher endpoint.
@@ -306,6 +223,11 @@ function createGoogleVertexModelFetcher(
 				return cachedModels;
 			}
 
+			const credentialSource = resolveGoogleVertexCredentialSource(
+				credentials.accessToken,
+				credentialEnvironment,
+			);
+
 			// 4. Try to fetch from Vertex AI API
 			try {
 				const location = credentials.location || "us-central1";
@@ -314,7 +236,7 @@ function createGoogleVertexModelFetcher(
 					`[GoogleVertex] Fetching models from Vertex AI API (project=${credentials.project}, location=${location}, anthropicLocation=global)`,
 				);
 
-				const token = await getAccessToken(credentials.accessToken, credentialEnvironment);
+				const token = await mintGoogleVertexAccessToken(credentialSource);
 
 				// Fetch from both publishers in parallel, collecting errors
 				// so that if both fail we can propagate to the outer catch
@@ -429,28 +351,16 @@ function createGoogleVertexModelFetcher(
 				const errorMsg = error instanceof Error ? error.message : String(error);
 
 				if (isAuthError(error)) {
-					const isBrokeredAuth = Boolean(credentials.accessToken);
-					const isInlineAuth =
-						!isBrokeredAuth &&
-						inlineServiceAccount(credentialEnvironment ?? process.env) !== undefined;
-					const authMessage = isInlineAuth
-						? "Google Cloud rejected the service-account credentials in GOOGLE_CLIENT_EMAIL and GOOGLE_PRIVATE_KEY. Fix them, or unset them to use Application Default Credentials, then click Reload model list."
-						: isBrokeredAuth
-							? "Google Cloud authentication expired or is unavailable. Reconnect Google Cloud auth in Positron, then click Reload model list."
-							: "Google Cloud credentials expired or missing. Run 'gcloud auth application-default login' to refresh, then click Reload model list.";
-					logger.error(`[GoogleVertex] ${authMessage} Error: ${errorMsg}`);
+					const guidance = AUTH_ERROR_GUIDANCE[credentialSource.kind];
+					logger.error(`[GoogleVertex] ${guidance.message} Error: ${errorMsg}`);
 
 					await callbacks?.onProviderStatusChange?.({
 						providerId,
 						authMethodId: "google-cloud",
 						status: "auth_error",
 						error: {
-							code: isInlineAuth
-								? "inline_service_account_rejected"
-								: isBrokeredAuth
-									? "google_cloud_auth_expired"
-									: "adc_expired",
-							message: authMessage,
+							code: guidance.code,
+							message: guidance.message,
 							action: {
 								label: "Reload model list",
 								commandId: NOTIFICATION_ACTIONS.REFRESH_MODELS,
@@ -512,11 +422,10 @@ function createGoogleVertexClientFactory(
 			{
 				project: credentials.project,
 				location: credentials.location,
-				accessToken: credentials.accessToken,
-				serviceAccount: inlineServiceAccount(credentialEnvironment ?? process.env),
-				googleApplicationCredentials: credentialEnvironment
-					? readSdkCredentialEnvironment(credentialEnvironment).googleApplicationCredentials
-					: undefined,
+				credentialSource: resolveGoogleVertexCredentialSource(
+					credentials.accessToken,
+					credentialEnvironment,
+				),
 			},
 			logger,
 		);

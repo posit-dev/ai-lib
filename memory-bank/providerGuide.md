@@ -285,9 +285,13 @@ Hosts that scrub credential variables pass a captured credential environment
 through `ProviderRegistrationConfig`. The bridge never reads SDK wire names
 directly: both providers call `readSdkCredentialEnvironment` from
 `ai-credentials/store-backend`, which maps the ai-credentials
-`sdkCredentialEnvironment` declaration onto a typed struct. Vertex supplies
-the captured inline service account or `googleApplicationCredentials` path to
-both model discovery's `GoogleAuth` and the chat SDK's `googleAuthOptions`. Foundry materializes a
+`sdkCredentialEnvironment` declaration onto a typed struct. Vertex decides its
+credential source once, in `resolveGoogleVertexCredentialSource`
+(`src/google-vertex-credentials.ts`): a brokered token, else the captured
+inline service account, else ADC with the captured
+`googleApplicationCredentials` path. Model discovery's token minting, the chat
+SDK's `googleAuthOptions` and the auth-error guidance all switch on that one
+source. Foundry materializes a
 `ClientSecretCredential` or `ClientCertificateCredential` from the captured
 Azure values; when neither is complete it retains `DefaultAzureCredential`
 for managed identity and CLI sources. Because the names come from the

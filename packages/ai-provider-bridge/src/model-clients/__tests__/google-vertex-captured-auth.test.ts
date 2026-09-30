@@ -39,7 +39,7 @@ describe("GoogleVertexClient captured authentication", () => {
 		const client = new GoogleVertexClient({
 			project: "project-id",
 			location: "us-central1",
-			googleApplicationCredentials: "/secrets/service-account.json",
+			credentialSource: { kind: "adc", keyFilename: "/secrets/service-account.json" },
 		});
 
 		await client.chat({
@@ -132,6 +132,35 @@ describe("GoogleVertexClient captured authentication", () => {
 		expect(mocks.createVertex).toHaveBeenLastCalledWith(expect.objectContaining(expectedAuth));
 		expect(mocks.createVertexAnthropic).toHaveBeenLastCalledWith(
 			expect.objectContaining(expectedAuth),
+		);
+	});
+
+	it("authenticates with a brokered token even when inline service-account variables are captured", async () => {
+		const captured = Object.freeze({
+			GOOGLE_CLIENT_EMAIL: "sa@project-id.iam.gserviceaccount.com",
+			GOOGLE_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\\nabc\\n-----END PRIVATE KEY-----",
+		});
+		const registry = new ProviderRegistry(logger);
+		registerGoogleVertexProvider(registry, logger, undefined, captured);
+		const client = registry.getClientForProvider("google-vertex", {
+			type: "google-cloud",
+			project: "project-id",
+			location: "us-central1",
+			accessToken: "brokered-token",
+		});
+		if (!client) throw new Error("google-vertex client factory was not registered");
+
+		await client.chat({
+			model: "gemini-2.5-pro",
+			messages: [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+			cancellationToken: {
+				isCancellationRequested: false,
+				onCancellationRequested: () => ({ dispose() {} }),
+			},
+		});
+
+		expect(mocks.createVertex).toHaveBeenLastCalledWith(
+			expect.objectContaining({ googleAuthOptions: { authClient: expect.anything() } }),
 		);
 	});
 });

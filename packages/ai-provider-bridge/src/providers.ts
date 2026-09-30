@@ -42,8 +42,12 @@ export { registerCustomGeminiProvider, registerGeminiProvider } from "./provider
 export {
 	registerCustomGoogleVertexProvider,
 	registerGoogleVertexProvider,
-	resolveGoogleVertexAccessToken,
 } from "./providers/google-vertex-provider";
+export {
+	resolveGoogleVertexAccessToken,
+	resolveGoogleVertexCredentialSource,
+} from "./google-vertex-credentials";
+export type { GoogleVertexCredentialSource } from "./google-vertex-credentials";
 export type { GoogleVertexProviderCallbacks } from "./providers/google-vertex-provider";
 export {
 	registerCustomLitellmProvider,

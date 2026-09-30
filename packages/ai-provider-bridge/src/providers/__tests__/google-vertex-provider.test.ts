@@ -17,6 +17,7 @@ vi.mock("google-auth-library", () => ({
 	OAuth2Client: class {},
 }));
 
+import { resolveGoogleVertexAccessToken } from "../../google-vertex-credentials";
 import {
 	getEffectiveLocation,
 	isVertexAnthropicModel,
@@ -25,7 +26,6 @@ import type { Logger } from "../../types";
 import {
 	registerCustomGoogleVertexProvider,
 	registerGoogleVertexProvider,
-	resolveGoogleVertexAccessToken,
 } from "../google-vertex-provider";
 import { ProviderRegistry } from "../ProviderRegistry";
 
@@ -87,6 +87,35 @@ describe("registerGoogleVertexProvider", () => {
 		});
 		expect(mockLogger.error).toHaveBeenCalledWith(
 			expect.stringContaining("Reconnect Google Cloud auth in Positron"),
+		);
+	});
+
+	it("uses Positron auth guidance for a brokered token even when inline variables are set", async () => {
+		const onProviderStatusChange = vi.fn().mockResolvedValue(undefined);
+		const registry = new ProviderRegistry(mockLogger);
+		registerGoogleVertexProvider(
+			registry,
+			mockLogger,
+			{ onProviderStatusChange },
+			{
+				GOOGLE_CLIENT_EMAIL: "svc@example.iam.gserviceaccount.com",
+				GOOGLE_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\\nabc\\n-----END PRIVATE KEY-----",
+			},
+		);
+
+		await registry.getModelsForProvider("google-vertex", {
+			type: "google-cloud",
+			project: "my-project",
+			location: "us-central1",
+			accessToken: "brokered-token",
+		});
+
+		expect(authMocks.googleAuth).not.toHaveBeenCalled();
+		expect(onProviderStatusChange).toHaveBeenCalledWith(
+			expect.objectContaining({
+				status: "auth_error",
+				error: expect.objectContaining({ code: "google_cloud_auth_expired" }),
+			}),
 		);
 	});
 
