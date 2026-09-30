@@ -191,7 +191,8 @@ const CUSTOM_PROVIDER_REGISTRARS = {
  * `config.customProviders` entries register after the built-ins, are not
  * filtered by `allowedProviders`, and are looked up through
  * `ProviderRegistry.getClientForProviderOrKind` because their client
- * factories are keyed by kind.
+ * factories are keyed by kind. An entry with an unsupported kind is skipped
+ * with a warning.
  */
 export function registerAllProviders(
 	registry: ProviderRegistry,
@@ -206,9 +207,13 @@ export function registerAllProviders(
 	}
 
 	for (const { id, clientKind } of config.customProviders ?? []) {
-		// Untyped callers (e.g. kinds read over IPC) can still pass an unsupported kind.
+		// Untyped callers (e.g. kinds read over IPC) can still pass an unsupported
+		// kind; skip that entry so one stale entry cannot block the rest.
 		if (!isSupportedCustomClientKind(clientKind)) {
-			throw new Error(`Unsupported custom provider kind: ${String(clientKind)}`);
+			logger.warn(
+				`[registerAllProviders] Skipping custom provider "${id}": unsupported kind ${String(clientKind)}`,
+			);
+			continue;
 		}
 		CUSTOM_PROVIDER_REGISTRARS[clientKind](registry, id, logger, config);
 		logger.debug(

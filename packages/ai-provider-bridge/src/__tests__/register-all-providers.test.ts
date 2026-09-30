@@ -92,13 +92,27 @@ describe("registerAllProviders", () => {
 		expect(registry.getClientForProvider("anthropic", { type: "apikey", apiKey: "k" })).toBeNull();
 	});
 
-	it("rejects a custom entry whose kind has no registrar", () => {
+	it("skips a custom entry whose kind has no registrar and still registers later entries", () => {
+		const log = logger();
 		const registry = new ProviderRegistry(logger());
-		expect(() =>
-			registerAllProviders(registry, logger(), {
-				positAiBaseUrl: "https://api.posit.cloud",
-				customProviders: [{ id: "odd" as never, clientKind: "positai" as never }],
-			}),
-		).toThrow("Unsupported custom provider kind: positai");
+		registerAllProviders(registry, log, {
+			positAiBaseUrl: "https://api.posit.cloud",
+			allowedProviders: [],
+			customProviders: [
+				{ id: "odd" as never, clientKind: "positai" as never },
+				{ id: "my-gateway" as never, clientKind: "openai-compatible" },
+			],
+		});
+
+		expect(log.warn).toHaveBeenCalledWith(
+			'[registerAllProviders] Skipping custom provider "odd": unsupported kind positai',
+		);
+		expect(
+			registry.getClientForProviderOrKind(
+				"my-gateway",
+				{ type: "apikey", apiKey: "k", baseUrl: "https://gw.example/v1" },
+				"openai-compatible",
+			),
+		).not.toBeNull();
 	});
 });
