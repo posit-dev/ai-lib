@@ -394,6 +394,9 @@ export class AcquisitionEngine {
 			}
 		} catch (error) {
 			if (this.isCurrent(attempt) && !attempt.controller.signal.aborted) {
+				this.logger?.info(
+					`[ai-credentials] device poll for ${attempt.providerId} ended: ${errorCode(error)}`,
+				);
 				await this.hooks.finishAuthentication(
 					attempt.providerId,
 					attempt.generation,
@@ -429,7 +432,7 @@ export class AcquisitionEngine {
 	}
 
 	/**
-	 * Refresh under the cross-process store lock. Only a definitive server
+	 * Refresh under the backing store's transaction boundary. Only a definitive server
 	 * rejection (see {@link TERMINAL_REFRESH_CODES}) tombstones the stored
 	 * tokens; every other failure keeps them so a later attempt can retry.
 	 * The transaction yields the access token to shape; shaping happens
@@ -442,9 +445,9 @@ export class AcquisitionEngine {
 	): Promise<ProviderCredentials | null> {
 		let accessToken: string | null;
 		try {
-			accessToken = await this.hooks.withRefreshTransaction(providerId, async () => {
-				const current = await this.hooks.readTokens(providerId);
-				if (!current) return null;
+			accessToken = await this.hooks.withRefreshTransaction(providerId, async (refresh) => {
+				if (!refresh) return null;
+				const current = refresh.tokens;
 				if (!this.isExpiring(current, 2)) {
 					return current.accessToken;
 				}
@@ -466,10 +469,16 @@ export class AcquisitionEngine {
 						// Re-auth is genuinely required. Classification and the
 						// tombstone stay inside the transaction so a concurrent
 						// refresher cannot overwrite the terminal record.
-						await this.hooks.persistRefreshError(providerId, "refresh_failed");
-						this.logger?.error(
-							`[ai-credentials] refresh rejected for ${providerId} (terminal: ${describeRefreshError(error)}); stored tokens removed`,
-						);
+						const result = await refresh.commitError("refresh_failed");
+						if (result === "committed") {
+							this.logger?.error(
+								`[ai-credentials] refresh rejected for ${providerId} (terminal: ${describeRefreshError(error)}); stored tokens removed`,
+							);
+						} else {
+							this.logger?.warn(
+								`[ai-credentials] refresh rejected for ${providerId} (terminal: ${describeRefreshError(error)}); stored record changed during the refresh and was kept`,
+							);
+						}
 					} else {
 						this.startRefreshCooldown(providerId);
 						this.logger?.warn(
@@ -479,7 +488,12 @@ export class AcquisitionEngine {
 					return null;
 				}
 				try {
-					await this.hooks.persistRefreshedTokens(providerId, refreshed);
+					const result = await refresh.commitTokens(refreshed);
+					if (result === "superseded") {
+						this.logger?.debug(
+							`[ai-credentials] refreshed tokens for ${providerId} not stored: stored record changed during the refresh`,
+						);
+					}
 				} catch (error) {
 					// The exchange succeeded but the rotated tokens could not be
 					// saved. Keep the old record and retry later; if the server

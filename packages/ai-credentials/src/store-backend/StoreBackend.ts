@@ -4,10 +4,12 @@
 
 import type {
 	AcquisitionBackendHooks,
+	AuthenticationCommitResult,
 	CredentialSourceContext,
 	MutableBackend,
 	OAuthGrantConfig,
 	OAuthProviderConfig,
+	RefreshTransaction,
 	StoredOAuthTokens,
 } from "../Backend.js";
 import type {
@@ -18,7 +20,10 @@ import type {
 } from "../CredentialProvider.js";
 import type { Logger, ProviderCredentials, TokenData } from "../types/index.js";
 import { normalizeDatabricksHost, requireBareAuthHost, storageKeyFor } from "../types/index.js";
-import { resolveCredentialsFromEnv } from "./envCredentialResolver.js";
+import {
+	isWorkbenchManagedDatabricks,
+	resolveCredentialsFromEnv,
+} from "./envCredentialResolver.js";
 import { PROVIDER_ENV_MAPPINGS } from "./providerEnvMappings.js";
 import {
 	storedProviderCredentialsSchema,
@@ -32,14 +37,17 @@ import {
  * structurally, but any backing with atomic per-key writes can serve it —
  * e.g. VS Code `SecretStorage` in an extension host.
  *
- * Lock-scope contract: `withLock` must serialize its critical section
- * against **every** writer of the same keys. The backend's OAuth acquisition
- * (generation compare-and-write) and AWS `preserve` mutations are
- * read-modify-write transactions that are only correct under that exclusion.
- * A backing that cannot provide it — e.g. an in-process mutex over a
- * per-window secret store — is only safe for configurations limited to
- * whole-record writes: API-key `replace`/`clear`, with no
- * `oauthConfigForProvider` and no AWS mutations.
+ * How much exclusion `withLock` gives is up to the backing: `SingleFileStore`
+ * locks across processes, VS Code `SecretStorage` only within one window.
+ *
+ * Every OAuth record carries a `generation`, and a refresh commits only while the
+ * stored record still holds the one it read. Under a cross-process lock that makes
+ * concurrent refreshes safe. Under a per-window lock it only narrows the race: the
+ * generation check and the write are separate steps, so two windows can both pass
+ * the check before either writes.
+ *
+ * AWS `preserve` mutations have no such marker and need a backing that excludes
+ * every writer of the same keys.
  */
 export interface StoreBackendStorage {
 	get<T>(key: string): Promise<T | undefined>;
@@ -253,6 +261,8 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 			const credentials = resolveCredentialsFromEnv(providerId, env);
 			return credentials ? { kind: "credentials", credentials } : { kind: "none" };
 		}
+
+		if (isWorkbenchManagedDatabricks(env)) return { kind: "none" };
 
 		// External build variants ship an empty PROVIDER_ENV_MAPPINGS; guard the
 		// dereference so Databricks resolution degrades to "none" there.
@@ -547,70 +557,102 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 		});
 	}
 
-	async function commitAuthentication(
-		providerId: string,
-		generation: string,
-		tokens: TokenData,
-	): Promise<"committed" | "superseded"> {
-		return compareAndWrite(providerId, generation, (current) => {
+	type RecordBuilder = (current: NormalizedStored) => StoredProviderCredentials | null;
+
+	function authenticatedWith(tokens: TokenData): RecordBuilder {
+		return (current) => {
 			if (!current.source) return null;
 			if (current.source.type !== "oauth-device" && current.source.type !== "oauth-u2m")
 				return null;
 			return authenticatedOAuthRecord(current.source, tokens, generationFactory());
-		});
+		};
+	}
+
+	function terminalWith(error: string): RecordBuilder {
+		return (current) =>
+			current.source ? terminalOAuthRecord(current.source, generationFactory(), error) : null;
+	}
+
+	async function commitAuthentication(
+		providerId: string,
+		generation: string,
+		tokens: TokenData,
+	): Promise<AuthenticationCommitResult> {
+		return compareAndWrite(providerId, generation, authenticatedWith(tokens));
 	}
 
 	async function finishAuthentication(
 		providerId: string,
 		generation: string,
 		error: string,
-	): Promise<"committed" | "superseded"> {
-		return compareAndWrite(providerId, generation, (current) => {
-			if (!current.source) return null;
-			return terminalOAuthRecord(current.source, generationFactory(), error);
-		});
+	): Promise<AuthenticationCommitResult> {
+		return compareAndWrite(providerId, generation, terminalWith(error));
 	}
 
 	async function compareAndWrite(
 		providerId: string,
 		generation: string,
-		build: (current: NormalizedStored) => StoredProviderCredentials | null,
-	): Promise<"committed" | "superseded"> {
-		const key = keyFor(providerId);
-		if (!key) return "superseded";
-		return store.withLock(async () => {
-			const current = normalize(providerId, await readRecord(providerId));
-			if (!current || current.generation !== generation) return "superseded";
-			const next = build(current);
-			if (!next) return "superseded";
-			await store.set(key, next);
-			return "committed";
-		});
+		build: RecordBuilder,
+	): Promise<AuthenticationCommitResult> {
+		return store.withLock(() => writeIfGeneration(providerId, generation, build));
 	}
 
-	async function readTokens(providerId: string): Promise<StoredOAuthTokens | null> {
-		const normalized = await storedSource(providerId);
+	/**
+	 * Write `build`'s record only while the stored record still holds
+	 * `generation`. The caller holds the store lock.
+	 */
+	async function writeIfGeneration(
+		providerId: string,
+		generation: string | undefined,
+		build: RecordBuilder,
+	): Promise<AuthenticationCommitResult> {
+		const key = keyFor(providerId);
+		if (!key) return "superseded";
+		const current = normalize(providerId, await readRecord(providerId));
+		if (!current || current.generation !== generation) return "superseded";
+		const next = build(current);
+		if (!next) return "superseded";
+		await store.set(key, next);
+		return "committed";
+	}
+
+	function readyOAuthTokens(normalized: NormalizedStored | null): StoredOAuthTokens | null {
 		if (!normalized || normalized.readiness !== "ready" || !normalized.source) return null;
 		if (normalized.source.type !== "oauth-device" && normalized.source.type !== "oauth-u2m")
 			return null;
 		return normalized.tokens ?? null;
 	}
 
-	async function persistRefreshedTokens(providerId: string, tokens: TokenData): Promise<void> {
-		const key = keyFor(providerId);
-		if (!key) return;
-		const current = normalize(providerId, await readRecord(providerId));
-		if (!current?.source) return;
-		if (current.source.type !== "oauth-device" && current.source.type !== "oauth-u2m") return;
-		await store.set(key, authenticatedOAuthRecord(current.source, tokens, generationFactory()));
+	async function readTokens(providerId: string): Promise<StoredOAuthTokens | null> {
+		return readyOAuthTokens(await storedSource(providerId));
 	}
 
-	async function persistRefreshError(providerId: string, error: string): Promise<void> {
-		const key = keyFor(providerId);
-		if (!key) return;
-		const current = normalize(providerId, await readRecord(providerId));
-		if (!current?.source) return;
-		await store.set(key, terminalOAuthRecord(current.source, generationFactory(), error));
+	/**
+	 * Read the record once under the lock, and bind the refresh's commits to the
+	 * generation of that same read so the tokens refreshed and the generation
+	 * checked can never come from different records.
+	 */
+	async function withRefreshTransaction<T>(
+		providerId: string,
+		operation: (refresh: RefreshTransaction | null) => Promise<T>,
+	): Promise<T> {
+		return store.withLock(async () => {
+			const read = normalize(providerId, await readRecord(providerId));
+			const tokens = readyOAuthTokens(read);
+			if (!read || !tokens) return operation(null);
+			let open = true;
+			const commit = async (build: RecordBuilder): Promise<AuthenticationCommitResult> =>
+				open ? writeIfGeneration(providerId, read.generation, build) : "superseded";
+			try {
+				return await operation({
+					tokens,
+					commitTokens: (refreshed) => commit(authenticatedWith(refreshed)),
+					commitError: (error) => commit(terminalWith(error)),
+				});
+			} finally {
+				open = false;
+			}
+		});
 	}
 
 	const acquisition: AcquisitionBackendHooks | undefined = oauthConfigForProvider
@@ -620,9 +662,7 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 				beginAuthentication,
 				commitAuthentication,
 				finishAuthentication,
-				persistRefreshedTokens,
-				persistRefreshError,
-				withRefreshTransaction: (_providerId, operation) => store.withLock(operation),
+				withRefreshTransaction,
 				shapeToken: asyncShapeToken,
 				notifyReady(providerId) {
 					notifyReady?.(providerId);

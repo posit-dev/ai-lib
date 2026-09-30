@@ -646,6 +646,141 @@ describe("generalized store-backed acquisition", () => {
 			expect(text).toContain("transient");
 			expect(text).not.toContain("x".repeat(250));
 		});
+
+		describe("when another window commits during the refresh", () => {
+			/** A sign-in or refresh from a window whose lock does not exclude this one. */
+			function otherWindowRecord(expiresInMs = 3_600_000): StoredProviderCredentials {
+				const expiresAt = new Date(Date.now() + expiresInMs).toISOString();
+				return {
+					...expiredPositaiRecord(),
+					generation: "other-window-generation",
+					oauthAuth: {
+						tokenData: {
+							accessToken: "other-access",
+							refreshToken: "other-refresh",
+							expiresAt,
+							tokenType: "Bearer",
+							scope: "prism",
+						},
+						expiresAt,
+						scope: "prism",
+					},
+				};
+			}
+
+			/** Stub fetch so the token-endpoint response is held until `respond` is called. */
+			function holdTokenEndpoint() {
+				let requested!: () => void;
+				const requestSeen = new Promise<void>((resolve) => {
+					requested = resolve;
+				});
+				let respond!: (response: Response) => void;
+				const response = new Promise<Response>((resolve) => {
+					respond = resolve;
+				});
+				vi.stubGlobal(
+					"fetch",
+					vi.fn(() => {
+						requested();
+						return response;
+					}),
+				);
+				return { requestSeen, respond };
+			}
+
+			it.each([
+				[
+					"rotated tokens",
+					ok({ access_token: "fresh-access", refresh_token: "fresh-refresh", expires_in: 3600 }),
+				],
+				["an invalid_grant rejection", err(400, { error: "invalid_grant" })],
+			])(
+				"keeps the other window's record when the refresh returns %s",
+				async (_label, response) => {
+					await seedExpiredPositai();
+					const tokenEndpoint = holdTokenEndpoint();
+					const provider = createProvider();
+
+					// SingleFileStore.set does not take the cross-process lock, so this
+					// write lands mid-refresh the way a per-window-locked writer's would.
+					const refresh = provider.getCredentials("positai");
+					await tokenEndpoint.requestSeen;
+					const newer = otherWindowRecord();
+					await store.set("auth:positai:oauth", newer);
+					tokenEndpoint.respond(response);
+					await refresh;
+
+					expect(await storedPositai()).toEqual(newer);
+				},
+			);
+
+			it("refreshes with the tokens from the read it pins the generation to", async () => {
+				await seedExpiredPositai();
+				const sentRefreshTokens: (string | null)[] = [];
+				vi.stubGlobal(
+					"fetch",
+					vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+						const body = new URLSearchParams(typeof init?.body === "string" ? init.body : "");
+						sentRefreshTokens.push(body.get("refresh_token"));
+						return ok({
+							access_token: "fresh-access",
+							refresh_token: "fresh-refresh",
+							expires_in: 3600,
+						});
+					}),
+				);
+				// The other window's record is expiring too, so a refresh that read it
+				// would spend its refresh token and then drop the rotated result.
+				const newer = otherWindowRecord(-60_000);
+				// Land the other window's write right after the transaction's first
+				// read, the gap a per-window lock leaves open.
+				let inLock = false;
+				let injected = false;
+				const withLock = store.withLock.bind(store);
+				const get = store.get.bind(store);
+				vi.spyOn(store, "withLock").mockImplementation(async (fn) => {
+					inLock = true;
+					try {
+						return await withLock(fn);
+					} finally {
+						inLock = false;
+					}
+				});
+				vi.spyOn(store, "get").mockImplementation(async (key) => {
+					const value = await get(key);
+					if (inLock && !injected) {
+						injected = true;
+						await store.set("auth:positai:oauth", newer);
+					}
+					return value;
+				});
+				const provider = createProvider();
+
+				await provider.getCredentials("positai");
+
+				expect(injected).toBe(true);
+				expect(sentRefreshTokens).toEqual(["old-refresh"]);
+				expect(await storedPositai()).toEqual(newer);
+			});
+
+			it("reports the record as kept, not removed, when a rejection loses to the other window", async () => {
+				await seedExpiredPositai();
+				const tokenEndpoint = holdTokenEndpoint();
+				const logger = mockLogger();
+				const provider = createProvider({}, receiver, logger);
+
+				const refresh = provider.getCredentials("positai");
+				await tokenEndpoint.requestSeen;
+				await store.set("auth:positai:oauth", otherWindowRecord());
+				tokenEndpoint.respond(err(400, { error: "invalid_grant" }));
+				await refresh;
+
+				expect(logger.error).not.toHaveBeenCalled();
+				expect(loggedText(logger)).toContain(
+					"stored record changed during the refresh and was kept",
+				);
+			});
+		});
 	});
 
 	describe("AcquisitionEngine refresh policy", () => {
@@ -706,28 +841,32 @@ describe("generalized store-backed acquisition", () => {
 				beginAuthentication: () => Promise.resolve("generation"),
 				commitAuthentication: () => Promise.resolve("committed"),
 				finishAuthentication: () => Promise.resolve("committed"),
-				persistRefreshedTokens: (_providerId, tokens) => {
-					if (state.failPersist) {
-						return Promise.reject(new Error("EACCES: permission denied"));
-					}
-					state.tokens = {
-						accessToken: tokens.accessToken,
-						refreshToken: tokens.refreshToken,
-						expiresAt: new Date(Date.now() + tokens.expiresIn * 1000).toISOString(),
-						tokenType: tokens.tokenType,
-						scope: tokens.scope,
-					};
-					return Promise.resolve();
+				withRefreshTransaction: (_providerId, operation) => {
+					if (state.failTransaction) return Promise.reject(new Error("ELOCKED: file is locked"));
+					const tokens = state.tokens;
+					if (!tokens) return operation(null);
+					return operation({
+						tokens,
+						commitTokens: (refreshed) => {
+							if (state.failPersist) {
+								return Promise.reject(new Error("EACCES: permission denied"));
+							}
+							state.tokens = {
+								accessToken: refreshed.accessToken,
+								refreshToken: refreshed.refreshToken,
+								expiresAt: new Date(Date.now() + refreshed.expiresIn * 1000).toISOString(),
+								tokenType: refreshed.tokenType,
+								scope: refreshed.scope,
+							};
+							return Promise.resolve("committed");
+						},
+						commitError: (error) => {
+							state.tombstone = error;
+							state.tokens = null;
+							return Promise.resolve("committed");
+						},
+					});
 				},
-				persistRefreshError: (_providerId, error) => {
-					state.tombstone = error;
-					state.tokens = null;
-					return Promise.resolve();
-				},
-				withRefreshTransaction: (_providerId, operation) =>
-					state.failTransaction
-						? Promise.reject(new Error("ELOCKED: file is locked"))
-						: operation(),
 				shapeToken: (_providerId, accessToken) => ({ type: "oauth", accessToken }),
 				notifyReady: () => {},
 			};

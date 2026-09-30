@@ -52,6 +52,7 @@ export const PROVIDER_ENV_MAPPINGS: Record<string, ProviderEnvMapping> = {
 	},
 	gemini: {
 		apiKey: scrubbed("GEMINI_API_KEY"),
+		apiKeyAliases: [scrubbed("GOOGLE_API_KEY")],
 	},
 	openrouter: {
 		apiKey: scrubbed("OPENROUTER_API_KEY"),
@@ -92,6 +93,10 @@ export const PROVIDER_ENV_MAPPINGS: Record<string, ProviderEnvMapping> = {
 			clientId: scrubbed("DATABRICKS_CLIENT_ID"),
 			clientSecret: scrubbed("DATABRICKS_CLIENT_SECRET"),
 		},
+		// Captured so a Workbench-managed profile still outranks shell Databricks credentials after capture.
+		sdkCredentialEnvironment: {
+			databricksConfigFile: ambient("DATABRICKS_CONFIG_FILE"),
+		},
 	},
 	litellm: {
 		apiKey: scrubbed("LITELLM_API_KEY"),
@@ -109,11 +114,15 @@ export const PROVIDER_ENV_MAPPINGS: Record<string, ProviderEnvMapping> = {
 	opencode: {
 		apiKey: scrubbed("OPENCODE_API_KEY"),
 	},
-	// Google Application Default Credentials file, read directly by the
-	// google-auth-library SDK on the lazy Vertex credential path.
+	// Google Application Default Credentials file and the inline service-account
+	// fields, read by the google-auth-library SDK on the lazy Vertex credential
+	// path. The email and key id identify the account the way the Azure ids do.
 	"google-vertex": {
 		sdkCredentialEnvironment: {
 			googleApplicationCredentials: scrubbed("GOOGLE_APPLICATION_CREDENTIALS"),
+			googleClientEmail: ambient("GOOGLE_CLIENT_EMAIL"),
+			googlePrivateKey: scrubbed("GOOGLE_PRIVATE_KEY"),
+			googlePrivateKeyId: ambient("GOOGLE_PRIVATE_KEY_ID"),
 		},
 	},
 };

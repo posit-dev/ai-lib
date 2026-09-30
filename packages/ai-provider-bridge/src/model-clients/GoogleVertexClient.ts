@@ -14,8 +14,11 @@ import { createVertex } from "@ai-sdk/google-vertex";
 import { createVertexAnthropic } from "@ai-sdk/google-vertex/anthropic";
 import type { LanguageModelV3 } from "@ai-sdk/provider";
 import { streamText } from "ai";
-import { OAuth2Client, type GoogleAuthOptions } from "google-auth-library";
 
+import {
+	type GoogleVertexCredentialSource,
+	googleVertexAuthOptions,
+} from "../google-vertex-credentials";
 import { sanitizeToolCallIdsForAnthropic } from "../tool-call-ids";
 import type { LMStreamPart, Logger, Protocol } from "../types";
 import { normalizeProtocol } from "../types";
@@ -50,13 +53,8 @@ export function getEffectiveLocation(modelId: string, configuredLocation: string
 export interface GoogleVertexClientConfig {
 	project: string;
 	location: string;
-	/**
-	 * Pre-fetched OAuth access token from a credential broker (e.g. Positron auth ext).
-	 * When set, the Vertex SDK uses this token directly instead of resolving ADC.
-	 */
-	accessToken?: string;
-	/** Captured ADC file path supplied by a host that scrubbed process.env. */
-	googleApplicationCredentials?: string;
+	/** The credential requests authenticate with, from `resolveGoogleVertexCredentialSource`. */
+	credentialSource: GoogleVertexCredentialSource;
 }
 
 export class GoogleVertexClient implements ModelClient {
@@ -66,17 +64,6 @@ export class GoogleVertexClient implements ModelClient {
 	constructor(config: GoogleVertexClientConfig, logger?: Logger) {
 		this.config = config;
 		this.logger = logger;
-	}
-
-	private googleAuthOptions(): GoogleAuthOptions | undefined {
-		if (this.config.accessToken) {
-			const authClient = new OAuth2Client();
-			authClient.setCredentials({ access_token: this.config.accessToken });
-			return { authClient };
-		}
-		return this.config.googleApplicationCredentials
-			? { keyFilename: this.config.googleApplicationCredentials }
-			: undefined;
 	}
 
 	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {
@@ -154,7 +141,7 @@ export class GoogleVertexClient implements ModelClient {
 	 * `isVertexAnthropicModel()` pattern.
 	 */
 	private createModel(modelId: string, protocol?: Protocol): LanguageModelV3 {
-		const googleAuthOptions = this.googleAuthOptions();
+		const googleAuthOptions = googleVertexAuthOptions(this.config.credentialSource);
 
 		const useAnthropicApi = protocol
 			? protocol === "anthropic-messages"
