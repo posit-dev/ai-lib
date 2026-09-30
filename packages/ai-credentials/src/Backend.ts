@@ -125,6 +125,18 @@ export interface StoredOAuthTokens {
 
 export type AuthenticationCommitResult = "committed" | "superseded";
 
+/**
+ * The stored OAuth tokens a refresh read, with writes bound to the generation
+ * of that same read. Each commit lands only while the stored record still holds
+ * that generation; otherwise it writes nothing and resolves "superseded". Once
+ * the transaction's operation settles, commits always resolve "superseded".
+ */
+export interface RefreshTransaction {
+	tokens: StoredOAuthTokens;
+	commitTokens(tokens: TokenData): Promise<AuthenticationCommitResult>;
+	commitError(error: string): Promise<AuthenticationCommitResult>;
+}
+
 /** Durable hooks used by the generalized acquisition engine. */
 export interface AcquisitionBackendHooks {
 	configForProvider(providerId: string): Promise<OAuthGrantConfig | undefined>;
@@ -140,9 +152,14 @@ export interface AcquisitionBackendHooks {
 		generation: string,
 		error: string,
 	): Promise<AuthenticationCommitResult>;
-	persistRefreshedTokens(providerId: string, tokens: TokenData): Promise<void>;
-	persistRefreshError(providerId: string, error: string): Promise<void>;
-	withRefreshTransaction<T>(providerId: string, operation: () => Promise<T>): Promise<T>;
+	/**
+	 * Read the stored OAuth tokens once under the backing's lock and run
+	 * `operation` against them; `null` when no ready OAuth tokens are stored.
+	 */
+	withRefreshTransaction<T>(
+		providerId: string,
+		operation: (refresh: RefreshTransaction | null) => Promise<T>,
+	): Promise<T>;
 	shapeToken(
 		providerId: string,
 		accessToken: string,

@@ -36,6 +36,7 @@ export type {
 	OAuthGrantConfig,
 	OAuthProviderConfig,
 	PreparedAuthorizationCodeReceiver,
+	RefreshTransaction,
 	StoredOAuthTokens,
 } from "./Backend.js";
 export { createCredentialProvider } from "./createCredentialProvider.js";

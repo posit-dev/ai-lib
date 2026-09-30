@@ -117,7 +117,7 @@ the `withRefreshTransaction` callback so a concurrent refresher cannot
 overwrite the terminal record. Every other failure is _transient_ — network
 errors, the 30s `AbortSignal.timeout` on the refresh exchange (so a hung fetch
 cannot hold the cross-process file lock), 429/5xx, unknown 4xx codes, malformed
-bodies, a rejected `persistRefreshedTokens`, or the transaction itself failing
+bodies, a rejected token commit, or the transaction itself failing
 (lock/IO) — and resolves as: return null, leave the stored record untouched,
 and start a ~60s in-memory per-provider cooldown so status polling cannot
 hammer the token endpoint during an outage. An expired cooldown is removed

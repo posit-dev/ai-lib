@@ -4,10 +4,12 @@
 
 import type {
 	AcquisitionBackendHooks,
+	AuthenticationCommitResult,
 	CredentialSourceContext,
 	MutableBackend,
 	OAuthGrantConfig,
 	OAuthProviderConfig,
+	RefreshTransaction,
 	StoredOAuthTokens,
 } from "../Backend.js";
 import type {
@@ -555,88 +557,100 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 		});
 	}
 
-	async function commitAuthentication(
-		providerId: string,
-		generation: string,
-		tokens: TokenData,
-	): Promise<"committed" | "superseded"> {
-		return compareAndWrite(providerId, generation, (current) => {
+	type RecordBuilder = (current: NormalizedStored) => StoredProviderCredentials | null;
+
+	function authenticatedWith(tokens: TokenData): RecordBuilder {
+		return (current) => {
 			if (!current.source) return null;
 			if (current.source.type !== "oauth-device" && current.source.type !== "oauth-u2m")
 				return null;
 			return authenticatedOAuthRecord(current.source, tokens, generationFactory());
-		});
+		};
+	}
+
+	function terminalWith(error: string): RecordBuilder {
+		return (current) =>
+			current.source ? terminalOAuthRecord(current.source, generationFactory(), error) : null;
+	}
+
+	async function commitAuthentication(
+		providerId: string,
+		generation: string,
+		tokens: TokenData,
+	): Promise<AuthenticationCommitResult> {
+		return compareAndWrite(providerId, generation, authenticatedWith(tokens));
 	}
 
 	async function finishAuthentication(
 		providerId: string,
 		generation: string,
 		error: string,
-	): Promise<"committed" | "superseded"> {
-		return compareAndWrite(providerId, generation, (current) => {
-			if (!current.source) return null;
-			return terminalOAuthRecord(current.source, generationFactory(), error);
-		});
+	): Promise<AuthenticationCommitResult> {
+		return compareAndWrite(providerId, generation, terminalWith(error));
 	}
 
 	async function compareAndWrite(
 		providerId: string,
 		generation: string,
-		build: (current: NormalizedStored) => StoredProviderCredentials | null,
-	): Promise<"committed" | "superseded"> {
-		const key = keyFor(providerId);
-		if (!key) return "superseded";
-		return store.withLock(async () => {
-			const current = normalize(providerId, await readRecord(providerId));
-			if (!current || current.generation !== generation) return "superseded";
-			const next = build(current);
-			if (!next) return "superseded";
-			await store.set(key, next);
-			return "committed";
-		});
+		build: RecordBuilder,
+	): Promise<AuthenticationCommitResult> {
+		return store.withLock(() => writeIfGeneration(providerId, generation, build));
 	}
 
-	async function readTokens(providerId: string): Promise<StoredOAuthTokens | null> {
-		const normalized = await storedSource(providerId);
+	/**
+	 * Write `build`'s record only while the stored record still holds
+	 * `generation`. The caller holds the store lock.
+	 */
+	async function writeIfGeneration(
+		providerId: string,
+		generation: string | undefined,
+		build: RecordBuilder,
+	): Promise<AuthenticationCommitResult> {
+		const key = keyFor(providerId);
+		if (!key) return "superseded";
+		const current = normalize(providerId, await readRecord(providerId));
+		if (!current || current.generation !== generation) return "superseded";
+		const next = build(current);
+		if (!next) return "superseded";
+		await store.set(key, next);
+		return "committed";
+	}
+
+	function readyOAuthTokens(normalized: NormalizedStored | null): StoredOAuthTokens | null {
 		if (!normalized || normalized.readiness !== "ready" || !normalized.source) return null;
 		if (normalized.source.type !== "oauth-device" && normalized.source.type !== "oauth-u2m")
 			return null;
 		return normalized.tokens ?? null;
 	}
 
-	const refreshGenerations = new Map<string, string | undefined>();
-
-	async function persistRefreshedTokens(providerId: string, tokens: TokenData): Promise<void> {
-		const key = keyFor(providerId);
-		if (!key) return;
-		const current = normalize(providerId, await readRecord(providerId));
-		if (!current?.source) return;
-		if (current.generation !== refreshGenerations.get(providerId)) return;
-		if (current.source.type !== "oauth-device" && current.source.type !== "oauth-u2m") return;
-		await store.set(key, authenticatedOAuthRecord(current.source, tokens, generationFactory()));
+	async function readTokens(providerId: string): Promise<StoredOAuthTokens | null> {
+		return readyOAuthTokens(await storedSource(providerId));
 	}
 
-	async function persistRefreshError(providerId: string, error: string): Promise<void> {
-		const key = keyFor(providerId);
-		if (!key) return;
-		const current = normalize(providerId, await readRecord(providerId));
-		if (!current?.source) return;
-		if (current.generation !== refreshGenerations.get(providerId)) return;
-		await store.set(key, terminalOAuthRecord(current.source, generationFactory(), error));
-	}
-
-	/** Note the record's current generation, then run the refresh against it. */
+	/**
+	 * Read the record once under the lock, and bind the refresh's commits to the
+	 * generation of that same read so the tokens refreshed and the generation
+	 * checked can never come from different records.
+	 */
 	async function withRefreshTransaction<T>(
 		providerId: string,
-		operation: () => Promise<T>,
+		operation: (refresh: RefreshTransaction | null) => Promise<T>,
 	): Promise<T> {
 		return store.withLock(async () => {
-			const current = normalize(providerId, await readRecord(providerId));
-			refreshGenerations.set(providerId, current?.generation);
+			const read = normalize(providerId, await readRecord(providerId));
+			const tokens = readyOAuthTokens(read);
+			if (!read || !tokens) return operation(null);
+			let open = true;
+			const commit = async (build: RecordBuilder): Promise<AuthenticationCommitResult> =>
+				open ? writeIfGeneration(providerId, read.generation, build) : "superseded";
 			try {
-				return await operation();
+				return await operation({
+					tokens,
+					commitTokens: (refreshed) => commit(authenticatedWith(refreshed)),
+					commitError: (error) => commit(terminalWith(error)),
+				});
 			} finally {
-				refreshGenerations.delete(providerId);
+				open = false;
 			}
 		});
 	}
@@ -648,8 +662,6 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 				beginAuthentication,
 				commitAuthentication,
 				finishAuthentication,
-				persistRefreshedTokens,
-				persistRefreshError,
 				withRefreshTransaction,
 				shapeToken: asyncShapeToken,
 				notifyReady(providerId) {
