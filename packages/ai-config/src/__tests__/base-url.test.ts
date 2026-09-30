@@ -58,7 +58,9 @@ describe("normalizeFoundryBaseUrl", () => {
 			"https://r.openai.azure.com/openai/v1/responses?api-version=preview",
 			"https://r.openai.azure.com/openai/v1",
 		],
-		["https://r.openai.azure.com/openai/v10", "https://r.openai.azure.com/openai/v10/openai/v1"],
+		["https://r.openai.azure.com/openai", "https://r.openai.azure.com/openai/v1"],
+		["https://r.openai.azure.com/openai/", "https://r.openai.azure.com/openai/v1"],
+		["https://gateway.example/foundry", "https://gateway.example/foundry/openai/v1"],
 		["https://r.openai.azure.com/", "https://r.openai.azure.com/openai/v1"],
 		["https://r.openai.azure.com", "https://r.openai.azure.com/openai/v1"],
 		["https://r.openai.azure.com?api-version=1", "https://r.openai.azure.com/openai/v1"],
@@ -71,6 +73,12 @@ describe("normalizeFoundryBaseUrl", () => {
 		["   ", ""],
 	])("normalizes %s", (input, expected) => {
 		expect(normalizeFoundryBaseUrl(input)).toBe(expected);
+	});
+
+	it("matches /openai/v1 only as a whole path segment", () => {
+		expect(normalizeFoundryBaseUrl("https://r.openai.azure.com/openai/v10/chat")).not.toBe(
+			"https://r.openai.azure.com/openai/v1",
+		);
 	});
 });
 

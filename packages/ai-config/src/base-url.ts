@@ -146,12 +146,14 @@ export function normalizeBaseUrlForProvider(providerId: BuiltinProviderId, url: 
 	return url;
 }
 
-const FOUNDRY_V1_PATH = "/openai/v1";
+const FOUNDRY_OPENAI_PATH = "/openai";
+const FOUNDRY_V1_PATH = `${FOUNDRY_OPENAI_PATH}/v1`;
 
 /**
  * Normalize a Microsoft Foundry endpoint to its `/openai/v1` base URL: strips
- * the query string, trailing slashes, any `/openai/deployments/...` suffix and
- * any operation path after `/openai/v1` that users paste from the portal.
+ * the query string, trailing slashes, any `/openai/deployments/...` suffix,
+ * any operation path after `/openai/v1` that users paste from the portal, and
+ * a bare trailing `/openai`, so the suffix is never doubled.
  * Empty input stays empty.
  */
 export function normalizeFoundryBaseUrl(rawUrl: string): string {
@@ -168,6 +170,7 @@ export function normalizeFoundryBaseUrl(rawUrl: string): string {
 		const afterV1 = url.charAt(v1Index + FOUNDRY_V1_PATH.length);
 		if (afterV1 === "" || afterV1 === "/") url = url.substring(0, v1Index + FOUNDRY_V1_PATH.length);
 	}
+	if (url.endsWith(FOUNDRY_OPENAI_PATH)) url = url.slice(0, -FOUNDRY_OPENAI_PATH.length);
 	if (!url.endsWith(FOUNDRY_V1_PATH)) url += FOUNDRY_V1_PATH;
 	return url;
 }
