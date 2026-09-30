@@ -375,9 +375,9 @@ function resolveConnectionProvenance(
 		}
 	}
 
-	// Local providers: the endpoint's source, so a host-stored endpoint can
-	// override a default (built-in or admin-authored), never an enforced or env
-	// value that happens to equal it.
+	// Local providers: the endpoint's source, so a host that stores its own
+	// endpoint can yield to an enforced or env value even when it equals the
+	// built-in default.
 	for (const providerId of ["ollama", "lmstudio"] as const) {
 		result.set(providerId, {
 			endpoint: fieldSourceFor(providerId, (block) => block?.endpoint, true),

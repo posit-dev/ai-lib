@@ -234,10 +234,9 @@ values. The source is the highest-precedence kept source that sets the field;
 sets them, while `baseUrl`/`tenantId` are absent until some layer sets them.
 
 For `ollama` and `lmstudio` it records the source of `endpoint` the same way,
-falling back to `"default"`. Hosts that store their own local endpoint let it
-win only over a `"default"` source (the built-in endpoint or an admin default),
-so an enforced or environment endpoint holds even when its value equals the
-built-in one.
+falling back to `"default"`. Hosts that store their own local endpoint let an
+`"enforced"` or `"environment"` source override it, even when its value equals
+the built-in one; a `"user"` or `"default"` source yields to the stored endpoint.
 
 ### Model selection (`resolveModels`)
 
