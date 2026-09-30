@@ -76,8 +76,8 @@ describe("normalizeFoundryBaseUrl", () => {
 	});
 
 	it("matches /openai/v1 only as a whole path segment", () => {
-		expect(normalizeFoundryBaseUrl("https://r.openai.azure.com/openai/v10/chat")).not.toBe(
-			"https://r.openai.azure.com/openai/v1",
+		expect(normalizeFoundryBaseUrl("https://r.openai.azure.com/openai/v10/chat")).toMatch(
+			/^https:\/\/r\.openai\.azure\.com\/openai\/v10\/chat(\/|$)/,
 		);
 	});
 });
