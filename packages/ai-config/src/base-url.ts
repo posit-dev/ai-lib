@@ -148,6 +148,16 @@ export function normalizeBaseUrlForProvider(providerId: BuiltinProviderId, url: 
 
 const FOUNDRY_OPENAI_PATH = "/openai";
 const FOUNDRY_V1_PATH = `${FOUNDRY_OPENAI_PATH}/v1`;
+const FOUNDRY_DEPLOYMENTS_PATH = `${FOUNDRY_OPENAI_PATH}/deployments`;
+
+/** Index of the first `path` in `url` that ends at a path-segment boundary, or -1. */
+function pathSegmentIndex(url: string, path: string): number {
+	for (let i = url.indexOf(path); i !== -1; i = url.indexOf(path, i + 1)) {
+		const next = url.charAt(i + path.length);
+		if (next === "" || next === "/") return i;
+	}
+	return -1;
+}
 
 /**
  * Normalize a Microsoft Foundry endpoint to its `/openai/v1` base URL: strips
@@ -163,13 +173,10 @@ export function normalizeFoundryBaseUrl(rawUrl: string): string {
 	if (suffixIndex !== -1) url = url.substring(0, suffixIndex);
 	url = url.replace(/\/+$/, "");
 	if (!url) return "";
-	const deploymentIndex = url.indexOf("/openai/deployments/");
+	const deploymentIndex = pathSegmentIndex(url, FOUNDRY_DEPLOYMENTS_PATH);
 	if (deploymentIndex !== -1) url = url.substring(0, deploymentIndex);
-	const v1Index = url.indexOf(FOUNDRY_V1_PATH);
-	if (v1Index !== -1) {
-		const afterV1 = url.charAt(v1Index + FOUNDRY_V1_PATH.length);
-		if (afterV1 === "" || afterV1 === "/") url = url.substring(0, v1Index + FOUNDRY_V1_PATH.length);
-	}
+	const v1Index = pathSegmentIndex(url, FOUNDRY_V1_PATH);
+	if (v1Index !== -1) url = url.substring(0, v1Index + FOUNDRY_V1_PATH.length);
 	if (url.endsWith(FOUNDRY_OPENAI_PATH)) url = url.slice(0, -FOUNDRY_OPENAI_PATH.length);
 	if (!url.endsWith(FOUNDRY_V1_PATH)) url += FOUNDRY_V1_PATH;
 	return url;

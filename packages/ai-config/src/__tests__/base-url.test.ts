@@ -48,6 +48,8 @@ describe("normalizeFoundryBaseUrl", () => {
 			"https://r.openai.azure.com/openai/deployments/gpt-4o",
 			"https://r.openai.azure.com/openai/v1",
 		],
+		["https://r.openai.azure.com/openai/deployments/", "https://r.openai.azure.com/openai/v1"],
+		["https://r.openai.azure.com/openai/deployments", "https://r.openai.azure.com/openai/v1"],
 		["https://r.openai.azure.com/openai/v1", "https://r.openai.azure.com/openai/v1"],
 		["https://r.openai.azure.com/openai/v1/", "https://r.openai.azure.com/openai/v1"],
 		[
