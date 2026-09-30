@@ -36,7 +36,11 @@ export {
 } from "./StoredProviderCredentials.js";
 
 // Environment variable credential resolver
-export { hasEnvCredentials, resolveCredentialsFromEnv } from "./envCredentialResolver.js";
+export {
+	hasEnvCredentials,
+	isWorkbenchManagedDatabricks,
+	resolveCredentialsFromEnv,
+} from "./envCredentialResolver.js";
 
 // Provider env mappings
 export {
