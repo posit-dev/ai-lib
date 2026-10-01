@@ -194,6 +194,10 @@ status `metadata.serverUrl`, and passes it to `oauthConfigForProvider` on the
 stored source context. The host resolves the grant from that URL, so the token
 and the server it was issued by live in one record and cannot disagree.
 Configuring a different server replaces the record, dropping the old token.
+Acquisition also compares the current record's server URL with the grant it
+resolved before reading tokens (again under the refresh lock), and before
+starting an attempt. If the source changes during grant discovery, the stale
+grant cannot consume or overwrite the replacement server's tokens.
 
 `connect-oauth.ts` holds Posit Connect's grant:
 `createConnectDeviceCodeGrantResolver()` performs RFC 8414 discovery and RFC

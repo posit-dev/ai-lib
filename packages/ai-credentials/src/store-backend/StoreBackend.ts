@@ -533,7 +533,10 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 		};
 	}
 
-	async function beginAuthentication(providerId: string): Promise<string> {
+	async function beginAuthentication(
+		providerId: string,
+		config: OAuthGrantConfig,
+	): Promise<string> {
 		const key = keyFor(providerId);
 		if (!key) throw new Error(`Unknown provider: ${providerId}`);
 		return store.withLock(async () => {
@@ -543,6 +546,9 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 			if (normalized?.source) source = normalized.source;
 			if (source.type !== "oauth-device" && source.type !== "oauth-u2m") {
 				throw new Error(`Stored source ${source.type} is not interactive`);
+			}
+			if (!matchesGrantServer(source, config)) {
+				throw new Error("The OAuth server changed while sign-in was starting");
 			}
 			await store.set(key, pendingRecord(source, generation));
 			return generation;
@@ -590,11 +596,15 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 		});
 	}
 
-	async function readTokens(providerId: string): Promise<StoredOAuthTokens | null> {
+	async function readTokens(
+		providerId: string,
+		config: OAuthGrantConfig,
+	): Promise<StoredOAuthTokens | null> {
 		const normalized = await storedSource(providerId);
 		if (!normalized || normalized.readiness !== "ready" || !normalized.source) return null;
 		if (normalized.source.type !== "oauth-device" && normalized.source.type !== "oauth-u2m")
 			return null;
+		if (!matchesGrantServer(normalized.source, config)) return null;
 		return normalized.tokens ?? null;
 	}
 
@@ -798,6 +808,18 @@ function terminalOAuthRecord(
 		error,
 		oauthAuth: oauthIdentity(source),
 	};
+}
+
+/** A grant resolved before a server switch must never consume the replacement's tokens. */
+function matchesGrantServer(
+	source: Extract<CredentialSourceInput, { type: "oauth-device" | "oauth-u2m" }>,
+	config: OAuthGrantConfig,
+): boolean {
+	return (
+		source.type !== "oauth-device" ||
+		!source.serverUrl ||
+		source.serverUrl === config.credentialBaseUrl
+	);
 }
 
 /** Non-secret identity an interactive OAuth record keeps across its lifecycle. */

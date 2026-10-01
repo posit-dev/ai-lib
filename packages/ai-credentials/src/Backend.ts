@@ -133,8 +133,10 @@ export type AuthenticationCommitResult = "committed" | "superseded";
 /** Durable hooks used by the generalized acquisition engine. */
 export interface AcquisitionBackendHooks {
 	configForProvider(providerId: string): Promise<OAuthGrantConfig | undefined>;
-	readTokens(providerId: string): Promise<StoredOAuthTokens | null>;
-	beginAuthentication(providerId: string): Promise<string>;
+	/** Check the current stored server against this grant before returning tokens. */
+	readTokens(providerId: string, config: OAuthGrantConfig): Promise<StoredOAuthTokens | null>;
+	/** Reject a server switch before replacing a record with a pending attempt. */
+	beginAuthentication(providerId: string, config: OAuthGrantConfig): Promise<string>;
 	commitAuthentication(
 		providerId: string,
 		generation: string,

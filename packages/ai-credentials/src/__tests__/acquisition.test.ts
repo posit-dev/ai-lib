@@ -115,6 +115,72 @@ describe("generalized store-backed acquisition", () => {
 		return createCredentialProvider({ backend, logger });
 	}
 
+	it("does not use tokens from a server switched while the OAuth grant was resolving", async () => {
+		const serverA = "https://connect-a.test";
+		const serverB = "https://connect-b.test";
+		const key = "auth:connect:apikey";
+		const record = (serverUrl: string, expiresAt: string): StoredProviderCredentials => ({
+			source: "oauth-device",
+			readiness: "ready",
+			generation: serverUrl,
+			oauthAuth: {
+				serverUrl,
+				expiresAt,
+				tokenData: {
+					accessToken: `access-${serverUrl}`,
+					refreshToken: `refresh-${serverUrl}`,
+					expiresAt,
+					tokenType: "Bearer",
+					scope: "",
+				},
+			},
+		});
+		const fetchMock = vi.fn();
+		vi.stubGlobal("fetch", fetchMock);
+		for (const expiresAt of [
+			new Date(Date.now() + 3_600_000).toISOString(),
+			new Date(0).toISOString(),
+		]) {
+			let grantRead!: () => void;
+			let releaseGrant!: () => void;
+			const read = new Promise<void>((resolve) => {
+				grantRead = resolve;
+			});
+			const release = new Promise<void>((resolve) => {
+				releaseGrant = resolve;
+			});
+			const backend = createStoreBackend({
+				store,
+				env: {},
+				resolveAuthMethod: (id) => (id === "connect" ? { authMethodId: "apikey" } : undefined),
+				oauthConfigForProvider: async (_id, source) => {
+					if (source.type !== "oauth-device" || !source.serverUrl) return undefined;
+					if (source.serverUrl === serverA) {
+						grantRead();
+						await release;
+					}
+					return {
+						grantType: "device-code" as const,
+						clientId: "client",
+						scope: "",
+						deviceAuthorizationEndpoint: `${source.serverUrl}/device`,
+						tokenEndpoint: `${source.serverUrl}/token`,
+						credentialBaseUrl: source.serverUrl,
+					};
+				},
+			});
+			const provider = createCredentialProvider({ backend });
+			await store.set(key, record(serverA, new Date(Date.now() + 3_600_000).toISOString()));
+			const pending = provider.getCredentials("connect");
+			await read;
+			await store.set(key, record(serverB, expiresAt));
+			releaseGrant();
+			expect(await pending).toBeNull();
+			expect(fetchMock).not.toHaveBeenCalled();
+			await provider.dispose();
+		}
+	});
+
 	it("completes authorization-code PKCE and rejects a genuinely concurrent local start", async () => {
 		const provider = createProvider();
 		await provider.mutateCredentials("databricks", {

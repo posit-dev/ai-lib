@@ -99,7 +99,7 @@ export class AcquisitionEngine {
 			return { handled: true, credentials: await this.getClientCredentials(providerId, config) };
 		}
 
-		const tokens = await this.hooks.readTokens(providerId);
+		const tokens = await this.hooks.readTokens(providerId, config);
 		if (!tokens) return { handled: true, credentials: null };
 		if (!this.isExpiring(tokens)) {
 			return {
@@ -152,7 +152,7 @@ export class AcquisitionEngine {
 			}
 
 			const attemptId = randomOpaque(16);
-			const generation = await this.hooks.beginAuthentication(providerId);
+			const generation = await this.hooks.beginAuthentication(providerId, config);
 			if (this.disposed) {
 				await this.hooks.finishAuthentication(providerId, generation, "cancelled");
 				throw new Error("Credential provider is disposed");
@@ -443,7 +443,7 @@ export class AcquisitionEngine {
 		let accessToken: string | null;
 		try {
 			accessToken = await this.hooks.withRefreshTransaction(providerId, async () => {
-				const current = await this.hooks.readTokens(providerId);
+				const current = await this.hooks.readTokens(providerId, config);
 				if (!current) return null;
 				if (!this.isExpiring(current, 2)) {
 					return current.accessToken;

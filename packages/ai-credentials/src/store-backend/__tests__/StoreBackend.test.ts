@@ -212,7 +212,9 @@ describe("createStoreBackend", () => {
 				oauthConfigForProvider,
 				env: {},
 			});
-			expect(await backend.acquisition?.readTokens("positai")).toBeNull();
+			const grant = await backend.acquisition?.configForProvider("positai");
+			if (!grant) throw new Error("expected grant");
+			expect(await backend.acquisition?.readTokens("positai", grant)).toBeNull();
 		});
 	});
 
@@ -661,10 +663,10 @@ describe("createStoreBackend", () => {
 				metadata: { serverUrl: SERVER_A },
 			});
 
-			const generation = await hooks.beginAuthentication("connect");
-			expect(await hooks.commitAuthentication("connect", generation, tokens)).toBe("committed");
 			const grant = await hooks.configForProvider("connect");
 			if (!grant) throw new Error("expected a device-code grant");
+			const generation = await hooks.beginAuthentication("connect", grant);
+			expect(await hooks.commitAuthentication("connect", generation, tokens)).toBe("committed");
 
 			expect(grantSources.at(-1)).toEqual({
 				type: "oauth-device",
@@ -682,6 +684,30 @@ describe("createStoreBackend", () => {
 			});
 		});
 
+		it("does not begin sign-in against a stale server grant", async () => {
+			const backend = createConnectBackend([]);
+			const hooks = backend.acquisition;
+			if (!hooks) throw new Error("expected acquisition hooks");
+			await backend.mutateCredentials("connect", {
+				kind: "replace",
+				source: { type: "oauth-device", serverUrl: SERVER_A },
+			});
+			const grant = await hooks.configForProvider("connect");
+			if (!grant) throw new Error("expected a device-code grant");
+			await backend.mutateCredentials("connect", {
+				kind: "replace",
+				source: { type: "oauth-device", serverUrl: SERVER_B },
+			});
+
+			await expect(hooks.beginAuthentication("connect", grant)).rejects.toThrow(
+				"OAuth server changed",
+			);
+			expect(await backend.getCredentialStatus("connect")).toMatchObject({
+				readiness: "unauthenticated",
+				metadata: { serverUrl: SERVER_B },
+			});
+		});
+
 		it("drops the old server's token when a different server is configured", async () => {
 			const backend = createConnectBackend([]);
 			const hooks = backend.acquisition;
@@ -690,7 +716,9 @@ describe("createStoreBackend", () => {
 				kind: "replace",
 				source: { type: "oauth-device", serverUrl: SERVER_A },
 			});
-			const generation = await hooks.beginAuthentication("connect");
+			const grant = await hooks.configForProvider("connect");
+			if (!grant) throw new Error("expected a device-code grant");
+			const generation = await hooks.beginAuthentication("connect", grant);
 			await hooks.commitAuthentication("connect", generation, tokens);
 
 			await backend.mutateCredentials("connect", {
@@ -698,7 +726,7 @@ describe("createStoreBackend", () => {
 				source: { type: "oauth-device", serverUrl: SERVER_B },
 			});
 
-			expect(await hooks.readTokens("connect")).toBeNull();
+			expect(await hooks.readTokens("connect", grant)).toBeNull();
 			expect(await store.get<StoredProviderCredentials>(key)).toMatchObject({
 				oauthAuth: { serverUrl: SERVER_B },
 			});
