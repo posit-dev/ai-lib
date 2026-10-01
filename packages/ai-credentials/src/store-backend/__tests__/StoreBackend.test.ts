@@ -294,6 +294,65 @@ describe("createStoreBackend", () => {
 				origin: "environment",
 			});
 		});
+
+		describe("when Workbench manages the Databricks profile", () => {
+			const WORKBENCH_CONFIG_FILE = "/home/user/.posit-workbench/databricks/cfg";
+
+			it.each([
+				[
+					"complete M2M variables",
+					{
+						DATABRICKS_HOST: "https://workspace.test",
+						DATABRICKS_CLIENT_ID: "client",
+						DATABRICKS_CLIENT_SECRET: "secret",
+					},
+				],
+				[
+					"a PAT with M2M explicitly selected",
+					{
+						DATABRICKS_AUTH_TYPE: "oauth-m2m",
+						DATABRICKS_TOKEN: "shell-pat",
+						DATABRICKS_HOST: "https://workspace.test",
+						DATABRICKS_CLIENT_ID: "client",
+						DATABRICKS_CLIENT_SECRET: "secret",
+					},
+				],
+				[
+					"incomplete explicitly selected M2M",
+					{
+						DATABRICKS_AUTH_TYPE: "oauth-m2m",
+						DATABRICKS_CLIENT_ID: "client",
+					},
+				],
+				["a PAT", { DATABRICKS_TOKEN: "shell-pat" }],
+			])("resolves nothing from %s in the shell", async (_label, shellEnv) => {
+				const backend = createStoreBackend({
+					store,
+					resolveAuthMethod,
+					oauthConfigForProvider: (_providerId, source) =>
+						source?.type === "oauth-m2m"
+							? {
+									grantType: "client-credentials",
+									clientId: source.clientId,
+									clientSecret: source.clientSecret,
+									tokenEndpoint: `${source.workspaceHost}/token`,
+									credentialBaseUrl: source.workspaceHost,
+									cacheKey: source.clientId,
+								}
+							: undefined,
+					env: { ...shellEnv, DATABRICKS_CONFIG_FILE: WORKBENCH_CONFIG_FILE },
+				});
+
+				expect(await backend.getCredentials("databricks")).toBeNull();
+				expect(await backend.acquisition?.configForProvider("databricks")).toBeUndefined();
+				expect(await backend.getCredentialStatus("databricks")).toEqual({
+					configured: false,
+					authenticated: false,
+					readiness: "unauthenticated",
+					error: undefined,
+				});
+			});
+		});
 	});
 
 	describe("onDidChangeCredentials", () => {
@@ -706,6 +765,38 @@ describe("createStoreBackend", () => {
 				readiness: "unauthenticated",
 				metadata: { serverUrl: SERVER_B },
 			});
+		});
+
+		it("does not expose another server's tokens to a stale refresh grant", async () => {
+			const backend = createConnectBackend([]);
+			const hooks = backend.acquisition;
+			if (!hooks) throw new Error("expected acquisition hooks");
+			await backend.mutateCredentials("connect", {
+				kind: "replace",
+				source: { type: "oauth-device", serverUrl: SERVER_A },
+			});
+			const grantA = await hooks.configForProvider("connect");
+			if (!grantA) throw new Error("expected a device-code grant");
+
+			await backend.mutateCredentials("connect", {
+				kind: "replace",
+				source: { type: "oauth-device", serverUrl: SERVER_B },
+			});
+			const grantB = await hooks.configForProvider("connect");
+			if (!grantB) throw new Error("expected a device-code grant");
+			const generation = await hooks.beginAuthentication("connect", grantB);
+			expect(await hooks.commitAuthentication("connect", generation, tokens)).toBe("committed");
+
+			expect(
+				await hooks.withRefreshTransaction("connect", grantA, async (refresh) => refresh),
+			).toBeNull();
+			expect(
+				await hooks.withRefreshTransaction(
+					"connect",
+					grantB,
+					async (refresh) => refresh?.tokens.accessToken,
+				),
+			).toBe("issued-by-a");
 		});
 
 		it("drops the old server's token when a different server is configured", async () => {

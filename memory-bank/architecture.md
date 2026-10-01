@@ -251,7 +251,10 @@ Credential resolution is split in two halves: session lookup (vscode-bound, `src
 Bedrock's manual-key and `fromNodeProviderChain` branches converge in
 `createAwsCredentialProvider()`. Converse, Anthropic Messages, Mantle
 inference, and both discovery clients consume the same provider-function
-shape, keeping credential precedence identical across protocols.
+shape, keeping credential precedence identical across protocols. When
+`AWS_WEB_IDENTITY_TOKEN_FILE` is set, the chain's STS token exchange uses the
+configured Bedrock region; otherwise the region is left unset so an SSO profile's
+own `sso_region` applies, matching Positron's authentication extension.
 
 `AnthropicClient`'s auth parameter is a discriminated union,
 `AnthropicClientAuth = { apiKey: string } | { authToken: string }` — the two
@@ -443,7 +446,7 @@ Positron's VS Code base includes it.
 
 ## Provider Registration
 
-`register-all-providers.ts` registers every provider into a caller-owned `ProviderRegistry`, honoring `config.allowedProviders`. Its private registrar map is compile-time exhaustive over `PROVIDER_IDS`, while the public `ProviderRegistrationConfig` remains colocated with the orchestrator. Consumers that want to restrict the available provider set pass `allowedProviders`; there is no build-time provider filtering.
+`register-all-providers.ts` registers every provider into a caller-owned `ProviderRegistry`, honoring `config.allowedProviders`. Its private registrar map is compile-time exhaustive over `PROVIDER_IDS`, while the public `ProviderRegistrationConfig` remains colocated with the orchestrator. Consumers that want to restrict the available provider set pass `allowedProviders`; there is no build-time provider filtering. `config.customProviders` lists `providers.custom` entries as `{ id, clientKind }`; each registers after the built-ins through a registrar table that is exhaustive over `SupportedCustomClientKind`, independent of `allowedProviders`, with its client factory keyed by kind (look it up with `ProviderRegistry.getClientForProviderOrKind`).
 
 ## Dependencies
 

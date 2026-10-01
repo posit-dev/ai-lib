@@ -162,7 +162,10 @@ Config flows through three stages: **assemble sources → resolve → watch**. P
    `POSIT_AI_PROVIDERS_DEFAULT` (both remain strict JSON and are validated against the relaxed
    `providersConfigFragmentSchema`), plus the legacy Positron layers the
    loader opted into (`legacyPositronSettings` → `legacy-positron`,
-   `legacyPositronEnforcedSettings` → `legacy-positron-enforced`). Each
+   `legacyPositronEnforcedSettings` → `legacy-positron-enforced`), and the
+   host's `hostDefaults` fragment when the loader passes one (also `default`,
+   read after `POSIT_AI_PROVIDERS_DEFAULT`, for host-specific values such as
+   the OAuth client id the host is registered under). Each
    reader returns `{ source?, issues }`; present sources are tagged with their
    `kind` (`enforced` / `legacy-positron-enforced` / `user` /
    `legacy-positron` / `default`).
@@ -229,6 +232,11 @@ individually pinned control without re-deriving precedence from resolved
 values. The source is the highest-precedence kept source that sets the field;
 `authMode`/`scope` fall back to `"default"` (built-in defaults) when no source
 sets them, while `baseUrl`/`tenantId` are absent until some layer sets them.
+
+For `ollama` and `lmstudio` it records the source of `endpoint` the same way,
+falling back to `"default"`. Hosts that store their own local endpoint let an
+`"enforced"` or `"environment"` source override it, even when its value equals
+the built-in one; a `"user"` or `"default"` source yields to the stored endpoint.
 
 ### Model selection (`resolveModels`)
 

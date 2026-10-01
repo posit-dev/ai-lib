@@ -321,7 +321,7 @@ function resolveConnectionProvenance(
 	// source sets it, fields with a built-in default report "default"
 	// (overridable), the rest are absent.
 	const fieldSourceFor = (
-		providerId: "ms-foundry" | "opencode",
+		providerId: "ms-foundry" | "opencode" | "ollama" | "lmstudio",
 		read: (block: BuiltinProviderBlock | undefined) => unknown,
 		hasBuiltinDefault: boolean,
 	): ResolvedConnectionFieldSource | undefined => {
@@ -373,6 +373,15 @@ function resolveConnectionProvenance(
 		if (product !== undefined || baseUrl !== undefined) {
 			result.set("opencode", { opencode: { product, baseUrl } });
 		}
+	}
+
+	// Local providers: the endpoint's source, so a host that stores its own
+	// endpoint can yield to an enforced or env value even when it equals the
+	// built-in default.
+	for (const providerId of ["ollama", "lmstudio"] as const) {
+		result.set(providerId, {
+			endpoint: fieldSourceFor(providerId, (block) => block?.endpoint, true),
+		});
 	}
 
 	const snowflakeConnectionName = config.providers?.["snowflake-cortex"]?.snowflake?.connectionName;

@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	normalizeBaseUrlForProvider,
+	normalizeFoundryBaseUrl,
 	normalizeOpenRouterBaseUrl,
 	OPENROUTER_DEFAULT_BASE_URL,
 } from "../base-url.js";
@@ -34,6 +35,52 @@ describe("normalizeBaseUrlForProvider", () => {
 
 	it("is total for empty input", () => {
 		expect(normalizeBaseUrlForProvider("anthropic", "")).toBe("");
+	});
+});
+
+describe("normalizeFoundryBaseUrl", () => {
+	it.each([
+		[
+			"https://r.openai.azure.com/openai/deployments/gpt-4o/chat/completions?api-version=2024-02-01",
+			"https://r.openai.azure.com/openai/v1",
+		],
+		[
+			"https://r.openai.azure.com/openai/deployments/gpt-4o",
+			"https://r.openai.azure.com/openai/v1",
+		],
+		["https://r.openai.azure.com/openai/deployments/", "https://r.openai.azure.com/openai/v1"],
+		["https://r.openai.azure.com/openai/deployments", "https://r.openai.azure.com/openai/v1"],
+		["https://r.openai.azure.com/openai/v1", "https://r.openai.azure.com/openai/v1"],
+		["https://r.openai.azure.com/openai/v1/", "https://r.openai.azure.com/openai/v1"],
+		[
+			"https://r.openai.azure.com/openai/v1/chat/completions",
+			"https://r.openai.azure.com/openai/v1",
+		],
+		[
+			"https://r.openai.azure.com/openai/v1/responses?api-version=preview",
+			"https://r.openai.azure.com/openai/v1",
+		],
+		["https://r.openai.azure.com/openai", "https://r.openai.azure.com/openai/v1"],
+		["https://r.openai.azure.com/openai/", "https://r.openai.azure.com/openai/v1"],
+		["https://gateway.example/foundry", "https://gateway.example/foundry/openai/v1"],
+		["https://r.openai.azure.com/", "https://r.openai.azure.com/openai/v1"],
+		["https://r.openai.azure.com", "https://r.openai.azure.com/openai/v1"],
+		["https://r.openai.azure.com?api-version=1", "https://r.openai.azure.com/openai/v1"],
+		["https://r.openai.azure.com/openai/v1#section", "https://r.openai.azure.com/openai/v1"],
+		[
+			"https://r.openai.azure.com/openai/v1/responses#frag?not-a-query",
+			"https://r.openai.azure.com/openai/v1",
+		],
+		["", ""],
+		["   ", ""],
+	])("normalizes %s", (input, expected) => {
+		expect(normalizeFoundryBaseUrl(input)).toBe(expected);
+	});
+
+	it("matches /openai/v1 only as a whole path segment", () => {
+		expect(normalizeFoundryBaseUrl("https://r.openai.azure.com/openai/v10/chat")).toMatch(
+			/^https:\/\/r\.openai\.azure\.com\/openai\/v10\/chat(\/|$)/,
+		);
 	});
 });
 

@@ -54,6 +54,9 @@ describe("external provider-env-registry variant", () => {
 		});
 		expect(readSdkCredentialEnvironment(env)).toEqual({
 			googleApplicationCredentials: undefined,
+			googleClientEmail: undefined,
+			googlePrivateKey: undefined,
+			googlePrivateKeyId: undefined,
 			azureTenantId: undefined,
 			azureClientId: undefined,
 			azureClientSecret: undefined,

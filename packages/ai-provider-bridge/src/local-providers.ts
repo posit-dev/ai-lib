@@ -12,9 +12,10 @@
  * Local providers do NOT go through PROVIDER_MAP or MAPPED_PROVIDER_IDS —
  * those are strictly for VS Code auth-based providers.
  *
- * Endpoints are stored in `~/.positai/settings.json` under a `providers` key
- * and cached in-memory for synchronous reads. A file watcher keeps the cache
- * in sync with external edits.
+ * Endpoints live under a `providers` key in whichever settings file the caller's
+ * injected I/O reads — `~/.posit/assistant/settings.json` on Node platforms and
+ * in Positron — and are cached in-memory for synchronous reads. The injected
+ * watcher keeps that cache in sync with external edits.
  */
 
 import { normalizeBaseUrlForProvider } from "ai-config";

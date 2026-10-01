@@ -195,6 +195,8 @@ export interface ResolvedConnectionProvenance {
 	};
 	/** Source of the resolved `baseUrl` — computed for `ms-foundry` only. */
 	readonly baseUrl?: ResolvedConnectionFieldSource;
+	/** Source of the resolved `endpoint` — computed for `ollama` and `lmstudio` only. */
+	readonly endpoint?: ResolvedConnectionFieldSource;
 	/**
 	 * Per-field sources for the built-in `opencode` provider's `product` and
 	 * `baseUrl` fields. Unlike the ms-foundry block, a field is ABSENT when no
