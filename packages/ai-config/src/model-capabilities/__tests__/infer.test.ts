@@ -99,6 +99,11 @@ describe("inferModelCapabilities", () => {
 		}
 	});
 
+	it("omits off but allows max for GPT-6.1 Sol", () => {
+		const levels = inferModelCapabilities("openai", "gpt-6.1-sol").facts.thinkingEffortLevels;
+		expect(levels).toEqual(["low", "medium", "high", "xhigh", "max"]);
+	});
+
 	it("keeps Mantle GPT-5.6 output unknown while completing the operational view", () => {
 		const caps = inferModelCapabilities("bedrock", "openai.gpt-5.6-sol");
 		expect(caps.facts.maxContextLength).toBe(1_000_000);

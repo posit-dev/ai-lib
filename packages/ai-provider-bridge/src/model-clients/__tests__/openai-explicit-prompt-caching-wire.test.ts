@@ -2,11 +2,11 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import type { ModelMessage } from "ai";
+import { jsonSchema, type ModelMessage } from "ai";
 import { describe, expect, it } from "vitest";
 
 import { createRawFetchCapture } from "../../../tests/helpers/raw-fetch-capture";
-import type { CancellationToken } from "../../types";
+import type { AiToolWithJsonSchema, CancellationToken } from "../../types";
 import { OpenAIClient } from "../OpenAIClient";
 
 const cancellationToken: CancellationToken = {
@@ -147,6 +147,8 @@ async function captureRequest(options: {
 	protocol?: "openai-chat" | "openai-responses";
 	metadata?: { sessionId?: string };
 	messages: ModelMessage[];
+	tools?: Record<string, AiToolWithJsonSchema>;
+	thinkingEffort?: string;
 }): Promise<Record<string, unknown>> {
 	const fetchCapture = createRawFetchCapture(
 		async () =>
@@ -168,7 +170,8 @@ async function captureRequest(options: {
 			messages: options.messages,
 			metadata: options.metadata,
 			usesExplicitPromptCaching: options.usesExplicitPromptCaching,
-			thinkingEffort: "high",
+			thinkingEffort: options.thinkingEffort ?? "high",
+			tools: options.tools,
 			allowSystemInMessages: true,
 			cancellationToken,
 		});
@@ -184,6 +187,46 @@ async function captureRequest(options: {
 }
 
 describe("OpenAI explicit prompt caching wire requests", () => {
+	it("sends GPT-6.1 Sol via Responses with max reasoning, a function tool, and explicit caching", async () => {
+		const requestBody = await captureRequest({
+			apiMode: "responses",
+			usesExplicitPromptCaching: true,
+			model: "gpt-6.1-sol",
+			metadata: { sessionId: "sol-conversation" },
+			messages: [
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "Look up the answer",
+							providerOptions: breakpointProviderOptions,
+						},
+					],
+				},
+			],
+			thinkingEffort: "max",
+			tools: {
+				lookup: {
+					inputSchema: jsonSchema({ type: "object", properties: { query: { type: "string" } } }),
+				},
+			},
+		});
+
+		expect(requestBody).toMatchObject({
+			model: "gpt-6.1-sol",
+			prompt_cache_key: "sol-conversation",
+			prompt_cache_options: { mode: "explicit", ttl: "30m" },
+			store: false,
+			reasoning: { effort: "max", summary: "detailed" },
+			tool_choice: "auto",
+		});
+		expect(requestBody.tools).toEqual(
+			expect.arrayContaining([expect.objectContaining({ type: "function", name: "lookup" })]),
+		);
+		expect(breakpointPaths(requestBody)).toEqual(["input[0].content[0].prompt_cache_breakpoint"]);
+	});
+
 	it("serializes Responses options and a structured tool-result breakpoint", async () => {
 		const messages = markedContinuationMessages();
 		const requestBody = await captureRequest({
