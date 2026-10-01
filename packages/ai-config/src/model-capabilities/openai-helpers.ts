@@ -5,11 +5,11 @@
 import type { InferredModelCapabilities as ModelInfo } from "../types.js";
 
 const OPENAI_THINKING_EFFORT_LEVELS = ["off", "low", "medium", "high"];
-// GPT-6 adds the "xhigh"/"max" levels. Astra has no "none" level, so its list
-// omits "off": the product's "off" maps onto OpenAI's "none" (the OpenAI
+// GPT-6 adds the "xhigh"/"max" levels. Astra and 6.1 Sol have no "none" level,
+// so their list omits "off": the product's "off" maps onto OpenAI's "none" (the OpenAI
 // client omits reasoning_effort; Bedrock Mantle sends the wire value "none").
 const GPT6_THINKING_EFFORT_LEVELS = ["off", "low", "medium", "high", "xhigh", "max"];
-const GPT6_ASTRA_THINKING_EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"];
+const GPT6_NO_OFF_THINKING_EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"];
 
 /**
  * Determine OpenAI model capabilities based on ID.
@@ -116,11 +116,12 @@ export function getOpenAIModelCapabilities(modelId: string): Partial<ModelInfo> 
 		};
 	}
 
-	// Sources verified 2026-09-22:
+	// Sources verified 2026-09-22 (Astra) and 2026-09-30 (6.1 Sol):
 	// https://developers.openai.com/api/docs/models/gpt-6-astra
-	// OpenAI documents the same 1.05M window and 128K output maximum for Astra,
-	// Sol, and Luna. Astra has no "none" effort level, so its list omits "off".
-	if (/^gpt-6-astra(?:-|$)/.test(modelId)) {
+	// https://developers.openai.com/api/docs/models/gpt-6.1-sol
+	// OpenAI documents a 1.05M window and 128K output maximum for both;
+	// neither offers "none" effort, so the product must not offer "off".
+	if (/^gpt-6(?:-astra|\.1-sol)(?:-|$)/.test(modelId)) {
 		return {
 			family: "gpt-6",
 			supportsTools: true,
@@ -135,7 +136,7 @@ export function getOpenAIModelCapabilities(modelId: string): Partial<ModelInfo> 
 			supportsToolResultImages: true,
 			maxContextLength: 1_050_000,
 			maxOutputTokens: 128000,
-			thinkingEffortLevels: GPT6_ASTRA_THINKING_EFFORT_LEVELS,
+			thinkingEffortLevels: GPT6_NO_OFF_THINKING_EFFORT_LEVELS,
 		};
 	}
 
