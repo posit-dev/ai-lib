@@ -184,37 +184,25 @@ Until then, changes to client ID, redirect URI, scopes, discovery fallback, or
 token validation must be mirrored explicitly rather than allowed to diverge
 silently.
 
-## Device sign-in for API-key providers (`deviceSignIn`)
+## Device sign-in against a stored server (Posit Connect)
 
-A host can declare that an API-key provider's key is acquired by an OAuth
-device-code sign-in against a configured server, by returning
-`deviceSignIn: { serverUrl }` from `resolveAuthMethod` (Posit Connect; the
-host reads the normalized server URL live on every call). StoreBackend then:
-
-- offers an implicit `oauth-device` source, so the acquisition engine can start
-  a sign-in with no prior record;
-- binds each sign-in to the declared server: `beginAuthentication` writes it to
-  the pending record's `oauthAuth.serverUrl`, and every later record for that
-  attempt carries it;
-- honors a stored token only while the declared server still equals the
-  recorded issuer. `normalize()` reports a mismatch (or a record with no
-  issuer) as signed out, so status, `readTokens`, and refresh all refuse to
-  send the token to a different server; switching back to the issuer makes it
-  usable again;
-- ignores records of any other source (e.g. a pasted API key).
-
-The binding lives in the record, not in the engine: no hook signatures change,
-and status reads never resolve a grant over the network. The default shaper
-produces `{ type: "apikey", apiKey, baseUrl: grant.credentialBaseUrl }`.
+An `oauth-device` source can carry a `serverUrl` for providers without a fixed
+authorization server. A host writes it with a `replace` mutation before sign-in;
+StoreBackend keeps it in `oauthAuth.serverUrl` through every later record of
+the lifecycle (pending, authenticated, refreshed, terminal), reports it as
+status `metadata.serverUrl`, and passes it to `oauthConfigForProvider` on the
+stored source context. The host resolves the grant from that URL, so the token
+and the server it was issued by live in one record and cannot disagree.
+Configuring a different server replaces the record, dropping the old token.
 
 `connect-oauth.ts` holds Posit Connect's grant:
 `createConnectDeviceCodeGrantResolver()` performs RFC 8414 discovery and RFC
 7591 client registration (bounded by a 30s setup deadline), memoized per
-normalized server for the resolver's lifetime with failures evicted.
-`normalizeConnectBaseUrl` is the shared URL policy (https or loopback, no
-userinfo, query, or fragment); hosts use it for the declared `serverUrl` so it
-matches the grant's `credentialBaseUrl`. There is no `CONNECT_API_KEY` env
-mapping: Connect credentials come only from sign-in or a host-managed source.
+normalized server for the resolver's lifetime with failures evicted. The grant's
+`credentialBaseUrl` is the server URL, so the default shaper produces
+`{ type: "apikey", apiKey, baseUrl }` for that server. `normalizeConnectBaseUrl`
+is the shared URL policy (https or loopback, no userinfo, query, or fragment).
+Connect has no env credential mapping.
 
 ## Shared vocabulary in the pure `/types` entry
 

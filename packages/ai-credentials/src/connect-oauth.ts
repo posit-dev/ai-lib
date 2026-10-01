@@ -12,8 +12,9 @@
  * RFC 7591 registration at the advertised `registration_endpoint` is
  * unauthenticated and idempotent for a given (name, redirect URIs) pair.
  *
- * Hosts pair the grant with `AuthMethodDescriptor.deviceSignIn` so the store
- * backend binds the resulting token to the server that issued it.
+ * Hosts resolve the grant from the stored `oauth-device` source's `serverUrl`,
+ * so a token is only ever refreshed against, and sent to, the server stored
+ * with it.
  */
 
 import type { OAuthGrantConfig } from "./Backend.js";
@@ -140,8 +141,8 @@ export type ConnectDeviceCodeGrantResolver = (serverUrl: string) => Promise<Conn
  * registration, memoized per normalized server URL for the resolver's
  * lifetime. A failed setup is evicted so a later sign-in retries it.
  *
- * The grant's `credentialBaseUrl` is the normalized server URL; hosts declare
- * the same value as `deviceSignIn.serverUrl` so stored tokens stay bound to it.
+ * The grant's `credentialBaseUrl` is the normalized server URL, so the shaped
+ * credential's `baseUrl` is always the server the token was issued by.
  */
 export function createConnectDeviceCodeGrantResolver(): ConnectDeviceCodeGrantResolver {
 	const grants = new Map<string, Promise<ConnectDeviceCodeGrant>>();

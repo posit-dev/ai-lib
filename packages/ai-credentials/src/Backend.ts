@@ -98,7 +98,12 @@ export type OAuthGrantConfig =
 	  };
 
 export type CredentialSourceContext =
-	| { type: "oauth-device"; origin: "stored" | "implicit" }
+	| {
+			type: "oauth-device";
+			origin: "stored" | "implicit";
+			/** Server a stored device-code sign-in targets (Posit Connect). */
+			serverUrl?: string;
+	  }
 	| { type: "oauth-u2m"; origin: "stored"; workspaceHost: string }
 	| {
 			type: "oauth-m2m";

@@ -59,8 +59,9 @@ export type CredentialSourceInput =
 	| {
 			type: "oauth-device";
 			/**
-			 * Server the device-code token was issued for, recorded for providers
-			 * that declare `deviceSignIn` (see `AuthMethodDescriptor`).
+			 * Server the sign-in runs against, for providers without a fixed
+			 * authorization server (Posit Connect). Stored with the token, so the
+			 * token and the server it was issued by can never disagree.
 			 */
 			serverUrl?: string;
 	  }
