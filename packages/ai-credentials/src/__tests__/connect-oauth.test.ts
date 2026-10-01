@@ -156,6 +156,17 @@ describe("createConnectDeviceCodeGrantResolver", () => {
 		expect(fixture.registrationCount).toBe(1);
 	});
 
+	it("registers again after a forgotten grant", async () => {
+		fixture = await FakeConnectOAuthServer.start();
+
+		const first = await createConnectDeviceCodeGrant(fixture.baseUrl);
+		createConnectDeviceCodeGrant.forget(`${fixture.baseUrl}/`);
+		const second = await createConnectDeviceCodeGrant(fixture.baseUrl);
+
+		expect(second).not.toBe(first);
+		expect(fixture.registrationCount).toBe(2);
+	});
+
 	it("bounds setup, aborts the request, and allows a later retry", async () => {
 		vi.useFakeTimers();
 		let setupSignal: AbortSignal | undefined;

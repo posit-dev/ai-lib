@@ -169,6 +169,12 @@ export interface AcquisitionBackendHooks {
 		config: OAuthGrantConfig,
 		operation: (refresh: RefreshTransaction | null) => Promise<T>,
 	): Promise<T>;
+	/**
+	 * The authorization server rejected this grant's client (`invalid_client`).
+	 * A host that caches resolved grants should drop this one so the next
+	 * resolution sets the client up again.
+	 */
+	rejectGrant?(providerId: string, config: OAuthGrantConfig): void;
 	shapeToken(
 		providerId: string,
 		accessToken: string,

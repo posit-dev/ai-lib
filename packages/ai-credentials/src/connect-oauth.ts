@@ -134,19 +134,38 @@ async function registerConnectClient(
 }
 
 /** Resolves the device-code grant for a Connect server URL. */
-export type ConnectDeviceCodeGrantResolver = (serverUrl: string) => Promise<ConnectDeviceCodeGrant>;
+export interface ConnectDeviceCodeGrantResolver {
+	(serverUrl: string): Promise<ConnectDeviceCodeGrant>;
+	/**
+	 * Drop the memoized grant for a server, so the next resolution discovers
+	 * and registers again. Call it when the server rejects the grant's client
+	 * (`invalid_client`), e.g. because an administrator deleted the
+	 * registration; otherwise every later sign-in would reuse the dead
+	 * `client_id` until restart.
+	 */
+	forget(serverUrl: string): void;
+}
 
 /**
  * Create a resolver for Connect device-code grants: discovery plus client
- * registration, memoized per normalized server URL for the resolver's
- * lifetime. A failed setup is evicted so a later sign-in retries it.
+ * registration, memoized per normalized server URL until a setup fails or
+ * {@link ConnectDeviceCodeGrantResolver.forget} drops it.
  *
  * The grant's `credentialBaseUrl` is the normalized server URL, so the shaped
  * credential's `baseUrl` is always the server the token was issued by.
  */
 export function createConnectDeviceCodeGrantResolver(): ConnectDeviceCodeGrantResolver {
 	const grants = new Map<string, Promise<ConnectDeviceCodeGrant>>();
-	return async (serverUrl) => {
+	const forget = (serverUrl: string): void => {
+		let baseUrl: string;
+		try {
+			baseUrl = normalizeConnectBaseUrl(serverUrl);
+		} catch {
+			return;
+		}
+		grants.delete(baseUrl);
+	};
+	const resolve = async (serverUrl: string): Promise<ConnectDeviceCodeGrant> => {
 		const baseUrl = normalizeConnectBaseUrl(serverUrl);
 		const existing = grants.get(baseUrl);
 		if (existing) return existing;
@@ -163,9 +182,12 @@ export function createConnectDeviceCodeGrantResolver(): ConnectDeviceCodeGrantRe
 			} satisfies ConnectDeviceCodeGrant;
 		});
 		grants.set(baseUrl, pending);
-		void pending.catch(() => grants.delete(baseUrl));
+		void pending.catch(() => {
+			if (grants.get(baseUrl) === pending) grants.delete(baseUrl);
+		});
 		return pending;
 	};
+	return Object.assign(resolve, { forget });
 }
 
 /** Bound pre-attempt network work so failed setup cannot wedge the resolver. */

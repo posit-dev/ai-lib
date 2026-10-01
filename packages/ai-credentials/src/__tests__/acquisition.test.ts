@@ -954,6 +954,62 @@ describe("generalized store-backed acquisition", () => {
 			expect(loggedText(logger)).toContain("refresh transaction failed for positai (transient)");
 		});
 
+		it.each([
+			{ code: "invalid_client", rejected: true },
+			{ code: "invalid_grant", rejected: false },
+		])(
+			"reports the grant as rejected only when the server rejects the client ($code)",
+			async ({ code, rejected }) => {
+				const state = makeEngineState();
+				const rejectGrant = vi.fn();
+				const logger = mockLogger();
+				vi.stubGlobal(
+					"fetch",
+					vi.fn().mockResolvedValue(
+						new Response(JSON.stringify({ error: code }), {
+							status: 401,
+							headers: { "Content-Type": "application/json" },
+						}),
+					),
+				);
+				const engine = new AcquisitionEngine({ ...makeEngineHooks(state), rejectGrant }, logger);
+
+				await engine.getCredentials("positai");
+
+				expect(state.tombstone).toBe("refresh_failed");
+				if (rejected) {
+					expect(rejectGrant).toHaveBeenCalledWith(
+						"positai",
+						expect.objectContaining({ clientId: "posit-ai" }),
+					);
+				} else {
+					expect(rejectGrant).not.toHaveBeenCalled();
+				}
+			},
+		);
+
+		it("reports the grant as rejected when device authorization rejects the client", async () => {
+			const state = makeEngineState();
+			state.tokens = null;
+			const rejectGrant = vi.fn();
+			vi.stubGlobal(
+				"fetch",
+				vi.fn().mockResolvedValue(
+					new Response(JSON.stringify({ error: "invalid_client" }), {
+						status: 401,
+						headers: { "Content-Type": "application/json" },
+					}),
+				),
+			);
+			const engine = new AcquisitionEngine(
+				{ ...makeEngineHooks(state), rejectGrant },
+				mockLogger(),
+			);
+
+			await expect(engine.startAuthentication("positai")).rejects.toThrow();
+			expect(rejectGrant).toHaveBeenCalledTimes(1);
+		});
+
 		it("treats a persistence failure after a successful exchange as transient", async () => {
 			const state = makeEngineState();
 			state.failPersist = true;

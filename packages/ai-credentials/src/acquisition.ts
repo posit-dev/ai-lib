@@ -141,8 +141,10 @@ export class AcquisitionEngine {
 		deviceOnly: boolean,
 	): Promise<{ result: AuthenticationStartResult; device?: DeviceAuthenticationStart }> {
 		let attempt: ActiveAttempt | undefined;
+		let resolved: OAuthGrantConfig | undefined;
 		try {
 			const config = await this.hooks.configForProvider(providerId);
+			resolved = config;
 			if (this.disposed) throw new Error("Credential provider is disposed");
 			if (!config || config.grantType === "client-credentials") {
 				throw new Error(`Interactive authentication is not supported for provider: ${providerId}`);
@@ -172,6 +174,7 @@ export class AcquisitionEngine {
 			}
 			return { result: await this.startAuthorizationCode(attempt, config) };
 		} catch (error) {
+			if (resolved) this.reportClientRejection(providerId, resolved, error);
 			if (attempt) {
 				await this.terminateAttempt(attempt, errorCode(error));
 			}
@@ -339,6 +342,7 @@ export class AcquisitionEngine {
 			);
 			if (committed === "committed") this.hooks.notifyReady(attempt.providerId);
 		} catch (error) {
+			this.reportClientRejection(attempt.providerId, config, error);
 			if (this.isCurrent(attempt)) {
 				await this.hooks.finishAuthentication(
 					attempt.providerId,
@@ -393,6 +397,7 @@ export class AcquisitionEngine {
 				throw new Error(code);
 			}
 		} catch (error) {
+			this.reportClientRejection(attempt.providerId, config, error);
 			if (this.isCurrent(attempt) && !attempt.controller.signal.aborted) {
 				this.logger?.info(
 					`[ai-credentials] device poll for ${attempt.providerId} ended: ${errorCode(error)}`,
@@ -465,6 +470,7 @@ export class AcquisitionEngine {
 					);
 					refreshed = await tokenData(response, false, current.refreshToken);
 				} catch (error) {
+					this.reportClientRejection(providerId, config, error);
 					if (isTerminalRefreshError(error)) {
 						// Re-auth is genuinely required. Classification and the
 						// tombstone stay inside the transaction so a concurrent
@@ -520,6 +526,19 @@ export class AcquisitionEngine {
 		}
 		if (accessToken === null) return null;
 		return this.hooks.shapeToken(providerId, accessToken, config);
+	}
+
+	/** Tell the backend its grant's client was rejected, so a cached grant is dropped. */
+	private reportClientRejection(
+		providerId: string,
+		config: OAuthGrantConfig,
+		error: unknown,
+	): void {
+		if (!isClientRejection(error)) return;
+		this.logger?.warn(
+			`[ai-credentials] authorization server rejected the OAuth client for ${providerId}`,
+		);
+		this.hooks.rejectGrant?.(providerId, config);
 	}
 
 	private startRefreshCooldown(providerId: string): void {
@@ -670,6 +689,15 @@ async function oauthErrorInfo(response: Response): Promise<OAuthErrorInfo> {
 	} catch {
 		return { detail: "", code: undefined };
 	}
+}
+
+/**
+ * The server rejected the client itself (RFC 6749 §5.2 `invalid_client`),
+ * from a thrown token/device endpoint error or a device poll's error code.
+ */
+function isClientRejection(error: unknown): boolean {
+	if (error instanceof OAuthHttpError) return error.code === "invalid_client";
+	return error instanceof Error && error.message === "invalid_client";
 }
 
 /** A definitive server rejection of the refresh token; anything else retries. */

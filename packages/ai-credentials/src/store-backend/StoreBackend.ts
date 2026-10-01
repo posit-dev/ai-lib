@@ -83,6 +83,11 @@ export interface CreateStoreBackendOptions {
 		source: CredentialSourceContext,
 	) => ProviderCredentials;
 	notifyReady?: (providerId: string) => void;
+	/**
+	 * The authorization server rejected a grant resolved by
+	 * `oauthConfigForProvider` with `invalid_client`; drop any cached copy.
+	 */
+	onGrantRejected?: (providerId: string, config: OAuthGrantConfig) => void;
 	watchedProviderIds?: string[];
 	env?: Readonly<Record<string, string | undefined>>;
 	logger?: Logger;
@@ -107,6 +112,7 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 		oauthConfigForProvider,
 		shapeToken,
 		notifyReady,
+		onGrantRejected,
 		watchedProviderIds = [],
 		logger,
 		generationFactory = defaultGeneration,
@@ -682,6 +688,9 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 				shapeToken: asyncShapeToken,
 				notifyReady(providerId) {
 					notifyReady?.(providerId);
+				},
+				rejectGrant(providerId, config) {
+					onGrantRejected?.(providerId, config);
 				},
 			}
 		: undefined;

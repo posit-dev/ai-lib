@@ -209,7 +209,12 @@ grant cannot consume or overwrite the replacement server's tokens.
 `connect-oauth.ts` holds Posit Connect's grant:
 `createConnectDeviceCodeGrantResolver()` performs RFC 8414 discovery and RFC
 7591 client registration (bounded by a 30s setup deadline), memoized per
-normalized server for the resolver's lifetime with failures evicted. The grant's
+normalized server, with failures evicted. When a token or device endpoint
+answers `invalid_client` (for example, an administrator deleted the
+registration), the acquisition engine calls the backend's optional
+`rejectGrant` hook; StoreBackend forwards it as `onGrantRejected`, and the
+host's Connect wiring calls the resolver's `forget(serverUrl)` so the next
+sign-in registers again instead of reusing the dead `client_id`. The grant's
 `credentialBaseUrl` is the server URL, so the default shaper produces
 `{ type: "apikey", apiKey, baseUrl }` for that server. `normalizeConnectBaseUrl`
 is the shared URL policy (https or loopback, no userinfo, query, or fragment).
