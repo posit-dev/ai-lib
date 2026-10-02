@@ -24,8 +24,11 @@ import {
 const SNOWFLAKE = { authProviderId: "snowflake-cortex", credentialType: "apikey" } as const;
 const AWS = { authProviderId: "bedrock", credentialType: "aws-credentials" } as const;
 const GOOGLE = { authProviderId: "google-vertex", credentialType: "google-cloud" } as const;
-const ANTHROPIC = { authProviderId: "anthropic-api", credentialType: "apikey" } as const;
-const OPENAI = { authProviderId: "openai-api", credentialType: "apikey" } as const;
+const ANTHROPIC = { authProviderId: "anthropic", credentialType: "apikey" } as const;
+const OPENAI_COMPATIBLE = {
+	authProviderId: "openai-compatible",
+	credentialType: "apikey",
+} as const;
 
 function fakeConfig(snowflake?: { host?: string; account?: string }): CredentialConfig {
 	return {
@@ -204,12 +207,12 @@ describe("shapeCredentials — apikey baseUrl + customHeaders", () => {
 		).toMatchObject({ customHeaders: undefined });
 	});
 
-	it("uses the authProviderId as configKey when no override exists (openai-api)", () => {
+	it("uses the authProviderId as configKey when no override exists (openai-compatible)", () => {
 		const cfg = config({
 			getCustomHeaders: ({ configKey }) =>
-				configKey === "openai-api" ? { "x-flag": "1" } : undefined,
+				configKey === "openai-compatible" ? { "x-flag": "1" } : undefined,
 		});
-		expect(shapeCredentials("openai", OPENAI, "sk", cfg)).toMatchObject({
+		expect(shapeCredentials("openai-compatible", OPENAI_COMPATIBLE, "sk", cfg)).toMatchObject({
 			customHeaders: { "x-flag": "1" },
 		});
 	});

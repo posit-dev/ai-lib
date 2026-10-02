@@ -42,9 +42,15 @@ export function isProviderId(value: string): value is ProviderId {
 // "copilot", "anthropic") are handled by isProviderId() and don't need
 // entries here.
 const VENDOR_TO_PROVIDER = new Map<string, ProviderId>([
-	// vscode.lm vendor strings
+	// vscode.lm vendor strings, including auth provider ids retired when
+	// Positron's auth extension moved to catalog ids.
 	["amazon-bedrock", "bedrock"],
 	["posit-ai", "positai"],
+	["anthropic-api", "anthropic"],
+	["openai-api", "openai"],
+	["google", "gemini"],
+	["deepseek-api", "deepseek"],
+	["google-cloud", "google-vertex"],
 ]);
 // Also register auth provider IDs from PROVIDER_MAP (e.g. "anthropic-api" → "anthropic")
 for (const logicalId of MAPPED_PROVIDER_IDS) {
