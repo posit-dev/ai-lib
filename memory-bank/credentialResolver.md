@@ -204,7 +204,20 @@ Configuring a different server replaces the record, dropping the old token.
 Acquisition also compares the current record's server URL with the grant it
 resolved before reading tokens (again under the refresh lock), and before
 starting an attempt. If the source changes during grant discovery, the stale
-grant cannot consume or overwrite the replacement server's tokens.
+grant cannot consume or overwrite the replacement server's tokens. A
+server-bound grant (one with a `credentialBaseUrl`) also requires the source to
+still name that server, so a start whose discovery outlived a clear cannot
+recreate the record without its issuing server.
+
+Every OAuth form POST (device authorization, token exchange, refresh, client
+credentials) is sent with `redirect: "manual"`: those bodies carry credential
+material, and following a 307/308 would forward them past the endpoint origin
+and HTTPS checks the grant was resolved under. A redirect fails like any other
+non-2xx response. Grant setup itself can do network I/O (Connect discovery and
+registration, Databricks OIDC discovery); when it fails during a credential
+read, the engine keeps the stored record, defers the read to the backend, and
+skips setup for the refresh cooldown, so an outage cannot reject a host's
+status aggregate. An explicit sign-in still surfaces the setup error.
 
 `connect-oauth.ts` holds Posit Connect's grant:
 `createConnectDeviceCodeGrantResolver()` performs RFC 8414 discovery and RFC

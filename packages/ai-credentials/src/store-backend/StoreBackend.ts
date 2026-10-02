@@ -37,14 +37,16 @@ import {
  * structurally, but any backing with atomic per-key writes can serve it —
  * e.g. VS Code `SecretStorage` in an extension host.
  *
- * How much exclusion `withLock` gives is up to the backing: `SingleFileStore`
- * locks across processes, VS Code `SecretStorage` only within one window.
+ * How much exclusion `withLock` gives is up to the backing. It must exclude
+ * every writer of the same keys — across processes when several processes
+ * share the storage (`SingleFileStore` uses a lock file; a VS Code
+ * `SecretStorage` backing needs its own cross-window lock).
  *
- * Every OAuth record carries a `generation`, and a refresh commits only while the
- * stored record still holds the one it read. Under a cross-process lock that makes
- * concurrent refreshes safe. Under a per-window lock it only narrows the race: the
- * generation check and the write are separate steps, so two windows can both pass
- * the check before either writes.
+ * Every OAuth record carries a `generation`, and a commit writes only while the
+ * stored record still holds the one it read. That check and the write are
+ * separate steps, so they are atomic only under a lock that excludes every
+ * writer: under a narrower lock two writers can both pass the check before
+ * either writes (e.g. a sign-in commit overwriting another window's clear).
  *
  * AWS `preserve` mutations have no such marker and need a backing that excludes
  * every writer of the same keys.
@@ -863,16 +865,21 @@ function terminalOAuthRecord(
 	};
 }
 
-/** A grant resolved before a server switch must never consume the replacement's tokens. */
+/**
+ * A grant resolved before a server switch must never consume the replacement's
+ * tokens. A server-bound device grant (one with a `credentialBaseUrl`) also
+ * requires the source to still name that server: a source without one (e.g.
+ * the tombstone a clear writes while discovery is pending) must not be
+ * recreated as a record that has lost its issuing server. Fixed-host device
+ * grants (Posit AI Pass) carry no `credentialBaseUrl` and match any source.
+ */
 function matchesGrantServer(
 	source: Extract<CredentialSourceInput, { type: "oauth-device" | "oauth-u2m" }>,
 	config: OAuthGrantConfig,
 ): boolean {
-	return (
-		source.type !== "oauth-device" ||
-		!source.serverUrl ||
-		source.serverUrl === config.credentialBaseUrl
-	);
+	if (source.type !== "oauth-device") return true;
+	if (config.credentialBaseUrl === undefined) return !source.serverUrl;
+	return source.serverUrl === config.credentialBaseUrl;
 }
 
 /** Non-secret identity an interactive OAuth record keeps across its lifecycle. */

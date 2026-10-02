@@ -767,6 +767,33 @@ describe("createStoreBackend", () => {
 			});
 		});
 
+		it("does not let a sign-in whose discovery outlived a clear recreate the record", async () => {
+			const backend = createConnectBackend([]);
+			const hooks = backend.acquisition;
+			if (!hooks) throw new Error("expected acquisition hooks");
+			await backend.mutateCredentials("connect", {
+				kind: "replace",
+				source: { type: "oauth-device", serverUrl: SERVER_A },
+			});
+			// Discovery resolved A's grant, then Disconnect ran before the
+			// sign-in's beginAuthentication.
+			const grant = await hooks.configForProvider("connect");
+			if (!grant) throw new Error("expected a device-code grant");
+			await backend.mutateCredentials("connect", { kind: "clear" });
+
+			await expect(hooks.beginAuthentication("connect", grant)).rejects.toThrow(
+				"OAuth server changed",
+			);
+			expect(await store.get<StoredProviderCredentials>(key)).toMatchObject({
+				readiness: "unauthenticated",
+				configured: false,
+			});
+			expect(await backend.getCredentialStatus("connect")).toMatchObject({
+				configured: false,
+				authenticated: false,
+			});
+		});
+
 		it("does not expose another server's tokens to a stale refresh grant", async () => {
 			const backend = createConnectBackend([]);
 			const hooks = backend.acquisition;

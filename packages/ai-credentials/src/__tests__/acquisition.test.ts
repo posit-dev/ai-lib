@@ -2,6 +2,9 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
+import { createServer, type IncomingMessage, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -1080,6 +1083,34 @@ describe("generalized store-backed acquisition", () => {
 			expect(state.tombstone).toBeUndefined();
 		});
 
+		it("keeps the tokens when grant setup fails during a read, and still surfaces it on sign-in", async () => {
+			const state = makeEngineState();
+			const logger = mockLogger();
+			const fetchMock = vi.fn();
+			vi.stubGlobal("fetch", fetchMock);
+			const setupError = new Error("Connect OAuth discovery failed with status 503");
+			const configForProvider = vi.fn(() => Promise.reject(setupError));
+			const engine = new AcquisitionEngine(
+				{ ...makeEngineHooks(state), configForProvider },
+				logger,
+			);
+
+			// A read is deferred to the backend rather than rejecting the caller
+			// (e.g. an auth-status aggregate over every provider).
+			await expect(engine.getCredentials("positai")).resolves.toEqual({
+				handled: false,
+				credentials: null,
+			});
+			await engine.getCredentials("positai");
+			expect(configForProvider).toHaveBeenCalledTimes(1);
+			expect(state.tokens?.accessToken).toBe("old-access");
+			expect(state.tombstone).toBeUndefined();
+			expect(fetchMock).not.toHaveBeenCalled();
+			expect(loggedText(logger)).toContain("OAuth setup for positai failed (transient)");
+
+			await expect(engine.startAuthentication("positai")).rejects.toBe(setupError);
+		});
+
 		describe("cooldown", () => {
 			beforeEach(() => vi.useFakeTimers());
 			afterEach(() => vi.useRealTimers());
@@ -1098,6 +1129,33 @@ describe("generalized store-backed acquisition", () => {
 				await vi.advanceTimersByTimeAsync(61_000);
 				await engine.getCredentials("positai");
 				expect(fetchMock).toHaveBeenCalledTimes(2);
+			});
+
+			it("retries grant setup after the interval once it recovers", async () => {
+				const state = makeEngineState();
+				vi.stubGlobal(
+					"fetch",
+					vi
+						.fn()
+						.mockResolvedValue(
+							ok({ access_token: "fresh", refresh_token: "rotated", expires_in: 3600 }),
+						),
+				);
+				const hooks = makeEngineHooks(state);
+				const resolveGrant = hooks.configForProvider;
+				const configForProvider = vi
+					.fn<AcquisitionBackendHooks["configForProvider"]>()
+					.mockRejectedValueOnce(new Error("Connect OAuth client registration failed"))
+					.mockImplementation(resolveGrant);
+				const engine = new AcquisitionEngine({ ...hooks, configForProvider });
+
+				await engine.getCredentials("positai");
+				await vi.advanceTimersByTimeAsync(61_000);
+				expect((await engine.getCredentials("positai")).credentials).toEqual({
+					type: "oauth",
+					accessToken: "fresh",
+				});
+				expect(configForProvider).toHaveBeenCalledTimes(2);
 			});
 
 			it("does not suppress the next needed refresh after a success", async () => {
@@ -1123,5 +1181,142 @@ describe("generalized store-backed acquisition", () => {
 				expect(fetchMock).toHaveBeenCalledTimes(3);
 			});
 		});
+	});
+});
+
+describe("credential-bearing OAuth requests never follow redirects", () => {
+	interface RecordedRequest {
+		path: string | undefined;
+		body: string;
+	}
+
+	type Reply = (status: number, body?: unknown, location?: string) => void;
+
+	const servers: Server[] = [];
+
+	afterEach(async () => {
+		await Promise.all(
+			servers
+				.splice(0)
+				.map((server) => new Promise<void>((resolve) => server.close(() => resolve()))),
+		);
+	});
+
+	function readBody(request: IncomingMessage): Promise<string> {
+		return new Promise((resolve) => {
+			let body = "";
+			request.on("data", (chunk: Buffer) => {
+				body += chunk.toString();
+			});
+			request.on("end", () => resolve(body));
+		});
+	}
+
+	/** A loopback server recording every request; `respond` writes the reply. */
+	async function startServer(
+		respond: (request: RecordedRequest, reply: Reply) => void,
+	): Promise<{ origin: string; requests: RecordedRequest[] }> {
+		const requests: RecordedRequest[] = [];
+		const server = createServer((request, response) => {
+			void readBody(request).then((body) => {
+				const recorded = { path: request.url, body };
+				requests.push(recorded);
+				respond(recorded, (status, replyBody, location) => {
+					response.writeHead(status, {
+						"Content-Type": "application/json",
+						...(location ? { Location: location } : {}),
+					});
+					response.end(replyBody === undefined ? "" : JSON.stringify(replyBody));
+				});
+			});
+		});
+		servers.push(server);
+		await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+		const { port } = server.address() as AddressInfo;
+		return { origin: `http://127.0.0.1:${port}`, requests };
+	}
+
+	function hooksFor(
+		issuer: string,
+		tokens: StoredOAuthTokens | null,
+		finished: string[],
+	): AcquisitionBackendHooks {
+		const config: OAuthGrantConfig = {
+			grantType: "device-code",
+			clientId: "client",
+			scope: "",
+			deviceAuthorizationEndpoint: `${issuer}/device`,
+			tokenEndpoint: `${issuer}/token`,
+			credentialBaseUrl: issuer,
+		};
+		return {
+			configForProvider: () => Promise.resolve(config),
+			readTokens: () => Promise.resolve(tokens),
+			beginAuthentication: () => Promise.resolve("generation"),
+			commitAuthentication: () => Promise.resolve("committed"),
+			finishAuthentication: (_providerId, _generation, error) => {
+				finished.push(error);
+				return Promise.resolve("committed");
+			},
+			withRefreshTransaction: (_providerId, _config, operation) =>
+				operation(
+					tokens
+						? {
+								tokens,
+								commitTokens: () => Promise.resolve("committed"),
+								commitError: () => Promise.resolve("committed"),
+							}
+						: null,
+				),
+			shapeToken: (_providerId, accessToken) => ({ type: "oauth", accessToken }),
+			notifyReady: () => {},
+		};
+	}
+
+	it.each([307, 308])("does not forward a refresh token across a %i redirect", async (status) => {
+		const attacker = await startServer((_request, reply) => reply(200, { access_token: "x" }));
+		const issuer = await startServer((_request, reply) =>
+			reply(status, undefined, `${attacker.origin}/steal`),
+		);
+		const tokens: StoredOAuthTokens = {
+			accessToken: "old-access",
+			refreshToken: "secret-refresh",
+			expiresAt: new Date(Date.now() - 60_000).toISOString(),
+			tokenType: "Bearer",
+			scope: "",
+		};
+		const engine = new AcquisitionEngine(hooksFor(issuer.origin, tokens, []));
+
+		expect((await engine.getCredentials("connect")).credentials).toBeNull();
+		expect(issuer.requests).toHaveLength(1);
+		expect(issuer.requests[0]?.body).toContain("secret-refresh");
+		expect(attacker.requests).toEqual([]);
+	});
+
+	it.each([307, 308])("does not forward a device code across a %i redirect", async (status) => {
+		const attacker = await startServer((_request, reply) => reply(200, { access_token: "x" }));
+		const issuer = await startServer((request, reply) => {
+			if (request.path === "/device") {
+				reply(200, {
+					device_code: "secret-device-code",
+					user_code: "ABCD-EFGH",
+					verification_uri: "https://connect.test/device",
+					verification_uri_complete: "https://connect.test/device?code=ABCD-EFGH",
+					interval: 0.01,
+					expires_in: 600,
+				});
+				return;
+			}
+			reply(status, undefined, `${attacker.origin}/steal`);
+		});
+		const finished: string[] = [];
+		const engine = new AcquisitionEngine(hooksFor(issuer.origin, null, finished));
+
+		await engine.startAuthentication("connect");
+		await vi.waitFor(() => expect(finished).toEqual([`http_${status}`]));
+		expect(issuer.requests.map((request) => request.path)).toEqual(["/device", "/token"]);
+		expect(issuer.requests[1]?.body).toContain("secret-device-code");
+		expect(attacker.requests).toEqual([]);
+		await engine.dispose();
 	});
 });

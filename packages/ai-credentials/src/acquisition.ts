@@ -71,6 +71,7 @@ export class AcquisitionEngine {
 	private readonly startingProviders = new Set<string>();
 	private readonly refreshPromises = new Map<string, Promise<ProviderCredentials | null>>();
 	private readonly refreshCooldowns = new Map<string, number>();
+	private readonly grantSetupCooldowns = new Map<string, number>();
 	private readonly clientCredentialTokens = new Map<string, StoredOAuthTokens>();
 	private readonly refreshJitterMinutes = 4 + Math.random() * 2;
 	private readonly startPromises = new Set<Promise<unknown>>();
@@ -92,7 +93,7 @@ export class AcquisitionEngine {
 	async getCredentials(
 		providerId: string,
 	): Promise<{ handled: boolean; credentials: ProviderCredentials | null }> {
-		const config = await this.hooks.configForProvider(providerId);
+		const config = await this.resolveGrantForRead(providerId);
 		if (!config) return { handled: false, credentials: null };
 
 		if (config.grantType === "client-credentials") {
@@ -109,6 +110,34 @@ export class AcquisitionEngine {
 		}
 
 		return { handled: true, credentials: await this.refreshStored(providerId, config) };
+	}
+
+	/**
+	 * Resolve the grant for a credential read. Resolving can do network I/O
+	 * (Connect discovery and client registration, Databricks OIDC discovery);
+	 * a failure there is treated like a transient refresh failure: the stored
+	 * record is untouched and the read is not handled here, so it falls back
+	 * to the backend (which yields no credential for an OAuth source). Further
+	 * reads skip setup for the cooldown instead of retrying it on every status
+	 * poll. An explicit sign-in calls `configForProvider` directly, so its
+	 * setup error still surfaces to the user.
+	 */
+	private async resolveGrantForRead(providerId: string): Promise<OAuthGrantConfig | undefined> {
+		const cooldownUntil = this.grantSetupCooldowns.get(providerId);
+		if (cooldownUntil !== undefined) {
+			if (cooldownUntil > Date.now()) return undefined;
+			this.grantSetupCooldowns.delete(providerId);
+		}
+		try {
+			return await this.hooks.configForProvider(providerId);
+		} catch (error) {
+			this.grantSetupCooldowns.set(providerId, Date.now() + this.refreshCooldownMs);
+			this.logger?.warn(
+				`[ai-credentials] OAuth setup for ${providerId} failed (transient); stored tokens kept`,
+				error,
+			);
+			return undefined;
+		}
 	}
 
 	startAuthentication(providerId: string): Promise<AuthenticationStartResult> {
@@ -145,6 +174,8 @@ export class AcquisitionEngine {
 		try {
 			const config = await this.hooks.configForProvider(providerId);
 			resolved = config;
+			// Setup works again; reads need not wait out an earlier failure.
+			this.grantSetupCooldowns.delete(providerId);
 			if (this.disposed) throw new Error("Credential provider is disposed");
 			if (!config || config.grantType === "client-credentials") {
 				throw new Error(`Interactive authentication is not supported for provider: ${providerId}`);
@@ -626,6 +657,13 @@ export class AcquisitionEngine {
 	}
 }
 
+/**
+ * POST a form to an OAuth endpoint. Every body sent here carries credential
+ * material (client secrets, device codes, authorization codes, refresh
+ * tokens), so redirects are never followed: a 307/308 would forward the body
+ * to wherever `Location` points, bypassing the endpoint origin and HTTPS checks
+ * the grant was resolved under. A redirect surfaces as its non-2xx status.
+ */
 async function postForm(
 	url: string,
 	params: Record<string, string>,
@@ -637,6 +675,7 @@ async function postForm(
 		headers: { "Content-Type": "application/x-www-form-urlencoded" },
 		body: new URLSearchParams(params).toString(),
 		signal,
+		redirect: "manual",
 	});
 	if (!allowError && !response.ok) {
 		const { detail, code } = await oauthErrorInfo(response);
