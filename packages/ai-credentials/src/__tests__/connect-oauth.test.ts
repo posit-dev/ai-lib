@@ -11,6 +11,8 @@ import { createConnectDeviceCodeGrantResolver, normalizeConnectBaseUrl } from ".
 interface DiscoveryOverrides {
 	issuer?: string;
 	deviceAuthorizationEndpoint?: string;
+	discoveryRedirect?: string;
+	registrationRedirect?: string;
 }
 
 /** Minimal Connect-shaped OAuth discovery + registration stub for tests. */
@@ -66,6 +68,11 @@ class FakeConnectOAuthServer {
 	): Promise<void> {
 		const url = new URL(request.url ?? "/", this.baseUrl);
 		if (url.pathname === `/.well-known/oauth-authorization-server${this.basePath}`) {
+			if (this.overrides.discoveryRedirect) {
+				response.writeHead(302, { Location: this.overrides.discoveryRedirect });
+				response.end();
+				return;
+			}
 			this.json(response, 200, {
 				issuer: this.overrides.issuer ?? this.baseUrl,
 				device_authorization_endpoint:
@@ -76,6 +83,11 @@ class FakeConnectOAuthServer {
 			return;
 		}
 		if (url.pathname === `${this.basePath}/oauth/v1/register` && request.method === "POST") {
+			if (this.overrides.registrationRedirect) {
+				response.writeHead(307, { Location: this.overrides.registrationRedirect });
+				response.end();
+				return;
+			}
 			await this.register(request, response);
 			return;
 		}
@@ -205,6 +217,35 @@ describe("createConnectDeviceCodeGrantResolver", () => {
 			createConnectDeviceCodeGrant("https://connect.example.com"),
 		).resolves.toMatchObject({ clientId: "client-after-retry" });
 	});
+
+	it.each(["discovery", "registration"] as const)(
+		"does not follow a %s redirect outside the selected server",
+		async (stage) => {
+			let redirectedRequests = 0;
+			const target = http.createServer((_request, response) => {
+				redirectedRequests++;
+				response.writeHead(200, { "Content-Type": "application/json" });
+				response.end(JSON.stringify({ client_id: "redirected-client" }));
+			});
+			await new Promise<void>((resolve) => target.listen(0, "127.0.0.1", resolve));
+			try {
+				const address = target.address();
+				if (!address || typeof address === "string") throw new Error("Target is not listening");
+				const redirect = `http://127.0.0.1:${address.port}/redirected`;
+				fixture = await FakeConnectOAuthServer.start(
+					stage === "discovery"
+						? { discoveryRedirect: redirect }
+						: { registrationRedirect: redirect },
+				);
+
+				await expect(createConnectDeviceCodeGrant(fixture.baseUrl)).rejects.toThrow();
+				expect(redirectedRequests).toBe(0);
+			} finally {
+				target.closeAllConnections?.();
+				await new Promise<void>((resolve) => target.close(() => resolve()));
+			}
+		},
+	);
 
 	it("rejects a discovery document whose issuer does not match the requested server", async () => {
 		fixture = await FakeConnectOAuthServer.start({ issuer: "http://127.0.0.1:1/" });

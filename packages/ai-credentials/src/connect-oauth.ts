@@ -63,7 +63,7 @@ async function discoverConnectOAuth(
 	const base = new URL(normalizeConnectBaseUrl(baseUrl));
 
 	const discoveryUrl = discoveryUrlFor(base);
-	const response = await fetch(discoveryUrl, { signal });
+	const response = await fetch(discoveryUrl, { signal, redirect: "manual" });
 	if (!response.ok) {
 		throw new Error(
 			`Connect OAuth discovery at ${discoveryUrl.href} failed with status ${response.status}`,
@@ -115,6 +115,7 @@ async function registerConnectClient(
 	const response = await fetch(endpoints.registrationEndpoint, {
 		method: "POST",
 		signal,
+		redirect: "manual",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({
 			client_name: clientName,

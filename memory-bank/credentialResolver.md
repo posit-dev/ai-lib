@@ -23,6 +23,15 @@ material consumed by model clients:
   challenge with an opaque attempt ID. A second process-local attempt for the
   same provider returns `already-in-progress`.
 - `cancelAuthentication(attemptId)` is attempt-scoped.
+- `getAuthenticationAttemptOutcome(attemptId)` reports `pending`, `succeeded`,
+  `failed` (with its error), `cancelled`, or `superseded` for an attempt this
+  process started (`undefined` when unknown; the last 100 settled outcomes are
+  kept). Only the engine knows whether a commit was its own, so hosts settle
+  attempt UI from this rather than provider status. A pending attempt is
+  checked against the store (`holdsAuthentication`): once another process
+  replaced, cleared, or completed its pending record, it stops polling without
+  writing and reports `superseded`. An in-process `mutateCredentials` that
+  cancels the attempt also reports `superseded`.
 - Store-backed consumers receive `MutableCredentialProvider`, whose
   `mutateCredentials()` accepts replace/clear operations plus an atomic AWS
   update operation. The AWS operation updates region/profile while explicitly
@@ -215,14 +224,22 @@ material, and following a 307/308 would forward them past the endpoint origin
 and HTTPS checks the grant was resolved under. A redirect fails like any other
 non-2xx response. Grant setup itself can do network I/O (Connect discovery and
 registration, Databricks OIDC discovery); when it fails during a credential
-read, the engine keeps the stored record, defers the read to the backend, and
-skips setup for the refresh cooldown, so an outage cannot reject a host's
-status aggregate. An explicit sign-in still surfaces the setup error.
+read, the engine keeps the stored record and cools down setup retries instead
+of rejecting the host's status aggregate. A host may explicitly allow a
+server-bound, still-valid API-key token to be served from the stored source
+while setup is unavailable; the store backend re-reads the current record and
+uses its persisted server URL as the credential base URL, while the engine
+checks expiry. The host must recheck its server pin and managed-credential
+policy on each fallback read, including cooldown reads. An absent grant (e.g.
+a host declining sign-in) never activates this fallback; an expired token
+still needs live setup for refresh. An explicit sign-in still surfaces the
+setup error.
 
 `connect-oauth.ts` holds Posit Connect's grant:
 `createConnectDeviceCodeGrantResolver()` performs RFC 8414 discovery and RFC
 7591 client registration (bounded by a 30s setup deadline), memoized per
-normalized server, with failures evicted. When a token or device endpoint
+normalized server, with failures evicted. Both setup requests reject redirects
+rather than contacting another origin outside the selected server. When a token or device endpoint
 answers `invalid_client` (for example, an administrator deleted the
 registration), the acquisition engine calls the backend's optional
 `rejectGrant` hook; StoreBackend forwards it as `onGrantRejected`, and the

@@ -145,10 +145,24 @@ export interface RefreshTransaction {
 /** Durable hooks used by the generalized acquisition engine. */
 export interface AcquisitionBackendHooks {
 	configForProvider(providerId: string): Promise<OAuthGrantConfig | undefined>;
+	/**
+	 * Serve a still-valid server-bound token when grant setup itself failed.
+	 * Only called on a setup failure, never when the host declined to offer a grant.
+	 */
+	readOnGrantSetupFailure?(providerId: string): Promise<{
+		tokens: StoredOAuthTokens;
+		credentials: ProviderCredentials;
+	} | null>;
 	/** Check the current stored server against this grant before returning tokens. */
 	readTokens(providerId: string, config: OAuthGrantConfig): Promise<StoredOAuthTokens | null>;
 	/** Reject a server switch before replacing a record with a pending attempt. */
 	beginAuthentication(providerId: string, config: OAuthGrantConfig): Promise<string>;
+	/**
+	 * Whether the stored record still holds the pending record an attempt began
+	 * with `generation`. False once anything (this process or another sharing
+	 * the store) replaced, cleared, or completed it.
+	 */
+	holdsAuthentication(providerId: string, generation: string): Promise<boolean>;
 	commitAuthentication(
 		providerId: string,
 		generation: string,

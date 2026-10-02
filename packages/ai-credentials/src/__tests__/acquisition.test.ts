@@ -118,6 +118,156 @@ describe("generalized store-backed acquisition", () => {
 		return createCredentialProvider({ backend, logger });
 	}
 
+	it("serves a valid stored Connect token after restart when grant setup is unavailable", async () => {
+		const serverUrl = "https://connect.test";
+		const key = "auth:connect:apikey";
+		const expiresAt = new Date(Date.now() + 3_600_000).toISOString();
+		await store.set<StoredProviderCredentials>(key, {
+			source: "oauth-device",
+			readiness: "ready",
+			generation: "stored-token",
+			oauthAuth: {
+				serverUrl,
+				tokenData: {
+					accessToken: "valid-access",
+					refreshToken: "stored-refresh",
+					expiresAt,
+					tokenType: "Bearer",
+					scope: "",
+				},
+			},
+		});
+		const setup = vi.fn().mockRejectedValue(new Error("discovery unavailable"));
+		const backend = createStoreBackend({
+			store,
+			env: {},
+			allowOfflineServerToken: (_id, url) => url === serverUrl,
+			resolveAuthMethod: (id) => (id === "connect" ? { authMethodId: "apikey" } : undefined),
+			oauthConfigForProvider: (_id, source) =>
+				source?.type === "oauth-device" && source.serverUrl ? setup() : undefined,
+		});
+		const provider = createCredentialProvider({ backend });
+
+		expect(await provider.getCredentials("connect")).toEqual({
+			type: "apikey",
+			apiKey: "valid-access",
+			baseUrl: serverUrl,
+		});
+		expect(await backend.getCredentialStatus("connect")).toMatchObject({ authenticated: true });
+		expect(setup).toHaveBeenCalledTimes(1);
+		await provider.dispose();
+	});
+
+	it("rechecks host policy on every offline read, including the setup cooldown", async () => {
+		const serverUrl = "https://connect.test";
+		const expiresAt = new Date(Date.now() + 3_600_000).toISOString();
+		await store.set<StoredProviderCredentials>("auth:connect:apikey", {
+			source: "oauth-device",
+			readiness: "ready",
+			oauthAuth: {
+				serverUrl,
+				tokenData: {
+					accessToken: "access",
+					refreshToken: "refresh",
+					expiresAt,
+					tokenType: "Bearer",
+					scope: "",
+				},
+			},
+		});
+		let allowed = true;
+		const backend = createStoreBackend({
+			store,
+			env: {},
+			allowOfflineServerToken: () => allowed,
+			resolveAuthMethod: (id) => (id === "connect" ? { authMethodId: "apikey" } : undefined),
+			oauthConfigForProvider: () => Promise.reject(new Error("discovery unavailable")),
+		});
+		const provider = createCredentialProvider({ backend });
+
+		expect(await provider.getCredentials("connect")).toMatchObject({ apiKey: "access" });
+		allowed = false;
+		expect(await provider.getCredentials("connect")).toBeNull();
+		await provider.dispose();
+	});
+
+	it("does not serve a replaced server's token while offline policy is pending", async () => {
+		const serverA = "https://connect-a.test";
+		const expiresAt = new Date(Date.now() + 3_600_000).toISOString();
+		await store.set<StoredProviderCredentials>("auth:connect:apikey", {
+			source: "oauth-device",
+			readiness: "ready",
+			generation: "server-a",
+			oauthAuth: {
+				serverUrl: serverA,
+				tokenData: {
+					accessToken: "access-a",
+					refreshToken: "refresh-a",
+					expiresAt,
+					tokenType: "Bearer",
+					scope: "",
+				},
+			},
+		});
+		const backend = createStoreBackend({
+			store,
+			env: {},
+			resolveAuthMethod: (id) => (id === "connect" ? { authMethodId: "apikey" } : undefined),
+			oauthConfigForProvider: () => Promise.reject(new Error("discovery unavailable")),
+			allowOfflineServerToken: async () => {
+				await store.set<StoredProviderCredentials>("auth:connect:apikey", {
+					source: "oauth-device",
+					readiness: "ready",
+					generation: "server-b",
+					oauthAuth: {
+						serverUrl: "https://connect-b.test",
+						tokenData: {
+							accessToken: "access-b",
+							refreshToken: "refresh-b",
+							expiresAt,
+							tokenType: "Bearer",
+							scope: "",
+						},
+					},
+				});
+				return true;
+			},
+		});
+		const provider = createCredentialProvider({ backend });
+
+		expect(await provider.getCredentials("connect")).toBeNull();
+		await provider.dispose();
+	});
+
+	it("does not serve an expired stored Connect token during a grant setup outage", async () => {
+		const serverUrl = "https://connect.test";
+		await store.set<StoredProviderCredentials>("auth:connect:apikey", {
+			source: "oauth-device",
+			readiness: "ready",
+			oauthAuth: {
+				serverUrl,
+				tokenData: {
+					accessToken: "expired-access",
+					refreshToken: "refresh",
+					expiresAt: new Date(0).toISOString(),
+					tokenType: "Bearer",
+					scope: "",
+				},
+			},
+		});
+		const backend = createStoreBackend({
+			store,
+			env: {},
+			allowOfflineServerToken: (_id, url) => url === serverUrl,
+			resolveAuthMethod: (id) => (id === "connect" ? { authMethodId: "apikey" } : undefined),
+			oauthConfigForProvider: () => Promise.reject(new Error("discovery unavailable")),
+		});
+		const provider = createCredentialProvider({ backend });
+
+		expect(await provider.getCredentials("connect")).toBeNull();
+		await provider.dispose();
+	});
+
 	it("does not use tokens from a server switched while the OAuth grant was resolving", async () => {
 		const serverA = "https://connect-a.test";
 		const serverB = "https://connect-b.test";
@@ -392,13 +542,23 @@ describe("generalized store-backed acquisition", () => {
 			vi.stubGlobal("fetch", fetchMock);
 
 			const successful = await provider.startAuthentication("positai");
-			expect(successful.status).toBe("started");
+			if (successful.status !== "started") throw new Error("Expected authentication to start");
+			expect(
+				await provider.getAuthenticationAttemptOutcome(successful.challenge.attemptId),
+			).toEqual({
+				status: "pending",
+			});
 			await vi.advanceTimersByTimeAsync(1000);
 			await vi.waitFor(async () => {
 				expect(await provider.getCredentials("positai")).toEqual({
 					type: "oauth",
 					accessToken: "posit-access",
 				});
+			});
+			expect(
+				await provider.getAuthenticationAttemptOutcome(successful.challenge.attemptId),
+			).toEqual({
+				status: "succeeded",
 			});
 
 			fetchMock.mockResolvedValueOnce(deviceCodeResponse());
@@ -411,6 +571,11 @@ describe("generalized store-backed acquisition", () => {
 					error: "cancelled",
 				});
 			});
+			expect(await provider.getAuthenticationAttemptOutcome(cancelled.challenge.attemptId)).toEqual(
+				{
+					status: "cancelled",
+				},
+			);
 
 			fetchMock.mockResolvedValueOnce(deviceCodeResponse()).mockResolvedValueOnce(
 				new Response(JSON.stringify({ error: "access_denied" }), {
@@ -418,7 +583,8 @@ describe("generalized store-backed acquisition", () => {
 					headers: { "Content-Type": "application/json" },
 				}),
 			);
-			await provider.startAuthentication("positai");
+			const denied = await provider.startAuthentication("positai");
+			if (denied.status !== "started") throw new Error("Expected authentication to start");
 			await vi.advanceTimersByTimeAsync(1000);
 			await vi.waitFor(async () => {
 				expect(await store.get<StoredProviderCredentials>("auth:positai:oauth")).toMatchObject({
@@ -426,6 +592,69 @@ describe("generalized store-backed acquisition", () => {
 					error: "access_denied",
 				});
 			});
+			expect(await provider.getAuthenticationAttemptOutcome(denied.challenge.attemptId)).toEqual({
+				status: "failed",
+				error: "access_denied",
+			});
+		});
+
+		it("reports another process's sign-in over the same record as superseding this attempt", async () => {
+			const windowA = createProvider();
+			const windowB = createProvider();
+			const fetchMock = vi
+				.fn()
+				.mockResolvedValueOnce(deviceCodeResponse())
+				.mockResolvedValueOnce(deviceCodeResponse())
+				.mockResolvedValueOnce(
+					ok({
+						access_token: "window-b-access",
+						refresh_token: "window-b-refresh",
+						expires_in: 3600,
+						token_type: "Bearer",
+						scope: "prism",
+					}),
+				);
+			vi.stubGlobal("fetch", fetchMock);
+
+			const attemptA = await windowA.startAuthentication("positai");
+			if (attemptA.status !== "started") throw new Error("Expected authentication to start");
+			const attemptB = await windowB.startAuthentication("positai");
+			if (attemptB.status !== "started") throw new Error("Expected authentication to start");
+
+			expect(await windowA.getAuthenticationAttemptOutcome(attemptA.challenge.attemptId)).toEqual({
+				status: "superseded",
+			});
+			await vi.advanceTimersByTimeAsync(1000);
+			await vi.waitFor(async () => {
+				expect(await windowB.getAuthenticationAttemptOutcome(attemptB.challenge.attemptId)).toEqual(
+					{
+						status: "succeeded",
+					},
+				);
+			});
+			// Window A stopped polling: the one token request was window B's.
+			expect(fetchMock).toHaveBeenCalledTimes(3);
+			expect(await windowA.getAuthenticationAttemptOutcome(attemptA.challenge.attemptId)).toEqual({
+				status: "superseded",
+			});
+			await windowA.dispose();
+			await windowB.dispose();
+		});
+
+		it("reports another process's disconnect as superseding this attempt without waiting for expiry", async () => {
+			const windowA = createProvider();
+			const windowB = createProvider();
+			vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(deviceCodeResponse()));
+
+			const attemptA = await windowA.startAuthentication("positai");
+			if (attemptA.status !== "started") throw new Error("Expected authentication to start");
+			await windowB.mutateCredentials("positai", { kind: "clear" });
+
+			expect(await windowA.getAuthenticationAttemptOutcome(attemptA.challenge.attemptId)).toEqual({
+				status: "superseded",
+			});
+			await windowA.dispose();
+			await windowB.dispose();
 		});
 
 		it("propagates the RFC 6749 error_description from a failed device-authorization start", async () => {
@@ -908,6 +1137,7 @@ describe("generalized store-backed acquisition", () => {
 				configForProvider: () => Promise.resolve(config),
 				readTokens: () => Promise.resolve(state.tokens),
 				beginAuthentication: () => Promise.resolve("generation"),
+				holdsAuthentication: () => Promise.resolve(true),
 				commitAuthentication: () => Promise.resolve("committed"),
 				finishAuthentication: () => Promise.resolve("committed"),
 				withRefreshTransaction: (_providerId, _config, operation) => {
@@ -1253,6 +1483,7 @@ describe("credential-bearing OAuth requests never follow redirects", () => {
 			configForProvider: () => Promise.resolve(config),
 			readTokens: () => Promise.resolve(tokens),
 			beginAuthentication: () => Promise.resolve("generation"),
+			holdsAuthentication: () => Promise.resolve(true),
 			commitAuthentication: () => Promise.resolve("committed"),
 			finishAuthentication: (_providerId, _generation, error) => {
 				finished.push(error);

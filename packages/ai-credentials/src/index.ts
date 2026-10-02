@@ -17,6 +17,7 @@
 
 export type {
 	AuthenticationChallenge,
+	AuthenticationAttemptOutcome,
 	AuthenticationStartResult,
 	CredentialMutation,
 	CredentialProvider,

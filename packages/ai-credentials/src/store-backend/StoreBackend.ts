@@ -86,6 +86,17 @@ export interface CreateStoreBackendOptions {
 	) => ProviderCredentials;
 	notifyReady?: (providerId: string) => void;
 	/**
+	 * Providers whose stored API-key records resolve no credential (e.g. a key
+	 * saved before the provider moved to sign-in). Decided on the same read the
+	 * credential would come from, so a concurrent writer cannot slip one past it.
+	 */
+	ignoresStoredApiKey?: (providerId: string) => boolean;
+	/**
+	 * Host policy for serving a stored, unexpired server-bound device token when
+	 * grant setup is unavailable. Not called for fixed-host OAuth or sign-in.
+	 */
+	allowOfflineServerToken?: (providerId: string, serverUrl: string) => boolean | Promise<boolean>;
+	/**
 	 * The authorization server rejected a grant resolved by
 	 * `oauthConfigForProvider` with `invalid_client`; drop any cached copy.
 	 */
@@ -114,6 +125,8 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 		oauthConfigForProvider,
 		shapeToken,
 		notifyReady,
+		ignoresStoredApiKey,
+		allowOfflineServerToken,
 		onGrantRejected,
 		watchedProviderIds = [],
 		logger,
@@ -370,6 +383,7 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 			const source = normalized.source;
 			switch (source.type) {
 				case "api-key":
+					if (ignoresStoredApiKey?.(providerId)) return null;
 					if (!source.apiKey && !descriptor.apiKeyOptional) break;
 					return { type: "apikey", apiKey: source.apiKey, baseUrl: source.baseUrl };
 				case "local":
@@ -643,6 +657,41 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 		return normalized.tokens ?? null;
 	}
 
+	async function readOnGrantSetupFailure(
+		providerId: string,
+	): Promise<{ tokens: StoredOAuthTokens; credentials: ProviderCredentials } | null> {
+		if (!allowOfflineServerToken || resolveAuthMethod(providerId)?.authMethodId !== "apikey") {
+			return null;
+		}
+		const stored = await storedSource(providerId);
+		if (stored?.readiness !== "ready" || stored.source?.type !== "oauth-device") return null;
+		const serverUrl = stored.source.serverUrl;
+		if (!serverUrl || !stored.tokens || !(await allowOfflineServerToken(providerId, serverUrl))) {
+			return null;
+		}
+		// Host policy may have awaited; do not serve an older server's token if
+		// another window replaced or cleared the record in the meantime.
+		const current = await storedSource(providerId);
+		if (
+			!current ||
+			current.generation !== stored.generation ||
+			current.readiness !== "ready" ||
+			current.source?.type !== "oauth-device" ||
+			current.source.serverUrl !== serverUrl ||
+			!current.tokens
+		)
+			return null;
+		return {
+			tokens: current.tokens,
+			credentials: { type: "apikey", apiKey: current.tokens.accessToken, baseUrl: serverUrl },
+		};
+	}
+
+	async function holdsAuthentication(providerId: string, generation: string): Promise<boolean> {
+		const current = await storedSource(providerId);
+		return current?.readiness === "pending" && current.generation === generation;
+	}
+
 	async function readTokens(
 		providerId: string,
 		config: OAuthGrantConfig,
@@ -682,8 +731,10 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 	const acquisition: AcquisitionBackendHooks | undefined = oauthConfigForProvider
 		? {
 				configForProvider: resolveGrant,
+				readOnGrantSetupFailure,
 				readTokens,
 				beginAuthentication,
+				holdsAuthentication,
 				commitAuthentication,
 				finishAuthentication,
 				withRefreshTransaction,

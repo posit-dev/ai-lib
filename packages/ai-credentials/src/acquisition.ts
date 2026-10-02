@@ -4,11 +4,15 @@
 
 import type {
 	AcquisitionBackendHooks,
+	AuthenticationCommitResult,
 	OAuthGrantConfig,
 	PreparedAuthorizationCodeReceiver,
 	StoredOAuthTokens,
 } from "./Backend.js";
-import type { AuthenticationStartResult } from "./CredentialProvider.js";
+import type {
+	AuthenticationAttemptOutcome,
+	AuthenticationStartResult,
+} from "./CredentialProvider.js";
 import type { DeviceAuthInfo, Logger, ProviderCredentials, TokenData } from "./types/index.js";
 
 interface TokenResponse {
@@ -26,6 +30,12 @@ interface ActiveAttempt {
 	controller: AbortController;
 	receiver?: PreparedAuthorizationCodeReceiver;
 	terminalPromise?: Promise<void>;
+	/**
+	 * Set before this attempt writes its own final record (tokens or error),
+	 * so an outcome query that sees the record change waits for the write's
+	 * result instead of mistaking it for another writer's.
+	 */
+	settling?: Promise<unknown>;
 }
 
 interface DeviceAuthenticationStart {
@@ -36,6 +46,8 @@ interface DeviceAuthenticationStart {
 const DEFAULT_AUTHORIZATION_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_REFRESH_TIMEOUT_MS = 30_000;
 const DEFAULT_REFRESH_COOLDOWN_MS = 60_000;
+/** Settled attempt outcomes kept for late queries; oldest are dropped first. */
+const MAX_SETTLED_OUTCOMES = 100;
 
 /**
  * Refresh-failure policy: only a definitive server rejection — one of these
@@ -68,6 +80,10 @@ export interface AcquisitionRefreshPolicy {
 export class AcquisitionEngine {
 	private readonly activeByProvider = new Map<string, ActiveAttempt>();
 	private readonly activeById = new Map<string, ActiveAttempt>();
+	private readonly outcomes = new Map<
+		string,
+		Exclude<AuthenticationAttemptOutcome, { status: "pending" }>
+	>();
 	private readonly startingProviders = new Set<string>();
 	private readonly refreshPromises = new Map<string, Promise<ProviderCredentials | null>>();
 	private readonly refreshCooldowns = new Map<string, number>();
@@ -93,7 +109,15 @@ export class AcquisitionEngine {
 	async getCredentials(
 		providerId: string,
 	): Promise<{ handled: boolean; credentials: ProviderCredentials | null }> {
-		const config = await this.resolveGrantForRead(providerId);
+		const resolution = await this.resolveGrantForRead(providerId);
+		if (resolution.kind === "failed") {
+			const offline = await this.hooks.readOnGrantSetupFailure?.(providerId);
+			if (offline && !this.isExpiring(offline.tokens)) {
+				return { handled: true, credentials: offline.credentials };
+			}
+			return { handled: false, credentials: null };
+		}
+		const config = resolution.config;
 		if (!config) return { handled: false, credentials: null };
 
 		if (config.grantType === "client-credentials") {
@@ -115,28 +139,30 @@ export class AcquisitionEngine {
 	/**
 	 * Resolve the grant for a credential read. Resolving can do network I/O
 	 * (Connect discovery and client registration, Databricks OIDC discovery);
-	 * a failure there is treated like a transient refresh failure: the stored
-	 * record is untouched and the read is not handled here, so it falls back
-	 * to the backend (which yields no credential for an OAuth source). Further
-	 * reads skip setup for the cooldown instead of retrying it on every status
-	 * poll. An explicit sign-in calls `configForProvider` directly, so its
-	 * setup error still surfaces to the user.
+	 * a failure there leaves the stored record untouched. On a failure or its
+	 * cooldown, a host-approved, still-valid server-bound token can be served
+	 * without resolving a grant; other reads fall back to the backend (which
+	 * yields no credential for an OAuth source). Further reads skip setup for
+	 * the cooldown instead of retrying it on every status poll. An explicit
+	 * sign-in calls `configForProvider` directly, so its error still surfaces.
 	 */
-	private async resolveGrantForRead(providerId: string): Promise<OAuthGrantConfig | undefined> {
+	private async resolveGrantForRead(
+		providerId: string,
+	): Promise<{ kind: "failed" } | { kind: "resolved"; config: OAuthGrantConfig | undefined }> {
 		const cooldownUntil = this.grantSetupCooldowns.get(providerId);
 		if (cooldownUntil !== undefined) {
-			if (cooldownUntil > Date.now()) return undefined;
+			if (cooldownUntil > Date.now()) return { kind: "failed" };
 			this.grantSetupCooldowns.delete(providerId);
 		}
 		try {
-			return await this.hooks.configForProvider(providerId);
+			return { kind: "resolved", config: await this.hooks.configForProvider(providerId) };
 		} catch (error) {
 			this.grantSetupCooldowns.set(providerId, Date.now() + this.refreshCooldownMs);
 			this.logger?.warn(
 				`[ai-credentials] OAuth setup for ${providerId} failed (transient); stored tokens kept`,
 				error,
 			);
-			return undefined;
+			return { kind: "failed" };
 		}
 	}
 
@@ -219,15 +245,37 @@ export class AcquisitionEngine {
 		void this.terminateAttempt(attempt, "cancelled");
 	}
 
+	/**
+	 * Outcome of an attempt this engine started. A pending attempt is checked
+	 * against the stored record: once another writer replaced it, the attempt
+	 * is stopped (without writing) and reports `superseded`.
+	 */
+	async getAttemptOutcome(attemptId: string): Promise<AuthenticationAttemptOutcome | undefined> {
+		const attempt = this.activeById.get(attemptId);
+		if (!attempt) return this.outcomes.get(attemptId);
+		const held = await this.hooks.holdsAuthentication(attempt.providerId, attempt.generation);
+		// `settling` is set before the attempt's own final write starts, so if
+		// this read saw that write, the outcome is awaited rather than misread.
+		if (attempt.settling) {
+			await attempt.settling.catch(() => undefined);
+			return this.outcomes.get(attemptId);
+		}
+		if (!this.isCurrent(attempt)) return this.outcomes.get(attemptId);
+		if (held) return { status: "pending" };
+		this.recordOutcome(attempt, { status: "superseded" });
+		this.stopAttempt(attempt);
+		return this.outcomes.get(attemptId);
+	}
+
 	cancelProvider(providerId: string, persistTerminal = true): void {
 		const attempt = this.activeByProvider.get(providerId);
 		if (!attempt) return;
 		if (persistTerminal) {
 			void this.terminateAttempt(attempt, "cancelled");
 		} else {
-			attempt.controller.abort();
-			attempt.receiver?.dispose();
-			this.removeAttempt(attempt);
+			// The caller is replacing the record the attempt was signing in to.
+			this.recordOutcome(attempt, { status: "superseded" });
+			this.stopAttempt(attempt);
 		}
 	}
 
@@ -366,21 +414,11 @@ export class AcquisitionEngine {
 				attempt.controller.signal,
 			);
 			const tokens = await tokenData(response, true);
-			const committed = await this.hooks.commitAuthentication(
-				attempt.providerId,
-				attempt.generation,
-				tokens,
-			);
+			const committed = await this.commitTokens(attempt, tokens);
 			if (committed === "committed") this.hooks.notifyReady(attempt.providerId);
 		} catch (error) {
 			this.reportClientRejection(attempt.providerId, config, error);
-			if (this.isCurrent(attempt)) {
-				await this.hooks.finishAuthentication(
-					attempt.providerId,
-					attempt.generation,
-					errorCode(error),
-				);
-			}
+			if (this.isCurrent(attempt)) await this.commitFailure(attempt, errorCode(error));
 		} finally {
 			attempt.receiver?.dispose();
 			this.removeAttempt(attempt);
@@ -410,11 +448,7 @@ export class AcquisitionEngine {
 				);
 				if (response.ok) {
 					const tokens = await tokenData(response, true);
-					const committed = await this.hooks.commitAuthentication(
-						attempt.providerId,
-						attempt.generation,
-						tokens,
-					);
+					const committed = await this.commitTokens(attempt, tokens);
 					if (committed === "committed") this.hooks.notifyReady(attempt.providerId);
 					return;
 				}
@@ -433,11 +467,7 @@ export class AcquisitionEngine {
 				this.logger?.info(
 					`[ai-credentials] device poll for ${attempt.providerId} ended: ${errorCode(error)}`,
 				);
-				await this.hooks.finishAuthentication(
-					attempt.providerId,
-					attempt.generation,
-					errorCode(error),
-				);
+				await this.commitFailure(attempt, errorCode(error));
 			}
 		} finally {
 			this.removeAttempt(attempt);
@@ -628,10 +658,75 @@ export class AcquisitionEngine {
 		});
 	}
 
-	private terminateAttempt(attempt: ActiveAttempt, error: string): Promise<void> {
+	/** Store an attempt's tokens, recording whether they (or another writer's record) won. */
+	private commitTokens(
+		attempt: ActiveAttempt,
+		tokens: TokenData,
+	): Promise<AuthenticationCommitResult> {
+		return this.settle(
+			attempt,
+			this.hooks.commitAuthentication(attempt.providerId, attempt.generation, tokens),
+			{ status: "succeeded" },
+		);
+	}
+
+	/** Store an attempt's terminal error, recording the failure unless another writer won. */
+	private commitFailure(
+		attempt: ActiveAttempt,
+		error: string,
+	): Promise<AuthenticationCommitResult> {
+		return this.settle(
+			attempt,
+			this.hooks.finishAuthentication(attempt.providerId, attempt.generation, error),
+			{ status: "failed", error },
+		);
+	}
+
+	private settle(
+		attempt: ActiveAttempt,
+		write: Promise<AuthenticationCommitResult>,
+		outcome: Exclude<AuthenticationAttemptOutcome, { status: "pending" }>,
+	): Promise<AuthenticationCommitResult> {
+		const settled = write.then(
+			(result) => {
+				this.recordOutcome(attempt, result === "committed" ? outcome : { status: "superseded" });
+				return result;
+			},
+			(error: unknown) => {
+				this.recordOutcome(attempt, { status: "failed", error: errorCode(error) });
+				throw error;
+			},
+		);
+		attempt.settling = settled;
+		return settled;
+	}
+
+	/** Record an attempt's outcome once; the first terminal outcome wins. */
+	private recordOutcome(
+		attempt: ActiveAttempt,
+		outcome: Exclude<AuthenticationAttemptOutcome, { status: "pending" }>,
+	): void {
+		if (this.outcomes.has(attempt.attemptId)) return;
+		this.outcomes.set(attempt.attemptId, outcome);
+		if (this.outcomes.size > MAX_SETTLED_OUTCOMES) {
+			const oldest = this.outcomes.keys().next().value;
+			if (oldest !== undefined) this.outcomes.delete(oldest);
+		}
+	}
+
+	/** Stop an attempt's polling or callback wait without writing anything. */
+	private stopAttempt(attempt: ActiveAttempt): void {
 		attempt.controller.abort();
 		attempt.receiver?.dispose();
 		this.removeAttempt(attempt);
+	}
+
+	private terminateAttempt(attempt: ActiveAttempt, error: string): Promise<void> {
+		this.recordOutcome(
+			attempt,
+			error === "cancelled" ? { status: "cancelled" } : { status: "failed", error },
+		);
+		this.stopAttempt(attempt);
 		if (attempt.terminalPromise) {
 			return attempt.terminalPromise;
 		}

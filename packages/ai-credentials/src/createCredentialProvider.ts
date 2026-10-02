@@ -20,6 +20,7 @@
 import { AcquisitionEngine } from "./acquisition.js";
 import type { Backend, MutableBackend } from "./Backend.js";
 import type {
+	AuthenticationAttemptOutcome,
 	AuthenticationStartResult,
 	CredentialMutation,
 	CredentialProvider,
@@ -97,6 +98,12 @@ export function createCredentialProvider(
 		acquisition?.cancelAuthentication(attemptId);
 	}
 
+	async function getAuthenticationAttemptOutcome(
+		attemptId: string,
+	): Promise<AuthenticationAttemptOutcome | undefined> {
+		return acquisition?.getAttemptOutcome(attemptId);
+	}
+
 	function startDeviceAuth(providerId: string): Promise<DeviceAuthInfo> {
 		if (acquisition) return acquisition.startDeviceAuthentication(providerId);
 		return Promise.reject(new Error(`OAuth device auth not supported for provider: ${providerId}`));
@@ -118,6 +125,7 @@ export function createCredentialProvider(
 		getCredentials,
 		startAuthentication,
 		cancelAuthentication,
+		getAuthenticationAttemptOutcome,
 		getAccessToken,
 		startDeviceAuth,
 		onDidChangeCredentials,
