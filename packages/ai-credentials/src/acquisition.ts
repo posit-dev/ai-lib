@@ -112,7 +112,9 @@ export class AcquisitionEngine {
 		const resolution = await this.resolveGrantForRead(providerId);
 		if (resolution.kind === "failed") {
 			const offline = await this.hooks.readOnGrantSetupFailure?.(providerId);
-			if (offline && !this.isExpiring(offline.tokens)) {
+			// No refresh is possible without a grant, so the early refresh window
+			// does not apply: serve the token until it actually expires.
+			if (offline && !this.isExpiring(offline.tokens, 0)) {
 				return { handled: true, credentials: offline.credentials };
 			}
 			return { handled: false, credentials: null };
@@ -722,6 +724,17 @@ export class AcquisitionEngine {
 	}
 
 	private terminateAttempt(attempt: ActiveAttempt, error: string): Promise<void> {
+		// The attempt's own final write (tokens or error) has begun. It decides
+		// the outcome: recording `cancelled` now could report a sign-in as
+		// stopped while its tokens are committed, and a terminal write racing it
+		// would make a committed attempt look superseded. The attempt stays
+		// active until the write settles, so outcome queries wait for it.
+		if (attempt.settling) {
+			return attempt.settling.then(
+				() => undefined,
+				() => undefined,
+			);
+		}
 		this.recordOutcome(
 			attempt,
 			error === "cancelled" ? { status: "cancelled" } : { status: "failed", error },

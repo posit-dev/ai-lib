@@ -239,6 +239,36 @@ describe("generalized store-backed acquisition", () => {
 		await provider.dispose();
 	});
 
+	it("serves a stored Connect token inside the refresh window during a grant setup outage", async () => {
+		const serverUrl = "https://connect.test";
+		await store.set<StoredProviderCredentials>("auth:connect:apikey", {
+			source: "oauth-device",
+			readiness: "ready",
+			oauthAuth: {
+				serverUrl,
+				tokenData: {
+					// Valid, but sooner than the engine's 4-6 minute proactive refresh.
+					accessToken: "expiring-access",
+					refreshToken: "refresh",
+					expiresAt: new Date(Date.now() + 3 * 60_000).toISOString(),
+					tokenType: "Bearer",
+					scope: "",
+				},
+			},
+		});
+		const backend = createStoreBackend({
+			store,
+			env: {},
+			allowOfflineServerToken: (_id, url) => url === serverUrl,
+			resolveAuthMethod: (id) => (id === "connect" ? { authMethodId: "apikey" } : undefined),
+			oauthConfigForProvider: () => Promise.reject(new Error("discovery unavailable")),
+		});
+		const provider = createCredentialProvider({ backend });
+
+		expect(await provider.getCredentials("connect")).toMatchObject({ apiKey: "expiring-access" });
+		await provider.dispose();
+	});
+
 	it("does not serve an expired stored Connect token during a grant setup outage", async () => {
 		const serverUrl = "https://connect.test";
 		await store.set<StoredProviderCredentials>("auth:connect:apikey", {
@@ -1220,6 +1250,64 @@ describe("generalized store-backed acquisition", () => {
 				}
 			},
 		);
+
+		it("reports success, not cancellation, when cancel arrives while the token commit is in flight", async () => {
+			vi.useFakeTimers();
+			try {
+				const state = makeEngineState();
+				state.tokens = null;
+				const commit = Promise.withResolvers<"committed">();
+				const commitAuthentication = vi.fn(() => commit.promise);
+				const finishAuthentication = vi.fn(() => Promise.resolve("committed" as const));
+				const hooks: AcquisitionBackendHooks = {
+					...makeEngineHooks(state),
+					commitAuthentication,
+					finishAuthentication,
+				};
+				vi.stubGlobal(
+					"fetch",
+					vi
+						.fn()
+						.mockResolvedValueOnce(
+							ok({
+								device_code: "device-code",
+								user_code: "WXYZ",
+								verification_uri: "https://auth.test/device",
+								verification_uri_complete: "https://auth.test/device?code=WXYZ",
+								interval: 1,
+								expires_in: 900,
+							}),
+						)
+						.mockResolvedValueOnce(
+							ok({
+								access_token: "access",
+								refresh_token: "refresh",
+								expires_in: 3600,
+								token_type: "Bearer",
+								scope: "prism",
+							}),
+						),
+				);
+				const engine = new AcquisitionEngine(hooks, mockLogger());
+
+				const started = await engine.startAuthentication("positai");
+				if (started.status !== "started") throw new Error("Expected authentication to start");
+				await vi.advanceTimersByTimeAsync(1000);
+				await vi.waitFor(() => expect(commitAuthentication).toHaveBeenCalledOnce());
+
+				engine.cancelAuthentication(started.challenge.attemptId);
+				commit.resolve("committed");
+
+				await expect(engine.getAttemptOutcome(started.challenge.attemptId)).resolves.toEqual({
+					status: "succeeded",
+				});
+				// No terminal write raced the commit.
+				expect(finishAuthentication).not.toHaveBeenCalled();
+				await engine.dispose();
+			} finally {
+				vi.useRealTimers();
+			}
+		});
 
 		it("reports the grant as rejected when device authorization rejects the client", async () => {
 			const state = makeEngineState();
