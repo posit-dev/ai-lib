@@ -273,6 +273,11 @@ export interface PositAiAuthMetadata extends Record<string, unknown> {
 	accountUrl?: string;
 	modelFetchState?: PositAiModelFetchState;
 	modelFetchStatusCode?: number;
+	/**
+	 * Email of the signed-in account, set only with `agreement_pending` and
+	 * only when the lookup succeeded. Runtime auth-status data, never persisted.
+	 */
+	accountEmail?: string;
 }
 
 // ============================================================================
