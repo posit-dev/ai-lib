@@ -358,6 +358,21 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 		return undefined;
 	}
 
+	/** Identity of the source a grant is resolved for, without its secret. */
+	async function grantSetupScope(providerId: string): Promise<string | undefined> {
+		const source = await sourceContext(providerId);
+		switch (source?.type) {
+			case undefined:
+				return undefined;
+			case "oauth-device":
+				return `oauth-device:${source.serverUrl ?? ""}`;
+			case "oauth-u2m":
+				return `oauth-u2m:${source.workspaceHost}`;
+			case "oauth-m2m":
+				return `oauth-m2m:${source.workspaceHost}:${source.clientId}`;
+		}
+	}
+
 	async function resolveGrant(providerId: string): Promise<OAuthGrantConfig | undefined> {
 		if (!oauthConfigForProvider) return undefined;
 		const source = await sourceContext(providerId);
@@ -731,6 +746,7 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 	const acquisition: AcquisitionBackendHooks | undefined = oauthConfigForProvider
 		? {
 				configForProvider: resolveGrant,
+				grantSetupScope,
 				readOnGrantSetupFailure,
 				readTokens,
 				beginAuthentication,

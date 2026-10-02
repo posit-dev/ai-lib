@@ -139,8 +139,8 @@ export function createCredentialProvider(
 			providerId: string,
 			mutation: CredentialMutation,
 		): Promise<void> => {
-			acquisition?.cancelProvider(providerId, false);
-			await backend.mutateCredentials(providerId, mutation);
+			const write = () => backend.mutateCredentials(providerId, mutation);
+			await (acquisition ? acquisition.replaceRecord(providerId, write) : write());
 		};
 		mutable.getCredentialStatus = (providerId: string): Promise<CredentialStatus> =>
 			backend.getCredentialStatus(providerId);

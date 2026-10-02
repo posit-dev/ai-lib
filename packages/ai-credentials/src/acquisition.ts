@@ -87,7 +87,10 @@ export class AcquisitionEngine {
 	private readonly startingProviders = new Set<string>();
 	private readonly refreshPromises = new Map<string, Promise<ProviderCredentials | null>>();
 	private readonly refreshCooldowns = new Map<string, number>();
-	private readonly grantSetupCooldowns = new Map<string, number>();
+	private readonly grantSetupCooldowns = new Map<
+		string,
+		{ until: number; scope: string | undefined }
+	>();
 	private readonly clientCredentialTokens = new Map<string, StoredOAuthTokens>();
 	private readonly refreshJitterMinutes = 4 + Math.random() * 2;
 	private readonly startPromises = new Set<Promise<unknown>>();
@@ -111,7 +114,7 @@ export class AcquisitionEngine {
 	): Promise<{ handled: boolean; credentials: ProviderCredentials | null }> {
 		const resolution = await this.resolveGrantForRead(providerId);
 		if (resolution.kind === "failed") {
-			const offline = await this.hooks.readOnGrantSetupFailure?.(providerId);
+			const offline = await this.readOfflineToken(providerId);
 			// No refresh is possible without a grant, so the early refresh window
 			// does not apply: serve the token until it actually expires.
 			if (offline && !this.isExpiring(offline.tokens, 0)) {
@@ -139,27 +142,56 @@ export class AcquisitionEngine {
 	}
 
 	/**
+	 * The host-approved stored token served while grant setup is failing. The
+	 * offline policy can itself fail (it may read managed configuration); a
+	 * failure there yields no token rather than failing the credential read.
+	 */
+	private async readOfflineToken(
+		providerId: string,
+	): Promise<{ tokens: StoredOAuthTokens; credentials: ProviderCredentials } | null> {
+		try {
+			return (await this.hooks.readOnGrantSetupFailure?.(providerId)) ?? null;
+		} catch (error) {
+			this.logger?.warn(
+				`[ai-credentials] Offline token check for ${providerId} failed; serving no token`,
+				error,
+			);
+			return null;
+		}
+	}
+
+	/**
 	 * Resolve the grant for a credential read. Resolving can do network I/O
 	 * (Connect discovery and client registration, Databricks OIDC discovery);
 	 * a failure there leaves the stored record untouched. On a failure or its
 	 * cooldown, a host-approved, still-valid server-bound token can be served
 	 * without resolving a grant; other reads fall back to the backend (which
 	 * yields no credential for an OAuth source). Further reads skip setup for
-	 * the cooldown instead of retrying it on every status poll. An explicit
-	 * sign-in calls `configForProvider` directly, so its error still surfaces.
+	 * the cooldown instead of retrying it on every status poll. The cooldown
+	 * belongs to the source setup failed for: once the stored source changes
+	 * (another window signed in to a different server), the next read sets the
+	 * new source up immediately. An explicit sign-in calls `configForProvider`
+	 * directly, so its error still surfaces.
 	 */
 	private async resolveGrantForRead(
 		providerId: string,
 	): Promise<{ kind: "failed" } | { kind: "resolved"; config: OAuthGrantConfig | undefined }> {
-		const cooldownUntil = this.grantSetupCooldowns.get(providerId);
-		if (cooldownUntil !== undefined) {
-			if (cooldownUntil > Date.now()) return { kind: "failed" };
-			this.grantSetupCooldowns.delete(providerId);
-		}
+		// Read before setup so a source switched while setup was in flight is
+		// not suppressed by the old source's failure.
+		let scope: string | undefined;
 		try {
+			scope = await this.hooks.grantSetupScope?.(providerId);
+			const cooldown = this.grantSetupCooldowns.get(providerId);
+			if (cooldown !== undefined) {
+				if (cooldown.scope === scope && cooldown.until > Date.now()) return { kind: "failed" };
+				this.grantSetupCooldowns.delete(providerId);
+			}
 			return { kind: "resolved", config: await this.hooks.configForProvider(providerId) };
 		} catch (error) {
-			this.grantSetupCooldowns.set(providerId, Date.now() + this.refreshCooldownMs);
+			this.grantSetupCooldowns.set(providerId, {
+				until: Date.now() + this.refreshCooldownMs,
+				scope,
+			});
 			this.logger?.warn(
 				`[ai-credentials] OAuth setup for ${providerId} failed (transient); stored tokens kept`,
 				error,
@@ -269,16 +301,26 @@ export class AcquisitionEngine {
 		return this.outcomes.get(attemptId);
 	}
 
-	cancelProvider(providerId: string, persistTerminal = true): void {
+	cancelProvider(providerId: string): void {
 		const attempt = this.activeByProvider.get(providerId);
-		if (!attempt) return;
-		if (persistTerminal) {
-			void this.terminateAttempt(attempt, "cancelled");
-		} else {
-			// The caller is replacing the record the attempt was signing in to.
+		if (attempt) void this.terminateAttempt(attempt, "cancelled");
+	}
+
+	/**
+	 * Run `write`, which replaces the provider's stored record, then stop the
+	 * sign-in that was in flight as `superseded`. If `write` throws it wrote
+	 * nothing, so the attempt still owns its pending record and keeps going.
+	 * An attempt whose own final write already began is left to settle: its
+	 * commit, ordered against `write` by the store, decides the outcome.
+	 */
+	async replaceRecord<T>(providerId: string, write: () => Promise<T>): Promise<T> {
+		const attempt = this.activeByProvider.get(providerId);
+		const result = await write();
+		if (attempt && this.isCurrent(attempt) && !attempt.settling) {
 			this.recordOutcome(attempt, { status: "superseded" });
 			this.stopAttempt(attempt);
 		}
+		return result;
 	}
 
 	dispose(): Promise<void> {

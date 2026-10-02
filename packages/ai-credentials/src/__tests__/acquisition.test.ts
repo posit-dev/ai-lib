@@ -239,6 +239,85 @@ describe("generalized store-backed acquisition", () => {
 		await provider.dispose();
 	});
 
+	it("fails closed when the offline policy itself fails", async () => {
+		const expiresAt = new Date(Date.now() + 3_600_000).toISOString();
+		await store.set<StoredProviderCredentials>("auth:connect:apikey", {
+			source: "oauth-device",
+			readiness: "ready",
+			oauthAuth: {
+				serverUrl: "https://connect.test",
+				tokenData: {
+					accessToken: "access",
+					refreshToken: "refresh",
+					expiresAt,
+					tokenType: "Bearer",
+					scope: "",
+				},
+			},
+		});
+		const backend = createStoreBackend({
+			store,
+			env: {},
+			resolveAuthMethod: (id) => (id === "connect" ? { authMethodId: "apikey" } : undefined),
+			oauthConfigForProvider: () => Promise.reject(new Error("discovery unavailable")),
+			allowOfflineServerToken: () => Promise.reject(new Error("managed state unreadable")),
+		});
+		const warn = vi.fn();
+		const logger = { debug: vi.fn(), info: vi.fn(), warn, error: vi.fn(), trace: vi.fn() };
+		const provider = createCredentialProvider({ backend, logger });
+
+		expect(await provider.getCredentials("connect")).toBeNull();
+		expect(warn).toHaveBeenCalledWith(
+			"[ai-credentials] Offline token check for connect failed; serving no token",
+			new Error("managed state unreadable"),
+		);
+		await provider.dispose();
+	});
+
+	it("sets up a newly stored server at once, ignoring the previous server's setup cooldown", async () => {
+		const key = "auth:connect:apikey";
+		const record = (serverUrl: string, generation: string): StoredProviderCredentials => ({
+			source: "oauth-device",
+			readiness: "ready",
+			generation,
+			oauthAuth: {
+				serverUrl,
+				tokenData: {
+					accessToken: `access-${generation}`,
+					refreshToken: `refresh-${generation}`,
+					expiresAt: new Date(Date.now() - 60_000).toISOString(),
+					tokenType: "Bearer",
+					scope: "",
+				},
+			},
+		});
+		await store.set(key, record("https://connect-a.test", "a"));
+		const setup = vi.fn((serverUrl: string) =>
+			serverUrl === "https://connect-a.test"
+				? Promise.reject(new Error("discovery unavailable"))
+				: Promise.resolve(undefined),
+		);
+		const backend = createStoreBackend({
+			store,
+			env: {},
+			resolveAuthMethod: (id) => (id === "connect" ? { authMethodId: "apikey" } : undefined),
+			oauthConfigForProvider: (_id, source) =>
+				source?.type === "oauth-device" && source.serverUrl ? setup(source.serverUrl) : undefined,
+		});
+		const provider = createCredentialProvider({ backend });
+
+		await provider.getCredentials("connect");
+		await provider.getCredentials("connect");
+		expect(setup).toHaveBeenCalledTimes(1);
+
+		// Another window signs in to server B while A's cooldown is running.
+		await store.set(key, record("https://connect-b.test", "b"));
+		await provider.getCredentials("connect");
+		expect(setup).toHaveBeenLastCalledWith("https://connect-b.test");
+		expect(setup).toHaveBeenCalledTimes(2);
+		await provider.dispose();
+	});
+
 	it("serves a stored Connect token inside the refresh window during a grant setup outage", async () => {
 		const serverUrl = "https://connect.test";
 		await store.set<StoredProviderCredentials>("auth:connect:apikey", {
@@ -685,6 +764,47 @@ describe("generalized store-backed acquisition", () => {
 			});
 			await windowA.dispose();
 			await windowB.dispose();
+		});
+
+		it("keeps the attempt running when a mutation replacing its record fails", async () => {
+			const provider = createProvider();
+			vi.stubGlobal(
+				"fetch",
+				vi
+					.fn()
+					.mockResolvedValueOnce(deviceCodeResponse())
+					.mockResolvedValueOnce(
+						ok({
+							access_token: "posit-access",
+							refresh_token: "posit-refresh",
+							expires_in: 3600,
+							token_type: "Bearer",
+							scope: "prism",
+						}),
+					),
+			);
+
+			const attempt = await provider.startAuthentication("positai");
+			if (attempt.status !== "started") throw new Error("Expected authentication to start");
+			// Preserving AWS keys that were never stored is rejected before any write.
+			await expect(
+				provider.mutateCredentials("positai", {
+					kind: "update-aws",
+					region: "us-east-1",
+					keys: { kind: "preserve" },
+				}),
+			).rejects.toThrow("No stored manual AWS keys");
+
+			expect(await provider.getAuthenticationAttemptOutcome(attempt.challenge.attemptId)).toEqual({
+				status: "pending",
+			});
+			await vi.advanceTimersByTimeAsync(1000);
+			await vi.waitFor(async () => {
+				expect(await provider.getAuthenticationAttemptOutcome(attempt.challenge.attemptId)).toEqual(
+					{ status: "succeeded" },
+				);
+			});
+			await provider.dispose();
 		});
 
 		it("propagates the RFC 6749 error_description from a failed device-authorization start", async () => {

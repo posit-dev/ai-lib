@@ -153,6 +153,12 @@ export interface AcquisitionBackendHooks {
 		tokens: StoredOAuthTokens;
 		credentials: ProviderCredentials;
 	} | null>;
+	/**
+	 * Non-secret identity of the source `configForProvider` would set up (e.g.
+	 * the stored Connect server). A grant setup failure's cooldown applies only
+	 * while this is unchanged. Without it, the cooldown is per provider.
+	 */
+	grantSetupScope?(providerId: string): Promise<string | undefined>;
 	/** Check the current stored server against this grant before returning tokens. */
 	readTokens(providerId: string, config: OAuthGrantConfig): Promise<StoredOAuthTokens | null>;
 	/** Reject a server switch before replacing a record with a pending attempt. */
