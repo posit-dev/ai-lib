@@ -37,14 +37,16 @@ import {
  * structurally, but any backing with atomic per-key writes can serve it —
  * e.g. VS Code `SecretStorage` in an extension host.
  *
- * How much exclusion `withLock` gives is up to the backing: `SingleFileStore`
- * locks across processes, VS Code `SecretStorage` only within one window.
+ * How much exclusion `withLock` gives is up to the backing. It must exclude
+ * every writer of the same keys — across processes when several processes
+ * share the storage (`SingleFileStore` uses a lock file; a VS Code
+ * `SecretStorage` backing needs its own cross-window lock).
  *
- * Every OAuth record carries a `generation`, and a refresh commits only while the
- * stored record still holds the one it read. Under a cross-process lock that makes
- * concurrent refreshes safe. Under a per-window lock it only narrows the race: the
- * generation check and the write are separate steps, so two windows can both pass
- * the check before either writes.
+ * Every OAuth record carries a `generation`, and a commit writes only while the
+ * stored record still holds the one it read. That check and the write are
+ * separate steps, so they are atomic only under a lock that excludes every
+ * writer: under a narrower lock two writers can both pass the check before
+ * either writes (e.g. a sign-in commit overwriting another window's clear).
  *
  * AWS `preserve` mutations have no such marker and need a backing that excludes
  * every writer of the same keys.
@@ -83,6 +85,22 @@ export interface CreateStoreBackendOptions {
 		source: CredentialSourceContext,
 	) => ProviderCredentials;
 	notifyReady?: (providerId: string) => void;
+	/**
+	 * Providers whose stored API-key records resolve no credential (e.g. a key
+	 * saved before the provider moved to sign-in). Decided on the same read the
+	 * credential would come from, so a concurrent writer cannot slip one past it.
+	 */
+	ignoresStoredApiKey?: (providerId: string) => boolean;
+	/**
+	 * Host policy for serving a stored, unexpired server-bound device token when
+	 * grant setup is unavailable. Not called for fixed-host OAuth or sign-in.
+	 */
+	allowOfflineServerToken?: (providerId: string, serverUrl: string) => boolean | Promise<boolean>;
+	/**
+	 * The authorization server rejected a grant resolved by
+	 * `oauthConfigForProvider` with `invalid_client`; drop any cached copy.
+	 */
+	onGrantRejected?: (providerId: string, config: OAuthGrantConfig) => void;
 	watchedProviderIds?: string[];
 	env?: Readonly<Record<string, string | undefined>>;
 	logger?: Logger;
@@ -107,6 +125,9 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 		oauthConfigForProvider,
 		shapeToken,
 		notifyReady,
+		ignoresStoredApiKey,
+		allowOfflineServerToken,
+		onGrantRejected,
 		watchedProviderIds = [],
 		logger,
 		generationFactory = defaultGeneration,
@@ -179,10 +200,11 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 
 		if (record.source === "oauth-device" || (record.source === undefined && record.oauthAuth)) {
 			const tokenData = record.oauthAuth?.tokenData;
+			const serverUrl = record.oauthAuth?.serverUrl;
 			return {
 				readiness: readiness ?? (tokenData ? "ready" : "unauthenticated"),
 				generation: record.generation,
-				source: { type: "oauth-device" },
+				source: { type: "oauth-device", ...(serverUrl ? { serverUrl } : {}) },
 				tokens:
 					readiness === "ready" || (readiness === undefined && tokenData)
 						? storedTokens(record)
@@ -315,7 +337,8 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 		const normalized = await storedSource(providerId);
 		if (normalized?.source) {
 			if (normalized.source.type === "oauth-device") {
-				return { type: "oauth-device", origin: "stored" };
+				const { serverUrl } = normalized.source;
+				return { type: "oauth-device", origin: "stored", ...(serverUrl ? { serverUrl } : {}) };
 			}
 			if (normalized.source.type === "oauth-u2m") {
 				return { ...normalized.source, origin: "stored" };
@@ -333,6 +356,21 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 			return { type: "oauth-device", origin: "implicit" };
 		}
 		return undefined;
+	}
+
+	/** Identity of the source a grant is resolved for, without its secret. */
+	async function grantSetupScope(providerId: string): Promise<string | undefined> {
+		const source = await sourceContext(providerId);
+		switch (source?.type) {
+			case undefined:
+				return undefined;
+			case "oauth-device":
+				return `oauth-device:${source.serverUrl ?? ""}`;
+			case "oauth-u2m":
+				return `oauth-u2m:${source.workspaceHost}`;
+			case "oauth-m2m":
+				return `oauth-m2m:${source.workspaceHost}:${source.clientId}`;
+		}
 	}
 
 	async function resolveGrant(providerId: string): Promise<OAuthGrantConfig | undefined> {
@@ -360,6 +398,7 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 			const source = normalized.source;
 			switch (source.type) {
 				case "api-key":
+					if (ignoresStoredApiKey?.(providerId)) return null;
 					if (!source.apiKey && !descriptor.apiKeyOptional) break;
 					return { type: "apikey", apiKey: source.apiKey, baseUrl: source.baseUrl };
 				case "local":
@@ -541,7 +580,10 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 		};
 	}
 
-	async function beginAuthentication(providerId: string): Promise<string> {
+	async function beginAuthentication(
+		providerId: string,
+		config: OAuthGrantConfig,
+	): Promise<string> {
 		const key = keyFor(providerId);
 		if (!key) throw new Error(`Unknown provider: ${providerId}`);
 		return store.withLock(async () => {
@@ -551,6 +593,9 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 			if (normalized?.source) source = normalized.source;
 			if (source.type !== "oauth-device" && source.type !== "oauth-u2m") {
 				throw new Error(`Stored source ${source.type} is not interactive`);
+			}
+			if (!matchesGrantServer(source, config)) {
+				throw new Error("The OAuth server changed while sign-in was starting");
 			}
 			await store.set(key, pendingRecord(source, generation));
 			return generation;
@@ -616,15 +661,57 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 		return "committed";
 	}
 
-	function readyOAuthTokens(normalized: NormalizedStored | null): StoredOAuthTokens | null {
+	function readyOAuthTokens(
+		normalized: NormalizedStored | null,
+		config: OAuthGrantConfig,
+	): StoredOAuthTokens | null {
 		if (!normalized || normalized.readiness !== "ready" || !normalized.source) return null;
 		if (normalized.source.type !== "oauth-device" && normalized.source.type !== "oauth-u2m")
 			return null;
+		if (!matchesGrantServer(normalized.source, config)) return null;
 		return normalized.tokens ?? null;
 	}
 
-	async function readTokens(providerId: string): Promise<StoredOAuthTokens | null> {
-		return readyOAuthTokens(await storedSource(providerId));
+	async function readOnGrantSetupFailure(
+		providerId: string,
+	): Promise<{ tokens: StoredOAuthTokens; credentials: ProviderCredentials } | null> {
+		if (!allowOfflineServerToken || resolveAuthMethod(providerId)?.authMethodId !== "apikey") {
+			return null;
+		}
+		const stored = await storedSource(providerId);
+		if (stored?.readiness !== "ready" || stored.source?.type !== "oauth-device") return null;
+		const serverUrl = stored.source.serverUrl;
+		if (!serverUrl || !stored.tokens || !(await allowOfflineServerToken(providerId, serverUrl))) {
+			return null;
+		}
+		// Host policy may have awaited; do not serve an older server's token if
+		// another window replaced or cleared the record in the meantime.
+		const current = await storedSource(providerId);
+		if (
+			!current ||
+			current.generation !== stored.generation ||
+			current.readiness !== "ready" ||
+			current.source?.type !== "oauth-device" ||
+			current.source.serverUrl !== serverUrl ||
+			!current.tokens
+		)
+			return null;
+		return {
+			tokens: current.tokens,
+			credentials: { type: "apikey", apiKey: current.tokens.accessToken, baseUrl: serverUrl },
+		};
+	}
+
+	async function holdsAuthentication(providerId: string, generation: string): Promise<boolean> {
+		const current = await storedSource(providerId);
+		return current?.readiness === "pending" && current.generation === generation;
+	}
+
+	async function readTokens(
+		providerId: string,
+		config: OAuthGrantConfig,
+	): Promise<StoredOAuthTokens | null> {
+		return readyOAuthTokens(await storedSource(providerId), config);
 	}
 
 	/**
@@ -634,11 +721,12 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 	 */
 	async function withRefreshTransaction<T>(
 		providerId: string,
+		config: OAuthGrantConfig,
 		operation: (refresh: RefreshTransaction | null) => Promise<T>,
 	): Promise<T> {
 		return store.withLock(async () => {
 			const read = normalize(providerId, await readRecord(providerId));
-			const tokens = readyOAuthTokens(read);
+			const tokens = readyOAuthTokens(read, config);
 			if (!read || !tokens) return operation(null);
 			let open = true;
 			const commit = async (build: RecordBuilder): Promise<AuthenticationCommitResult> =>
@@ -658,14 +746,20 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 	const acquisition: AcquisitionBackendHooks | undefined = oauthConfigForProvider
 		? {
 				configForProvider: resolveGrant,
+				grantSetupScope,
+				readOnGrantSetupFailure,
 				readTokens,
 				beginAuthentication,
+				holdsAuthentication,
 				commitAuthentication,
 				finishAuthentication,
 				withRefreshTransaction,
 				shapeToken: asyncShapeToken,
 				notifyReady(providerId) {
 					notifyReady?.(providerId);
+				},
+				rejectGrant(providerId, config) {
+					onGrantRejected?.(providerId, config);
 				},
 			}
 		: undefined;
@@ -782,7 +876,7 @@ function pendingRecord(
 		source: source.type,
 		configured: true,
 		authenticated: false,
-		oauthAuth: source.type === "oauth-u2m" ? { workspaceHost: source.workspaceHost } : undefined,
+		oauthAuth: oauthIdentity(source),
 	};
 }
 
@@ -808,7 +902,7 @@ function authenticatedOAuthRecord(
 			},
 			expiresAt,
 			scope: tokens.scope,
-			...(source.type === "oauth-u2m" ? { workspaceHost: source.workspaceHost } : {}),
+			...oauthIdentity(source),
 		},
 	};
 }
@@ -834,8 +928,33 @@ function terminalOAuthRecord(
 		configured: true,
 		authenticated: false,
 		error,
-		oauthAuth: source.type === "oauth-u2m" ? { workspaceHost: source.workspaceHost } : undefined,
+		oauthAuth: oauthIdentity(source),
 	};
+}
+
+/**
+ * A grant resolved before a server switch must never consume the replacement's
+ * tokens. A server-bound device grant (one with a `credentialBaseUrl`) also
+ * requires the source to still name that server: a source without one (e.g.
+ * the tombstone a clear writes while discovery is pending) must not be
+ * recreated as a record that has lost its issuing server. Fixed-host device
+ * grants (Posit AI Pass) carry no `credentialBaseUrl` and match any source.
+ */
+function matchesGrantServer(
+	source: Extract<CredentialSourceInput, { type: "oauth-device" | "oauth-u2m" }>,
+	config: OAuthGrantConfig,
+): boolean {
+	if (source.type !== "oauth-device") return true;
+	if (config.credentialBaseUrl === undefined) return !source.serverUrl;
+	return source.serverUrl === config.credentialBaseUrl;
+}
+
+/** Non-secret identity an interactive OAuth record keeps across its lifecycle. */
+function oauthIdentity(
+	source: Extract<CredentialSourceInput, { type: "oauth-device" | "oauth-u2m" }>,
+): { workspaceHost: string } | { serverUrl: string } | undefined {
+	if (source.type === "oauth-u2m") return { workspaceHost: source.workspaceHost };
+	return source.serverUrl ? { serverUrl: source.serverUrl } : undefined;
 }
 
 function sourceMetadata(source: CredentialSourceInput): Record<string, unknown> | undefined {
@@ -843,6 +962,7 @@ function sourceMetadata(source: CredentialSourceInput): Record<string, unknown> 
 	if (source.type === "oauth-u2m" || source.type === "oauth-m2m") {
 		return { workspaceHost: source.workspaceHost };
 	}
+	if (source.type === "oauth-device" && source.serverUrl) return { serverUrl: source.serverUrl };
 	if (source.type === "local") return { endpoint: source.endpoint };
 	if (source.type === "google-cloud") return { project: source.project, location: source.location };
 	return undefined;

@@ -20,7 +20,6 @@ describe("resolveCredentialsFromEnv", () => {
 		["databricks", "DATABRICKS_TOKEN", "databricks-token"],
 		["litellm", "LITELLM_API_KEY", "litellm-key"],
 		["portkey", "PORTKEY_API_KEY", "portkey-key"],
-		["posit-connect", "CONNECT_API_KEY", "connect-key"],
 		["opencode", "OPENCODE_API_KEY", "opencode-key"],
 	] as const)("resolves the %s API key mapping", (providerId, envName, apiKey) => {
 		expect(resolveCredentialsFromEnv(providerId, { [envName]: apiKey })).toEqual({
