@@ -127,11 +127,15 @@ overwrite the terminal record. Every other failure is _transient_ — network
 errors, the 30s `AbortSignal.timeout` on the refresh exchange (so a hung fetch
 cannot hold the cross-process file lock), 429/5xx, unknown 4xx codes, malformed
 bodies, a rejected token commit, or the transaction itself failing
-(lock/IO) — and resolves as: return null, leave the stored record untouched,
-and start a ~60s in-memory per-provider cooldown so status polling cannot
-hammer the token endpoint during an outage. An expired cooldown is removed
-before the retry. The cooldown is process-local; the file lock already
-serializes actual refreshes across processes.
+(lock/IO) — and leaves the stored record untouched, starting a ~60s in-memory
+per-provider cooldown so status polling cannot hammer the token endpoint
+during an outage. After a failed refresh (including cooldown reads), the
+resolver re-reads the current record against the resolved grant: a still-valid,
+server-matching access token remains usable until its actual expiry; an
+expired, cleared, or server-switched token does not. Terminal rejections remove
+the tokens and cannot take this fallback. An expired cooldown is removed before
+the retry. The cooldown is process-local; the file lock already serializes
+actual refreshes across processes.
 
 Caveats:
 

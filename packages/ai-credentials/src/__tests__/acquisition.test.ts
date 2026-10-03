@@ -318,6 +318,59 @@ describe("generalized store-backed acquisition", () => {
 		await provider.dispose();
 	});
 
+	it("serves a still-valid Connect token when refresh fails and while retrying is cooled down", async () => {
+		const serverUrl = "https://connect.test";
+		const expiresAt = new Date(Date.now() + 60_000).toISOString();
+		const tokenData = {
+			accessToken: "valid-access",
+			refreshToken: "stored-refresh",
+			expiresAt,
+			tokenType: "Bearer",
+			scope: "",
+		};
+		const stored: StoredProviderCredentials = {
+			source: "oauth-device",
+			readiness: "ready",
+			generation: "stored-token",
+			oauthAuth: { serverUrl, tokenData },
+		};
+		await store.set("auth:connect:apikey", stored);
+		const fetchMock = vi.fn().mockRejectedValue(new TypeError("fetch failed"));
+		vi.stubGlobal("fetch", fetchMock);
+		const backend = createStoreBackend({
+			store,
+			env: {},
+			resolveAuthMethod: (id) => (id === "connect" ? { authMethodId: "apikey" } : undefined),
+			oauthConfigForProvider: (_id, source) =>
+				source?.type === "oauth-device" && source.serverUrl
+					? {
+							grantType: "device-code",
+							clientId: "client",
+							scope: "",
+							deviceAuthorizationEndpoint: `${serverUrl}/device`,
+							tokenEndpoint: `${serverUrl}/token`,
+							credentialBaseUrl: serverUrl,
+						}
+					: undefined,
+		});
+		const provider = createCredentialProvider({ backend });
+
+		const expected = { type: "apikey", apiKey: "valid-access", baseUrl: serverUrl };
+		expect(await provider.getCredentials("connect")).toEqual(expected);
+		expect(await provider.getCredentials("connect")).toEqual(expected);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(await store.get<StoredProviderCredentials>("auth:connect:apikey")).toEqual(stored);
+		await store.set<StoredProviderCredentials>("auth:connect:apikey", {
+			...stored,
+			oauthAuth: {
+				...stored.oauthAuth,
+				tokenData: { ...tokenData, expiresAt: new Date(0).toISOString() },
+			},
+		});
+		expect(await provider.getCredentials("connect")).toBeNull();
+		await provider.dispose();
+	});
+
 	it("serves a stored Connect token inside the refresh window during a grant setup outage", async () => {
 		const serverUrl = "https://connect.test";
 		await store.set<StoredProviderCredentials>("auth:connect:apikey", {

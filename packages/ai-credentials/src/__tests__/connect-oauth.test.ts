@@ -261,6 +261,15 @@ describe("createConnectDeviceCodeGrantResolver", () => {
 		await expect(createConnectDeviceCodeGrant(fixture.baseUrl)).rejects.toThrow(/cross-origin/i);
 	});
 
+	it.each([
+		"https://connect.example.com/?site=other",
+		"https://connect.example.com/#workspace",
+		"https://connect.example.com/?",
+		"https://connect.example.com/#",
+	])("rejects a server URL with a query or fragment: %s", (url) => {
+		expect(() => normalizeConnectBaseUrl(url)).toThrow(/query or fragment/i);
+	});
+
 	it("rejects http:// on a non-loopback host", async () => {
 		await expect(createConnectDeviceCodeGrant("http://example.com:1234")).rejects.toThrow(/https/i);
 	});

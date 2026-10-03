@@ -50,8 +50,9 @@ export function normalizeConnectBaseUrl(raw: string): string {
 	if (url.username || url.password) {
 		throw new Error("Posit Connect server URL must not contain a username or password");
 	}
-	url.search = "";
-	url.hash = "";
+	if (url.href.includes("?") || url.href.includes("#")) {
+		throw new Error("Posit Connect server URL must not contain a query or fragment");
+	}
 	return url.toString().replace(/\/+$/, "");
 }
 

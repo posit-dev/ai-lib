@@ -138,7 +138,29 @@ export class AcquisitionEngine {
 			};
 		}
 
-		return { handled: true, credentials: await this.refreshStored(providerId, config) };
+		const refreshed = await this.refreshStored(providerId, config);
+		if (refreshed) return { handled: true, credentials: refreshed };
+		// Refresh may have failed transiently or be cooling down. Re-read instead
+		// of using `tokens`: another writer may have cleared the record or switched
+		// servers while the exchange was in flight. A terminal rejection leaves no
+		// ready tokens, while a transient failure can still use an unexpired one.
+		let current: StoredOAuthTokens | null;
+		try {
+			current = await this.hooks.readTokens(providerId, config);
+		} catch (error) {
+			this.logger?.warn(
+				`[ai-credentials] Could not re-read stored tokens after refresh failed for ${providerId}`,
+				error,
+			);
+			return { handled: true, credentials: null };
+		}
+		return {
+			handled: true,
+			credentials:
+				current && !this.isExpiring(current, 0)
+					? this.hooks.shapeToken(providerId, current.accessToken, config)
+					: null,
+		};
 	}
 
 	/**
