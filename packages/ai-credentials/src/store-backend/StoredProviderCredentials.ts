@@ -68,6 +68,8 @@ export const storedProviderCredentialsSchema = z.object({
 			expiresAt: z.string().optional(),
 			scope: z.string().optional(),
 			workspaceHost: z.string().optional(),
+			/** Server an `oauth-device` sign-in targets and its token was issued by. */
+			serverUrl: z.string().optional(),
 		})
 		.optional(),
 
