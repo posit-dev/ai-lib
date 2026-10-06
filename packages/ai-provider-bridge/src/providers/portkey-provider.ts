@@ -5,27 +5,35 @@
 /**
  * Portkey provider
  *
- * One gateway in front of many LLM services, with two deployment shapes that
- * change what the stored API key *is*:
+ * One gateway in front of many LLM services. What the stored API key *is* —
+ * the key type, configured as `providers.portkey.keyType` or inferred from
+ * the URL — selects one of three connection modes:
  *
- * - **Hosted Portkey** (`https://api.portkey.ai/v1`): the key is a Portkey
- *   API key sent as `x-portkey-api-key`; models are Model Catalog ids of the
- *   form `@provider-slug/model`; discovery lists the integrated catalog.
- * - **Self-hosted OSS gateway** (any other base URL): the gateway is
- *   stateless, so the key is one upstream's key sent in each delegate's
- *   native scheme; models are bare upstream ids declared by the user
- *   (`GET /v1/models` is broken on the OSS gateway — no discovery).
+ * - **Hosted** (`https://api.portkey.ai/v1`, Portkey key): the key is sent as
+ *   `x-portkey-api-key`; models are Model Catalog ids of the form
+ *   `@provider-slug/model`; discovery lists the integrated catalog.
+ * - **Portkey gateway** (any other URL, key type `portkey`): a corporate proxy
+ *   in front of hosted Portkey, or a Portkey hybrid gateway. The key is sent
+ *   as `x-portkey-api-key` only (no `Authorization` / `x-api-key`); the base
+ *   URL is used verbatim (users include `/v1` when their gateway needs it);
+ *   no routing header is injected; either model-id form is accepted; and
+ *   discovery requests `<url>/models` with Portkey auth.
+ * - **Self-hosted OSS gateway** (any other URL, key type `upstream` — the
+ *   default for non-canonical URLs): the gateway is stateless, so the key is
+ *   one upstream's key sent in each delegate's native scheme; models are bare
+ *   upstream ids declared by the user (`GET /v1/models` is broken on the OSS
+ *   gateway — no discovery).
  *
- * Because the base URL determines the key's meaning, it is **required**: a
- * defaulted URL would silently reinterpret the secret (e.g. send a
- * self-hoster's Anthropic key to hosted Portkey). Key-only credentials fail
- * locally with an instructive error before any request.
+ * The base URL is **required**: a defaulted URL would silently send the
+ * secret somewhere the user never chose. Key-only credentials fail locally
+ * with an instructive error before any request.
  *
- * `resolvePortkeyConnection` is the single owner of every connection rule —
- * required-URL validation, hosted-vs-OSS classification, `/v1` normalization,
- * secret-header sanitization, auth wiring, and the chat/discovery header
- * split. The model fetcher and the client factory both consume it; neither
- * re-derives any of it.
+ * Cross-field validation (URL, key type, key presence) is ai-config's
+ * `checkPortkeyConnection`, shared with configure forms. Everything else —
+ * mode selection, URL normalization, secret-header sanitization, auth wiring,
+ * the chat/discovery header split, and gateway equivalence — is owned by
+ * `resolvePortkeyConnection` and `samePortkeyGateway` here. The model fetcher
+ * and the client factory both consume them; neither re-derives any of it.
  *
  * Each chat request routes over its natural wire protocol via a small
  * protocol-dispatching client (one Anthropic + one OpenAI delegate),
@@ -34,9 +42,9 @@
 
 import type { ResolvedProviderId } from "ai-config";
 import {
+	checkPortkeyConnection,
 	classifyPortkeyModel,
 	inferModelCapabilities,
-	PORTKEY_HOST,
 	PORTKEY_HOSTED_BASE_URL,
 } from "ai-config";
 
@@ -90,14 +98,6 @@ function withoutHeaders(
 	);
 }
 
-const MISSING_BASE_URL_MESSAGE =
-	"The Portkey provider requires a base URL: it selects the deployment mode and what the " +
-	`API key means (hosted Portkey API key vs a self-hosted gateway's upstream key). Set the ` +
-	`PORTKEY_BASE_URL environment variable (hosted: ${PORTKEY_HOSTED_BASE_URL}) or enter a ` +
-	"base URL in the Portkey configure form.";
-
-const CANONICAL_PORTKEY_HOSTNAME = new URL(PORTKEY_HOST).hostname;
-
 interface PortkeyRegistrationPolicy {
 	/** Registry key and provider id stamped onto discovered models. */
 	readonly providerId: ResolvedProviderId;
@@ -108,10 +108,8 @@ interface PortkeyRegistrationPolicy {
 /**
  * Normalize a Portkey gateway URL to its `/v1` API root
  * (`http://localhost:8787` → `http://localhost:8787/v1`), tolerating trailing
- * slashes and an existing `/v1` segment. Throws on unparseable input.
- *
- * Also the equivalence relation for the dispatcher's same-gateway check: two
- * URLs target the same gateway iff they normalize to the same string.
+ * slashes and an existing `/v1` segment. Throws on unparseable input. Used by
+ * the hosted and OSS modes; the Portkey-gateway mode keeps URLs verbatim.
  */
 function normalizePortkeyGatewayUrl(rawUrl: string): string {
 	let url: URL;
@@ -125,6 +123,42 @@ function normalizePortkeyGatewayUrl(rawUrl: string): string {
 	}
 	const path = url.pathname.replace(/\/+$/, "");
 	return `${url.origin}${path.endsWith("/v1") ? path : `${path}/v1`}`;
+}
+
+/**
+ * A Portkey-gateway URL used as entered: never gains `/v1`. Only the
+ * spelling is normalized, as {@link normalizePortkeyGatewayUrl} does — origin
+ * case and trailing slashes. Throws on unparseable input.
+ */
+function verbatimGatewayUrl(rawUrl: string): string {
+	const url = new URL(rawUrl.trim());
+	return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
+}
+
+/**
+ * The URL a connection's mode sends requests to, for a raw base URL. Throws
+ * on input the mode cannot normalize.
+ */
+function gatewayUrlForMode(mode: PortkeyConnection["mode"], rawUrl: string): string {
+	return mode === "portkey-gateway"
+		? verbatimGatewayUrl(rawUrl)
+		: normalizePortkeyGatewayUrl(rawUrl);
+}
+
+/**
+ * Gateway equivalence, mode-aware: whether `rawUrl` targets the same gateway
+ * as `connection`. Hosted/OSS URLs are compared after `/v1` normalization,
+ * Portkey-gateway URLs verbatim (trailing slashes trimmed) — so the raw
+ * provider URL the catalog passes as a per-request `baseUrl` always matches
+ * its own connection. Never throws: an unparseable URL is not the same
+ * gateway.
+ */
+export function samePortkeyGateway(connection: PortkeyConnection, rawUrl: string): boolean {
+	try {
+		return gatewayUrlForMode(connection.mode, rawUrl) === connection.baseUrl;
+	} catch {
+		return false;
+	}
 }
 
 /** The resolved Portkey connection: mode, gateway URL, and per-operation header material. */
@@ -146,6 +180,23 @@ export type PortkeyConnection =
 			discoveryHeaders: Record<string, string>;
 	  }
 	| {
+			mode: "portkey-gateway";
+			/**
+			 * The user's base URL, verbatim (trailing slashes trimmed) — the sole
+			 * request target. Never gains `/v1`: a proxy may map its own path
+			 * onto Portkey's `/v1`, and hybrid users copy `/v1` URLs as-is.
+			 */
+			baseUrl: string;
+			/**
+			 * Chat headers for both delegates: `x-portkey-api-key` + sanitized
+			 * `customHeaders` including routing headers. No routing header is
+			 * injected — routing is a config on the key or the gateway's job.
+			 */
+			chatHeaders: Record<string, string>;
+			/** Discovery headers: Portkey auth + sanitized `customHeaders` minus routing headers. */
+			discoveryHeaders: Record<string, string>;
+	  }
+	| {
 			mode: "oss";
 			/** Normalized gateway API root (ends in `/v1`) — the sole request target. */
 			baseUrl: string;
@@ -161,65 +212,66 @@ export type PortkeyConnection =
 	  };
 
 /**
- * Resolve a Portkey connection from credentials: required-URL validation,
- * hosted-vs-OSS classification, `/v1` normalization, secret filtering, auth
- * wiring, and the chat/discovery header split — mode, secret meaning,
- * headers, and destination are one invariant, owned here.
+ * Resolve a Portkey connection from credentials: validation, mode selection,
+ * URL normalization, secret filtering, auth wiring, and the chat/discovery
+ * header split — mode, secret meaning, headers, and destination are one
+ * invariant, owned here.
  *
- * Hosted classification is **exact-canonical-HTTPS-origin** only
- * (`https://api.portkey.ai`, default port). The canonical hostname under any
- * other scheme or port is a local error — `http://api.portkey.ai` has no safe
- * classification (hosted would put the Portkey key on plaintext; OSS would
- * drop it into upstream-native headers on plaintext). Lookalike hosts
- * (`api.portkey.ai.example`) classify as OSS, and plain HTTP stays valid for
- * explicit self-hosted hosts like localhost.
+ * Validation is ai-config's `checkPortkeyConnection`, run on the effective
+ * values (`credentials.portkey.keyType`, absent → inferred from the URL):
+ * a missing/unparseable URL, the canonical hostname on any origin other than
+ * exactly `https://api.portkey.ai`, an upstream key on the hosted origin, or
+ * a missing Portkey key are local errors. Lookalike hosts
+ * (`api.portkey.ai.example`) are ordinary gateways, and plain HTTP stays
+ * valid for explicit self-hosted hosts like localhost.
  *
- * Throws locally (no request is ever made) on a missing, invalid, or
- * hosted-lookalike-hazard URL. Chat surfaces the throw to the user;
- * discovery throws it inside `fetchFresh`, where the cache wrapper catches
- * and logs it and yields no models.
+ * Mode selection: the canonical origin is hosted; otherwise key type
+ * `portkey` is a Portkey gateway and `upstream` is OSS.
+ *
+ * Throws locally (no request is ever made) on invalid input. Chat surfaces
+ * the throw to the user; discovery throws it inside `fetchFresh`, where the
+ * cache wrapper catches and logs it and yields no models.
  */
 export function resolvePortkeyConnection(credentials: ApiKeyCredentials): PortkeyConnection {
-	const rawBaseUrl = credentials.baseUrl?.trim();
-	if (!rawBaseUrl) {
-		throw new Error(MISSING_BASE_URL_MESSAGE);
+	const check = checkPortkeyConnection({
+		baseUrl: credentials.baseUrl,
+		keyType: credentials.portkey?.keyType,
+		apiKeyPresent: Boolean(credentials.apiKey.trim()),
+	});
+	if (!check.ok) {
+		throw new Error(check.message);
 	}
-	const baseUrl = normalizePortkeyGatewayUrl(rawBaseUrl);
-	const url = new URL(rawBaseUrl);
 	const sanitizedCustomHeaders = withoutHeaders(
 		credentials.customHeaders,
 		PORTKEY_SECRET_HEADER_NAMES,
 	);
 
-	if (url.origin === PORTKEY_HOST) {
-		if (!credentials.apiKey.trim()) {
-			throw new Error(
-				"Hosted Portkey requires a non-empty API key. Keyless connections are supported only " +
-					"for self-hosted gateways or credential-injecting proxies.",
-			);
-		}
+	if (check.keyType === "portkey") {
 		// TODO(phase0-gate): auth-matrix probe — hosted auth is provisionally the
-		// `x-portkey-api-key` header on every endpoint.
+		// `x-portkey-api-key` header on every endpoint. A Portkey gateway takes
+		// the same header (the customer's working proxy request sends only it).
 		const authHeaders = { "x-portkey-api-key": credentials.apiKey };
-		return {
-			mode: "hosted",
-			baseUrl,
-			chatHeaders: { ...sanitizedCustomHeaders, ...authHeaders },
-			// Discovery bypasses the cached fetcher's additive-header merge, so the
-			// shared SDK-managed filter (Authorization, x-api-key, …) is applied
-			// here — the chat path gets the same filtering inside the delegates.
-			discoveryHeaders: additiveHeaderRecord(
-				authHeaders,
-				withoutHeaders(sanitizedCustomHeaders, PORTKEY_ROUTING_HEADER_NAMES),
-			),
-		};
-	}
-	if (url.hostname === CANONICAL_PORTKEY_HOSTNAME) {
-		throw new Error(
-			`Invalid Portkey base URL "${rawBaseUrl}": the hosted Portkey host is only valid as ` +
-				`exactly ${PORTKEY_HOSTED_BASE_URL} (HTTPS, default port). For a self-hosted gateway, ` +
-				"use that gateway's own URL.",
+		const chatHeaders = { ...sanitizedCustomHeaders, ...authHeaders };
+		// Discovery bypasses the cached fetcher's additive-header merge, so the
+		// shared SDK-managed filter (Authorization, x-api-key, …) is applied
+		// here — the chat path gets the same filtering inside the delegates.
+		const discoveryHeaders = additiveHeaderRecord(
+			authHeaders,
+			withoutHeaders(sanitizedCustomHeaders, PORTKEY_ROUTING_HEADER_NAMES),
 		);
+		return check.canonical
+			? {
+					mode: "hosted",
+					baseUrl: normalizePortkeyGatewayUrl(check.baseUrl),
+					chatHeaders,
+					discoveryHeaders,
+				}
+			: {
+					mode: "portkey-gateway",
+					baseUrl: verbatimGatewayUrl(check.baseUrl),
+					chatHeaders,
+					discoveryHeaders,
+				};
 	}
 
 	// OSS single-upstream: the connection serves one upstream. The user's
@@ -232,7 +284,7 @@ export function resolvePortkeyConnection(credentials: ApiKeyCredentials): Portke
 	);
 	return {
 		mode: "oss",
-		baseUrl,
+		baseUrl: normalizePortkeyGatewayUrl(check.baseUrl),
 		upstreamKey: credentials.apiKey,
 		chatHeaders: hasRoutingHeader
 			? sanitizedCustomHeaders
@@ -241,7 +293,7 @@ export function resolvePortkeyConnection(credentials: ApiKeyCredentials): Portke
 }
 
 // ---------------------------------------------------------------------------
-// Model discovery (hosted catalog)
+// Model discovery (hosted catalog and Portkey gateways)
 // ---------------------------------------------------------------------------
 
 /** Hard cap on catalog size — a sane upper bound against a lying `total`. */
@@ -305,8 +357,9 @@ async function fetchPortkeyCatalog(
 	for (let pageCount = 0; pageCount < MAX_DISCOVERY_PAGES; pageCount++) {
 		// Stop paging promptly when the discovery deadline expired between pages.
 		signal.throwIfAborted();
-		// The resolver's normalized base URL already ends in /v1 — append only
-		// `/models` (never `/v1/models`, which would double the segment).
+		// The resolver's base URL is the API root (hosted: normalized to end in
+		// /v1; Portkey gateway: verbatim) — append only `/models` (never
+		// `/v1/models`, which would double the segment).
 		const url =
 			received === 0
 				? `${connection.baseUrl}/models`
@@ -420,8 +473,9 @@ const HOSTED_MODEL_ID_PATTERN = /^@[^/]+\/.+/;
 
 /**
  * Mode-mismatch validation: hosted requires `@slug/model` catalog ids; OSS
- * requires bare upstream ids. Model-id shape is validation only — it never
- * selects the mode (the base URL does).
+ * requires bare upstream ids; a Portkey gateway accepts either (a config on
+ * the key or the gateway may route bare ids). Model-id shape is validation
+ * only — it never selects the mode.
  */
 function validateModelIdForMode(connection: PortkeyConnection, model: string): void {
 	if (connection.mode === "hosted" && !HOSTED_MODEL_ID_PATTERN.test(model)) {
@@ -434,8 +488,8 @@ function validateModelIdForMode(connection: PortkeyConnection, model: string): v
 	if (connection.mode === "oss" && model.startsWith("@")) {
 		throw new Error(
 			`Portkey self-hosted mode requires bare upstream model ids; got catalog id "${model}". ` +
-				`Catalog "@provider-slug/model" ids require the hosted base URL ` +
-				`${PORTKEY_HOSTED_BASE_URL}.`,
+				`Catalog "@provider-slug/model" ids need a Portkey API key: use the hosted base URL ` +
+				`${PORTKEY_HOSTED_BASE_URL}, or set the key type to Portkey for a proxy or hybrid gateway.`,
 		);
 	}
 }
@@ -476,7 +530,15 @@ const portkeyClientFactory: ClientFactory = (credentials) => {
 	//   confirmed for the anthropic upstream.
 	// Both delegates receive the sanitized chat headers (routing headers
 	// included — they are chat-scoped by the resolver's per-operation split).
-	const nativeKey = connection.mode === "hosted" ? HOSTED_DUMMY_NATIVE_KEY : connection.upstreamKey;
+	// - Portkey gateway: `x-portkey-api-key` only. Delegates get `apiKey: ""`,
+	//   whose anonymous paths strip `x-api-key` and `Authorization` — a
+	//   corporate gateway may read `Authorization` itself.
+	const nativeKey =
+		connection.mode === "hosted"
+			? HOSTED_DUMMY_NATIVE_KEY
+			: connection.mode === "portkey-gateway"
+				? ""
+				: connection.upstreamKey;
 	const anthropicClient = new AnthropicClient(
 		{ apiKey: nativeKey },
 		connection.baseUrl,
@@ -498,23 +560,15 @@ const portkeyClientFactory: ClientFactory = (credentials) => {
 			// params.baseUrl, and the delegates trust params.baseUrl over their
 			// constructor URL — forwarding an override would keep sending this
 			// connection's credentials to an arbitrary host. Accept an override
-			// only when it normalizes to the same gateway; always delegate with
-			// the resolver-owned URL.
-			if (params.baseUrl !== undefined) {
-				let overrideGateway: string | undefined;
-				try {
-					overrideGateway = normalizePortkeyGatewayUrl(params.baseUrl);
-				} catch {
-					overrideGateway = undefined;
-				}
-				if (overrideGateway !== connection.baseUrl) {
-					throw new Error(
-						`Portkey model "${params.model}" carries a base URL override "${params.baseUrl}" ` +
-							`that does not match the connection's gateway "${connection.baseUrl}". ` +
-							`Cross-gateway overrides are not supported — one Portkey connection is one ` +
-							`gateway; configure a separate provider for the other URL.`,
-					);
-				}
+			// only when it targets the same gateway; always delegate with the
+			// resolver-owned URL.
+			if (params.baseUrl !== undefined && !samePortkeyGateway(connection, params.baseUrl)) {
+				throw new Error(
+					`Portkey model "${params.model}" carries a base URL override "${params.baseUrl}" ` +
+						`that does not match the connection's gateway "${connection.baseUrl}". ` +
+						`Cross-gateway overrides are not supported — one Portkey connection is one ` +
+						`gateway; configure a separate provider for the other URL.`,
+				);
 			}
 			const routedParams = { ...params, baseUrl: connection.baseUrl };
 

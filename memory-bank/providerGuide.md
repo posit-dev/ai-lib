@@ -164,7 +164,19 @@ call on `normalizeProtocol(params.protocol)`:
 per-mode credential wiring: LiteLLM sends the same key in each delegate's
 native scheme, while hosted Portkey sends `x-portkey-api-key` on both
 delegates with dummy native credentials, and OSS Portkey sends the upstream's
-key. The standing judgment: extract a shared
+key. A third Portkey mode, the **Portkey gateway** (key type `portkey` on a
+URL other than `https://api.portkey.ai` — a proxy in front of hosted Portkey
+or a hybrid gateway), sends only `x-portkey-api-key`: its delegates get
+`apiKey: ""`, so their anonymous paths strip `x-api-key` and `Authorization`.
+It uses the base URL verbatim (no `/v1` appended), injects no
+`x-portkey-provider`, accepts either model-id form, and discovers from
+`<url>/models`. Mode selection reads the runtime-only
+`ApiKeyCredentials.portkey.keyType` (copied from `providers.portkey.keyType`
+by the host's catalog merge; absent → inferred from the URL), and validation
+is ai-config's `checkPortkeyConnection`, shared with configure forms. The
+chat same-gateway check uses the mode-aware `samePortkeyGateway`, so the raw
+provider URL the catalog passes as `params.baseUrl` always matches its own
+connection. The standing judgment: extract a shared
 `createProtocolDispatchingClient` only when a **third** gateway provider
 arrives and the credential parameterization proves clean across all three;
 until then, mirror with the convention documented here rather than forcing a
