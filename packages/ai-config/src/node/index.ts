@@ -75,11 +75,6 @@ export type { LoadConfigSourcesOptions } from "./load-config.js";
 // --- Write seam ------------------------------------------------------------
 export { migrateProvidersSchemaReference, mutateProvidersConfig } from "./mutate-config.js";
 export { ProvidersConfigInvalidError } from "./providers-config-invalid-error.js";
-export type {
-	ProvidersConfigInvalidDetail,
-	ProvidersConfigInvalidPhase,
-	ProvidersConfigSchemaIssue,
-} from "./providers-config-invalid-error.js";
 
 // --- Watch seam (the single, source-aware watch seam) ----------------------
 // `diffProviderCatalogs` is the watcher's per-provider classifier, exported so

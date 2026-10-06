@@ -206,6 +206,11 @@ export type {
 	ResolveProviderCatalogOptions,
 } from "./resolve-catalog.js";
 export type { ConfigIssue, SourcedConfigIssue } from "./config-issue.js";
+export type {
+	ProvidersConfigInvalidDetail,
+	ProvidersConfigInvalidPhase,
+	ProvidersConfigSchemaIssue,
+} from "./providers-config-invalid.js";
 
 // --- Tolerant providers.json validation ------------------------------------
 export { salvageProvidersConfig } from "./salvage-config.js";

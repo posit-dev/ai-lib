@@ -21,36 +21,12 @@
 import * as z from "zod/v4";
 
 import { configIssuePath } from "../config-issue.js";
+import type {
+	ProvidersConfigInvalidDetail,
+	ProvidersConfigInvalidPhase,
+	ProvidersConfigSchemaIssue,
+} from "../providers-config-invalid.js";
 import { JsoncSyntaxError } from "./parse-jsonc.js";
-
-/** Which config failed validation. */
-export type ProvidersConfigInvalidPhase =
-	/** The file already on disk is invalid; nothing was attempted. */
-	| "existing-file"
-	/** The file was valid, but the requested change would make it invalid. */
-	| "proposed-result";
-
-/** One schema problem: where it is, and what is wrong. */
-export interface ProvidersConfigSchemaIssue {
-	readonly path: readonly (string | number)[];
-	readonly message: string;
-}
-
-/** Why the config is invalid. */
-export type ProvidersConfigInvalidDetail =
-	| {
-			readonly kind: "syntax";
-			/** jsonc-parser error code name, e.g. `PropertyNameExpected`. */
-			readonly code: string;
-			/** 1-based. */
-			readonly line: number;
-			/** 1-based. */
-			readonly column: number;
-	  }
-	| {
-			readonly kind: "schema";
-			readonly issues: readonly ProvidersConfigSchemaIssue[];
-	  };
 
 export class ProvidersConfigInvalidError extends Error {
 	override readonly name = "ProvidersConfigInvalidError";
