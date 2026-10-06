@@ -197,6 +197,20 @@ export {
 } from "./base-url.js";
 export type { OpencodeProduct } from "./base-url.js";
 
+// --- Portkey key type and connection rules ---------------------------------
+export {
+	checkPortkeyConnection,
+	inferredPortkeyKeyType,
+	isPortkeyKeyType,
+	PORTKEY_KEY_TYPES,
+} from "./portkey-connection.js";
+export type {
+	PortkeyConnectionCheck,
+	PortkeyConnectionField,
+	PortkeyConnectionInput,
+	PortkeyKeyType,
+} from "./portkey-connection.js";
+
 // --- Deep resolver seam (owns the precedence stack) ------------------------
 export { resolveProviderCatalog, resolveProviderCatalogReport } from "./resolve-catalog.js";
 export type {

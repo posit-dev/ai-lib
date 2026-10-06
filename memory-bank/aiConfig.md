@@ -76,6 +76,7 @@ Re-exports the pure entry, plus:
   discipline rather than being salvaged. It stays on the Node entry because the full raw entry
   may include advanced fields that must be preserved server-side and never projected to a browser.
 - **Write seam**: `mutateProvidersConfig(mutator, opts)` — cross-process-safe mutation.
+  Invalid content rejects with `ProvidersConfigInvalidError` (see File I/O Seams).
 - **Watch seam**: `watchResolvedProviderCatalog(handler, opts)` — emits typed `ProviderCatalogChange` events.
 - **Catalog diff**: `diffProviderCatalogs(previous, current)` — the watcher's per-provider classifier (added/removed/updated + enabled/connection/models flags); the watcher's aggregate flags are its OR. Exported for hosts that install catalogs themselves.
 - **Types**: `LoadCatalogOptions` (including the transitional `legacyPositronSettings` / `legacyPositronEnforcedSettings` options), `MutateConfigOptions`, `WatchCatalogOptions`, `ProviderCatalogChange`, `ProviderCatalogEntryDiff`, `LoggerLike`, `Disposable`.
@@ -140,6 +141,27 @@ resolved catalog always carries both. Env overlays: `MS_FOUNDRY_AUTH_MODE` /
 `MS_FOUNDRY_ENTRA_SCOPE` / `MS_FOUNDRY_TENANT_ID`. Entra tokens are acquired at
 runtime by `@azure/identity` in the bridge — nothing secret is stored, and a
 fresh entra configuration writes nothing to the credential store.
+
+**Scalar connection fields.** `BUILTIN_SCALAR_CONNECTION_FIELDS` is the one
+definition for per-provider scalar fields the section machinery can't express.
+It feeds both the strict per-key blocks and the permissive superset (an
+intersection of every provider's scalar shape). Two fields today:
+
+- `opencode.product` (`"go" | "zen"`) resolves to a base URL at catalog build
+  and never reaches the bridge.
+- `portkey.keyType` (`"portkey" | "upstream"`, env `PORTKEY_KEY_TYPE`) says what
+  the stored API key is. It is carried onto `ResolvedConnection.keyType` and
+  reaches the bridge as data. Absent means "infer from `baseUrl`" (canonical
+  hosted origin → `portkey`, anything else → `upstream`), so older configs keep
+  their behavior. The schema declares only the enum: cross-field rules (URL
+  required, `upstream` + hosted URL is an error, a Portkey key must be present,
+  hosted hostname only on the exact HTTPS origin) live in the pure
+  `checkPortkeyConnection({ baseUrl, keyType, apiKeyPresent })`
+  (`src/portkey-connection.ts`), so a bad combination never makes the file
+  invalid. The bridge resolver runs it on effective values; forms and mutators
+  run it before writing. `inferredPortkeyKeyType(baseUrl)` lets writers omit a
+  `keyType` equal to what the URL implies, so older strict readers (which drop a
+  block carrying an unknown field) keep the block.
 
 **Strict validation vs. permissive working type.** Strictness is a parse-time
 property. The inferred `ProvidersMap` built-in blocks and `ResolvedConnection`
@@ -232,6 +254,10 @@ individually pinned control without re-deriving precedence from resolved
 values. The source is the highest-precedence kept source that sets the field;
 `authMode`/`scope` fall back to `"default"` (built-in defaults) when no source
 sets them, while `baseUrl`/`tenantId` are absent until some layer sets them.
+
+For the built-in `portkey` provider it records `portkey.keyType` and
+`portkey.baseUrl` sources the same way (absent when no layer sets them), so
+forms render env- or admin-owned fields read-only and saves can pin them.
 
 For `ollama` and `lmstudio` it records the source of `endpoint` the same way,
 falling back to `"default"`. Hosts that store their own local endpoint let an
@@ -353,6 +379,17 @@ without managing locking, atomicity, or watch lifecycle themselves.
   initial non-emitting snapshot has loaded so callers can safely coordinate a
   subsequent mutation. It logs only issue-set additions; clear-then-recur logs
   again. The initial load does not emit.
+- **Mutate failures are typed.** When the existing file fails to parse or
+  validate, or the mutator's result fails validation, `mutateProvidersConfig`
+  rejects with `ProvidersConfigInvalidError` (`src/node/providers-config-invalid-error.ts`):
+  `configPath`, `phase` (`existing-file` | `proposed-result`), and `detail`
+  (`syntax` with jsonc code/line/column, or `schema` with Zod issue paths and
+  messages). These fields are secret-safe — Zod 4 messages never echo received
+  values and custom messages name keys only — so hosts may show them. The
+  detail/phase types are browser-safe and exported from the pure entry
+  (`src/providers-config-invalid.ts`); the class is node-only. Read failures
+  (e.g. EACCES) stay plain errors. `parseJsonc` throws `JsoncSyntaxError` (a
+  `SyntaxError` carrying the position).
 - **Mutate** (`src/node/mutate-config.ts`) takes cross-process safety seriously:
   a `proper-lockfile` lock (with retries and stale detection), an in-process
   serialization queue per config path, race-safe first-creation via the
@@ -748,36 +785,39 @@ the bridge's `ModelInfo` — compatible by contract, not by import.
 
 ## Code Layout
 
-| Location                              | What it does                                                                                                                                     |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `src/vocabulary.ts`                   | Provider-ID / protocol / client-kind / reserved-key value tuples + type guards                                                                   |
-| `src/schema.ts`                       | Zod schemas (full + enforced variants) for `providers.json`                                                                                      |
-| `src/types.ts`                        | Types inferred from Zod + resolution outputs + branded `CustomProviderId` / `mintCustomProviderId`                                               |
-| `src/defaults.ts`                     | Built-in provider connection defaults; `PROVIDER_CONNECTION_DEFAULTS`                                                                            |
-| `src/enforce.ts`                      | `mergeEnforced()` deep-merge of enforced over user config                                                                                        |
-| `src/resolve-enabled.ts`              | `resolveEnabled()` enablement precedence ladder                                                                                                  |
-| `src/resolve-connection.ts`           | Internal baseUrl/endpoint resolution precedence                                                                                                  |
-| `src/resolve-models.ts`               | `resolveModels()` model selection + routing pipeline                                                                                             |
-| `src/model-capabilities/*-helpers.ts` | Per-provider capability tables (moved from the bridge, ai-lib#9)                                                                                 |
-| `src/model-capabilities/infer.ts`     | `inferModelCapabilities()` — baseline + provider-family merge, Snowflake protocol rule                                                           |
-| `src/index.ts`                        | Pure entrypoint exports                                                                                                                          |
-| `src/node/paths.ts`                   | `AI_CONFIG_DIR`, `PROVIDERS_CONFIG_PATH`, enforced env-var name, lockfile path                                                                   |
-| `src/node/types.ts`                   | Node seam option/result types (`LoadCatalogOptions`, `ProviderCatalogChange`, `Disposable`, …)                                                   |
-| `src/resolve-catalog.ts`              | `resolveProviderCatalog()` — pure deep resolver seam; owns the precedence stack + sealed-enforced invariant                                      |
-| `src/base-url.ts`                     | Legacy bare-host correction plus `normalizeOpenRouterBaseUrl()` / `OPENROUTER_DEFAULT_BASE_URL`, shared by OpenRouter discovery, chat, and forms |
-| `src/edit-jsonc.ts`                   | Pure validation-free JSONC diff-to-edits transformer + JSON serialization normalization                                                          |
-| `src/config-source.ts`                | `ProviderConfigSource` + internal `ProviderConfigSourceProvider` loader machinery                                                                |
-| `src/legacy-positron-settings/`       | PROVIDER-SETTINGS-MIGRATION: legacy settings map, translator, and internal source builders                                                       |
-| `src/build-catalog.ts`                | `buildCatalog()` — assemble `ResolvedProvider[]` from merged config + enablement layers (pure entry)                                             |
-| `src/node/load-config.ts`             | `loadConfigSourceReports()` / readers — silently assemble `{ source?, issues }` reports; compatibility wrapper renders and returns sources       |
-| `src/node/parse-jsonc.ts`             | Internal JSONC parser; comments/trailing commas, null-prototype object materialization, `SyntaxError` on invalid input                           |
-| `src/node/parse-providers-config.ts`  | Internal strict `parseProvidersConfig()` mutation seam + tolerant `parseProvidersConfigTolerant()` read seam                                     |
-| `src/node/load-catalog.ts`            | Canonical `loadProviderCatalogReport()` seam + bare-catalog `loadResolvedProviderCatalog()` compatibility wrapper                                |
-| `src/node/mutate-config.ts`           | `mutateProvidersConfig()` — locked, atomic, serialized mutation                                                                                  |
-| `src/node/watch-catalog.ts`           | `watchResolvedProviderCatalog()` — watch, reload, diff, emit typed changes                                                                       |
-| `src/node/index.ts`                   | Node entrypoint; re-exports pure entry + filesystem seams                                                                                        |
-| `providers.schema.json`               | Generated JSON Schema, exported for editor validation                                                                                            |
-| `scripts/generate-schema.ts`          | Regenerates `providers.schema.json` from the Zod schemas                                                                                         |
+| Location                                     | What it does                                                                                                                                     |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src/vocabulary.ts`                          | Provider-ID / protocol / client-kind / reserved-key value tuples + type guards                                                                   |
+| `src/schema.ts`                              | Zod schemas (full + enforced variants) for `providers.json`                                                                                      |
+| `src/types.ts`                               | Types inferred from Zod + resolution outputs + branded `CustomProviderId` / `mintCustomProviderId`                                               |
+| `src/defaults.ts`                            | Built-in provider connection defaults; `PROVIDER_CONNECTION_DEFAULTS`                                                                            |
+| `src/enforce.ts`                             | `mergeEnforced()` deep-merge of enforced over user config                                                                                        |
+| `src/resolve-enabled.ts`                     | `resolveEnabled()` enablement precedence ladder                                                                                                  |
+| `src/resolve-connection.ts`                  | Internal baseUrl/endpoint resolution precedence                                                                                                  |
+| `src/resolve-models.ts`                      | `resolveModels()` model selection + routing pipeline                                                                                             |
+| `src/model-capabilities/*-helpers.ts`        | Per-provider capability tables (moved from the bridge, ai-lib#9)                                                                                 |
+| `src/model-capabilities/infer.ts`            | `inferModelCapabilities()` — baseline + provider-family merge, Snowflake protocol rule                                                           |
+| `src/index.ts`                               | Pure entrypoint exports                                                                                                                          |
+| `src/node/paths.ts`                          | `AI_CONFIG_DIR`, `PROVIDERS_CONFIG_PATH`, enforced env-var name, lockfile path                                                                   |
+| `src/node/types.ts`                          | Node seam option/result types (`LoadCatalogOptions`, `ProviderCatalogChange`, `Disposable`, …)                                                   |
+| `src/resolve-catalog.ts`                     | `resolveProviderCatalog()` — pure deep resolver seam; owns the precedence stack + sealed-enforced invariant                                      |
+| `src/portkey-connection.ts`                  | Portkey key-type vocabulary, `checkPortkeyConnection()`, `inferredPortkeyKeyType()` — the one owner of Portkey cross-field rules                 |
+| `src/providers-config-invalid.ts`            | Browser-safe detail/phase types for invalid providers.json mutation failures                                                                     |
+| `src/node/providers-config-invalid-error.ts` | `ProvidersConfigInvalidError` thrown by `mutateProvidersConfig()`                                                                                |
+| `src/base-url.ts`                            | Legacy bare-host correction plus `normalizeOpenRouterBaseUrl()` / `OPENROUTER_DEFAULT_BASE_URL`, shared by OpenRouter discovery, chat, and forms |
+| `src/edit-jsonc.ts`                          | Pure validation-free JSONC diff-to-edits transformer + JSON serialization normalization                                                          |
+| `src/config-source.ts`                       | `ProviderConfigSource` + internal `ProviderConfigSourceProvider` loader machinery                                                                |
+| `src/legacy-positron-settings/`              | PROVIDER-SETTINGS-MIGRATION: legacy settings map, translator, and internal source builders                                                       |
+| `src/build-catalog.ts`                       | `buildCatalog()` — assemble `ResolvedProvider[]` from merged config + enablement layers (pure entry)                                             |
+| `src/node/load-config.ts`                    | `loadConfigSourceReports()` / readers — silently assemble `{ source?, issues }` reports; compatibility wrapper renders and returns sources       |
+| `src/node/parse-jsonc.ts`                    | Internal JSONC parser; comments/trailing commas, null-prototype object materialization, `SyntaxError` on invalid input                           |
+| `src/node/parse-providers-config.ts`         | Internal strict `parseProvidersConfig()` mutation seam + tolerant `parseProvidersConfigTolerant()` read seam                                     |
+| `src/node/load-catalog.ts`                   | Canonical `loadProviderCatalogReport()` seam + bare-catalog `loadResolvedProviderCatalog()` compatibility wrapper                                |
+| `src/node/mutate-config.ts`                  | `mutateProvidersConfig()` — locked, atomic, serialized mutation                                                                                  |
+| `src/node/watch-catalog.ts`                  | `watchResolvedProviderCatalog()` — watch, reload, diff, emit typed changes                                                                       |
+| `src/node/index.ts`                          | Node entrypoint; re-exports pure entry + filesystem seams                                                                                        |
+| `providers.schema.json`                      | Generated JSON Schema, exported for editor validation                                                                                            |
+| `scripts/generate-schema.ts`                 | Regenerates `providers.schema.json` from the Zod schemas                                                                                         |
 
 ## Invariants & Design Decisions
 

@@ -18,6 +18,7 @@ import type * as z from "zod/v4";
 
 import type { OpencodeProduct } from "./base-url.js";
 import { customProviderNameIssues } from "./custom-provider-name.js";
+import type { PortkeyKeyType } from "./portkey-connection.js";
 import type {
 	builtinProviderBlockSchema,
 	customModelSchema,
@@ -136,6 +137,11 @@ export interface ResolvedConnection {
 	googleCloud?: { project?: string; location?: string };
 	snowflake?: { account?: string; host?: string; home?: string; connectionName?: string };
 	databricks?: { host?: string };
+	/**
+	 * What the built-in Portkey provider's API key is. Absent means "infer
+	 * from `baseUrl`" — see `checkPortkeyConnection`.
+	 */
+	keyType?: PortkeyKeyType;
 }
 
 /**
@@ -208,6 +214,16 @@ export interface ResolvedConnectionProvenance {
 	 */
 	readonly opencode?: {
 		readonly product?: ResolvedConnectionFieldSource;
+		readonly baseUrl?: ResolvedConnectionFieldSource;
+	};
+	/**
+	 * Per-field sources for the built-in `portkey` provider's `keyType` and
+	 * `baseUrl`, so a configure form can render env- or admin-owned fields
+	 * read-only and a save can pin them. A field is absent when no layer sets
+	 * it (neither has a built-in default).
+	 */
+	readonly portkey?: {
+		readonly keyType?: ResolvedConnectionFieldSource;
 		readonly baseUrl?: ResolvedConnectionFieldSource;
 	};
 }

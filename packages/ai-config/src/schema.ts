@@ -13,6 +13,7 @@ import * as z from "zod/v4";
 
 import { OPENCODE_PRODUCTS } from "./base-url.js";
 import { customProviderNameIssues } from "./custom-provider-name.js";
+import { PORTKEY_KEY_TYPES } from "./portkey-connection.js";
 import { validateUnsafeObjectKeys } from "./unsafe-object-key.js";
 import {
 	BUILTIN_PROVIDER_IDS,
@@ -372,9 +373,24 @@ export const opencodeProductSchema = z
  * superset, so `BuiltinProviderBlock`, enforced/default fragments, and
  * `resolveConnectionFromBlock()` all see each field through one definition.
  */
+/**
+ * What the built-in Portkey provider's stored API key is. Only the enum is
+ * declared here; cross-field rules (e.g. `upstream` with the hosted URL) live
+ * in `checkPortkeyConnection`, so a bad combination never makes the file
+ * invalid.
+ */
+export const portkeyKeyTypeSchema = z
+	.enum(PORTKEY_KEY_TYPES)
+	.describe(
+		"What the API key is: `portkey` for a Portkey API key (hosted Portkey, a proxy in front of it, or a Portkey hybrid gateway), or `upstream` for the upstream provider's key on a self-hosted open-source gateway. When omitted, it is inferred from `baseUrl`: `portkey` for https://api.portkey.ai, `upstream` for any other URL. With `portkey` on a URL other than https://api.portkey.ai, the base URL is used exactly as entered, so include `/v1` if your gateway needs it.",
+	);
+
 const BUILTIN_SCALAR_CONNECTION_FIELDS = {
 	opencode: {
 		product: opencodeProductSchema.optional(),
+	},
+	portkey: {
+		keyType: portkeyKeyTypeSchema.optional(),
 	},
 } satisfies Partial<Record<BuiltinProviderId, Record<string, z.ZodTypeAny>>>;
 
@@ -492,8 +508,14 @@ type ConnectionSectionName = keyof typeof CONNECTION_SECTION_SCHEMAS;
  * the canonical per-ID map so the permissive superset block cannot drift
  * from the strict per-key blocks.
  */
-type AllScalarConnectionFields =
-	(typeof BUILTIN_SCALAR_CONNECTION_FIELDS)[keyof typeof BUILTIN_SCALAR_CONNECTION_FIELDS];
+type UnionToIntersection<U> = (U extends unknown ? (arg: U) => void : never) extends (
+	arg: infer I,
+) => void
+	? I
+	: never;
+type AllScalarConnectionFields = UnionToIntersection<
+	(typeof BUILTIN_SCALAR_CONNECTION_FIELDS)[keyof typeof BUILTIN_SCALAR_CONNECTION_FIELDS]
+>;
 const allScalarConnectionFields: AllScalarConnectionFields = Object.assign(
 	{},
 	...Object.values(BUILTIN_SCALAR_CONNECTION_FIELDS),

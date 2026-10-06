@@ -321,7 +321,7 @@ function resolveConnectionProvenance(
 	// source sets it, fields with a built-in default report "default"
 	// (overridable), the rest are absent.
 	const fieldSourceFor = (
-		providerId: "ms-foundry" | "opencode" | "ollama" | "lmstudio",
+		providerId: "ms-foundry" | "opencode" | "portkey" | "ollama" | "lmstudio",
 		read: (block: BuiltinProviderBlock | undefined) => unknown,
 		hasBuiltinDefault: boolean,
 	): ResolvedConnectionFieldSource | undefined => {
@@ -374,6 +374,15 @@ function resolveConnectionProvenance(
 			result.set("opencode", { opencode: { product, baseUrl } });
 		}
 	}
+
+	// Portkey: per-field sources for the UI-managed `keyType` and `baseUrl`,
+	// so forms render env/admin-owned fields read-only and saves pin them.
+	result.set("portkey", {
+		portkey: {
+			keyType: fieldSourceFor("portkey", (block) => block?.keyType, false),
+			baseUrl: fieldSourceFor("portkey", (block) => block?.baseUrl, false),
+		},
+	});
 
 	// Local providers: the endpoint's source, so a host that stores its own
 	// endpoint can yield to an enforced or env value even when it equals the
