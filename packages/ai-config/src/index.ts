@@ -197,6 +197,23 @@ export {
 } from "./base-url.js";
 export type { OpencodeProduct } from "./base-url.js";
 
+// --- Connection field provenance ---------------------------------------------
+export { isPinnedConnectionFieldSource } from "./connection-field-source.js";
+
+// --- Portkey key type and connection rules ---------------------------------
+export {
+	checkPortkeyConnection,
+	inferredPortkeyKeyType,
+	isPortkeyKeyType,
+	PORTKEY_KEY_TYPES,
+} from "./portkey-connection.js";
+export type {
+	PortkeyConnectionCheck,
+	PortkeyConnectionField,
+	PortkeyConnectionInput,
+	PortkeyKeyType,
+} from "./portkey-connection.js";
+
 // --- Deep resolver seam (owns the precedence stack) ------------------------
 export { resolveProviderCatalog, resolveProviderCatalogReport } from "./resolve-catalog.js";
 export type {
@@ -206,6 +223,11 @@ export type {
 	ResolveProviderCatalogOptions,
 } from "./resolve-catalog.js";
 export type { ConfigIssue, SourcedConfigIssue } from "./config-issue.js";
+export type {
+	ProvidersConfigInvalidDetail,
+	ProvidersConfigInvalidPhase,
+	ProvidersConfigSchemaIssue,
+} from "./providers-config-invalid.js";
 
 // --- Tolerant providers.json validation ------------------------------------
 export { salvageProvidersConfig } from "./salvage-config.js";

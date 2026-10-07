@@ -12,7 +12,26 @@
 
 import { getNodeValue, parseTree, type ParseError, printParseErrorCode } from "jsonc-parser";
 
-/** Parse JSONC into null-prototype objects, throwing `SyntaxError` on invalid input. */
+/**
+ * A JSONC syntax error with its position. Still a `SyntaxError`, so callers
+ * that only distinguish failure kinds need not know about it.
+ */
+export class JsoncSyntaxError extends SyntaxError {
+	override readonly name = "JsoncSyntaxError";
+
+	constructor(
+		/** jsonc-parser error code name, e.g. `PropertyNameExpected`. */
+		readonly code: string,
+		/** 1-based. */
+		readonly line: number,
+		/** 1-based. */
+		readonly column: number,
+	) {
+		super(`${code} at line ${line}, column ${column}`);
+	}
+}
+
+/** Parse JSONC into null-prototype objects, throwing `JsoncSyntaxError` on invalid input. */
 export function parseJsonc(text: string): unknown {
 	const errors: ParseError[] = [];
 	const tree = parseTree(text, errors, { allowTrailingComma: true });
@@ -20,7 +39,7 @@ export function parseJsonc(text: string): unknown {
 	if (errors.length > 0) {
 		const first = errors[0];
 		const { line, column } = lineColumnAt(text, first.offset);
-		throw new SyntaxError(`${printParseErrorCode(first.error)} at line ${line}, column ${column}`);
+		throw new JsoncSyntaxError(printParseErrorCode(first.error), line, column);
 	}
 
 	return tree === undefined ? undefined : getNodeValue(tree);

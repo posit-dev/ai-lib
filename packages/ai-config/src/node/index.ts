@@ -24,7 +24,9 @@
  *   read for the custom-provider edit transaction.
  *
  * ### Write seam
- * - `mutateProvidersConfig(mutator)` — cross-process-safe mutation.
+ * - `mutateProvidersConfig(mutator)` — cross-process-safe mutation. Invalid
+ *   existing or proposed config rejects with the secret-safe
+ *   `ProvidersConfigInvalidError` (path, syntax position, or schema issues).
  * - `migrateProvidersSchemaReference()` — one-shot startup migration of the
  *   legacy `$schema` sidecar literal to the hosted schema URL.
  *
@@ -72,6 +74,7 @@ export type { LoadConfigSourcesOptions } from "./load-config.js";
 
 // --- Write seam ------------------------------------------------------------
 export { migrateProvidersSchemaReference, mutateProvidersConfig } from "./mutate-config.js";
+export { ProvidersConfigInvalidError } from "./providers-config-invalid-error.js";
 
 // --- Watch seam (the single, source-aware watch seam) ----------------------
 // `diffProviderCatalogs` is the watcher's per-provider classifier, exported so

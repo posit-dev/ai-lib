@@ -62,7 +62,23 @@ export interface ApiKeyCredentials {
 	 * not affect the on-disk credential format.
 	 */
 	snowflake?: { sessionConnectionIdentity: string };
+	/**
+	 * Portkey only. What `apiKey` is: a Portkey API key (`"portkey"`) or the
+	 * upstream provider's key (`"upstream"`). Absent means "infer from
+	 * `baseUrl`" — the bridge's Portkey resolver owns that rule. Ignored by
+	 * every other provider.
+	 *
+	 * Copied from the resolved providers.json connection at credential-merge
+	 * time and never persisted: the credential store builds its records field
+	 * by field from `CredentialSourceInput`, which has no such field, so the
+	 * on-disk credential format is unaffected. Vocabulary pinned to ai-config's
+	 * `PORTKEY_KEY_TYPES` by the shape guard.
+	 */
+	portkey?: { keyType: PortkeyCredentialKeyType };
 }
+
+/** What a Portkey API key is. Mirrors ai-config's `PortkeyKeyType` (shape guard). */
+export type PortkeyCredentialKeyType = "portkey" | "upstream";
 
 /**
  * OAuth credentials (Posit AI Pass)

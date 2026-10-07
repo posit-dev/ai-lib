@@ -8397,6 +8397,14 @@
               },
               "type": "object"
             },
+            "keyType": {
+              "description": "What the API key is: `portkey` for a Portkey API key (hosted Portkey, a proxy in front of it, or a Portkey hybrid gateway), or `upstream` for the upstream provider's key on a self-hosted open-source gateway. When omitted, it is inferred from `baseUrl`: `portkey` for https://api.portkey.ai, `upstream` for any other URL. With `portkey` on a URL other than https://api.portkey.ai, the base URL is used exactly as entered, so include `/v1` if your gateway needs it.",
+              "enum": [
+                "portkey",
+                "upstream"
+              ],
+              "type": "string"
+            },
             "models": {
               "additionalProperties": false,
               "description": "Which models this provider offers, and how their metadata is filled in.",

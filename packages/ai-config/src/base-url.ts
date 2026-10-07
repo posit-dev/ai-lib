@@ -36,11 +36,12 @@ export const GEMINI_HOST = "https://generativelanguage.googleapis.com";
 export const GEMINI_API_VERSION = "v1beta";
 
 /**
- * Hosted Portkey canonical HTTPS origin. Hosted-vs-OSS classification in the
- * bridge's `resolvePortkeyConnection` is **exact-origin** against this value:
- * only `https://api.portkey.ai` (default port) classifies as hosted — the
- * canonical hostname under any other scheme or port is a local error, and
- * lookalike hosts classify as OSS.
+ * Hosted Portkey canonical HTTPS origin. Hosted classification in
+ * `checkPortkeyConnection` and the bridge's `resolvePortkeyConnection` is
+ * **exact-origin** against this value: only `https://api.portkey.ai` (default
+ * port) is hosted — the canonical hostname under any other scheme or port is
+ * a local error. Any other host is a gateway: self-hosted (upstream key) by
+ * default, or a Portkey gateway when the key type is explicitly `portkey`.
  */
 export const PORTKEY_HOST = "https://api.portkey.ai";
 /** Version segment of Portkey's hosted API root. */
@@ -48,9 +49,10 @@ export const PORTKEY_API_VERSION = "v1";
 /**
  * The hosted Portkey base URL. This is a provider-boundary constant, NOT a
  * `PROVIDER_CONNECTION_DEFAULTS` entry: Portkey's base URL is **required**
- * (it determines what the stored key is — a Portkey API key for hosted, an
- * upstream's key for a self-hosted gateway), so a silent default would
- * reinterpret the secret. UI configure forms prefill and explicitly save this
+ * (it is where the stored key is sent, and when no key type is set it implies
+ * what that key is — a Portkey API key for hosted, an upstream's key for any
+ * other URL; an explicit key type overrides the inference for non-hosted
+ * URLs), so a silent default would redirect or reinterpret the secret. UI configure forms prefill and explicitly save this
  * value; env-only configs set `PORTKEY_BASE_URL`. Exported from the pure
  * (browser-safe) entry so hosts can re-export it to their UI layers.
  */

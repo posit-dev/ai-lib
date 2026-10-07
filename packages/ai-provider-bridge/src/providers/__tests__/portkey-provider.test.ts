@@ -41,9 +41,91 @@ const OSS_CREDENTIALS: ApiKeyCredentials = {
 	baseUrl: "http://localhost:8787",
 };
 
+/** A corporate proxy in front of hosted Portkey, as in the customer report. */
+const PROXY_URL = "https://proxy.example.com/portkey-streaming";
+const GATEWAY_CREDENTIALS: ApiKeyCredentials = {
+	type: "apikey",
+	apiKey: "pk-gateway",
+	baseUrl: PROXY_URL,
+	customHeaders: { "x-corp-token": "corp" },
+	portkey: { keyType: "portkey" },
+};
+
 // ---------------------------------------------------------------------------
 // Connection resolution
 // ---------------------------------------------------------------------------
+
+describe("resolvePortkeyConnection — key type matrix", () => {
+	const HOSTED_URL = "https://api.portkey.ai/v1";
+
+	it("portkey + canonical URL behaves like an absent key type (hosted)", () => {
+		const explicit = resolvePortkeyConnection({
+			type: "apikey",
+			apiKey: "pk",
+			baseUrl: HOSTED_URL,
+			portkey: { keyType: "portkey" },
+		});
+		const inferred = resolvePortkeyConnection({
+			type: "apikey",
+			apiKey: "pk",
+			baseUrl: HOSTED_URL,
+		});
+		expect(explicit).toEqual(inferred);
+		expect(explicit.mode).toBe("hosted");
+	});
+
+	it("portkey + other URL is a Portkey gateway: verbatim URL, Portkey auth, no routing default", () => {
+		const connection = resolvePortkeyConnection({
+			...GATEWAY_CREDENTIALS,
+			baseUrl: `${PROXY_URL}/`,
+			customHeaders: { "x-corp-token": "corp", "x-portkey-config": "cfg" },
+		});
+		expect(connection).toEqual({
+			mode: "portkey-gateway",
+			baseUrl: PROXY_URL,
+			chatHeaders: {
+				"x-corp-token": "corp",
+				"x-portkey-config": "cfg",
+				"x-portkey-api-key": "pk-gateway",
+			},
+			discoveryHeaders: { "x-portkey-api-key": "pk-gateway", "x-corp-token": "corp" },
+		});
+	});
+
+	it("portkey + other URL keeps a user-entered /v1 without doubling it", () => {
+		const connection = resolvePortkeyConnection({
+			...GATEWAY_CREDENTIALS,
+			baseUrl: "https://gateway.example.com/v1",
+		});
+		expect(connection.baseUrl).toBe("https://gateway.example.com/v1");
+	});
+
+	it("portkey + other URL requires a key", () => {
+		expect(() => resolvePortkeyConnection({ ...GATEWAY_CREDENTIALS, apiKey: " " })).toThrow(
+			/Portkey API key is required/,
+		);
+	});
+
+	it("upstream + canonical URL is a local error", () => {
+		expect(() =>
+			resolvePortkeyConnection({
+				type: "apikey",
+				apiKey: "sk",
+				baseUrl: HOSTED_URL,
+				portkey: { keyType: "upstream" },
+			}),
+		).toThrow(/Hosted Portkey only accepts Portkey API keys/);
+	});
+
+	it("upstream + other URL behaves like an absent key type (OSS)", () => {
+		const explicit = resolvePortkeyConnection({
+			...OSS_CREDENTIALS,
+			portkey: { keyType: "upstream" },
+		});
+		expect(explicit).toEqual(resolvePortkeyConnection(OSS_CREDENTIALS));
+		expect(explicit.mode).toBe("oss");
+	});
+});
 
 describe("resolvePortkeyConnection — URL classification", () => {
 	it.each([
@@ -387,6 +469,23 @@ describe("portkey model fetcher", () => {
 		// is retained as the request model.
 		expect(models[1].thinkingEffortLevels).toBeDefined();
 		expect(models[0].maxOutputTokens).toBe(64_000);
+	});
+
+	it("requests <url>/models with Portkey auth for a Portkey gateway", async () => {
+		const { requests } = stubFetchPages([
+			{ data: [{ id: "@anthropic-prod/claude-haiku-4-5" }], total: 1 },
+		]);
+		const registry = new ProviderRegistry(logger);
+		registerPortkeyProvider(registry, logger);
+		const models = await registry.getModelsForProvider("portkey", GATEWAY_CREDENTIALS);
+
+		expect(requests).toHaveLength(1);
+		expect(requests[0].url).toBe(`${PROXY_URL}/models`);
+		expect(requests[0].headers).toEqual({
+			"x-portkey-api-key": "pk-gateway",
+			"x-corp-token": "corp",
+		});
+		expect(models.map((m) => m.id)).toEqual(["@anthropic-prod/claude-haiku-4-5"]);
 	});
 
 	it("drops routing headers from discovery but keeps other custom headers, mixed-case included", async () => {
@@ -756,6 +855,64 @@ describe("portkey client factory", () => {
 			/@anthropic-prod\/claude-haiku-4-5[\s\S]*evil\.example[\s\S]*api\.portkey\.ai/,
 		);
 		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		["a different host", "https://evil.example"],
+		// Gateway URLs compare as entered: unlike hosted/OSS, `/v1` is not
+		// normalized away, so it names a different endpoint.
+		["the gateway URL plus /v1", `${PROXY_URL}/v1`],
+	])("rejects %s as a Portkey-gateway baseUrl override with no request", async (_, baseUrl) => {
+		const fetchMock = vi.fn();
+		vi.stubGlobal("fetch", fetchMock);
+		const registry = new ProviderRegistry(logger);
+		registerPortkeyProvider(registry, logger);
+		const client = registry.getClientForProvider("portkey", GATEWAY_CREDENTIALS);
+
+		await expect(
+			client!.chat({
+				model: "claude-sonnet-4.6",
+				messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+				maxOutputTokens: 10,
+				cancellationToken,
+				baseUrl,
+			}),
+		).rejects.toThrow(/does not match the connection's gateway/);
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("sends a Portkey gateway only x-portkey-api-key, to the verbatim URL, on both delegates", async () => {
+		for (const [protocol, path] of [
+			["openai-chat", "/chat/completions"],
+			["anthropic-messages", "/messages"],
+		] as const) {
+			const req = await captureChatRequest(GATEWAY_CREDENTIALS, {
+				model: "claude-sonnet-4.6",
+				protocol,
+			});
+			expect(req.url).toBe(`${PROXY_URL}${path}`);
+			expect(req.headers.get("x-portkey-api-key")).toBe("pk-gateway");
+			expect(req.headers.get("x-corp-token")).toBe("corp");
+			expect(req.headers.get("authorization")).toBeNull();
+			expect(req.headers.get("x-api-key")).toBeNull();
+			expect(req.headers.get("x-portkey-provider")).toBeNull();
+		}
+	});
+
+	it("accepts both model-id forms on a Portkey gateway", async () => {
+		const catalogId = await captureChatRequest(GATEWAY_CREDENTIALS, {
+			model: "@anthropic-prod/claude-haiku-4-5",
+			protocol: "anthropic-messages",
+		});
+		expect(catalogId.url).toBe(`${PROXY_URL}/messages`);
+	});
+
+	it("accepts the raw provider URL the catalog passes as params.baseUrl on a Portkey gateway", async () => {
+		const req = await captureChatRequest(
+			{ ...GATEWAY_CREDENTIALS, baseUrl: `${PROXY_URL}/` },
+			{ model: "claude-sonnet-4.6", protocol: "openai-chat", baseUrl: `${PROXY_URL}/` },
+		);
+		expect(req.url).toBe(`${PROXY_URL}/chat/completions`);
 	});
 
 	it("accepts an equivalently-normalized same-gateway override and delegates with the resolver-owned URL", async () => {
