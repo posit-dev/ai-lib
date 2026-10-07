@@ -167,6 +167,21 @@ intersection of every provider's scalar shape). Two fields today:
   `keyType` equal to what the URL implies, so older strict readers (which drop a
   block carrying an unknown field) keep the block.
 
+**`apiKeyHelper` (command-supplied API key).** A provider block may name a
+command that prints its API key: `{ command, args?, timeoutMs?, refreshIntervalMs? }`
+(strict, all non-secret). `args` present means exec without a shell; absent
+means `command` is one shell line. It is a capability section in both maps,
+attached to the API-key built-ins (`anthropic`, `openai`, `gemini`,
+`openrouter`, `deepseek`, `openai-compatible`, `ms-foundry`, `litellm`,
+`portkey`, `opencode`) and the matching custom kinds — not to `snowflake-cortex`
+/ custom `snowflake` (TOML selection outranks a key), nor to the non-key
+providers. ai-config only parses and carries it on
+`ResolvedConnection.apiKeyHelper` (copied in both `resolveConnectionFromBlock`
+and the built-in-defaults branch of `resolveConnection`; never merged with
+defaults). Running it is a host concern (`@assistant/node`'s
+`apiKeyHelper.ts`). A helper edit changes `connection`, so the catalog diff
+reports it as a connection change with no watcher-specific code.
+
 **Strict validation vs. permissive working type.** Strictness is a parse-time
 property. The inferred `ProvidersMap` built-in blocks and `ResolvedConnection`
 stay a permissive **superset** (all sub-sections optional), so reader/writer code
@@ -304,7 +319,11 @@ the effective administrator limits rather than the original discovery facts.
 - **Connection**: enforced > legacy-positron-enforced > connection env vars >
   user file > legacy-positron (legacy Positron settings via the
   `legacyPositronSettings` reader) > built-in defaults. Object keys deep-merge
-  across layers.
+  across layers, except a provider block's `apiKeyHelper`, which the highest
+  layer replaces wholesale like an array (`isApiKeyHelperPath` in `enforce.ts`,
+  matched by position so a custom provider or model id named `apiKeyHelper` is
+  unaffected). An enforced `{ command }` therefore never inherits a user
+  layer's `args` or `timeoutMs`.
 - **Model protocol**: user config (override/custom) > provider protocol >
   inferred routing (OpenCode: recomputed per model from the effective routing
   URL) > discovered model inference.

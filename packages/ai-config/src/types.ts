@@ -124,6 +124,19 @@ export function mintCustomProviderId(id: string): CustomProviderId {
  */
 export type AzureAuthMode = "apikey" | "entra";
 
+/**
+ * A command that prints a provider's API key (`apiKeyHelper` in a provider
+ * block). `args` present => run `command` directly without a shell; absent
+ * => run `command` as one shell line. Defaults (applied by the host that runs
+ * it): `timeoutMs` 10 000, `refreshIntervalMs` 300 000, `0` = never refresh.
+ */
+export interface ApiKeyHelperConfig {
+	command: string;
+	args?: string[];
+	timeoutMs?: number;
+	refreshIntervalMs?: number;
+}
+
 /** Connection config resolved from a provider block. */
 export interface ResolvedConnection {
 	baseUrl?: string;
@@ -142,6 +155,8 @@ export interface ResolvedConnection {
 	 * from `baseUrl`" — see `checkPortkeyConnection`.
 	 */
 	keyType?: PortkeyKeyType;
+	/** Command that supplies the API key; never merged with built-in defaults. */
+	apiKeyHelper?: ApiKeyHelperConfig;
 }
 
 /**

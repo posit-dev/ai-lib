@@ -53,6 +53,7 @@ export {
 	MODEL_ROUTING_FIELD_NAMES,
 } from "./types.js";
 export type {
+	ApiKeyHelperConfig,
 	AzureAuthMode,
 	BuiltinProviderBlock,
 	CustomModel,
