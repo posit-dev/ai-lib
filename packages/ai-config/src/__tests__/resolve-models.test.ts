@@ -136,6 +136,19 @@ describe("resolveModels", () => {
 		});
 	});
 
+	it("keeps an explicit thinking-effort override authoritative over built-in levels", () => {
+		// Overrides may re-add a level the built-in metadata omits; they must
+		// not be clamped to the discovered levels.
+		const levels = ["off", "low", "medium", "high"];
+
+		const [patched] = resolveModels(
+			{ overrides: { "model-a": { thinkingEffortLevels: levels } } },
+			[makeModel("model-a", { thinkingEffortLevels: ["low", "medium", "high"] })],
+		);
+
+		expect(patched.thinkingEffortLevels).toEqual(levels);
+	});
+
 	it("ignores overrides for non-matching ids (no-op, not error)", () => {
 		const block: ModelsBlock = {
 			overrides: {

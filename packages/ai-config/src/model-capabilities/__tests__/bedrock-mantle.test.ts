@@ -77,6 +77,45 @@ describe("Bedrock Mantle capability rules", () => {
 		expect(capabilities?.maxOutputTokens).toBeUndefined();
 	});
 
+	it.each(["openai.gpt-6.1-sol", "openai.gpt-6.1-sol-2026-09-29"])(
+		"omits the unsupported off level for GPT-6.1 Sol id %s",
+		(id) => {
+			const capabilities = getBedrockMantleModelCapabilities(id);
+			expect(capabilities?.protocol).toBe("openai-responses");
+			expect(capabilities?.thinkingEffortLevels).toEqual(["low", "medium", "high", "xhigh", "max"]);
+			// Reasoning is shared with OpenAI; capacity stays Bedrock's own.
+			expect(capabilities?.maxContextLength).toBe(1_000_000);
+			expect(capabilities?.maxOutputTokens).toBeUndefined();
+		},
+	);
+
+	it.each(["openai.gpt-6-sol", "openai.gpt-6-luna", "openai.gpt-6.2"])(
+		"keeps the off level for %s",
+		(id) => {
+			expect(getBedrockMantleModelCapabilities(id)?.thinkingEffortLevels).toEqual([
+				"off",
+				"low",
+				"medium",
+				"high",
+				"xhigh",
+				"max",
+			]);
+		},
+	);
+
+	it("applies Astra's reasoning rule without its dated-ID capacity rule to other suffixes", () => {
+		const capabilities = getBedrockMantleModelCapabilities("openai.gpt-6-astra-preview");
+		expect(capabilities?.thinkingEffortLevels).toEqual(["low", "medium", "high", "xhigh", "max"]);
+		expect(capabilities?.maxContextLength).toBe(1_000_000);
+		expect(capabilities?.maxOutputTokens).toBeUndefined();
+	});
+
+	it("matches the no-off models only at a model-name boundary", () => {
+		for (const id of ["openai.gpt-6-astral", "openai.gpt-6.1-solar"]) {
+			expect(getBedrockMantleModelCapabilities(id)?.thinkingEffortLevels).toContain("off");
+		}
+	});
+
 	it.each([
 		"openai.gpt-5.6-unknown",
 		"openai.gpt-5.6-unknown-2026-07-13",
