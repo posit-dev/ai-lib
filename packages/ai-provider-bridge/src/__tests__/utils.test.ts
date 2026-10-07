@@ -5,12 +5,40 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	anthropicProviderOptions,
 	buildSnowflakeCortexUrl,
 	buildSnowflakeCortexUrlFromHost,
 	normalizeProviderBaseUrl,
 	positAiThinkingRequestFields,
 	thinkingRequestFields,
 } from "../utils";
+
+describe("anthropicProviderOptions", () => {
+	it("sends nothing for the provider default, so the model's default thinking applies", () => {
+		expect(anthropicProviderOptions(undefined, {})).toBeUndefined();
+	});
+
+	it('sends thinking disabled with no effort for "off"', () => {
+		expect(anthropicProviderOptions("off", {})).toEqual({
+			anthropic: { thinking: { type: "disabled" } },
+		});
+	});
+
+	it("sends summarized adaptive thinking with the effort for an active level", () => {
+		expect(anthropicProviderOptions("high", {})).toEqual({
+			anthropic: { thinking: { type: "adaptive", display: "summarized" }, effort: "high" },
+		});
+	});
+
+	it("merges client options with and without thinking options", () => {
+		expect(anthropicProviderOptions("off", { toolStreaming: false })).toEqual({
+			anthropic: { thinking: { type: "disabled" }, toolStreaming: false },
+		});
+		expect(anthropicProviderOptions(undefined, { toolStreaming: false })).toEqual({
+			anthropic: { toolStreaming: false },
+		});
+	});
+});
 
 describe("thinkingRequestFields", () => {
 	it("returns undefined when thinking is off or unset", () => {

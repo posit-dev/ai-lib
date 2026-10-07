@@ -14,7 +14,7 @@ import type * as ai from "ai";
 import { safeSdkCustomHeaders } from "../custom-headers";
 import { streamTextAnthropicWire } from "../tool-call-ids";
 import type { LMStreamPart, Logger } from "../types";
-import { isThinkingEnabled } from "../utils";
+import { anthropicProviderOptions } from "../utils";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
@@ -121,17 +121,7 @@ export class AnthropicClient implements ModelClient {
 			tools = mergeProviderTools(params.tools, { web_search: webSearchTool });
 		}
 
-		const providerOptions = isThinkingEnabled(params.thinkingEffort)
-			? {
-					anthropic: {
-						// `display: "summarized"` is required to receive thinking summary text.
-						// Opus 4.7+/Fable 5 default to `"omitted"`, which streams thinking blocks
-						// with only a signature and no text — so the UI shows no <thinking>.
-						thinking: { type: "adaptive", display: "summarized" },
-						effort: params.thinkingEffort,
-					},
-				}
-			: undefined;
+		const providerOptions = anthropicProviderOptions(params.thinkingEffort, {});
 
 		// Stream the response
 		const result = streamTextAnthropicWire(

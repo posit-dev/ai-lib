@@ -22,7 +22,7 @@ import {
 import { sanitizeToolCallIdsForAnthropic } from "../tool-call-ids";
 import type { LMStreamPart, Logger, Protocol } from "../types";
 import { normalizeProtocol } from "../types";
-import { isThinkingEnabled } from "../utils";
+import { anthropicProviderOptions } from "../utils";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
@@ -91,18 +91,9 @@ export class GoogleVertexClient implements ModelClient {
 			? normalizedProtocol === "anthropic-messages"
 			: isVertexAnthropicModel(params.model);
 
-		const providerOptions =
-			isThinkingEnabled(params.thinkingEffort) && isAnthropic
-				? {
-						anthropic: {
-							// `display: "summarized"` is required to receive thinking summary text.
-							// Opus 4.7+/Fable 5 default to `"omitted"`, which streams thinking blocks
-							// with only a signature and no text — so the UI shows no <thinking>.
-							thinking: { type: "adaptive", display: "summarized" },
-							effort: params.thinkingEffort,
-						},
-					}
-				: undefined;
+		const providerOptions = isAnthropic
+			? anthropicProviderOptions(params.thinkingEffort, {})
+			: undefined;
 
 		// The Anthropic Messages wire validates tool_use.id against
 		// `^[a-zA-Z0-9_-]+$`; sanitize outbound IDs on that route only.
