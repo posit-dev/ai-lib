@@ -340,6 +340,48 @@ export const databricksConfigSchema = z
 	.strict()
 	.describe("Databricks workspace settings.");
 
+/**
+ * A command that prints the provider's API key, run by the host at request
+ * time (like Claude Code's `apiKeyHelper`). Non-secret: the config names the
+ * command, never the key. With `args` the executable runs directly (no
+ * shell); without `args`, `command` is one shell line. Replaced wholesale
+ * across config layers (see `deepMerge` in enforce.ts) so an enforced helper
+ * never inherits a lower layer's `args`.
+ */
+export const apiKeyHelperSchema = z
+	.object({
+		command: z
+			.string()
+			.min(1)
+			.describe(
+				"Command that prints the API key. Without `args`, this is run as one line by the system shell; with `args`, it is the executable to run directly.",
+			),
+		args: z
+			.array(z.string())
+			.describe("Arguments passed to `command`. When set, `command` is run without a shell.")
+			.optional(),
+		timeoutMs: z
+			.number()
+			.int()
+			.positive()
+			.describe(
+				"How long to wait for the command before giving up, in milliseconds. Default 10000.",
+			)
+			.optional(),
+		refreshIntervalMs: z
+			.number()
+			.int()
+			.nonnegative()
+			.describe(
+				"How long to reuse a key before running the command again, in milliseconds. Default 300000 (5 minutes); 0 keeps the key until the app restarts.",
+			)
+			.optional(),
+	})
+	.strict()
+	.describe(
+		"Get this provider's API key by running a command. The first non-empty line the command prints is used as the key. When set, a stored key or API key environment variable for this provider is ignored.",
+	);
+
 /** Per-protocol base-URL overrides (partial — only specified protocols). */
 export const endpointsSchema = z.record(
 	protocolSchema,
@@ -498,6 +540,7 @@ const CONNECTION_SECTION_SCHEMAS = {
 	snowflake: snowflakeConfigSchema,
 	databricks: databricksConfigSchema,
 	positaiLogin: positaiLoginConfigSchema,
+	apiKeyHelper: apiKeyHelperSchema,
 } as const;
 
 /** Name of a provider-specific connection sub-section. */
@@ -534,6 +577,7 @@ const allConnectionFields = {
 	snowflake: snowflakeConfigSchema.optional(),
 	databricks: databricksConfigSchema.optional(),
 	positaiLogin: positaiLoginConfigSchema.optional(),
+	apiKeyHelper: apiKeyHelperSchema.optional(),
 	// Scalar fields ride the same canonical map as the strict per-key blocks,
 	// so the permissive superset can never drift from them.
 	...allScalarConnectionFields,
@@ -586,51 +630,54 @@ function connectionBlockSchema<S extends ConnectionSectionName>(
  * Which connection sub-sections each **built-in** provider key carries.
  * Most are base-only; only the capability-bearing ids name a section.
  * `positaiLogin` attaches to the built-in `positai` key ONLY (no custom
- * variant carries it).
+ * variant carries it). `apiKeyHelper` attaches to the API-key providers
+ * whose credential a host can supply as a plain key; Snowflake Cortex is
+ * excluded because its TOML connection selection would outrank the key.
  */
 const BUILTIN_CONNECTION_SECTIONS = {
 	positai: ["positaiLogin"],
-	anthropic: [],
+	anthropic: ["apiKeyHelper"],
 	copilot: [],
-	openai: [],
+	openai: ["apiKeyHelper"],
 	bedrock: ["aws"],
-	gemini: [],
-	openrouter: [],
+	gemini: ["apiKeyHelper"],
+	openrouter: ["apiKeyHelper"],
 	"google-vertex": ["googleCloud"],
 	ollama: [],
 	lmstudio: [],
-	"openai-compatible": [],
+	"openai-compatible": ["apiKeyHelper"],
 	"snowflake-cortex": ["snowflake"],
-	"ms-foundry": ["azure"],
-	deepseek: [],
+	"ms-foundry": ["azure", "apiKeyHelper"],
+	deepseek: ["apiKeyHelper"],
 	databricks: ["databricks"],
-	litellm: [],
-	portkey: [],
+	litellm: ["apiKeyHelper"],
+	portkey: ["apiKeyHelper"],
 	"posit-connect": [],
-	opencode: [],
+	opencode: ["apiKeyHelper"],
 } as const satisfies Record<BuiltinProviderId, readonly ConnectionSectionName[]>;
 
 /**
  * Which connection sub-sections each supported **custom** `type` carries.
  * Only `aws` / `google-vertex` / `snowflake` carry a capability section; all
  * other supported kinds are base-only. No custom variant carries
- * `positaiLogin`.
+ * `positaiLogin`. API-key kinds carry `apiKeyHelper` (not `snowflake`; see
+ * {@link BUILTIN_CONNECTION_SECTIONS}).
  */
 const CUSTOM_CONNECTION_SECTIONS = {
-	"openai-compatible": [],
-	anthropic: [],
-	openai: [],
-	gemini: [],
+	"openai-compatible": ["apiKeyHelper"],
+	anthropic: ["apiKeyHelper"],
+	openai: ["apiKeyHelper"],
+	gemini: ["apiKeyHelper"],
 	aws: ["aws"],
 	snowflake: ["snowflake"],
 	"google-vertex": ["googleCloud"],
 	ollama: [],
 	lmstudio: [],
-	deepseek: [],
-	openrouter: [],
-	"ms-foundry": [],
-	litellm: [],
-	portkey: [],
+	deepseek: ["apiKeyHelper"],
+	openrouter: ["apiKeyHelper"],
+	"ms-foundry": ["apiKeyHelper"],
+	litellm: ["apiKeyHelper"],
+	portkey: ["apiKeyHelper"],
 } as const satisfies Record<SupportedCustomClientKind, readonly ConnectionSectionName[]>;
 
 // ---------------------------------------------------------------------------
