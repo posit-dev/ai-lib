@@ -13,9 +13,13 @@
  * - for `syntax`: the JSONC parse error code, line, and column;
  * - for `schema`: Zod issue paths (key names) and messages.
  *
- * Zod 4's built-in messages report expected types and options, never the
- * received value, and ai-config's custom messages name keys only. No raw
- * input is ever copied in, so hosts may forward these fields as-is.
+ * Zod 4's built-in messages mostly name schema values (expected types,
+ * options, limits) and key names, but `invalid_type` describes the received
+ * value — for an object without `Object.prototype` (jsonc parses into those)
+ * it prints `constructor.name`, which the file controls. `schemaIssues`
+ * therefore rebuilds `invalid_type` messages from the expected type alone.
+ * ai-config's custom messages name keys only, so hosts may forward these
+ * fields as-is.
  */
 
 import * as z from "zod/v4";
@@ -77,7 +81,22 @@ export function proposedResultInvalidError(
 }
 
 function schemaIssues(issues: readonly z.core.$ZodIssue[]): ProvidersConfigSchemaIssue[] {
-	return issues.map((issue) => ({ path: configIssuePath(issue.path), message: issue.message }));
+	return issues.map((issue) => ({
+		path: configIssuePath(issue.path),
+		message: safeMessage(issue),
+	}));
+}
+
+/**
+ * The issue's message with no part of the received value in it. Only
+ * `invalid_type` interpolates the input (its parsed type, which can be a
+ * file-controlled `constructor.name`); every other built-in message names
+ * schema values or key names.
+ */
+function safeMessage(issue: z.core.$ZodIssue): string {
+	return issue.code === "invalid_type"
+		? `Invalid input: expected ${issue.expected}`
+		: issue.message;
 }
 
 function formatMessage(

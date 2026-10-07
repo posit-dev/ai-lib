@@ -8,8 +8,10 @@
  * mutation seam; exported from the pure entry so hosts can carry the same
  * shapes across browser boundaries without importing node code.
  *
- * Every field is secret-safe: key paths, Zod 4 messages (which never echo
- * received values), and syntax positions.
+ * Every field is secret-safe: key paths, syntax positions, and Zod 4
+ * messages — built-in messages that name only schema values or key names,
+ * with `invalid_type` messages rebuilt from the expected type because Zod's
+ * version can describe the received value.
  */
 
 /** Which config failed validation. */
