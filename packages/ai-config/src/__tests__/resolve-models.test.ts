@@ -10,6 +10,7 @@ import {
 	OPENCODE_PRODUCT_BASE_URLS,
 	OPENCODE_ZEN_BASE_URL,
 } from "../base-url.js";
+import { inferModelCapabilities } from "../model-capabilities/infer.js";
 import { inferOpencodeProtocol } from "../model-capabilities/opencode-routing.js";
 import { resolveModels } from "../resolve-models.js";
 import type { ModelInfoLike, ModelsBlock, ResolvedConnection } from "../types.js";
@@ -134,6 +135,19 @@ describe("resolveModels", () => {
 			maxInputTokens: 190_000,
 			maxOutputTokens: 20_000,
 		});
+	});
+
+	it("keeps an explicit thinking-effort override authoritative over built-in levels", () => {
+		const id = "openai.gpt-6.1-sol";
+		const inferred = inferModelCapabilities("bedrock", id).operational;
+		expect(inferred.thinkingEffortLevels).not.toContain("off");
+		const levels = ["off", "low", "medium", "high"];
+
+		const [patched] = resolveModels({ overrides: { [id]: { thinkingEffortLevels: levels } } }, [
+			{ id, name: id, ...inferred },
+		]);
+
+		expect(patched.thinkingEffortLevels).toEqual(levels);
 	});
 
 	it("ignores overrides for non-matching ids (no-op, not error)", () => {

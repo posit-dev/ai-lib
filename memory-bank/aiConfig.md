@@ -471,8 +471,23 @@ since that profile table is bridge SDK-routing logic (which wire API
 regex-driven lookups from a provider-specific model id to a partial capability
 set — no imports beyond `InferredModelCapabilities` (a projection of
 `ModelInfoLike` with identity/routing fields dropped and `protocol` narrowed to
-the canonical `Protocol` union). `positai-helpers.ts` composes the Anthropic
-and Gemma tables, since Posit AI Pass routes both families.
+the canonical `Protocol` union) and private sibling modules. `positai-helpers.ts`
+composes the Anthropic and Gemma tables, since Posit AI Pass routes both
+families.
+
+**Shared GPT-6 traits** live in the private `gpt6-model-profile.ts`
+(`getGpt6ModelProfile`, not exported from the package). It takes a canonical,
+unprefixed ID and owns the traits that hold on every endpoint: family, tools,
+image/PDF input, tool-result images, and reasoning levels — including which
+models lack `off` (GPT-6 Astra and GPT-6.1 Sol, matched at a model-name boundary
+for any accepted suffix; original Sol/Luna and unknown future GPT-6 IDs keep
+`off`). `openai-helpers.ts` and `bedrock-mantle-helpers.ts` both consume it
+(Bedrock strips `openai.` first) and layer their own endpoint policy on top:
+token limits, protocol, web search. The profile must never carry limits,
+routes, or eligibility — a published OpenAI capacity is not an assumed
+Bedrock capacity. A provider overrides a shared trait only for an evidenced
+endpoint difference. GPT-5 and gpt-oss rules stay per-provider because their
+reasoning lists and routing already differ.
 
 **`inferModelCapabilities(providerId, modelId)`** (`src/model-capabilities/infer.ts`)
 first preserves the partial provider-family result as `facts`, then merges a
@@ -497,12 +512,16 @@ Per-provider cases:
   bare and Sol/Terra/Luna IDs, including dated named variants, carry the
   published 1M combined context fact while input and output remain unknown;
   known older GPT-5.4/5.5 IDs retain the prior 272K rule, and unknown future
-  GPT-5.x IDs default to the 1M family window.
+  GPT-5.x IDs default to the 1M family window. GPT-6 uses Responses with the
+  shared GPT-6 profile; only bare and dated Astra IDs carry the published
+  1.05M/128K facts, and other GPT-6 IDs get a 1M window with unknown output —
+  so a suffixed Astra ID can inherit Astra's no-`off` rule without its limits.
 - `openai` → the OpenAI table, with `maxInputTokens` re-derived via
   `openaiMaxInputTokens()` (context window minus reserved output budget) —
   the table itself doesn't set it. GPT-5.6 Sol/Terra/Luna/bare/snapshot IDs
   carry the published 1.05M combined window and 128K output facts, producing a
-  922K derived input fact.
+  922K derived input fact. GPT-6 IDs take the shared GPT-6 profile with the
+  same 1.05M/128K facts.
 - `positai` → the combined Anthropic/Gemma lookup.
 - `gemini` → the Gemini-API endpoint composition
   (`getGeminiApiModelCapabilities`, `gemini-api-helpers.ts`): hosted-Gemma
@@ -807,7 +826,7 @@ the bridge's `ModelInfo` — compatible by contract, not by import.
 | `src/resolve-enabled.ts`                     | `resolveEnabled()` enablement precedence ladder                                                                                                  |
 | `src/resolve-connection.ts`                  | Internal baseUrl/endpoint resolution precedence                                                                                                  |
 | `src/resolve-models.ts`                      | `resolveModels()` model selection + routing pipeline                                                                                             |
-| `src/model-capabilities/*-helpers.ts`        | Per-provider capability tables (moved from the bridge, ai-lib#9)                                                                                 |
+| `src/model-capabilities/*-helpers.ts`        | Per-provider capability tables (moved from the bridge, ai-lib#9); `gpt6-model-profile.ts` holds shared GPT-6 traits                              |
 | `src/model-capabilities/infer.ts`            | `inferModelCapabilities()` — baseline + provider-family merge, Snowflake protocol rule                                                           |
 | `src/index.ts`                               | Pure entrypoint exports                                                                                                                          |
 | `src/node/paths.ts`                          | `AI_CONFIG_DIR`, `PROVIDERS_CONFIG_PATH`, enforced env-var name, lockfile path                                                                   |
