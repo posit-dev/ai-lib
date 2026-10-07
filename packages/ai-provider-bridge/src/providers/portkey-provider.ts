@@ -106,12 +106,14 @@ interface PortkeyRegistrationPolicy {
 }
 
 /**
- * Normalize a Portkey gateway URL to its `/v1` API root
+ * The URL a connection's mode sends requests to, for a raw base URL. Hosted
+ * and OSS URLs normalize to their `/v1` API root
  * (`http://localhost:8787` → `http://localhost:8787/v1`), tolerating trailing
- * slashes and an existing `/v1` segment. Throws on unparseable input. Used by
- * the hosted and OSS modes; the Portkey-gateway mode keeps URLs verbatim.
+ * slashes and an existing `/v1` segment; Portkey-gateway URLs are used as
+ * entered and never gain `/v1`. Either way only the spelling is normalized —
+ * origin case and trailing slashes. Throws on unparseable input.
  */
-function normalizePortkeyGatewayUrl(rawUrl: string): string {
+function portkeyGatewayUrl(mode: PortkeyConnection["mode"], rawUrl: string): string {
 	let url: URL;
 	try {
 		url = new URL(rawUrl.trim());
@@ -122,27 +124,10 @@ function normalizePortkeyGatewayUrl(rawUrl: string): string {
 		throw new Error(`Invalid Portkey base URL "${rawUrl}": no host`);
 	}
 	const path = url.pathname.replace(/\/+$/, "");
-	return `${url.origin}${path.endsWith("/v1") ? path : `${path}/v1`}`;
-}
-
-/**
- * A Portkey-gateway URL used as entered: never gains `/v1`. Only the
- * spelling is normalized, as {@link normalizePortkeyGatewayUrl} does — origin
- * case and trailing slashes. Throws on unparseable input.
- */
-function verbatimGatewayUrl(rawUrl: string): string {
-	const url = new URL(rawUrl.trim());
-	return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
-}
-
-/**
- * The URL a connection's mode sends requests to, for a raw base URL. Throws
- * on input the mode cannot normalize.
- */
-function gatewayUrlForMode(mode: PortkeyConnection["mode"], rawUrl: string): string {
-	return mode === "portkey-gateway"
-		? verbatimGatewayUrl(rawUrl)
-		: normalizePortkeyGatewayUrl(rawUrl);
+	if (mode === "portkey-gateway" || path.endsWith("/v1")) {
+		return `${url.origin}${path}`;
+	}
+	return `${url.origin}${path}/v1`;
 }
 
 /**
@@ -153,9 +138,9 @@ function gatewayUrlForMode(mode: PortkeyConnection["mode"], rawUrl: string): str
  * its own connection. Never throws: an unparseable URL is not the same
  * gateway.
  */
-export function samePortkeyGateway(connection: PortkeyConnection, rawUrl: string): boolean {
+function samePortkeyGateway(connection: PortkeyConnection, rawUrl: string): boolean {
 	try {
-		return gatewayUrlForMode(connection.mode, rawUrl) === connection.baseUrl;
+		return portkeyGatewayUrl(connection.mode, rawUrl) === connection.baseUrl;
 	} catch {
 		return false;
 	}
@@ -262,13 +247,13 @@ export function resolvePortkeyConnection(credentials: ApiKeyCredentials): Portke
 		return check.canonical
 			? {
 					mode: "hosted",
-					baseUrl: normalizePortkeyGatewayUrl(check.baseUrl),
+					baseUrl: portkeyGatewayUrl("hosted", check.baseUrl),
 					chatHeaders,
 					discoveryHeaders,
 				}
 			: {
 					mode: "portkey-gateway",
-					baseUrl: verbatimGatewayUrl(check.baseUrl),
+					baseUrl: portkeyGatewayUrl("portkey-gateway", check.baseUrl),
 					chatHeaders,
 					discoveryHeaders,
 				};
@@ -284,7 +269,7 @@ export function resolvePortkeyConnection(credentials: ApiKeyCredentials): Portke
 	);
 	return {
 		mode: "oss",
-		baseUrl: normalizePortkeyGatewayUrl(check.baseUrl),
+		baseUrl: portkeyGatewayUrl("oss", check.baseUrl),
 		upstreamKey: credentials.apiKey,
 		chatHeaders: hasRoutingHeader
 			? sanitizedCustomHeaders
@@ -328,9 +313,11 @@ function parsePortkeyModelsPage(data: unknown): {
 }
 
 /**
- * Fetch the full hosted Model Catalog, stamping per-family protocol and
- * capabilities from `classifyPortkeyModel`'s decision object. The routed `id`
- * is always retained as the request model. Runs inside the cached fetcher's
+ * Fetch the Model Catalog from the connection's gateway — hosted Portkey,
+ * or a Portkey gateway (proxy or hybrid) that serves `/models` at its
+ * verbatim URL; OSS connections fetch nothing. Each model is stamped with
+ * per-family protocol and capabilities from `classifyPortkeyModel`'s
+ * decision object. The routed `id` is always retained as the request model. Runs inside the cached fetcher's
  * `fetchFresh` seam, so a throw (including the missing-base-URL error, thrown
  * before any fetch) is caught by the wrapper, logged, and yields no models.
  * `signal` is the fetcher's discovery-deadline abort signal; it rides every
@@ -481,8 +468,8 @@ function validateModelIdForMode(connection: PortkeyConnection, model: string): v
 	if (connection.mode === "hosted" && !HOSTED_MODEL_ID_PATTERN.test(model)) {
 		throw new Error(
 			`Portkey hosted mode requires Model Catalog ids of the form "@provider-slug/model"; ` +
-				`got "${model}". Bare upstream model ids are for self-hosted gateways (set the ` +
-				`gateway's own base URL).`,
+				`got "${model}". Bare upstream model ids need a gateway's own base URL: a self-hosted ` +
+				`gateway, or a proxy or hybrid Portkey gateway with the key type set to Portkey.`,
 		);
 	}
 	if (connection.mode === "oss" && model.startsWith("@")) {

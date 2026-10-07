@@ -225,6 +225,13 @@ export interface ResolvedConnectionProvenance {
 	readonly portkey?: {
 		readonly keyType?: ResolvedConnectionFieldSource;
 		readonly baseUrl?: ResolvedConnectionFieldSource;
+		/**
+		 * The key type that would resolve if the user layer set none — what an
+		 * administrator default (or a pin) supplies; absent when only the URL
+		 * would decide. Lets a save tell whether omitting the user's `keyType`
+		 * preserves its meaning even while the user value hides the default.
+		 */
+		readonly keyTypeAfterUserClear?: PortkeyKeyType;
 	};
 }
 

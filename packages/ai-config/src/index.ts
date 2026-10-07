@@ -197,6 +197,9 @@ export {
 } from "./base-url.js";
 export type { OpencodeProduct } from "./base-url.js";
 
+// --- Connection field provenance ---------------------------------------------
+export { isPinnedConnectionFieldSource } from "./connection-field-source.js";
+
 // --- Portkey key type and connection rules ---------------------------------
 export {
 	checkPortkeyConnection,

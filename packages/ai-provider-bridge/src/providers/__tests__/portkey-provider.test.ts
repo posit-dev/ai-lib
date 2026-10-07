@@ -857,6 +857,30 @@ describe("portkey client factory", () => {
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
+	it.each([
+		["a different host", "https://evil.example"],
+		// Gateway URLs compare as entered: unlike hosted/OSS, `/v1` is not
+		// normalized away, so it names a different endpoint.
+		["the gateway URL plus /v1", `${PROXY_URL}/v1`],
+	])("rejects %s as a Portkey-gateway baseUrl override with no request", async (_, baseUrl) => {
+		const fetchMock = vi.fn();
+		vi.stubGlobal("fetch", fetchMock);
+		const registry = new ProviderRegistry(logger);
+		registerPortkeyProvider(registry, logger);
+		const client = registry.getClientForProvider("portkey", GATEWAY_CREDENTIALS);
+
+		await expect(
+			client!.chat({
+				model: "claude-sonnet-4.6",
+				messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+				maxOutputTokens: 10,
+				cancellationToken,
+				baseUrl,
+			}),
+		).rejects.toThrow(/does not match the connection's gateway/);
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
 	it("sends a Portkey gateway only x-portkey-api-key, to the verbatim URL, on both delegates", async () => {
 		for (const [protocol, path] of [
 			["openai-chat", "/chat/completions"],

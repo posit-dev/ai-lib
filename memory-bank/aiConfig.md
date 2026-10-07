@@ -153,8 +153,12 @@ intersection of every provider's scalar shape). Two fields today:
   the stored API key is. It is carried onto `ResolvedConnection.keyType` and
   reaches the bridge as data. Absent means "infer from `baseUrl`" (canonical
   hosted origin → `portkey`, anything else → `upstream`), so older configs keep
-  their behavior. The schema declares only the enum: cross-field rules (URL
-  required, `upstream` + hosted URL is an error, a Portkey key must be present,
+  their behavior. An invalid `PORTKEY_KEY_TYPE` (e.g. `Portkey`) fails the
+  whole env source's strict schema, so every env connection setting —
+  including `PORTKEY_BASE_URL` and other providers' env vars — is dropped and
+  an issue is reported, matching `MS_FOUNDRY_AUTH_MODE`. The schema declares
+  only the enum: cross-field rules (URL required, `upstream` + hosted URL is an
+  error, a Portkey key must be present,
   hosted hostname only on the exact HTTPS origin) live in the pure
   `checkPortkeyConnection({ baseUrl, keyType, apiKeyPresent })`
   (`src/portkey-connection.ts`), so a bad combination never makes the file
@@ -257,7 +261,13 @@ sets them, while `baseUrl`/`tenantId` are absent until some layer sets them.
 
 For the built-in `portkey` provider it records `portkey.keyType` and
 `portkey.baseUrl` sources the same way (absent when no layer sets them), so
-forms render env- or admin-owned fields read-only and saves can pin them.
+forms render env- or admin-owned fields read-only and saves can pin them
+(`isPinnedConnectionFieldSource` is the shared "environment or enforced"
+predicate). It also records `portkey.keyTypeAfterUserClear`: the key type the
+kept stack yields with the user layer removed (an admin default or a pin;
+absent when only the URL would decide). Like Snowflake's `valueAfterUserClear`,
+it stays visible while a user value hides it, so a save can tell whether
+omitting the user's `keyType` keeps its meaning.
 
 For `ollama` and `lmstudio` it records the source of `endpoint` the same way,
 falling back to `"default"`. Hosts that store their own local endpoint let an
@@ -384,8 +394,10 @@ without managing locking, atomicity, or watch lifecycle themselves.
   rejects with `ProvidersConfigInvalidError` (`src/node/providers-config-invalid-error.ts`):
   `configPath`, `phase` (`existing-file` | `proposed-result`), and `detail`
   (`syntax` with jsonc code/line/column, or `schema` with Zod issue paths and
-  messages). These fields are secret-safe — Zod 4 messages never echo received
-  values and custom messages name keys only — so hosts may show them. The
+  messages). These fields are secret-safe — `invalid_type` messages are rebuilt
+  from the expected type (Zod's own can print a file-controlled
+  `constructor.name`), other built-in messages name only schema values or key
+  names, and custom messages name keys only — so hosts may show them. The
   detail/phase types are browser-safe and exported from the pure entry
   (`src/providers-config-invalid.ts`); the class is node-only. Read failures
   (e.g. EACCES) stay plain errors. `parseJsonc` throws `JsoncSyntaxError` (a

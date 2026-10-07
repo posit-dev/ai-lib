@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { checkPortkeyConnection, inferredPortkeyKeyType } from "../portkey-connection.js";
 import type { ProviderConfigSource } from "../resolve-catalog.js";
-import { resolveProviderCatalog } from "../resolve-catalog.js";
+import { resolveProviderCatalog, resolveProviderCatalogReport } from "../resolve-catalog.js";
 import { providersConfigSchema } from "../schema.js";
 import type { ResolvedProvider } from "../types.js";
 
@@ -161,13 +161,39 @@ describe("Portkey keyType in providers.json", () => {
 		expect(enforcedOverEnv.connectionProvenance.portkey?.keyType).toBe("enforced");
 	});
 
-	it("ignores an invalid PORTKEY_KEY_TYPE rather than accepting it", () => {
+	it("reports the key type below the user layer even when a user value hides it", () => {
 		const entry = portkey(
 			resolveProviderCatalog({
-				sources: [source("user", { providers: { portkey: { baseUrl: PROXY } } })],
-				envVars: { PORTKEY_KEY_TYPE: "hosted" },
+				sources: [
+					source("user", { providers: { portkey: { baseUrl: HOSTED, keyType: "portkey" } } }),
+					source("default", { providers: { portkey: { keyType: "upstream" } } }),
+				],
+				envVars: {},
 			}),
 		);
+		expect(entry.connection.keyType).toBe("portkey");
+		expect(entry.connectionProvenance.portkey).toEqual({
+			keyType: "user",
+			baseUrl: "user",
+			keyTypeAfterUserClear: "upstream",
+		});
+	});
+
+	it("drops every env connection setting, and reports it, when PORTKEY_KEY_TYPE is invalid", () => {
+		const report = resolveProviderCatalogReport({
+			sources: [],
+			envVars: { PORTKEY_KEY_TYPE: "hosted", PORTKEY_BASE_URL: PROXY },
+		});
+
+		const entry = portkey(report.catalog);
 		expect(entry.connection.keyType).toBeUndefined();
+		expect(entry.connection.baseUrl).toBeUndefined();
+		expect(report.issues).toEqual([
+			expect.objectContaining({
+				severity: "error",
+				source: expect.objectContaining({ kind: "env" }),
+				message: expect.stringContaining("providers.portkey.keyType"),
+			}),
+		]);
 	});
 });

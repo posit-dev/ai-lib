@@ -377,12 +377,21 @@ function resolveConnectionProvenance(
 
 	// Portkey: per-field sources for the UI-managed `keyType` and `baseUrl`,
 	// so forms render env/admin-owned fields read-only and saves pin them.
-	result.set("portkey", {
-		portkey: {
-			keyType: fieldSourceFor("portkey", (block) => block?.keyType, false),
-			baseUrl: fieldSourceFor("portkey", (block) => block?.baseUrl, false),
-		},
-	});
+	// `keyTypeAfterUserClear` is the key type below the user layer, which a
+	// user value can hide (the same idea as Snowflake's `valueAfterUserClear`).
+	{
+		const keyTypeAfterUserClear = kept
+			.filter((source) => source.kind !== "user" && source.kind !== "legacy-positron") // PROVIDER-SETTINGS-MIGRATION(legacy-positron)
+			.map((source) => source.config.providers?.portkey?.keyType)
+			.find((keyType) => keyType !== undefined);
+		result.set("portkey", {
+			portkey: {
+				keyType: fieldSourceFor("portkey", (block) => block?.keyType, false),
+				baseUrl: fieldSourceFor("portkey", (block) => block?.baseUrl, false),
+				...(keyTypeAfterUserClear !== undefined ? { keyTypeAfterUserClear } : {}),
+			},
+		});
+	}
 
 	// Local providers: the endpoint's source, so a host that stores its own
 	// endpoint can yield to an enforced or env value even when it equals the
