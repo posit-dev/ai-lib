@@ -13,23 +13,9 @@ import {
 	thinkingRequestFields,
 } from "../utils";
 
+// The per-effort thinking options are covered end to end by
+// `anthropic-thinking-wire.test.ts` (real SDK) and `anthropic-thinking-routing.test.ts`.
 describe("anthropicProviderOptions", () => {
-	it("sends nothing for the provider default, so the model's default thinking applies", () => {
-		expect(anthropicProviderOptions(undefined, {})).toBeUndefined();
-	});
-
-	it('sends thinking disabled with no effort for "off"', () => {
-		expect(anthropicProviderOptions("off", {})).toEqual({
-			anthropic: { thinking: { type: "disabled" } },
-		});
-	});
-
-	it("sends summarized adaptive thinking with the effort for an active level", () => {
-		expect(anthropicProviderOptions("high", {})).toEqual({
-			anthropic: { thinking: { type: "adaptive", display: "summarized" }, effort: "high" },
-		});
-	});
-
 	it("merges client options with and without thinking options", () => {
 		expect(anthropicProviderOptions("off", { toolStreaming: false })).toEqual({
 			anthropic: { thinking: { type: "disabled" }, toolStreaming: false },
