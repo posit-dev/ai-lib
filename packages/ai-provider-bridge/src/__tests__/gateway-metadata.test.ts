@@ -152,6 +152,41 @@ describe("gatewayMetadataFromEnv", () => {
 		expect(warnings[1]).toContain("POSIT_GATEWAY_META_K9");
 	});
 
+	it("does not count invalid or blank user fields toward the eight-field limit", () => {
+		const env: Record<string, string> = {
+			POSIT_GATEWAY_META_A_BLANK: "   ",
+			POSIT_GATEWAY_META_A_CONTROL: "a\nb",
+			POSIT_GATEWAY_META_A_UNICODE: "\uD800",
+			POSIT_GATEWAY_META_A_TOO_LONG: "x".repeat(513),
+			"POSIT_GATEWAY_META_-BAD": "x",
+		};
+		for (let i = 0; i < 9; i++) env[`POSIT_GATEWAY_META_B${i}`] = "v";
+
+		const { metadata, warnings } = gatewayMetadataFromEnv(env);
+		expect(metadata).toEqual(
+			Object.fromEntries(Array.from({ length: 8 }, (_, i) => [`b${i}`, "v"])),
+		);
+		expect(warnings).toEqual([
+			"Ignoring POSIT_GATEWAY_META_-BAD: not 1-32 lowercase letters, digits, or hyphens",
+			"Ignoring POSIT_GATEWAY_META_A_CONTROL: contains control characters",
+			"Ignoring POSIT_GATEWAY_META_A_TOO_LONG: longer than 512 encoded bytes",
+			"Ignoring POSIT_GATEWAY_META_A_UNICODE: is not valid Unicode",
+			"Ignoring POSIT_GATEWAY_META_B8: more than 8 user fields",
+		]);
+	});
+
+	it("does not spend a user slot on fields that exceed the combined header limit", () => {
+		const env: Record<string, string> = { PWB_SESSION_ID: "x".repeat(512) };
+		for (let i = 0; i < 8; i++) env[`POSIT_GATEWAY_META_K${i}`] = "x".repeat(500);
+		env.POSIT_GATEWAY_META_K8 = "short";
+		const { metadata, warnings } = gatewayMetadataFromEnv(env);
+		expect(metadata).toHaveProperty("workbench-session-id");
+		expect(Object.keys(metadata!).filter((key) => key.startsWith("k"))).toHaveLength(8);
+		expect(metadata).toHaveProperty("k8", "short");
+		expect(metadata).not.toHaveProperty("k7");
+		expect(warnings).toEqual(["Ignoring POSIT_GATEWAY_META_K7: header would exceed 4096 bytes"]);
+	});
+
 	it("warns about invalid values", () => {
 		const { warnings } = gatewayMetadataFromEnv({ POSIT_GATEWAY_META_NOTE: "x".repeat(600) });
 		expect(warnings).toEqual(["Ignoring POSIT_GATEWAY_META_NOTE: longer than 512 encoded bytes"]);

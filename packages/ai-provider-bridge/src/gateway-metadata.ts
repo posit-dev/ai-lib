@@ -160,32 +160,44 @@ export function gatewayMetadataFromEnv(env: Readonly<Record<string, string | und
 		warnings.push(`Ignoring ${list.join(" and ")}: both name the field "${key}"`);
 	}
 
+	// Workbench fields have priority when checking the combined header size.
 	const metadata: Record<string, string> = {};
-	const sortedKeys = [...userValues.keys()].sort();
-	sortedKeys.forEach((key, index) => {
-		const envName = envNameByKey.get(key)!;
-		if (index >= GATEWAY_METADATA_LIMITS.maxUserEntries) {
-			warnings.push(
-				`Ignoring ${envName}: more than ${GATEWAY_METADATA_LIMITS.maxUserEntries} user fields`,
-			);
-			return;
-		}
-		metadata[key] = userValues.get(key)!;
-	});
-
-	// Workbench fields are applied last, so they win.
 	for (const [key, envName] of WORKBENCH_METADATA_ENV) {
 		const value = env[envName];
 		if (value) metadata[key] = value;
 	}
 
-	const result = Object.keys(metadata).length > 0 ? metadata : undefined;
-	for (const { key, reason } of encodeGatewayMetadata(result).rejected) {
+	let userCount = 0;
+	for (const key of [...userValues.keys()].sort()) {
+		const envName = envNameByKey.get(key)!;
+		const value = userValues.get(key)!;
+		// Validate before counting: blank or rejected fields must not use a user slot.
+		const { header, rejected } = encodeGatewayMetadata({ [key]: value });
+		for (const { reason } of rejected) warnings.push(`Ignoring ${envName}: ${reason}`);
+		if (header === undefined) continue;
+		const combined = encodeGatewayMetadata({ ...metadata, [key]: value });
+		const overflow = combined.rejected.find((entry) => entry.key === key);
+		if (overflow) {
+			warnings.push(`Ignoring ${envName}: ${overflow.reason}`);
+			continue;
+		}
+		if (userCount >= GATEWAY_METADATA_LIMITS.maxUserEntries) {
+			warnings.push(
+				`Ignoring ${envName}: more than ${GATEWAY_METADATA_LIMITS.maxUserEntries} user fields`,
+			);
+			continue;
+		}
+		metadata[key] = value;
+		userCount++;
+	}
+
+	for (const { key, reason } of encodeGatewayMetadata(metadata).rejected) {
 		const workbench = WORKBENCH_METADATA_ENV.find(([k]) => k === key);
 		const envName = workbench ? workbench[1] : (envNameByKey.get(key) ?? key);
 		warnings.push(`Ignoring ${envName}: ${reason}`);
+		delete metadata[key];
 	}
-	return { metadata: result, warnings };
+	return { metadata: Object.keys(metadata).length > 0 ? metadata : undefined, warnings };
 }
 
 /** Merge gatewayMetadata into request metadata; returns metadata unchanged when it is undefined. */

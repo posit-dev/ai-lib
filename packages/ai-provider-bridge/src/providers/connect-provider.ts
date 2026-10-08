@@ -580,19 +580,18 @@ class ConnectClient implements ModelClient {
 	) {}
 
 	/**
-	 * Headers for one gateway request: configured customHeaders plus the
-	 * metadata header. The metadata header replaces a customHeaders entry of
-	 * the same name, so configuration cannot replace the Workbench values.
+	 * Headers for one gateway request: configured customHeaders (excluding
+	 * any metadata header) plus the validated runtime metadata, if present.
+	 * Configuration cannot set or replace Workbench attribution.
 	 */
 	private requestHeaders(params: ModelClientChatParams): Record<string, string> | undefined {
 		const { header } = encodeGatewayMetadata(params.metadata?.gatewayMetadata);
-		if (header === undefined) return this.credentials.customHeaders;
 		const headers: Record<string, string> = {};
 		for (const [name, value] of Object.entries(this.credentials.customHeaders ?? {})) {
 			if (name.toLowerCase() !== GATEWAY_METADATA_HEADER.toLowerCase()) headers[name] = value;
 		}
-		headers[GATEWAY_METADATA_HEADER] = header;
-		return headers;
+		if (header !== undefined) headers[GATEWAY_METADATA_HEADER] = header;
+		return Object.keys(headers).length > 0 ? headers : undefined;
 	}
 
 	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {

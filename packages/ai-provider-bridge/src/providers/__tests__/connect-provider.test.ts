@@ -431,6 +431,62 @@ describe("connect chat routing", () => {
 			);
 		});
 
+		it("drops configured metadata headers without runtime metadata", async () => {
+			const client = await clientAfterDiscovery(undefined, {
+				...credentials,
+				customHeaders: {
+					"Posit-Connect-Gateway-Metadata": "workbench-session-id=fake",
+					"pOSIT-cONNECT-gATEWAY-mETADATA": "team=fake",
+				},
+			});
+			await client.chat(
+				chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`, "anthropic-messages"),
+			);
+			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toBeUndefined();
+		});
+
+		it("keeps unrelated customHeaders when runtime metadata is absent", async () => {
+			const client = await clientAfterDiscovery(undefined, {
+				...credentials,
+				customHeaders: {
+					"posit-connect-gateway-metadata": "team=fake",
+					"x-proxy-token": "t",
+				},
+			});
+			await client.chat(
+				chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`, "anthropic-messages"),
+			);
+			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toEqual({
+				"x-proxy-token": "t",
+			});
+		});
+
+		it("drops configured metadata headers when runtime metadata is invalid", async () => {
+			const client = await clientAfterDiscovery(undefined, {
+				...credentials,
+				customHeaders: { "POSIT-CONNECT-GATEWAY-METADATA": "team=fake" },
+			});
+			await client.chat({
+				...chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`, "anthropic-messages"),
+				metadata: { gatewayMetadata: { team: "\uD800" } },
+			});
+			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toBeUndefined();
+		});
+
+		it("filters configured metadata headers on the Bedrock route without runtime metadata", async () => {
+			const client = await clientAfterDiscovery(
+				{ getAwsCredentials: mintSuccess() },
+				{
+					...credentials,
+					customHeaders: { "POSIT-CONNECT-GATEWAY-METADATA": "team=fake" },
+				},
+			);
+			await client.chat(
+				chatParams(`${AWS_PREFIX}/${CONNECT_BEDROCK_MODEL_IDS[0]}`, "bedrock-converse"),
+			);
+			expect(vi.mocked(BedrockClient).mock.calls.at(-1)![0].customHeaders).toBeUndefined();
+		});
+
 		it("passes customHeaders through unchanged without metadata", async () => {
 			const client = await clientAfterDiscovery();
 			await client.chat(
