@@ -26,7 +26,11 @@ import {
 } from "../tool-result-images";
 import type { LMStreamPart, Logger, Protocol } from "../types";
 import { normalizeProtocol } from "../types";
-import { isThinkingEnabled, rejectsEagerInputStreaming } from "../utils";
+import {
+	anthropicProviderOptions as buildAnthropicProviderOptions,
+	isThinkingEnabled,
+	rejectsEagerInputStreaming,
+} from "../utils";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
@@ -111,27 +115,14 @@ export class BedrockClient implements ModelClient {
 		// For Anthropic models on Bedrock, pass thinking config via providerOptions.
 		// The createBedrockAnthropic provider uses AnthropicMessagesLanguageModel internally,
 		// so it accepts the same `anthropic` provider options as the direct Anthropic provider.
-		const useThinking = isThinkingEnabled(params.thinkingEffort) && isAnthropic;
 		// Some Claude models reject the `eager_input_streaming` field on Bedrock; opt
 		// those out (see rejectsEagerInputStreaming). Others accept it, so leave them on.
-		const disableEagerToolStreaming = rejectsEagerInputStreaming(params.model);
-		const anthropicProviderOptions =
-			useThinking || disableEagerToolStreaming
-				? {
-						anthropic: {
-							...(disableEagerToolStreaming ? { toolStreaming: false } : {}),
-							...(useThinking
-								? {
-										// `display: "summarized"` is required to receive thinking summary text.
-										// Opus 4.7+/Fable 5 default to `"omitted"`, which streams thinking blocks
-										// with only a signature and no text — so the UI shows no <thinking>.
-										thinking: { type: "adaptive", display: "summarized" },
-										effort: params.thinkingEffort,
-									}
-								: {}),
-						},
-					}
-				: undefined;
+		const anthropicProviderOptions = isAnthropic
+			? buildAnthropicProviderOptions(
+					params.thinkingEffort,
+					rejectsEagerInputStreaming(params.model) ? { toolStreaming: false } : {},
+				)
+			: undefined;
 
 		const isMantleChat = normalizedProtocol === "openai-chat";
 		const isMantleResponses = normalizedProtocol === "openai-responses";

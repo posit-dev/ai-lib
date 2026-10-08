@@ -16,6 +16,50 @@ export function isThinkingEnabled(effort: string | undefined): boolean {
 	return effort !== undefined && effort !== "off";
 }
 
+// Type aliases, not interfaces: the SDK's `providerOptions` is an index-signature
+// JSON type, which interfaces are not assignable to.
+
+/** Client-specific `anthropic` provider options merged over the thinking options. */
+export type AnthropicClientOptions = {
+	/** `false` opts out of `eager_input_streaming` (see `rejectsEagerInputStreaming`). */
+	toolStreaming?: false;
+};
+
+type AnthropicThinkingOptions = {
+	thinking?: { type: "disabled" } | { type: "adaptive"; display: "summarized" };
+	effort?: string;
+};
+
+/**
+ * `providerOptions` for a request on the Anthropic Messages wire, shared by
+ * every Claude client so the thinking mapping cannot drift between routes:
+ *
+ * - `undefined` effort (provider default): no thinking type or effort, so the
+ *   model's own default applies.
+ * - `"off"`: `thinking: {type: "disabled"}` with no effort. Omitting `thinking`
+ *   is not "off" on models whose default is adaptive (Haiku 5.5, Opus 5).
+ *   Capability rules offer "off" only where the API accepts `disabled`.
+ * - Any other level: adaptive thinking with that effort. `display: "summarized"`
+ *   is required to receive thinking text; Opus 4.7+/Fable 5 default to
+ *   `"omitted"`, which streams signature-only blocks and shows no <thinking>.
+ *
+ * `clientOptions` are merged on top. Returns `undefined` when there is nothing
+ * to send.
+ */
+export function anthropicProviderOptions(
+	effort: string | undefined,
+	clientOptions: AnthropicClientOptions,
+): { anthropic: AnthropicThinkingOptions & AnthropicClientOptions } | undefined {
+	const thinkingOptions: AnthropicThinkingOptions =
+		effort === undefined
+			? {}
+			: effort === "off"
+				? { thinking: { type: "disabled" } }
+				: { thinking: { type: "adaptive", display: "summarized" }, effort };
+	const anthropic = { ...thinkingOptions, ...clientOptions };
+	return Object.keys(anthropic).length > 0 ? { anthropic } : undefined;
+}
+
 /**
  * Request-body fields that enable thinking on an OpenAI-chat-protocol model.
  *

@@ -24,6 +24,7 @@ import {
 } from "../../model-clients/GoogleVertexClient";
 import type { Logger } from "../../types";
 import {
+	claudeDisplayName,
 	registerCustomGoogleVertexProvider,
 	registerGoogleVertexProvider,
 } from "../google-vertex-provider";
@@ -414,4 +415,14 @@ describe("GoogleVertexClient location heuristic", () => {
 	// helpers produce the right inputs and trust that createModel's
 	// `useAnthropicApi && protocol === "anthropic-messages"` → "global" branch
 	// is covered by the type-checked implementation.
+});
+
+describe("claudeDisplayName", () => {
+	it.each([
+		{ id: "claude-haiku-5-5", expected: "Claude Haiku 5.5" },
+		{ id: "claude-haiku-4-5-20251001", expected: "Claude Haiku 4.5" },
+		{ id: "claude-3-5-sonnet-20241022", expected: "Claude 3.5 Sonnet" },
+	])("names $id as $expected", ({ id, expected }) => {
+		expect(claudeDisplayName(id)).toBe(expected);
+	});
 });
