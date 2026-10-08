@@ -64,12 +64,31 @@ const BUILTIN_STRUCTURED_BASE_URL: Record<string, StructuredBaseUrlSource | unde
 
 /**
  * Auth provider ID -> VS Code settings config section.
- * Most providers use the auth provider ID directly; legacy `anthropic-api` maps to `anthropic`.
+ * The legacy `authentication.<section>` names predate the catalog ids and do
+ * not rename; most providers use their id directly.
  */
 export const CONFIG_KEY_OVERRIDES: Record<string, string> = {
-	"anthropic-api": "anthropic",
+	openai: "openai-api",
+	gemini: "google",
+	deepseek: "deepseek-api",
 	"ms-foundry": "foundry",
 	"snowflake-cortex": "snowflake",
+};
+
+/**
+ * Catalog id -> the auth provider id Positron's `authentication` extension
+ * registered before auth moved to Assistant. Positron releases that still
+ * register these ids are supported, so Assistant reads sessions under them
+ * there, and Positron core copies credentials stored under them.
+ */
+export const POSITRON_LEGACY_AUTH_PROVIDER_IDS: Readonly<Record<string, string>> = {
+	anthropic: "anthropic-api",
+	openai: "openai-api",
+	gemini: "google",
+	deepseek: "deepseek-api",
+	positai: "posit-ai",
+	bedrock: "amazon-bedrock",
+	"google-vertex": "google-cloud",
 };
 
 /**

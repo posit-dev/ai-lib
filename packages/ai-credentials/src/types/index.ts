@@ -25,6 +25,7 @@ export type {
 
 export {
 	CONFIG_KEY_OVERRIDES,
+	POSITRON_LEGACY_AUTH_PROVIDER_IDS,
 	serializeSessionToken,
 	shapeCredentials,
 } from "./credential-shaping.js";
