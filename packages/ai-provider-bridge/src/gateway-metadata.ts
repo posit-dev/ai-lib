@@ -23,7 +23,6 @@ export const GATEWAY_METADATA_LIMITS = {
 export const WORKBENCH_METADATA_ENV = [
 	["workbench-session-id", "PWB_SESSION_ID"],
 	["workbench-session-name", "PWB_SESSION_NAME"],
-	["workbench-project-id", "PWB_PROJECT_ID"],
 	["workbench-project-name", "PWB_PROJECT_NAME"],
 	["workbench-project-path", "PWB_PROJECT_PATH"],
 ] as const;

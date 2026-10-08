@@ -67,7 +67,6 @@ describe("encodeGatewayMetadata", () => {
 		const metadata: Record<string, string> = {
 			"workbench-session-id": "s",
 			"workbench-session-name": "n",
-			"workbench-project-id": "p",
 			"workbench-project-name": "pn",
 			"workbench-project-path": "pp",
 		};
