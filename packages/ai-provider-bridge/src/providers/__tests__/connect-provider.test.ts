@@ -365,6 +365,81 @@ describe("connect chat routing", () => {
 		);
 	});
 
+	describe("gateway metadata header", () => {
+		const HEADER = "Posit-Connect-Gateway-Metadata";
+		const metadata = { gatewayMetadata: { "workbench-session-id": "s1" } };
+
+		it("sends the header on the Anthropic route", async () => {
+			const client = await clientAfterDiscovery();
+			await client.chat({
+				...chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`, "anthropic-messages"),
+				metadata,
+			});
+			expect(AnthropicClient).toHaveBeenCalledWith(
+				{ apiKey: "tok" },
+				ANTHROPIC_GATEWAY,
+				{ [HEADER]: "workbench-session-id=s1" },
+				logger,
+			);
+		});
+
+		it("keeps other customHeaders alongside the header", async () => {
+			const client = await clientAfterDiscovery(undefined, {
+				...credentials,
+				customHeaders: { "x-proxy-token": "t" },
+			});
+			await client.chat({
+				...chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`, "anthropic-messages"),
+				metadata,
+			});
+			expect(AnthropicClient).toHaveBeenCalledWith(
+				{ apiKey: "tok" },
+				ANTHROPIC_GATEWAY,
+				{ "x-proxy-token": "t", [HEADER]: "workbench-session-id=s1" },
+				logger,
+			);
+		});
+
+		it("does not let customHeaders replace the header", async () => {
+			const client = await clientAfterDiscovery(undefined, {
+				...credentials,
+				customHeaders: { "posit-connect-gateway-metadata": "workbench-session-id=fake" },
+			});
+			await client.chat({
+				...chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`, "anthropic-messages"),
+				metadata,
+			});
+			expect(AnthropicClient).toHaveBeenCalledWith(
+				{ apiKey: "tok" },
+				ANTHROPIC_GATEWAY,
+				{ [HEADER]: "workbench-session-id=s1" },
+				logger,
+			);
+		});
+
+		it("sends the header on the Bedrock route", async () => {
+			const client = await clientAfterDiscovery({ getAwsCredentials: mintSuccess() });
+			await client.chat({
+				...chatParams(`${AWS_PREFIX}/${CONNECT_BEDROCK_MODEL_IDS[0]}`, "bedrock-converse"),
+				metadata,
+			});
+			expect(BedrockClient).toHaveBeenCalledWith(
+				expect.objectContaining({
+					customHeaders: expect.objectContaining({ [HEADER]: "workbench-session-id=s1" }),
+				}),
+				logger,
+			);
+		});
+
+		it("passes customHeaders through unchanged without metadata", async () => {
+			const client = await clientAfterDiscovery();
+			await client.chat(
+				chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`, "anthropic-messages"),
+			);
+			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toBeUndefined();
+		});
+	});
+
 	it("routes bedrock-converse through per-request STS credentials without forcing a protocol", async () => {
 		const getAwsCredentials = mintSuccess();
 		const client = await clientAfterDiscovery({ getAwsCredentials });

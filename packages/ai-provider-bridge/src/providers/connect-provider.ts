@@ -41,6 +41,7 @@ import {
 } from "ai-config";
 
 import { additiveHeaderRecord } from "../custom-headers";
+import { encodeGatewayMetadata, GATEWAY_METADATA_HEADER } from "../gateway-metadata";
 import { createAbortControllerFromToken } from "../model-clients/ai-sdk-helpers";
 import { AnthropicClient } from "../model-clients/AnthropicClient";
 import { BedrockClient } from "../model-clients/BedrockClient";
@@ -578,6 +579,22 @@ class ConnectClient implements ModelClient {
 		private readonly callbacks?: ConnectProviderCallbacks,
 	) {}
 
+	/**
+	 * Headers for one gateway request: configured customHeaders plus the
+	 * metadata header. The metadata header replaces a customHeaders entry of
+	 * the same name, so configuration cannot replace the Workbench values.
+	 */
+	private requestHeaders(params: ModelClientChatParams): Record<string, string> | undefined {
+		const { header } = encodeGatewayMetadata(params.metadata?.gatewayMetadata);
+		if (header === undefined) return this.credentials.customHeaders;
+		const headers: Record<string, string> = {};
+		for (const [name, value] of Object.entries(this.credentials.customHeaders ?? {})) {
+			if (name.toLowerCase() !== GATEWAY_METADATA_HEADER.toLowerCase()) headers[name] = value;
+		}
+		headers[GATEWAY_METADATA_HEADER] = header;
+		return headers;
+	}
+
 	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {
 		const connectUrl = this.credentials.baseUrl?.replace(/\/+$/, "");
 		if (!connectUrl) {
@@ -657,7 +674,7 @@ class ConnectClient implements ModelClient {
 		const client = new AnthropicClient(
 			{ apiKey: this.credentials.apiKey },
 			baseUrl,
-			this.credentials.customHeaders,
+			this.requestHeaders(params),
 			this.logger,
 		);
 		return client.chat({ ...params, model: wireModel, baseUrl });
@@ -741,7 +758,7 @@ class ConnectClient implements ModelClient {
 				accessKeyId: aws.accessKeyId,
 				secretAccessKey: aws.secretAccessKey,
 				sessionToken: aws.sessionToken,
-				customHeaders: this.credentials.customHeaders,
+				customHeaders: this.requestHeaders(params),
 				// Routing through Connect's gateway is a deliberate, admin-configured
 				// redirect (not an accidental override), so it overrides even a FIPS
 				// runtime endpoint.

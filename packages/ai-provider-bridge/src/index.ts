@@ -44,6 +44,19 @@ export type {
 	ModelClientChatParams,
 } from "./model-clients/ModelClient";
 
+// Attribution metadata sent to the Posit Connect LLM gateway.
+export type { GatewayMetadata, GatewayMetadataRejection } from "./gateway-metadata";
+export {
+	encodeGatewayMetadata,
+	GATEWAY_META_ENV_PREFIX,
+	GATEWAY_METADATA_HEADER,
+	GATEWAY_METADATA_LIMITS,
+	gatewayMetadataFromEnv,
+	WORKBENCH_KEY_PREFIX,
+	WORKBENCH_METADATA_ENV,
+	withGatewayMetadata,
+} from "./gateway-metadata";
+
 // AI SDK types surfaced through the bridge so consumers can use the public API
 // without importing `ai` directly: `ModelMessage` appears in ModelClient.chat's
 // `messages`, and `LanguageModelUsage` appears on StepLogData.usage. Other `ai`

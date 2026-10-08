@@ -8,14 +8,15 @@
 
 import type { ModelMessage } from "ai";
 
+import type { GatewayMetadata } from "../gateway-metadata";
 import type { StepLogger } from "../StepLogger";
 import type { AiToolWithJsonSchema, CancellationToken, LMStreamPart, Protocol } from "../types";
 
 /**
  * Runtime request metadata supplied by the host for a chat request.
  *
- * Both fields are opaque routing identities owned by the host; the bridge
- * never derives, splits, or invents them.
+ * `sessionId` and `rootConversationId` are opaque routing identities owned
+ * by the host; the bridge never derives, splits, or invents them.
  *
  * - `sessionId`: the host's full structured session identity for this
  *   request. Projections that consume it (Posit AI Pass `Session-Id`,
@@ -24,12 +25,16 @@ import type { AiToolWithJsonSchema, CancellationToken, LMStreamPart, Protocol } 
  *   belongs to. Endpoint-specific transport policies (e.g. OpenCode's
  *   `x-opencode-session`) route on this value so every request in a
  *   conversation — main chat, subagents, auxiliary requests — shares it.
+ * - `gatewayMetadata`: attribution fields (Workbench session and project,
+ *   user fields). Only the Posit Connect client sends them, as the
+ *   Posit-Connect-Gateway-Metadata header; every other client ignores them.
  *
  * This is runtime metadata only; it is not a persisted schema.
  */
 export interface ChatRequestMetadata {
 	sessionId?: string;
 	rootConversationId?: string;
+	gatewayMetadata?: GatewayMetadata;
 }
 
 /**
