@@ -4,11 +4,7 @@
 
 import type { ChatRequestMetadata } from "../model-clients/ModelClient";
 
-/**
- * Key/value metadata sent to Posit Connect's LLM gateway for attribution:
- * the Posit Workbench session and project, plus user-supplied fields. The
- * wire format mirrors Connect's src/connect/gateway/requestmetadata.go.
- */
+/** Request-scoped key/value attribution fields for gateway clients. */
 export type GatewayMetadata = Readonly<Record<string, string>>;
 
 /** Header Posit Connect's LLM gateway reads (and strips before the provider). */

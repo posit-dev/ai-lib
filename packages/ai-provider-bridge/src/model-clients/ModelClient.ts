@@ -25,9 +25,9 @@ import type { AiToolWithJsonSchema, CancellationToken, LMStreamPart, Protocol } 
  *   belongs to. Endpoint-specific transport policies (e.g. OpenCode's
  *   `x-opencode-session`) route on this value so every request in a
  *   conversation — main chat, subagents, auxiliary requests — shares it.
- * - `gatewayMetadata`: attribution fields (Workbench session and project,
- *   user fields). Only the Posit Connect client sends them, as the
- *   Posit-Connect-Gateway-Metadata header; every other client ignores them.
+ * - `gatewayMetadata`: request-scoped key/value attribution fields for
+ *   gateways that support them. Clients that do not use gateway attribution
+ *   ignore these fields.
  *
  * This is runtime metadata only; it is not a persisted schema.
  */

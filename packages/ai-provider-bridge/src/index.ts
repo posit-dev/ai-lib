@@ -44,7 +44,7 @@ export type {
 	ModelClientChatParams,
 } from "./model-clients/ModelClient";
 
-// Attribution metadata sent to the Posit Connect LLM gateway.
+// Gateway attribution metadata and Connect gateway transport helpers.
 export type {
 	GatewayMetadata,
 	GatewayMetadataRejection,
