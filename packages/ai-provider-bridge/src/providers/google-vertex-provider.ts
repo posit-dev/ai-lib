@@ -6,7 +6,9 @@ import type { ResolvedProviderId } from "ai-config";
 import { getAnthropicModelCapabilities } from "ai-config";
 
 import {
+	describeGoogleVertexCredentialSource,
 	type GoogleVertexCredentialSource,
+	isApplicationDefaultCredentialsError,
 	isInlineServiceAccountError,
 	mintGoogleVertexAccessToken,
 	resolveGoogleVertexCredentialSource,
@@ -37,19 +39,15 @@ export interface GoogleVertexProviderCallbacks {
 }
 
 /**
- * Check whether an error from google-auth-library or the Vertex API indicates
- * expired / missing ADC credentials (similar to Bedrock's `isAuthError`).
+ * Check whether a token-minting or Vertex API error means the credentials are
+ * missing, expired or rejected (similar to Bedrock's `isAuthError`).
  */
 function isAuthError(error: unknown): boolean {
 	if (!(error instanceof Error)) return false;
-	if (isInlineServiceAccountError(error)) return true;
-	const msg = error.message;
-	// google-auth-library: refresh token revoked or expired
-	if (msg.includes("invalid_grant") || msg.includes("Token has been expired or revoked")) {
+	if (isInlineServiceAccountError(error) || isApplicationDefaultCredentialsError(error)) {
 		return true;
 	}
-	// google-auth-library: no ADC file found
-	if (msg.includes("Could not load the default credentials")) return true;
+	const msg = error.message;
 	// Vertex API 401/403
 	if (
 		msg.includes("Request had invalid authentication credentials") ||
@@ -227,6 +225,7 @@ function createGoogleVertexModelFetcher(
 				credentials.accessToken,
 				credentialEnvironment,
 			);
+			const sourceDescription = describeGoogleVertexCredentialSource(credentialSource);
 
 			// 4. Try to fetch from Vertex AI API
 			try {
@@ -237,6 +236,7 @@ function createGoogleVertexModelFetcher(
 				);
 
 				const token = await mintGoogleVertexAccessToken(credentialSource);
+				logger.info(`[GoogleVertex] Using ${sourceDescription}`);
 
 				// Fetch from both publishers in parallel, collecting errors
 				// so that if both fail we can propagate to the outer catch
@@ -352,7 +352,9 @@ function createGoogleVertexModelFetcher(
 
 				if (isAuthError(error)) {
 					const guidance = AUTH_ERROR_GUIDANCE[credentialSource.kind];
-					logger.error(`[GoogleVertex] ${guidance.message} Error: ${errorMsg}`);
+					logger.error(
+						`[GoogleVertex] ${guidance.message} Credential source: ${sourceDescription}. Error: ${errorMsg}`,
+					);
 
 					await callbacks?.onProviderStatusChange?.({
 						providerId,
@@ -376,7 +378,9 @@ function createGoogleVertexModelFetcher(
 				}
 
 				// Non-auth errors (network, service issues)
-				logger.warn(`[GoogleVertex] API fetch failed: ${errorMsg}, using fallback`);
+				logger.warn(
+					`[GoogleVertex] API fetch failed: ${errorMsg}, using fallback. Credential source: ${sourceDescription}`,
+				);
 
 				await callbacks?.onProviderStatusChange?.({
 					providerId,
