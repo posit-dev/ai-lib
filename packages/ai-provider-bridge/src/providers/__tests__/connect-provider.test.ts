@@ -398,7 +398,7 @@ describe("connect chat routing", () => {
 
 	describe("gateway metadata header", () => {
 		const HEADER = "Posit-Connect-Gateway-Metadata";
-		const gatewayValue = JSON.stringify({ "workbench-session-id": "s1" });
+		const gatewayValue = "workbench-session-id=s1";
 		const clientWithMetadata = (callbacks?: ConnectProviderCallbacks, creds = credentials) =>
 			clientAfterDiscovery(callbacks, creds, () => gatewayValue);
 
@@ -503,7 +503,7 @@ describe("connect chat routing", () => {
 					...credentials,
 					customHeaders: { "POSIT-CONNECT-GATEWAY-METADATA": "team=fake" },
 				},
-				() => JSON.stringify({ team: "\uD800" }),
+				() => "team=raw\nnewline",
 			);
 			await client.chat(
 				chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`, "anthropic-messages"),
@@ -511,11 +511,17 @@ describe("connect chat routing", () => {
 			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toBeUndefined();
 		});
 
-		it("never uses configured metadata headers when the Workbench value is malformed", async () => {
+		it("forwards even malformed metadata syntax unchanged for Connect to parse", async () => {
+			const client = await clientAfterDiscovery(undefined, credentials, () => "team=%ZZ");
+			await client.chat(chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`));
+			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toEqual({ [HEADER]: "team=%ZZ" });
+		});
+
+		it("never uses configured metadata headers when the Workbench value is unsafe", async () => {
 			const client = await clientAfterDiscovery(
 				undefined,
 				{ ...credentials, customHeaders: { "Posit-Connect-Gateway-Metadata": "team=forged" } },
-				() => "{broken",
+				() => "team=raw\rreturn",
 			);
 			await client.chat(chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`));
 			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toBeUndefined();

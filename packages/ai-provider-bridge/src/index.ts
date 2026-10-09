@@ -44,13 +44,9 @@ export type {
 	ModelClientChatParams,
 } from "./model-clients/ModelClient";
 
-// Connect gateway header encoding and Workbench value parsing.
-export type { GatewayMetadataRejection } from "./providers/connect-gateway-metadata";
+// Connect gateway header identity; Workbench supplies the finished value.
 export {
-	encodeGatewayMetadata,
 	GATEWAY_METADATA_HEADER,
-	GATEWAY_METADATA_LIMITS,
-	parseWorkbenchGatewayMetadata,
 	WORKBENCH_GATEWAY_METADATA_ENV,
 } from "./providers/connect-gateway-metadata";
 

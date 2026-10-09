@@ -48,11 +48,7 @@ import type { ModelClient, ModelClientChatParams } from "../model-clients/ModelC
 import type { ApiKeyCredentials, AwsCredentials, Logger, LMStreamPart, ModelInfo } from "../types";
 import { normalizeProtocol } from "../types";
 import { createCachedModelFetcher } from "./cached-model-fetcher";
-import {
-	encodeGatewayMetadata,
-	GATEWAY_METADATA_HEADER,
-	parseWorkbenchGatewayMetadata,
-} from "./connect-gateway-metadata";
+import { GATEWAY_METADATA_HEADER, isSafeGatewayMetadataHeader } from "./connect-gateway-metadata";
 import type { ClientFactory, ProviderRegistry } from "./ProviderRegistry";
 
 const DEFAULT_TEMPLATES = ["anthropic", "aws"] as const;
@@ -589,26 +585,22 @@ class ConnectClient implements ModelClient {
 		private readonly credentials: ApiKeyCredentials,
 		private readonly cache: ConnectIntegrationCache,
 		private readonly logger: Logger,
-		private readonly reportedMetadataWarnings: Set<string>,
 		private readonly callbacks?: ConnectProviderCallbacks,
 		private readonly getGatewayMetadata?: () => string | undefined,
 	) {}
 
 	/**
 	 * Headers for one gateway request: configured customHeaders (excluding
-	 * any metadata header) plus the validated runtime metadata, if present.
+	 * any metadata header) plus Workbench's header value unchanged, if safe
+	 * for HTTP transport. Connect validates its contents on receipt.
 	 * Configuration cannot set or replace request attribution.
 	 */
 	private requestHeaders(): Record<string, string> | undefined {
-		const { metadata, warnings } = parseWorkbenchGatewayMetadata(this.getGatewayMetadata?.());
-		const { header } = encodeGatewayMetadata(metadata);
-		for (const warning of warnings) {
-			if (this.reportedMetadataWarnings.has(warning)) continue;
-			this.reportedMetadataWarnings.add(warning);
-			this.logger.warn(`[gateway-metadata] ${warning}`);
-		}
+		const header = this.getGatewayMetadata?.();
 		const headers = { ...connectCustomHeaders(this.credentials.customHeaders) };
-		if (header !== undefined) headers[GATEWAY_METADATA_HEADER] = header;
+		if (header !== undefined && isSafeGatewayMetadataHeader(header)) {
+			headers[GATEWAY_METADATA_HEADER] = header;
+		}
 		return Object.keys(headers).length > 0 ? headers : undefined;
 	}
 
@@ -796,19 +788,11 @@ function createConnectClientFactory(
 	callbacks?: ConnectProviderCallbacks,
 	getGatewayMetadata?: () => string | undefined,
 ): ClientFactory {
-	const reportedMetadataWarnings = new Set<string>();
 	return (credentials) => {
 		if (credentials.type !== "apikey") {
 			throw new Error(`Connect provider requires API key credentials, got: ${credentials.type}`);
 		}
-		return new ConnectClient(
-			credentials,
-			cache,
-			logger,
-			reportedMetadataWarnings,
-			callbacks,
-			getGatewayMetadata,
-		);
+		return new ConnectClient(credentials, cache, logger, callbacks, getGatewayMetadata);
 	};
 }
 
