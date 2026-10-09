@@ -136,6 +136,10 @@ export const SUPPORTED_CUSTOM_CLIENT_KIND_VALUES = [
 
 export type SupportedCustomClientKind = (typeof SUPPORTED_CUSTOM_CLIENT_KIND_VALUES)[number];
 
+export function isSupportedCustomClientKind(value: string): value is SupportedCustomClientKind {
+	return (SUPPORTED_CUSTOM_CLIENT_KIND_VALUES as readonly string[]).includes(value);
+}
+
 /**
  * Kind-level `apiKeyOptional` defaults for supported custom client kinds —
  * whether a provider of that kind can be used without an API key when the

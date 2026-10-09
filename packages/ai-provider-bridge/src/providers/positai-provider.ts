@@ -13,6 +13,7 @@ import type {
 	ProviderCredentials,
 } from "../types";
 import { isAgreementRequiredBody, joinPath } from "../utils";
+import { createPositAiAccountEmailLookup } from "./positai-account-email";
 import type { ProviderRegistry } from "./ProviderRegistry";
 
 /**
@@ -88,26 +89,55 @@ function inferVendor(apiProtocol: string | undefined): string {
 	return "unknown";
 }
 
+/**
+ * @param getAuthHostCandidates Enables the account-email lookup while setup is
+ *   pending (see `positai-account-email.ts`); absent or empty disables it.
+ */
 export function registerPositAiProvider(
 	registry: ProviderRegistry,
 	baseUrl: string | (() => string),
 	userAgent: string = "Posit Assistant/unknown",
 	logger: Logger,
+	getAuthHostCandidates?: () => readonly string[],
 ): void {
 	const resolveBaseUrl = typeof baseUrl === "function" ? baseUrl : () => baseUrl;
 	const TTL = 60 * 60 * 1000;
+	const emailLookup = createPositAiAccountEmailLookup(getAuthHostCandidates, logger);
+
+	// The listing below belongs to `listingToken`, the exact access token that
+	// filled it. The JWT `sub` isn't used: PA can't verify it, and Lucid user
+	// IDs can repeat across environments.
+	let listingToken: string | undefined;
+	// Bumped whenever the listing is reset; a /models response that settles
+	// under an older generation is dropped instead of committed.
+	let generation = 0;
 	let lastFetch = 0;
 	let cachedModels: ModelInfo[] | null = null;
 	let lastFetchState: PositAiAuthMetadata | undefined;
+
+	const resetListing = (): void => {
+		cachedModels = null;
+		lastFetch = 0;
+		lastFetchState = undefined;
+		generation++;
+	};
 
 	const fetcher: PositAiModelFetcher = async (
 		credentials: ProviderCredentials,
 	): Promise<ModelInfo[]> => {
 		const logPrefix = "[positai]";
 		const oauthCredentials = credentials as OAuthCredentials;
-		if (!oauthCredentials.accessToken) {
-			lastFetchState = undefined;
+		const token = oauthCredentials.accessToken;
+		if (!token) {
+			listingToken = undefined;
+			resetListing();
+			emailLookup.forget();
 			return [];
+		}
+		if (token !== listingToken) {
+			// Another account, or a refreshed token: nothing carries over.
+			listingToken = token;
+			resetListing();
 		}
 
 		const now = Date.now();
@@ -116,20 +146,31 @@ export function registerPositAiProvider(
 			return cachedModels;
 		}
 
+		const startGeneration = generation;
+		const superseded = (): boolean => {
+			if (startGeneration === generation) return false;
+			logger.debug(`${logPrefix} Discarding a models response superseded by a reset`);
+			return true;
+		};
+
 		try {
 			logger.debug(`${logPrefix} Fetching models from API`);
 			const response = await fetch(joinPath(resolveBaseUrl(), "/models"), {
 				headers: {
-					Authorization: `Bearer ${oauthCredentials.accessToken}`,
+					Authorization: `Bearer ${token}`,
 				},
 			});
 
 			if (!response.ok) {
 				const body = await response.text().catch(() => undefined);
 				if (response.status === 403 && isAgreementRequiredBody(body)) {
+					// Look the email up first so pending state and email land together.
+					const accountEmail = await emailLookup.lookup(token);
+					if (superseded()) return [];
 					lastFetchState = {
 						modelFetchState: "agreement_pending",
 						modelFetchStatusCode: response.status,
+						...(accountEmail !== undefined ? { accountEmail } : {}),
 					};
 					logger.warn(
 						`${logPrefix} API fetch failed: API returned 403 agreement pending, using fallback`,
@@ -137,6 +178,7 @@ export function registerPositAiProvider(
 					return [];
 				}
 
+				if (superseded()) return [];
 				lastFetchState = {
 					modelFetchState: "error",
 					modelFetchStatusCode: response.status,
@@ -146,6 +188,7 @@ export function registerPositAiProvider(
 
 			const data = (await response.json()) as PositAiModelsResponse;
 			logger.debug(`[positai] Models endpoint response: ${JSON.stringify(data)}`);
+			if (superseded()) return [];
 
 			if (!data.chat || !Array.isArray(data.chat)) {
 				lastFetchState = {
@@ -203,6 +246,7 @@ export function registerPositAiProvider(
 		} catch (error) {
 			const errorMsg = error instanceof Error ? error.message : String(error);
 			logger.warn(`${logPrefix} API fetch failed: ${errorMsg}, using fallback`);
+			if (superseded()) return [];
 			if (cachedModels) {
 				logger.debug(`${logPrefix} Returning stale cached models`);
 				lastFetchState = {
@@ -214,11 +258,9 @@ export function registerPositAiProvider(
 		}
 	};
 
-	fetcher.clearCache = () => {
-		cachedModels = null;
-		lastFetch = 0;
-		lastFetchState = undefined;
-	};
+	// Keeps the email memo: a token's email doesn't change, so a lookup
+	// started before the clear can serve the next listing attempt.
+	fetcher.clearCache = resetListing;
 	fetcher.getFetchState = () => lastFetchState;
 
 	registry.registerModelFetcher("positai", fetcher);

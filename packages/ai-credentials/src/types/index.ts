@@ -19,14 +19,20 @@ export type {
 	GoogleCloudCredentials,
 	LocalCredentials,
 	OAuthCredentials,
+	PortkeyCredentialKeyType,
 	ProviderCredentials,
 } from "./credentials.js";
 
-export { CONFIG_KEY_OVERRIDES, shapeCredentials } from "./credential-shaping.js";
+export {
+	CONFIG_KEY_OVERRIDES,
+	serializeSessionToken,
+	shapeCredentials,
+} from "./credential-shaping.js";
 export type {
 	AuthProviderMapping,
 	CredentialConfig,
 	CredentialConfigTarget,
+	SessionTokenEnvelope,
 	StructuredBaseUrlSource,
 } from "./credential-shaping.js";
 
@@ -49,6 +55,7 @@ export { storageKeyFor } from "./storage-key.js";
 export {
 	CUSTOM_CLIENT_KIND_AUTH_DESCRIPTORS,
 	CUSTOM_CLIENT_KIND_AUTH_MAP,
+	customProviderAuthMapping,
 	resolveCustomAuthMapping,
 	SUPPORTED_CUSTOM_CLIENT_KIND_VALUES,
 	SUPPORTED_CUSTOM_CLIENT_KINDS,

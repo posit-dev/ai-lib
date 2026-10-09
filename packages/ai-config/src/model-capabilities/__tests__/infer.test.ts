@@ -99,6 +99,46 @@ describe("inferModelCapabilities", () => {
 		}
 	});
 
+	it("omits off but allows max for GPT-6.1 Sol on OpenAI and Bedrock", () => {
+		for (const [providerId, modelId] of [
+			["openai", "gpt-6.1-sol"],
+			["openai", "gpt-6.1-sol-2026-09-29"],
+			["bedrock", "openai.gpt-6.1-sol"],
+			["bedrock", "openai.gpt-6.1-sol-2026-09-29"],
+		]) {
+			const levels = inferModelCapabilities(providerId, modelId).facts.thinkingEffortLevels;
+			expect(levels).toEqual(["low", "medium", "high", "xhigh", "max"]);
+		}
+	});
+
+	it("keeps provider-owned GPT-6 capacities while sharing reasoning levels", () => {
+		const openai = inferModelCapabilities("openai", "gpt-6.1-sol");
+		const bedrock = inferModelCapabilities("bedrock", "openai.gpt-6.1-sol");
+		expect(openai.facts.maxContextLength).toBe(1_050_000);
+		expect(openai.facts.maxOutputTokens).toBe(128_000);
+		expect(openai.facts.maxInputTokens).toBe(1_050_000 - 128_000);
+		expect(bedrock.facts.maxContextLength).toBe(1_000_000);
+		expect(bedrock.facts.maxInputTokens).toBeUndefined();
+		expect(bedrock.facts.maxOutputTokens).toBeUndefined();
+		expect(bedrock.operational.maxOutputTokens).toBe(16_384);
+	});
+
+	it("keeps off for future GPT-6 IDs that fall back to the family default", () => {
+		for (const [providerId, modelId] of [
+			["openai", "gpt-6.2"],
+			["bedrock", "openai.gpt-6.2"],
+		]) {
+			expect(inferModelCapabilities(providerId, modelId).facts.thinkingEffortLevels).toEqual([
+				"off",
+				"low",
+				"medium",
+				"high",
+				"xhigh",
+				"max",
+			]);
+		}
+	});
+
 	it("keeps Mantle GPT-5.6 output unknown while completing the operational view", () => {
 		const caps = inferModelCapabilities("bedrock", "openai.gpt-5.6-sol");
 		expect(caps.facts.maxContextLength).toBe(1_000_000);

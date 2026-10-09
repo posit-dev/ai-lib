@@ -18,6 +18,7 @@ import type * as z from "zod/v4";
 
 import type { OpencodeProduct } from "./base-url.js";
 import { customProviderNameIssues } from "./custom-provider-name.js";
+import type { PortkeyKeyType } from "./portkey-connection.js";
 import type {
 	builtinProviderBlockSchema,
 	customModelSchema,
@@ -123,6 +124,19 @@ export function mintCustomProviderId(id: string): CustomProviderId {
  */
 export type AzureAuthMode = "apikey" | "entra";
 
+/**
+ * A command that prints a provider's API key (`apiKeyHelper` in a provider
+ * block). `args` present => run `command` directly without a shell; absent
+ * => run `command` as one shell line. Defaults (applied by the host that runs
+ * it): `timeoutMs` 10 000, `refreshIntervalMs` 300 000, `0` = never refresh.
+ */
+export interface ApiKeyHelperConfig {
+	command: string;
+	args?: string[];
+	timeoutMs?: number;
+	refreshIntervalMs?: number;
+}
+
 /** Connection config resolved from a provider block. */
 export interface ResolvedConnection {
 	baseUrl?: string;
@@ -136,6 +150,13 @@ export interface ResolvedConnection {
 	googleCloud?: { project?: string; location?: string };
 	snowflake?: { account?: string; host?: string; home?: string; connectionName?: string };
 	databricks?: { host?: string };
+	/**
+	 * What the built-in Portkey provider's API key is. Absent means "infer
+	 * from `baseUrl`" — see `checkPortkeyConnection`.
+	 */
+	keyType?: PortkeyKeyType;
+	/** Command that supplies the API key; never merged with built-in defaults. */
+	apiKeyHelper?: ApiKeyHelperConfig;
 }
 
 /**
@@ -195,6 +216,8 @@ export interface ResolvedConnectionProvenance {
 	};
 	/** Source of the resolved `baseUrl` — computed for `ms-foundry` only. */
 	readonly baseUrl?: ResolvedConnectionFieldSource;
+	/** Source of the resolved `endpoint` — computed for `ollama` and `lmstudio` only. */
+	readonly endpoint?: ResolvedConnectionFieldSource;
 	/**
 	 * Per-field sources for the built-in `opencode` provider's `product` and
 	 * `baseUrl` fields. Unlike the ms-foundry block, a field is ABSENT when no
@@ -207,6 +230,23 @@ export interface ResolvedConnectionProvenance {
 	readonly opencode?: {
 		readonly product?: ResolvedConnectionFieldSource;
 		readonly baseUrl?: ResolvedConnectionFieldSource;
+	};
+	/**
+	 * Per-field sources for the built-in `portkey` provider's `keyType` and
+	 * `baseUrl`, so a configure form can render env- or admin-owned fields
+	 * read-only and a save can pin them. A field is absent when no layer sets
+	 * it (neither has a built-in default).
+	 */
+	readonly portkey?: {
+		readonly keyType?: ResolvedConnectionFieldSource;
+		readonly baseUrl?: ResolvedConnectionFieldSource;
+		/**
+		 * The key type that would resolve if the user layer set none — what an
+		 * administrator default (or a pin) supplies; absent when only the URL
+		 * would decide. Lets a save tell whether omitting the user's `keyType`
+		 * preserves its meaning even while the user value hides the default.
+		 */
+		readonly keyTypeAfterUserClear?: PortkeyKeyType;
 	};
 }
 

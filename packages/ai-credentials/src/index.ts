@@ -17,6 +17,7 @@
 
 export type {
 	AuthenticationChallenge,
+	AuthenticationAttemptOutcome,
 	AuthenticationStartResult,
 	CredentialMutation,
 	CredentialProvider,
@@ -36,6 +37,7 @@ export type {
 	OAuthGrantConfig,
 	OAuthProviderConfig,
 	PreparedAuthorizationCodeReceiver,
+	RefreshTransaction,
 	StoredOAuthTokens,
 } from "./Backend.js";
 export { createCredentialProvider } from "./createCredentialProvider.js";
@@ -51,3 +53,5 @@ export {
 	normalizeDatabricksWorkspaceHost,
 } from "./databricks-oauth.js";
 export type { DatabricksOidcEndpoints } from "./databricks-oauth.js";
+export { createConnectDeviceCodeGrantResolver, normalizeConnectBaseUrl } from "./connect-oauth.js";
+export type { ConnectDeviceCodeGrant, ConnectDeviceCodeGrantResolver } from "./connect-oauth.js";

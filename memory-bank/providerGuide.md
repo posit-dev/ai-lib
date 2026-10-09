@@ -164,7 +164,19 @@ call on `normalizeProtocol(params.protocol)`:
 per-mode credential wiring: LiteLLM sends the same key in each delegate's
 native scheme, while hosted Portkey sends `x-portkey-api-key` on both
 delegates with dummy native credentials, and OSS Portkey sends the upstream's
-key. The standing judgment: extract a shared
+key. A third Portkey mode, the **Portkey gateway** (key type `portkey` on a
+URL other than `https://api.portkey.ai` — a proxy in front of hosted Portkey
+or a hybrid gateway), sends only `x-portkey-api-key`: its delegates get
+`apiKey: ""`, so their anonymous paths strip `x-api-key` and `Authorization`.
+It uses the base URL verbatim (no `/v1` appended), injects no
+`x-portkey-provider`, accepts either model-id form, and discovers from
+`<url>/models`. Mode selection reads the runtime-only
+`ApiKeyCredentials.portkey.keyType` (copied from `providers.portkey.keyType`
+by the host's catalog merge; absent → inferred from the URL), and validation
+is ai-config's `checkPortkeyConnection`, shared with configure forms. The
+chat same-gateway check uses the mode-aware `samePortkeyGateway`, so the raw
+provider URL the catalog passes as `params.baseUrl` always matches its own
+connection. The standing judgment: extract a shared
 `createProtocolDispatchingClient` only when a **third** gateway provider
 arrives and the credential parameterization proves clean across all three;
 until then, mirror with the convention documented here rather than forcing a
@@ -264,7 +276,13 @@ Providers whose auth comes from a cloud CLI / ambient identity (no stored
 secret) carry a credential type with **no secret material** and let the cloud
 SDK own the token lifecycle:
 
-- `GoogleCloudCredentials` (`google-cloud`) — google-auth-library resolves ADC.
+- `GoogleCloudCredentials` (`google-cloud`) — a brokered access token when the
+  host supplies one; otherwise an inline service account from
+  `GOOGLE_CLIENT_EMAIL` + `GOOGLE_PRIVATE_KEY` (optional `GOOGLE_PRIVATE_KEY_ID`)
+  when both are set; otherwise google-auth-library resolves ADC. Discovery and
+  chat use the same order. A rejected inline service account is an auth error
+  and is not retried against ADC; a transient token-service failure takes the
+  network-error path.
 - `AzureEntraCredentials` (`azure-entra`) — `baseUrl` + required `scope` +
   optional `tenantId`/`customHeaders`. `src/model-clients/azure-entra-token.ts`
   caches `getBearerTokenProvider(new DefaultAzureCredential(...), scope)` per
@@ -279,9 +297,13 @@ Hosts that scrub credential variables pass a captured credential environment
 through `ProviderRegistrationConfig`. The bridge never reads SDK wire names
 directly: both providers call `readSdkCredentialEnvironment` from
 `ai-credentials/store-backend`, which maps the ai-credentials
-`sdkCredentialEnvironment` declaration onto a typed struct. Vertex supplies
-the captured `googleApplicationCredentials` path to both model discovery's
-`GoogleAuth` and the chat SDK's `googleAuthOptions`. Foundry materializes a
+`sdkCredentialEnvironment` declaration onto a typed struct. Vertex decides its
+credential source once, in `resolveGoogleVertexCredentialSource`
+(`src/google-vertex-credentials.ts`): a brokered token, else the captured
+inline service account, else ADC with the captured
+`googleApplicationCredentials` path. Model discovery's token minting, the chat
+SDK's `googleAuthOptions` and the auth-error guidance all switch on that one
+source. Foundry materializes a
 `ClientSecretCredential` or `ClientCertificateCredential` from the captured
 Azure values; when neither is complete it retains `DefaultAzureCredential`
 for managed identity and CLI sources. Because the names come from the

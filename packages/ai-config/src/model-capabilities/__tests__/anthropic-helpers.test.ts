@@ -64,6 +64,43 @@ describe("getAnthropicModelCapabilities", () => {
 		expect(caps?.thinkingEffortLevels).toEqual(["low", "medium", "high", "xhigh", "max"]);
 	});
 
+	it.each([
+		{ name: "bare ID", id: "claude-sonnet-5-5" },
+		{ name: "Bedrock-prefixed ID", id: "anthropic.claude-sonnet-5-5" },
+		{ name: "dot-separated ID", id: "anthropic/claude-sonnet-5.5" },
+	])("matches $name to the Sonnet 5.5 rule without an off level", ({ id }) => {
+		const caps = getAnthropicModelCapabilities(id);
+		expect(caps?.family).toBe("claude-5.5");
+		expect(caps?.maxContextLength).toBe(1_000_000);
+		expect(caps?.maxOutputTokens).toBe(128_000);
+		expect(caps?.thinkingEffortLevels).toEqual(["low", "medium", "high", "xhigh", "max"]);
+	});
+
+	it.each([
+		{ name: "bare ID", id: "claude-haiku-5-5" },
+		{ name: "Bedrock-prefixed ID", id: "anthropic.claude-haiku-5-5" },
+		{ name: "regional Bedrock ID", id: "us.anthropic.claude-haiku-5-5" },
+		{ name: "dot-separated ID", id: "anthropic/claude-haiku-5.5" },
+	])("matches $name to the Haiku 5.5 rule with an off level", ({ id }) => {
+		const caps = getAnthropicModelCapabilities(id);
+		expect(caps?.family).toBe("claude-5.5");
+		expect(caps?.maxContextLength).toBe(1_000_000);
+		expect(caps?.maxOutputTokens).toBe(128_000);
+		expect(caps?.thinkingEffortLevels).toEqual(["off", "low", "medium", "high", "xhigh", "max"]);
+	});
+
+	it("still matches claude-haiku-4-5 to the Haiku 4.5 rule", () => {
+		const caps = getAnthropicModelCapabilities("claude-haiku-4-5-20251001");
+		expect(caps?.maxContextLength).toBe(200_000);
+		expect(caps?.thinkingEffortLevels).toBeUndefined();
+	});
+
+	it("still matches plain claude-sonnet-5 to the generic Sonnet 5 rule", () => {
+		const caps = getAnthropicModelCapabilities("claude-sonnet-5");
+		expect(caps?.family).toBe("claude-5");
+		expect(caps?.thinkingEffortLevels).toContain("off");
+	});
+
 	it("still matches plain claude-opus-5 to the generic Opus 5 rule", () => {
 		const caps = getAnthropicModelCapabilities("claude-opus-5");
 		expect(caps?.family).toBe("claude-5");

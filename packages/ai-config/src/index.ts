@@ -22,6 +22,7 @@ export {
 	CLIENT_KIND_VALUES,
 	CUSTOM_KIND_API_KEY_OPTIONAL_DEFAULT,
 	isBuiltinProviderId,
+	isSupportedCustomClientKind,
 	PROTOCOL_VALUES,
 	RESERVED_PROVIDER_KEYS,
 	SUPPORTED_CUSTOM_CLIENT_KIND_VALUES,
@@ -52,6 +53,7 @@ export {
 	MODEL_ROUTING_FIELD_NAMES,
 } from "./types.js";
 export type {
+	ApiKeyHelperConfig,
 	AzureAuthMode,
 	BuiltinProviderBlock,
 	CustomModel,
@@ -185,6 +187,7 @@ export {
 	LMSTUDIO_API_VERSION,
 	LMSTUDIO_HOST,
 	normalizeBaseUrlForProvider,
+	normalizeFoundryBaseUrl,
 	normalizeOpenRouterBaseUrl,
 	OPENCODE_DEFAULT_PRODUCT,
 	OPENCODE_GO_BASE_URL,
@@ -201,6 +204,23 @@ export {
 } from "./base-url.js";
 export type { OpencodeProduct } from "./base-url.js";
 
+// --- Connection field provenance ---------------------------------------------
+export { isPinnedConnectionFieldSource } from "./connection-field-source.js";
+
+// --- Portkey key type and connection rules ---------------------------------
+export {
+	checkPortkeyConnection,
+	inferredPortkeyKeyType,
+	isPortkeyKeyType,
+	PORTKEY_KEY_TYPES,
+} from "./portkey-connection.js";
+export type {
+	PortkeyConnectionCheck,
+	PortkeyConnectionField,
+	PortkeyConnectionInput,
+	PortkeyKeyType,
+} from "./portkey-connection.js";
+
 // --- Deep resolver seam (owns the precedence stack) ------------------------
 export { resolveProviderCatalog, resolveProviderCatalogReport } from "./resolve-catalog.js";
 export type {
@@ -210,6 +230,11 @@ export type {
 	ResolveProviderCatalogOptions,
 } from "./resolve-catalog.js";
 export type { ConfigIssue, SourcedConfigIssue } from "./config-issue.js";
+export type {
+	ProvidersConfigInvalidDetail,
+	ProvidersConfigInvalidPhase,
+	ProvidersConfigSchemaIssue,
+} from "./providers-config-invalid.js";
 
 // --- Tolerant providers.json validation ------------------------------------
 export { salvageProvidersConfig } from "./salvage-config.js";

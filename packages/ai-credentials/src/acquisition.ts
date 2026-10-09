@@ -4,11 +4,15 @@
 
 import type {
 	AcquisitionBackendHooks,
+	AuthenticationCommitResult,
 	OAuthGrantConfig,
 	PreparedAuthorizationCodeReceiver,
 	StoredOAuthTokens,
 } from "./Backend.js";
-import type { AuthenticationStartResult } from "./CredentialProvider.js";
+import type {
+	AuthenticationAttemptOutcome,
+	AuthenticationStartResult,
+} from "./CredentialProvider.js";
 import type { DeviceAuthInfo, Logger, ProviderCredentials, TokenData } from "./types/index.js";
 
 interface TokenResponse {
@@ -26,6 +30,12 @@ interface ActiveAttempt {
 	controller: AbortController;
 	receiver?: PreparedAuthorizationCodeReceiver;
 	terminalPromise?: Promise<void>;
+	/**
+	 * Set before this attempt writes its own final record (tokens or error),
+	 * so an outcome query that sees the record change waits for the write's
+	 * result instead of mistaking it for another writer's.
+	 */
+	settling?: Promise<unknown>;
 }
 
 interface DeviceAuthenticationStart {
@@ -36,6 +46,8 @@ interface DeviceAuthenticationStart {
 const DEFAULT_AUTHORIZATION_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_REFRESH_TIMEOUT_MS = 30_000;
 const DEFAULT_REFRESH_COOLDOWN_MS = 60_000;
+/** Settled attempt outcomes kept for late queries; oldest are dropped first. */
+const MAX_SETTLED_OUTCOMES = 100;
 
 /**
  * Refresh-failure policy: only a definitive server rejection — one of these
@@ -68,9 +80,17 @@ export interface AcquisitionRefreshPolicy {
 export class AcquisitionEngine {
 	private readonly activeByProvider = new Map<string, ActiveAttempt>();
 	private readonly activeById = new Map<string, ActiveAttempt>();
+	private readonly outcomes = new Map<
+		string,
+		Exclude<AuthenticationAttemptOutcome, { status: "pending" }>
+	>();
 	private readonly startingProviders = new Set<string>();
 	private readonly refreshPromises = new Map<string, Promise<ProviderCredentials | null>>();
 	private readonly refreshCooldowns = new Map<string, number>();
+	private readonly grantSetupCooldowns = new Map<
+		string,
+		{ until: number; scope: string | undefined }
+	>();
 	private readonly clientCredentialTokens = new Map<string, StoredOAuthTokens>();
 	private readonly refreshJitterMinutes = 4 + Math.random() * 2;
 	private readonly startPromises = new Set<Promise<unknown>>();
@@ -92,14 +112,24 @@ export class AcquisitionEngine {
 	async getCredentials(
 		providerId: string,
 	): Promise<{ handled: boolean; credentials: ProviderCredentials | null }> {
-		const config = await this.hooks.configForProvider(providerId);
+		const resolution = await this.resolveGrantForRead(providerId);
+		if (resolution.kind === "failed") {
+			const offline = await this.readOfflineToken(providerId);
+			// No refresh is possible without a grant, so the early refresh window
+			// does not apply: serve the token until it actually expires.
+			if (offline && !this.isExpiring(offline.tokens, 0)) {
+				return { handled: true, credentials: offline.credentials };
+			}
+			return { handled: false, credentials: null };
+		}
+		const config = resolution.config;
 		if (!config) return { handled: false, credentials: null };
 
 		if (config.grantType === "client-credentials") {
 			return { handled: true, credentials: await this.getClientCredentials(providerId, config) };
 		}
 
-		const tokens = await this.hooks.readTokens(providerId);
+		const tokens = await this.hooks.readTokens(providerId, config);
 		if (!tokens) return { handled: true, credentials: null };
 		if (!this.isExpiring(tokens)) {
 			return {
@@ -108,7 +138,88 @@ export class AcquisitionEngine {
 			};
 		}
 
-		return { handled: true, credentials: await this.refreshStored(providerId, config) };
+		const refreshed = await this.refreshStored(providerId, config);
+		if (refreshed) return { handled: true, credentials: refreshed };
+		// Refresh may have failed transiently or be cooling down. Re-read instead
+		// of using `tokens`: another writer may have cleared the record or switched
+		// servers while the exchange was in flight. A terminal rejection leaves no
+		// ready tokens, while a transient failure can still use an unexpired one.
+		let current: StoredOAuthTokens | null;
+		try {
+			current = await this.hooks.readTokens(providerId, config);
+		} catch (error) {
+			this.logger?.warn(
+				`[ai-credentials] Could not re-read stored tokens after refresh failed for ${providerId}`,
+				error,
+			);
+			return { handled: true, credentials: null };
+		}
+		return {
+			handled: true,
+			credentials:
+				current && !this.isExpiring(current, 0)
+					? this.hooks.shapeToken(providerId, current.accessToken, config)
+					: null,
+		};
+	}
+
+	/**
+	 * The host-approved stored token served while grant setup is failing. The
+	 * offline policy can itself fail (it may read managed configuration); a
+	 * failure there yields no token rather than failing the credential read.
+	 */
+	private async readOfflineToken(
+		providerId: string,
+	): Promise<{ tokens: StoredOAuthTokens; credentials: ProviderCredentials } | null> {
+		try {
+			return (await this.hooks.readOnGrantSetupFailure?.(providerId)) ?? null;
+		} catch (error) {
+			this.logger?.warn(
+				`[ai-credentials] Offline token check for ${providerId} failed; serving no token`,
+				error,
+			);
+			return null;
+		}
+	}
+
+	/**
+	 * Resolve the grant for a credential read. Resolving can do network I/O
+	 * (Connect discovery and client registration, Databricks OIDC discovery);
+	 * a failure there leaves the stored record untouched. On a failure or its
+	 * cooldown, a host-approved, still-valid server-bound token can be served
+	 * without resolving a grant; other reads fall back to the backend (which
+	 * yields no credential for an OAuth source). Further reads skip setup for
+	 * the cooldown instead of retrying it on every status poll. The cooldown
+	 * belongs to the source setup failed for: once the stored source changes
+	 * (another window signed in to a different server), the next read sets the
+	 * new source up immediately. An explicit sign-in calls `configForProvider`
+	 * directly, so its error still surfaces.
+	 */
+	private async resolveGrantForRead(
+		providerId: string,
+	): Promise<{ kind: "failed" } | { kind: "resolved"; config: OAuthGrantConfig | undefined }> {
+		// Read before setup so a source switched while setup was in flight is
+		// not suppressed by the old source's failure.
+		let scope: string | undefined;
+		try {
+			scope = await this.hooks.grantSetupScope?.(providerId);
+			const cooldown = this.grantSetupCooldowns.get(providerId);
+			if (cooldown !== undefined) {
+				if (cooldown.scope === scope && cooldown.until > Date.now()) return { kind: "failed" };
+				this.grantSetupCooldowns.delete(providerId);
+			}
+			return { kind: "resolved", config: await this.hooks.configForProvider(providerId) };
+		} catch (error) {
+			this.grantSetupCooldowns.set(providerId, {
+				until: Date.now() + this.refreshCooldownMs,
+				scope,
+			});
+			this.logger?.warn(
+				`[ai-credentials] OAuth setup for ${providerId} failed (transient); stored tokens kept`,
+				error,
+			);
+			return { kind: "failed" };
+		}
 	}
 
 	startAuthentication(providerId: string): Promise<AuthenticationStartResult> {
@@ -141,8 +252,12 @@ export class AcquisitionEngine {
 		deviceOnly: boolean,
 	): Promise<{ result: AuthenticationStartResult; device?: DeviceAuthenticationStart }> {
 		let attempt: ActiveAttempt | undefined;
+		let resolved: OAuthGrantConfig | undefined;
 		try {
 			const config = await this.hooks.configForProvider(providerId);
+			resolved = config;
+			// Setup works again; reads need not wait out an earlier failure.
+			this.grantSetupCooldowns.delete(providerId);
 			if (this.disposed) throw new Error("Credential provider is disposed");
 			if (!config || config.grantType === "client-credentials") {
 				throw new Error(`Interactive authentication is not supported for provider: ${providerId}`);
@@ -152,7 +267,7 @@ export class AcquisitionEngine {
 			}
 
 			const attemptId = randomOpaque(16);
-			const generation = await this.hooks.beginAuthentication(providerId);
+			const generation = await this.hooks.beginAuthentication(providerId, config);
 			if (this.disposed) {
 				await this.hooks.finishAuthentication(providerId, generation, "cancelled");
 				throw new Error("Credential provider is disposed");
@@ -172,6 +287,7 @@ export class AcquisitionEngine {
 			}
 			return { result: await this.startAuthorizationCode(attempt, config) };
 		} catch (error) {
+			if (resolved) this.reportClientRejection(providerId, resolved, error);
 			if (attempt) {
 				await this.terminateAttempt(attempt, errorCode(error));
 			}
@@ -185,16 +301,48 @@ export class AcquisitionEngine {
 		void this.terminateAttempt(attempt, "cancelled");
 	}
 
-	cancelProvider(providerId: string, persistTerminal = true): void {
-		const attempt = this.activeByProvider.get(providerId);
-		if (!attempt) return;
-		if (persistTerminal) {
-			void this.terminateAttempt(attempt, "cancelled");
-		} else {
-			attempt.controller.abort();
-			attempt.receiver?.dispose();
-			this.removeAttempt(attempt);
+	/**
+	 * Outcome of an attempt this engine started. A pending attempt is checked
+	 * against the stored record: once another writer replaced it, the attempt
+	 * is stopped (without writing) and reports `superseded`.
+	 */
+	async getAttemptOutcome(attemptId: string): Promise<AuthenticationAttemptOutcome | undefined> {
+		const attempt = this.activeById.get(attemptId);
+		if (!attempt) return this.outcomes.get(attemptId);
+		const held = await this.hooks.holdsAuthentication(attempt.providerId, attempt.generation);
+		// `settling` is set before the attempt's own final write starts, so if
+		// this read saw that write, the outcome is awaited rather than misread.
+		if (attempt.settling) {
+			await attempt.settling.catch(() => undefined);
+			return this.outcomes.get(attemptId);
 		}
+		if (!this.isCurrent(attempt)) return this.outcomes.get(attemptId);
+		if (held) return { status: "pending" };
+		this.recordOutcome(attempt, { status: "superseded" });
+		this.stopAttempt(attempt);
+		return this.outcomes.get(attemptId);
+	}
+
+	cancelProvider(providerId: string): void {
+		const attempt = this.activeByProvider.get(providerId);
+		if (attempt) void this.terminateAttempt(attempt, "cancelled");
+	}
+
+	/**
+	 * Run `write`, which replaces the provider's stored record, then stop the
+	 * sign-in that was in flight as `superseded`. If `write` throws it wrote
+	 * nothing, so the attempt still owns its pending record and keeps going.
+	 * An attempt whose own final write already began is left to settle: its
+	 * commit, ordered against `write` by the store, decides the outcome.
+	 */
+	async replaceRecord<T>(providerId: string, write: () => Promise<T>): Promise<T> {
+		const attempt = this.activeByProvider.get(providerId);
+		const result = await write();
+		if (attempt && this.isCurrent(attempt) && !attempt.settling) {
+			this.recordOutcome(attempt, { status: "superseded" });
+			this.stopAttempt(attempt);
+		}
+		return result;
 	}
 
 	dispose(): Promise<void> {
@@ -332,20 +480,11 @@ export class AcquisitionEngine {
 				attempt.controller.signal,
 			);
 			const tokens = await tokenData(response, true);
-			const committed = await this.hooks.commitAuthentication(
-				attempt.providerId,
-				attempt.generation,
-				tokens,
-			);
+			const committed = await this.commitTokens(attempt, tokens);
 			if (committed === "committed") this.hooks.notifyReady(attempt.providerId);
 		} catch (error) {
-			if (this.isCurrent(attempt)) {
-				await this.hooks.finishAuthentication(
-					attempt.providerId,
-					attempt.generation,
-					errorCode(error),
-				);
-			}
+			this.reportClientRejection(attempt.providerId, config, error);
+			if (this.isCurrent(attempt)) await this.commitFailure(attempt, errorCode(error));
 		} finally {
 			attempt.receiver?.dispose();
 			this.removeAttempt(attempt);
@@ -375,11 +514,7 @@ export class AcquisitionEngine {
 				);
 				if (response.ok) {
 					const tokens = await tokenData(response, true);
-					const committed = await this.hooks.commitAuthentication(
-						attempt.providerId,
-						attempt.generation,
-						tokens,
-					);
+					const committed = await this.commitTokens(attempt, tokens);
 					if (committed === "committed") this.hooks.notifyReady(attempt.providerId);
 					return;
 				}
@@ -393,12 +528,12 @@ export class AcquisitionEngine {
 				throw new Error(code);
 			}
 		} catch (error) {
+			this.reportClientRejection(attempt.providerId, config, error);
 			if (this.isCurrent(attempt) && !attempt.controller.signal.aborted) {
-				await this.hooks.finishAuthentication(
-					attempt.providerId,
-					attempt.generation,
-					errorCode(error),
+				this.logger?.info(
+					`[ai-credentials] device poll for ${attempt.providerId} ended: ${errorCode(error)}`,
 				);
+				await this.commitFailure(attempt, errorCode(error));
 			}
 		} finally {
 			this.removeAttempt(attempt);
@@ -429,7 +564,7 @@ export class AcquisitionEngine {
 	}
 
 	/**
-	 * Refresh under the cross-process store lock. Only a definitive server
+	 * Refresh under the backing store's transaction boundary. Only a definitive server
 	 * rejection (see {@link TERMINAL_REFRESH_CODES}) tombstones the stored
 	 * tokens; every other failure keeps them so a later attempt can retry.
 	 * The transaction yields the access token to shape; shaping happens
@@ -442,9 +577,9 @@ export class AcquisitionEngine {
 	): Promise<ProviderCredentials | null> {
 		let accessToken: string | null;
 		try {
-			accessToken = await this.hooks.withRefreshTransaction(providerId, async () => {
-				const current = await this.hooks.readTokens(providerId);
-				if (!current) return null;
+			accessToken = await this.hooks.withRefreshTransaction(providerId, config, async (refresh) => {
+				if (!refresh) return null;
+				const current = refresh.tokens;
 				if (!this.isExpiring(current, 2)) {
 					return current.accessToken;
 				}
@@ -462,14 +597,21 @@ export class AcquisitionEngine {
 					);
 					refreshed = await tokenData(response, false, current.refreshToken);
 				} catch (error) {
+					this.reportClientRejection(providerId, config, error);
 					if (isTerminalRefreshError(error)) {
 						// Re-auth is genuinely required. Classification and the
 						// tombstone stay inside the transaction so a concurrent
 						// refresher cannot overwrite the terminal record.
-						await this.hooks.persistRefreshError(providerId, "refresh_failed");
-						this.logger?.error(
-							`[ai-credentials] refresh rejected for ${providerId} (terminal: ${describeRefreshError(error)}); stored tokens removed`,
-						);
+						const result = await refresh.commitError("refresh_failed");
+						if (result === "committed") {
+							this.logger?.error(
+								`[ai-credentials] refresh rejected for ${providerId} (terminal: ${describeRefreshError(error)}); stored tokens removed`,
+							);
+						} else {
+							this.logger?.warn(
+								`[ai-credentials] refresh rejected for ${providerId} (terminal: ${describeRefreshError(error)}); stored record changed during the refresh and was kept`,
+							);
+						}
 					} else {
 						this.startRefreshCooldown(providerId);
 						this.logger?.warn(
@@ -479,7 +621,12 @@ export class AcquisitionEngine {
 					return null;
 				}
 				try {
-					await this.hooks.persistRefreshedTokens(providerId, refreshed);
+					const result = await refresh.commitTokens(refreshed);
+					if (result === "superseded") {
+						this.logger?.debug(
+							`[ai-credentials] refreshed tokens for ${providerId} not stored: stored record changed during the refresh`,
+						);
+					}
 				} catch (error) {
 					// The exchange succeeded but the rotated tokens could not be
 					// saved. Keep the old record and retry later; if the server
@@ -506,6 +653,19 @@ export class AcquisitionEngine {
 		}
 		if (accessToken === null) return null;
 		return this.hooks.shapeToken(providerId, accessToken, config);
+	}
+
+	/** Tell the backend its grant's client was rejected, so a cached grant is dropped. */
+	private reportClientRejection(
+		providerId: string,
+		config: OAuthGrantConfig,
+		error: unknown,
+	): void {
+		if (!isClientRejection(error)) return;
+		this.logger?.warn(
+			`[ai-credentials] authorization server rejected the OAuth client for ${providerId}`,
+		);
+		this.hooks.rejectGrant?.(providerId, config);
 	}
 
 	private startRefreshCooldown(providerId: string): void {
@@ -564,10 +724,86 @@ export class AcquisitionEngine {
 		});
 	}
 
-	private terminateAttempt(attempt: ActiveAttempt, error: string): Promise<void> {
+	/** Store an attempt's tokens, recording whether they (or another writer's record) won. */
+	private commitTokens(
+		attempt: ActiveAttempt,
+		tokens: TokenData,
+	): Promise<AuthenticationCommitResult> {
+		return this.settle(
+			attempt,
+			this.hooks.commitAuthentication(attempt.providerId, attempt.generation, tokens),
+			{ status: "succeeded" },
+		);
+	}
+
+	/** Store an attempt's terminal error, recording the failure unless another writer won. */
+	private commitFailure(
+		attempt: ActiveAttempt,
+		error: string,
+	): Promise<AuthenticationCommitResult> {
+		return this.settle(
+			attempt,
+			this.hooks.finishAuthentication(attempt.providerId, attempt.generation, error),
+			{ status: "failed", error },
+		);
+	}
+
+	private settle(
+		attempt: ActiveAttempt,
+		write: Promise<AuthenticationCommitResult>,
+		outcome: Exclude<AuthenticationAttemptOutcome, { status: "pending" }>,
+	): Promise<AuthenticationCommitResult> {
+		const settled = write.then(
+			(result) => {
+				this.recordOutcome(attempt, result === "committed" ? outcome : { status: "superseded" });
+				return result;
+			},
+			(error: unknown) => {
+				this.recordOutcome(attempt, { status: "failed", error: errorCode(error) });
+				throw error;
+			},
+		);
+		attempt.settling = settled;
+		return settled;
+	}
+
+	/** Record an attempt's outcome once; the first terminal outcome wins. */
+	private recordOutcome(
+		attempt: ActiveAttempt,
+		outcome: Exclude<AuthenticationAttemptOutcome, { status: "pending" }>,
+	): void {
+		if (this.outcomes.has(attempt.attemptId)) return;
+		this.outcomes.set(attempt.attemptId, outcome);
+		if (this.outcomes.size > MAX_SETTLED_OUTCOMES) {
+			const oldest = this.outcomes.keys().next().value;
+			if (oldest !== undefined) this.outcomes.delete(oldest);
+		}
+	}
+
+	/** Stop an attempt's polling or callback wait without writing anything. */
+	private stopAttempt(attempt: ActiveAttempt): void {
 		attempt.controller.abort();
 		attempt.receiver?.dispose();
 		this.removeAttempt(attempt);
+	}
+
+	private terminateAttempt(attempt: ActiveAttempt, error: string): Promise<void> {
+		// The attempt's own final write (tokens or error) has begun. It decides
+		// the outcome: recording `cancelled` now could report a sign-in as
+		// stopped while its tokens are committed, and a terminal write racing it
+		// would make a committed attempt look superseded. The attempt stays
+		// active until the write settles, so outcome queries wait for it.
+		if (attempt.settling) {
+			return attempt.settling.then(
+				() => undefined,
+				() => undefined,
+			);
+		}
+		this.recordOutcome(
+			attempt,
+			error === "cancelled" ? { status: "cancelled" } : { status: "failed", error },
+		);
+		this.stopAttempt(attempt);
 		if (attempt.terminalPromise) {
 			return attempt.terminalPromise;
 		}
@@ -593,6 +829,13 @@ export class AcquisitionEngine {
 	}
 }
 
+/**
+ * POST a form to an OAuth endpoint. Every body sent here carries credential
+ * material (client secrets, device codes, authorization codes, refresh
+ * tokens), so redirects are never followed: a 307/308 would forward the body
+ * to wherever `Location` points, bypassing the endpoint origin and HTTPS checks
+ * the grant was resolved under. A redirect surfaces as its non-2xx status.
+ */
 async function postForm(
 	url: string,
 	params: Record<string, string>,
@@ -604,6 +847,7 @@ async function postForm(
 		headers: { "Content-Type": "application/x-www-form-urlencoded" },
 		body: new URLSearchParams(params).toString(),
 		signal,
+		redirect: "manual",
 	});
 	if (!allowError && !response.ok) {
 		const { detail, code } = await oauthErrorInfo(response);
@@ -656,6 +900,15 @@ async function oauthErrorInfo(response: Response): Promise<OAuthErrorInfo> {
 	} catch {
 		return { detail: "", code: undefined };
 	}
+}
+
+/**
+ * The server rejected the client itself (RFC 6749 §5.2 `invalid_client`),
+ * from a thrown token/device endpoint error or a device poll's error code.
+ */
+function isClientRejection(error: unknown): boolean {
+	if (error instanceof OAuthHttpError) return error.code === "invalid_client";
+	return error instanceof Error && error.message === "invalid_client";
 }
 
 /** A definitive server rejection of the refresh token; anything else retries. */

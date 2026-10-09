@@ -31,6 +31,10 @@ import {
 	PROVIDERS_CONFIG_PATH,
 	PROVIDERS_SCHEMA_URL,
 } from "./paths.js";
+import {
+	existingFileInvalidError,
+	proposedResultInvalidError,
+} from "./providers-config-invalid-error.js";
 import type { LoggerLike, MutateConfigOptions } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -253,10 +257,7 @@ async function performLockedMutation(
 		// Validate the result
 		const result = providersConfigSchema.safeParse(updated);
 		if (!result.success) {
-			const errors = result.error.issues
-				.map((i) => `${i.path?.join(".") ?? ""}: ${i.message}`)
-				.join("; ");
-			throw new Error(`[ai-config] Mutated config is invalid: ${errors}`);
+			throw proposedResultInvalidError(configPath, result.error.issues);
 		}
 
 		const normalized = normalizeJsonValue(result.data);
@@ -290,6 +291,8 @@ async function performLockedMutation(
  * Read and validate the current config file. Any failure aborts the mutation:
  * after race-safe creation, an unreadable or missing file is anomalous, and
  * treating invalid content as `{}` would silently discard user configuration.
+ * Invalid content throws {@link ProvidersConfigInvalidError} so hosts can say
+ * why; read failures throw a plain error.
  */
 async function readCurrentConfig(
 	configPath: string,
@@ -298,6 +301,10 @@ async function readCurrentConfig(
 		const raw = await fs.readFile(configPath, "utf-8");
 		return { raw, config: parseProvidersConfig(raw) };
 	} catch (error) {
+		const invalid = existingFileInvalidError(configPath, error);
+		if (invalid) {
+			throw invalid;
+		}
 		throw new Error(
 			`[ai-config] Cannot mutate ${configPath}: ${errorMessage(error)}. Mutation aborted until the file is fixed.`,
 			{ cause: error },

@@ -43,22 +43,28 @@ export interface EnvironmentFieldDescriptor {
 }
 
 /**
- * Typed view of the environment values provider SDKs read directly (Azure
- * Identity, Google ADC). Assembled by `readSdkCredentialEnvironment` from
+ * Typed view of the environment values read outside the API-key and OAuth
+ * mappings (see `sdkCredentialEnvironment`). Assembled by `readSdkCredentialEnvironment` from
  * the `sdkCredentialEnvironment` descriptors; the descriptor keys are typed
  * against this struct so a misspelled semantic key is a compile error.
  */
 export interface SdkCredentialEnvironment {
 	readonly googleApplicationCredentials?: string;
+	readonly googleClientEmail?: string;
+	readonly googlePrivateKey?: string;
+	readonly googlePrivateKeyId?: string;
 	readonly azureTenantId?: string;
 	readonly azureClientId?: string;
 	readonly azureClientSecret?: string;
 	readonly azureClientCertificatePath?: string;
 	readonly azureClientCertificatePassword?: string;
+	readonly databricksConfigFile?: string;
 }
 
 export interface ProviderEnvMapping {
 	apiKey?: EnvironmentFieldDescriptor;
+	/** Older names for the same key, tried in order after `apiKey`. */
+	apiKeyAliases?: readonly EnvironmentFieldDescriptor[];
 	oauthM2m?: {
 		authType: EnvironmentFieldDescriptor;
 		host: EnvironmentFieldDescriptor;
@@ -73,9 +79,10 @@ export interface ProviderEnvMapping {
 		sessionToken?: EnvironmentFieldDescriptor;
 	};
 	/**
-	 * Environment variables the provider's SDK reads directly (bypassing the
-	 * credential resolver), keyed by the semantic field of
-	 * `SdkCredentialEnvironment` they populate.
+	 * Environment variables read outside the provider's API-key and OAuth
+	 * mappings: by the provider's SDK directly (Azure Identity, Google ADC) or
+	 * by a credential-source check such as the Workbench-managed Databricks
+	 * profile. Keyed by the semantic field of `SdkCredentialEnvironment` they populate.
 	 */
 	sdkCredentialEnvironment?: Partial<
 		Record<keyof SdkCredentialEnvironment, EnvironmentFieldDescriptor>
@@ -131,6 +138,7 @@ function providerEnvironmentDescriptors(providerId: string): EnvironmentFieldDes
 	if (!mapping) return [];
 	return [
 		...(mapping.apiKey ? [mapping.apiKey] : []),
+		...(mapping.apiKeyAliases ?? []),
 		...(mapping.oauthM2m ? Object.values(mapping.oauthM2m) : []),
 		...(mapping.aws ? Object.values(mapping.aws) : []),
 		...(mapping.sdkCredentialEnvironment ? Object.values(mapping.sdkCredentialEnvironment) : []),
@@ -152,11 +160,15 @@ export function readSdkCredentialEnvironment(
 	const descriptors = sdkCredentialDescriptors();
 	return {
 		googleApplicationCredentials: readField(env, descriptors.googleApplicationCredentials),
+		googleClientEmail: readField(env, descriptors.googleClientEmail),
+		googlePrivateKey: readField(env, descriptors.googlePrivateKey),
+		googlePrivateKeyId: readField(env, descriptors.googlePrivateKeyId),
 		azureTenantId: readField(env, descriptors.azureTenantId),
 		azureClientId: readField(env, descriptors.azureClientId),
 		azureClientSecret: readField(env, descriptors.azureClientSecret),
 		azureClientCertificatePath: readField(env, descriptors.azureClientCertificatePath),
 		azureClientCertificatePassword: readField(env, descriptors.azureClientCertificatePassword),
+		databricksConfigFile: readField(env, descriptors.databricksConfigFile),
 	};
 }
 

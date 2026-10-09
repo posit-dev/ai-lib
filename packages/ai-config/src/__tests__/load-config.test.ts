@@ -951,4 +951,35 @@ describe("loadResolvedProviderCatalog", () => {
 			expect((await loadProviderCatalogReport(opts)).issues).toEqual([]);
 		});
 	});
+
+	describe("hostDefaults", () => {
+		it("folds hostDefaults below the user file", async () => {
+			await fixture.writeTypedConfig({
+				providers: { positai: { positaiLogin: { host: "login.example.test" } } },
+			});
+			const catalog = await loadResolvedProviderCatalog({
+				configPath,
+				envVars: {},
+				hostDefaults: { providers: { positai: { positaiLogin: { clientId: "positron" } } } },
+			});
+			const positai = findProvider(catalog, "positai");
+			expect(positai?.connection.positaiLogin).toEqual({
+				host: "login.example.test",
+				clientId: "positron",
+				scope: "prism",
+			});
+		});
+
+		it("lets the user file override a hostDefaults value", async () => {
+			await fixture.writeTypedConfig({
+				providers: { positai: { positaiLogin: { clientId: "mine" } } },
+			});
+			const catalog = await loadResolvedProviderCatalog({
+				configPath,
+				envVars: {},
+				hostDefaults: { providers: { positai: { positaiLogin: { clientId: "positron" } } } },
+			});
+			expect(findProvider(catalog, "positai")?.connection.positaiLogin?.clientId).toBe("mine");
+		});
+	});
 });

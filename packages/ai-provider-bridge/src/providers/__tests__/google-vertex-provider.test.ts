@@ -3,6 +3,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { mintCustomProviderId } from "ai-config";
+import { captureProviderEnvironment } from "ai-credentials/store-backend";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const authMocks = vi.hoisted(() => ({
@@ -16,12 +17,14 @@ vi.mock("google-auth-library", () => ({
 	OAuth2Client: class {},
 }));
 
+import { resolveGoogleVertexAccessToken } from "../../google-vertex-credentials";
 import {
 	getEffectiveLocation,
 	isVertexAnthropicModel,
 } from "../../model-clients/GoogleVertexClient";
 import type { Logger } from "../../types";
 import {
+	claudeDisplayName,
 	registerCustomGoogleVertexProvider,
 	registerGoogleVertexProvider,
 } from "../google-vertex-provider";
@@ -85,6 +88,122 @@ describe("registerGoogleVertexProvider", () => {
 		});
 		expect(mockLogger.error).toHaveBeenCalledWith(
 			expect.stringContaining("Reconnect Google Cloud auth in Positron"),
+		);
+	});
+
+	it("uses Positron auth guidance for a brokered token even when inline variables are set", async () => {
+		const onProviderStatusChange = vi.fn().mockResolvedValue(undefined);
+		const registry = new ProviderRegistry(mockLogger);
+		registerGoogleVertexProvider(
+			registry,
+			mockLogger,
+			{ onProviderStatusChange },
+			{
+				GOOGLE_CLIENT_EMAIL: "svc@example.iam.gserviceaccount.com",
+				GOOGLE_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\\nabc\\n-----END PRIVATE KEY-----",
+			},
+		);
+
+		await registry.getModelsForProvider("google-vertex", {
+			type: "google-cloud",
+			project: "my-project",
+			location: "us-central1",
+			accessToken: "brokered-token",
+		});
+
+		expect(authMocks.googleAuth).not.toHaveBeenCalled();
+		expect(onProviderStatusChange).toHaveBeenCalledWith(
+			expect.objectContaining({
+				status: "auth_error",
+				error: expect.objectContaining({ code: "google_cloud_auth_expired" }),
+			}),
+		);
+	});
+
+	it("points inline service-account users at their variables when Vertex rejects the minted token", async () => {
+		const onProviderStatusChange = vi.fn().mockResolvedValue(undefined);
+		const registry = new ProviderRegistry(mockLogger);
+		registerGoogleVertexProvider(
+			registry,
+			mockLogger,
+			{ onProviderStatusChange },
+			{
+				GOOGLE_CLIENT_EMAIL: "svc@example.iam.gserviceaccount.com",
+				GOOGLE_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\\nabc\\n-----END PRIVATE KEY-----",
+			},
+		);
+
+		await registry.getModelsForProvider("google-vertex", {
+			type: "google-cloud",
+			project: "my-project",
+			location: "us-central1",
+		});
+
+		expect(onProviderStatusChange).toHaveBeenCalledWith(
+			expect.objectContaining({
+				status: "auth_error",
+				error: expect.objectContaining({ code: "inline_service_account_rejected" }),
+			}),
+		);
+	});
+
+	it("reports rejected inline service-account credentials as an auth error, not a network error", async () => {
+		authMocks.getAccessToken.mockRejectedValueOnce(new Error("invalid_rapt"));
+		const onProviderStatusChange = vi.fn().mockResolvedValue(undefined);
+		const registry = new ProviderRegistry(mockLogger);
+		registerGoogleVertexProvider(
+			registry,
+			mockLogger,
+			{ onProviderStatusChange },
+			{
+				GOOGLE_CLIENT_EMAIL: "svc@example.iam.gserviceaccount.com",
+				GOOGLE_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\\nabc\\n-----END PRIVATE KEY-----",
+			},
+		);
+
+		const models = await registry.getModelsForProvider("google-vertex", {
+			type: "google-cloud",
+			project: "my-project",
+			location: "us-central1",
+		});
+
+		expect(models).toEqual([]);
+		expect(onProviderStatusChange).toHaveBeenCalledWith(
+			expect.objectContaining({
+				providerId: "google-vertex",
+				status: "auth_error",
+				error: expect.objectContaining({
+					code: "inline_service_account_rejected",
+					message: expect.stringContaining("GOOGLE_CLIENT_EMAIL and GOOGLE_PRIVATE_KEY"),
+				}),
+			}),
+		);
+	});
+
+	it("reports a dropped inline token exchange as a network error, not rejected credentials", async () => {
+		authMocks.getAccessToken.mockRejectedValueOnce(
+			Object.assign(new Error("socket hang up"), { code: "ECONNRESET" }),
+		);
+		const onProviderStatusChange = vi.fn().mockResolvedValue(undefined);
+		const registry = new ProviderRegistry(mockLogger);
+		registerGoogleVertexProvider(
+			registry,
+			mockLogger,
+			{ onProviderStatusChange },
+			{
+				GOOGLE_CLIENT_EMAIL: "svc@example.iam.gserviceaccount.com",
+				GOOGLE_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\\nabc\\n-----END PRIVATE KEY-----",
+			},
+		);
+
+		await registry.getModelsForProvider("google-vertex", {
+			type: "google-cloud",
+			project: "my-project",
+			location: "us-central1",
+		});
+
+		expect(onProviderStatusChange).toHaveBeenCalledWith(
+			expect.objectContaining({ providerId: "google-vertex", status: "network_error" }),
 		);
 	});
 
@@ -174,6 +293,110 @@ describe("registerGoogleVertexProvider", () => {
 	});
 });
 
+describe("resolveGoogleVertexAccessToken", () => {
+	const inlineEnv = {
+		GOOGLE_CLIENT_EMAIL: "svc@example.iam.gserviceaccount.com",
+		GOOGLE_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\\nabc\\n-----END PRIVATE KEY-----",
+	};
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		authMocks.getClient.mockResolvedValue({ getAccessToken: authMocks.getAccessToken });
+		authMocks.googleAuth.mockImplementation(() => ({ getClient: authMocks.getClient }));
+	});
+
+	it("mints from inline service-account env vars before ADC", async () => {
+		authMocks.getAccessToken.mockResolvedValueOnce({ token: "inline-token" });
+		await expect(resolveGoogleVertexAccessToken(inlineEnv)).resolves.toBe("inline-token");
+		expect(authMocks.googleAuth).toHaveBeenCalledWith(
+			expect.objectContaining({
+				credentials: expect.objectContaining({
+					client_email: inlineEnv.GOOGLE_CLIENT_EMAIL,
+					private_key: "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----",
+				}),
+			}),
+		);
+	});
+
+	it("mints from the captured provider environment a scrubbing host hands over", async () => {
+		authMocks.getAccessToken.mockResolvedValueOnce({ token: "inline-token" });
+		const captured = captureProviderEnvironment(["google-vertex"], {
+			...inlineEnv,
+			GOOGLE_PRIVATE_KEY_ID: "kid-1",
+			UNRELATED: "x",
+		});
+		expect(captured.scrubbedNames).toContain("GOOGLE_PRIVATE_KEY");
+		await expect(resolveGoogleVertexAccessToken(captured.environment)).resolves.toBe(
+			"inline-token",
+		);
+		expect(authMocks.googleAuth).toHaveBeenCalledWith(
+			expect.objectContaining({
+				credentials: expect.objectContaining({
+					client_email: inlineEnv.GOOGLE_CLIENT_EMAIL,
+					private_key_id: "kid-1",
+				}),
+			}),
+		);
+	});
+
+	it("includes GOOGLE_PRIVATE_KEY_ID when set", async () => {
+		authMocks.getAccessToken.mockResolvedValueOnce({ token: "inline-token" });
+		await resolveGoogleVertexAccessToken({ ...inlineEnv, GOOGLE_PRIVATE_KEY_ID: "kid-1" });
+		expect(authMocks.googleAuth).toHaveBeenCalledWith(
+			expect.objectContaining({
+				credentials: expect.objectContaining({ private_key_id: "kid-1" }),
+			}),
+		);
+	});
+
+	it("surfaces an inline failure instead of falling through to ADC", async () => {
+		authMocks.getAccessToken.mockRejectedValueOnce(new Error("bad key"));
+		await expect(resolveGoogleVertexAccessToken(inlineEnv)).rejects.toMatchObject({
+			name: "InlineServiceAccountError",
+			message: "Inline service-account credentials failed: bad key",
+		});
+		expect(authMocks.googleAuth).toHaveBeenCalledTimes(1);
+	});
+
+	it.each([
+		["a connection reset", Object.assign(new Error("socket hang up"), { code: "ECONNRESET" })],
+		[
+			"a token-service outage",
+			Object.assign(new Error("unavailable"), { response: { status: 503 } }),
+		],
+		["throttling", Object.assign(new Error("rate limited"), { response: { status: 429 } })],
+		["a request timeout", Object.assign(new Error("request timed out"), { name: "TimeoutError" })],
+		["an aborted request", Object.assign(new Error("aborted"), { name: "AbortError" })],
+	])("passes %s through unchanged instead of blaming the credentials", async (_label, error) => {
+		authMocks.getAccessToken.mockRejectedValueOnce(error);
+		await expect(resolveGoogleVertexAccessToken(inlineEnv)).rejects.toBe(error);
+	});
+
+	it("treats a token-endpoint rejection as rejected credentials", async () => {
+		authMocks.getAccessToken.mockRejectedValueOnce(
+			Object.assign(new Error("invalid_grant"), { response: { status: 400 } }),
+		);
+		await expect(resolveGoogleVertexAccessToken(inlineEnv)).rejects.toMatchObject({
+			name: "InlineServiceAccountError",
+		});
+	});
+
+	it("falls back to ADC when the inline vars are absent", async () => {
+		authMocks.getAccessToken.mockResolvedValueOnce({ token: "adc-token" });
+		await expect(resolveGoogleVertexAccessToken({})).resolves.toBe("adc-token");
+		expect(authMocks.googleAuth).toHaveBeenCalledWith(
+			expect.not.objectContaining({ credentials: expect.anything() }),
+		);
+	});
+
+	it("throws when ADC yields no token", async () => {
+		authMocks.getAccessToken.mockResolvedValueOnce({ token: null });
+		await expect(resolveGoogleVertexAccessToken({})).rejects.toThrow(
+			"Failed to obtain access token from Application Default Credentials",
+		);
+	});
+});
+
 describe("GoogleVertexClient location heuristic", () => {
 	it("routes recognized Anthropic model IDs to global via model-ID heuristic", () => {
 		// Baseline: recognized model IDs already go to global
@@ -192,4 +415,14 @@ describe("GoogleVertexClient location heuristic", () => {
 	// helpers produce the right inputs and trust that createModel's
 	// `useAnthropicApi && protocol === "anthropic-messages"` → "global" branch
 	// is covered by the type-checked implementation.
+});
+
+describe("claudeDisplayName", () => {
+	it.each([
+		{ id: "claude-haiku-5-5", expected: "Claude Haiku 5.5" },
+		{ id: "claude-haiku-4-5-20251001", expected: "Claude Haiku 4.5" },
+		{ id: "claude-3-5-sonnet-20241022", expected: "Claude 3.5 Sonnet" },
+	])("names $id as $expected", ({ id, expected }) => {
+		expect(claudeDisplayName(id)).toBe(expected);
+	});
 });

@@ -51,6 +51,19 @@ const CAPABILITY_RULES: CapabilityRule[] = [
 		maxContextLength: 1_000_000,
 		thinkingEffortLevels: ["low", "medium", "high", "xhigh", "max"],
 	},
+	// Sonnet 5.5 — 128k output, 1M context. Adaptive thinking is on by default
+	// (default effort "high"), and `thinking: {type: "disabled"}` returns a 400,
+	// so omitting thinking does not turn it off. Its lowest setting is the
+	// separate `between_tools` mode, which the clients don't send, so "off" is
+	// not offered — same precedent as Opus 5.5 below. Must precede the broader
+	// `^claude-sonnet-5` rule, which would otherwise match `claude-sonnet-5-5`.
+	{
+		match: /^claude-sonnet-5[-.]5/,
+		family: "claude-5.5",
+		maxOutputTokens: 128_000,
+		maxContextLength: 1_000_000,
+		thinkingEffortLevels: ["low", "medium", "high", "xhigh", "max"],
+	},
 	// Sonnet 5 — 128k output, 1M context. Uses the `claude-<tier>-<version>`
 	// shape (`claude-sonnet-5`), so it matches here rather than under the
 	// name-as-tier Fable/Mythos rules above. Same thinking profile as Opus 4.8
@@ -114,6 +127,16 @@ const CAPABILITY_RULES: CapabilityRule[] = [
 		maxOutputTokens: 64_000,
 		maxContextLength: 1_000_000,
 		thinkingEffortLevels: ["off", "low", "medium", "high", "max"],
+	},
+	// Haiku 5.5 — 128k output, 1M context. Adaptive thinking is on by default
+	// (default effort "medium"); unlike Sonnet/Opus 5.5 it accepts
+	// `thinking: {type: "disabled"}` (at effort ≤ high), so "off" is offered.
+	{
+		match: /^claude-haiku-5[-.]5/,
+		family: "claude-5.5",
+		maxOutputTokens: 128_000,
+		maxContextLength: 1_000_000,
+		thinkingEffortLevels: ["off", "low", "medium", "high", "xhigh", "max"],
 	},
 	// Haiku 4.5 — 64k output, 200k context (no effort support).
 	{

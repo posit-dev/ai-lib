@@ -10,7 +10,11 @@
  * continue to work.
  */
 
-export { CONFIG_KEY_OVERRIDES, shapeCredentials } from "ai-credentials/types";
+export {
+	CONFIG_KEY_OVERRIDES,
+	customProviderAuthMapping,
+	shapeCredentials,
+} from "ai-credentials/types";
 export type {
 	AuthProviderMapping,
 	CredentialConfig,

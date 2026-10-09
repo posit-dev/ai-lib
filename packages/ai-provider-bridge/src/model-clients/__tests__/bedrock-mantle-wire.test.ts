@@ -575,6 +575,10 @@ describe("Bedrock Mantle wire requests", () => {
 		["openai.gpt-5.5", "openai-responses", "medium", "medium"],
 		["openai.gpt-5.5", "openai-responses", "high", "high"],
 		["openai.gpt-5.5", "openai-responses", "xhigh", "xhigh"],
+		// GPT-6.1 Sol routes through Responses with forced reasoning. Its
+		// metadata omits "off", so the client never receives "off" for it;
+		// core's turn-setup tests cover that resolution.
+		["openai.gpt-6.1-sol", "openai-responses", "low", "low"],
 		["openai.gpt-oss-120b", "openai-chat", "low", "low"],
 		["openai.gpt-oss-120b", "openai-chat", "medium", "medium"],
 		["openai.gpt-oss-120b", "openai-chat", "high", "high"],

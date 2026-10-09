@@ -36,11 +36,12 @@ export const GEMINI_HOST = "https://generativelanguage.googleapis.com";
 export const GEMINI_API_VERSION = "v1beta";
 
 /**
- * Hosted Portkey canonical HTTPS origin. Hosted-vs-OSS classification in the
- * bridge's `resolvePortkeyConnection` is **exact-origin** against this value:
- * only `https://api.portkey.ai` (default port) classifies as hosted — the
- * canonical hostname under any other scheme or port is a local error, and
- * lookalike hosts classify as OSS.
+ * Hosted Portkey canonical HTTPS origin. Hosted classification in
+ * `checkPortkeyConnection` and the bridge's `resolvePortkeyConnection` is
+ * **exact-origin** against this value: only `https://api.portkey.ai` (default
+ * port) is hosted — the canonical hostname under any other scheme or port is
+ * a local error. Any other host is a gateway: self-hosted (upstream key) by
+ * default, or a Portkey gateway when the key type is explicitly `portkey`.
  */
 export const PORTKEY_HOST = "https://api.portkey.ai";
 /** Version segment of Portkey's hosted API root. */
@@ -48,9 +49,10 @@ export const PORTKEY_API_VERSION = "v1";
 /**
  * The hosted Portkey base URL. This is a provider-boundary constant, NOT a
  * `PROVIDER_CONNECTION_DEFAULTS` entry: Portkey's base URL is **required**
- * (it determines what the stored key is — a Portkey API key for hosted, an
- * upstream's key for a self-hosted gateway), so a silent default would
- * reinterpret the secret. UI configure forms prefill and explicitly save this
+ * (it is where the stored key is sent, and when no key type is set it implies
+ * what that key is — a Portkey API key for hosted, an upstream's key for any
+ * other URL; an explicit key type overrides the inference for non-hosted
+ * URLs), so a silent default would redirect or reinterpret the secret. UI configure forms prefill and explicitly save this
  * value; env-only configs set `PORTKEY_BASE_URL`. Exported from the pure
  * (browser-safe) entry so hosts can re-export it to their UI layers.
  */
@@ -143,5 +145,41 @@ export function normalizeBaseUrlForProvider(providerId: BuiltinProviderId, url: 
 	if (candidate === known.host) {
 		return `${known.host}/${known.version}`;
 	}
+	return url;
+}
+
+const FOUNDRY_OPENAI_PATH = "/openai";
+const FOUNDRY_V1_PATH = `${FOUNDRY_OPENAI_PATH}/v1`;
+const FOUNDRY_DEPLOYMENTS_PATH = `${FOUNDRY_OPENAI_PATH}/deployments`;
+
+/** Index of the first `path` in `url` that ends at a path-segment boundary, or -1. */
+function pathSegmentIndex(url: string, path: string): number {
+	for (let i = url.indexOf(path); i !== -1; i = url.indexOf(path, i + 1)) {
+		const next = url.charAt(i + path.length);
+		if (next === "" || next === "/") return i;
+	}
+	return -1;
+}
+
+/**
+ * Normalize a Microsoft Foundry endpoint to its `/openai/v1` base URL: strips
+ * the query string, trailing slashes, any `/openai/deployments/...` suffix,
+ * any operation path after `/openai/v1` that users paste from the portal, and
+ * a bare trailing `/openai`, so the suffix is never doubled.
+ * Empty input stays empty.
+ */
+export function normalizeFoundryBaseUrl(rawUrl: string): string {
+	let url = rawUrl.trim();
+	if (!url) return "";
+	const suffixIndex = url.search(/[?#]/);
+	if (suffixIndex !== -1) url = url.substring(0, suffixIndex);
+	url = url.replace(/\/+$/, "");
+	if (!url) return "";
+	const deploymentIndex = pathSegmentIndex(url, FOUNDRY_DEPLOYMENTS_PATH);
+	if (deploymentIndex !== -1) url = url.substring(0, deploymentIndex);
+	const v1Index = pathSegmentIndex(url, FOUNDRY_V1_PATH);
+	if (v1Index !== -1) url = url.substring(0, v1Index + FOUNDRY_V1_PATH.length);
+	if (url.endsWith(FOUNDRY_OPENAI_PATH)) url = url.slice(0, -FOUNDRY_OPENAI_PATH.length);
+	if (!url.endsWith(FOUNDRY_V1_PATH)) url += FOUNDRY_V1_PATH;
 	return url;
 }

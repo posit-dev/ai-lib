@@ -26,9 +26,9 @@ import {
 import type { LMStreamPart, Logger } from "../types";
 import { normalizeProtocol } from "../types";
 import {
+	anthropicProviderOptions,
 	isAgreementRequiredBody,
 	isClaudeModel,
-	isThinkingEnabled,
 	joinPath,
 	positAiThinkingRequestFields,
 } from "../utils";
@@ -200,17 +200,7 @@ export class PositAiClient implements ModelClient {
 		const { abortController, cleanup } = createAbortControllerFromToken(params.cancellationToken);
 
 		if (normalizedProtocol === "anthropic-messages") {
-			const providerOptions = isThinkingEnabled(params.thinkingEffort)
-				? {
-						anthropic: {
-							// `display: "summarized"` is required to receive thinking summary text.
-							// Opus 4.7+/Fable 5 default to `"omitted"`, which streams thinking blocks
-							// with only a signature and no text — so the UI shows no <thinking>.
-							thinking: { type: "adaptive", display: "summarized" },
-							effort: params.thinkingEffort,
-						},
-					}
-				: undefined;
+			const providerOptions = anthropicProviderOptions(params.thinkingEffort, {});
 
 			// Use Anthropic provider with OAuth authentication
 			const provider = createAnthropic({

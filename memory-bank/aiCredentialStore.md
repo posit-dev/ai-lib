@@ -86,10 +86,16 @@ compare-and-commit OAuth transactions. Values in `/store` remain fully generic.
 The backend consumes storage through the `StoreBackendStorage` interface defined in
 `/store-backend` (`get`/`set`/`withLock`/`watch`); `SingleFileStore` satisfies it
 structurally, and non-file backings (e.g. VS Code SecretStorage) can be injected.
-`withLock`'s lock scope is the backing's contract: OAuth compare-and-write and AWS
-preserve mutations are read-modify-write transactions that require exclusion against
-every writer of the same keys, so weaker backings (in-process mutex) are only safe
-for whole-record API-key replace/clear configurations.
+`withLock`'s lock scope is the backing's contract. AWS preserve mutations merge fields
+into the current record, so they need exclusion against every writer of the same keys.
+OAuth records carry a `generation`, and a commit lands only while the stored record
+still holds the one the operation read. Under a cross-process lock (`SingleFileStore`)
+that makes concurrent OAuth commits safe. Under in-process exclusion alone it would only
+narrow the race: the generation check and the write are separate steps, so two windows
+could both pass the check before either writes (e.g. a sign-in commit overwriting another
+window's clear). A VS Code SecretStorage backing therefore needs its own cross-window lock;
+the assistant's Positron adapter holds a per-user lock file. Whole-record API-key
+replace/clear is last-writer-wins by design.
 
 ```ts
 import { createDefaultStore, getDefaultStorePath } from "ai-credentials/store";

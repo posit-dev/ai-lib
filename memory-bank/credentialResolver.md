@@ -23,6 +23,15 @@ material consumed by model clients:
   challenge with an opaque attempt ID. A second process-local attempt for the
   same provider returns `already-in-progress`.
 - `cancelAuthentication(attemptId)` is attempt-scoped.
+- `getAuthenticationAttemptOutcome(attemptId)` reports `pending`, `succeeded`,
+  `failed` (with its error), `cancelled`, or `superseded` for an attempt this
+  process started (`undefined` when unknown; the last 100 settled outcomes are
+  kept). Only the engine knows whether a commit was its own, so hosts settle
+  attempt UI from this rather than provider status. A pending attempt is
+  checked against the store (`holdsAuthentication`): once another process
+  replaced, cleared, or completed its pending record, it stops polling without
+  writing and reports `superseded`. An in-process `mutateCredentials` that
+  cancels the attempt also reports `superseded`.
 - Store-backed consumers receive `MutableCredentialProvider`, whose
   `mutateCredentials()` accepts replace/clear operations plus an atomic AWS
   update operation. The AWS operation updates region/profile while explicitly
@@ -99,7 +108,9 @@ credentials, and refresh grants. A per-provider mutex and jittered
 proactive-refresh window prevent duplicate renewal in one process. The store
 backend adds a provider-scoped transaction around stored refresh: check, lock,
 re-read, adopt another process's result when possible, otherwise refresh and
-persist the rotated token. Environment M2M tokens never enter that transaction
+persist the rotated token. The transaction notes the record's generation, and the
+refreshed tokens or a refresh error persist only while the record still holds it,
+so a refresh that another writer overtook writes nothing. Environment M2M tokens never enter that transaction
 because their derived tokens live only in process memory.
 
 ### Refresh failure policy — terminal vs. transient
@@ -115,12 +126,16 @@ the `withRefreshTransaction` callback so a concurrent refresher cannot
 overwrite the terminal record. Every other failure is _transient_ — network
 errors, the 30s `AbortSignal.timeout` on the refresh exchange (so a hung fetch
 cannot hold the cross-process file lock), 429/5xx, unknown 4xx codes, malformed
-bodies, a rejected `persistRefreshedTokens`, or the transaction itself failing
-(lock/IO) — and resolves as: return null, leave the stored record untouched,
-and start a ~60s in-memory per-provider cooldown so status polling cannot
-hammer the token endpoint during an outage. An expired cooldown is removed
-before the retry. The cooldown is process-local; the file lock already
-serializes actual refreshes across processes.
+bodies, a rejected token commit, or the transaction itself failing
+(lock/IO) — and leaves the stored record untouched, starting a ~60s in-memory
+per-provider cooldown so status polling cannot hammer the token endpoint
+during an outage. After a failed refresh (including cooldown reads), the
+resolver re-reads the current record against the resolved grant: a still-valid,
+server-matching access token remains usable until its actual expiry; an
+expired, cleared, or server-switched token does not. Terminal rejections remove
+the tokens and cannot take this fallback. An expired cooldown is removed before
+the retry. The cooldown is process-local; the file lock already serializes
+actual refreshes across processes.
 
 Caveats:
 
@@ -145,6 +160,9 @@ M2M `clientCredentialsAuth`. Explicit stored credentials win over environment
 credentials. With environment-only configuration, `DATABRICKS_TOKEN` wins
 unless `DATABRICKS_AUTH_TYPE=oauth-m2m`; environment M2M requires
 `DATABRICKS_HOST`, `DATABRICKS_CLIENT_ID`, and `DATABRICKS_CLIENT_SECRET`.
+When `DATABRICKS_CONFIG_FILE` points at a `posit-workbench` path, the admin-managed
+profile outranks every Databricks credential in the environment (`DATABRICKS_TOKEN`
+and the M2M variables alike) and the environment resolves nothing.
 Status exposes only source, origin, readiness, expiry, and sanitized workspace
 metadata.
 
@@ -152,8 +170,10 @@ The Databricks entry in `PROVIDER_ENV_MAPPINGS` declares both PAT and M2M
 names. `StoreBackend` reads M2M fields through that mapping, and
 `captureProviderEnvironment` enumerates the same fields, so an authenticated
 host cannot omit `DATABRICKS_CLIENT_SECRET` from its capture/scrub inventory.
-The same single-source guarantee covers the Vertex ADC path
-(`GOOGLE_APPLICATION_CREDENTIALS`) and the Azure SDK names (`AZURE_*`): both
+The same single-source guarantee covers the Vertex credentials (the ADC path
+`GOOGLE_APPLICATION_CREDENTIALS` and the inline service account
+`GOOGLE_CLIENT_EMAIL`/`GOOGLE_PRIVATE_KEY`/`GOOGLE_PRIVATE_KEY_ID`), the Azure SDK
+names (`AZURE_*`), and the Databricks `DATABRICKS_CONFIG_FILE` marker: all
 are declared as `sdkCredentialEnvironment` descriptors on their provider
 entries and consumed by the bridge exclusively through
 `readSdkCredentialEnvironment`.
@@ -184,6 +204,56 @@ Until then, changes to client ID, redirect URI, scopes, discovery fallback, or
 token validation must be mirrored explicitly rather than allowed to diverge
 silently.
 
+## Device sign-in against a stored server (Posit Connect)
+
+An `oauth-device` source can carry a `serverUrl` for providers without a fixed
+authorization server. A host writes it with a `replace` mutation before sign-in;
+StoreBackend keeps it in `oauthAuth.serverUrl` through every later record of
+the lifecycle (pending, authenticated, refreshed, terminal), reports it as
+status `metadata.serverUrl`, and passes it to `oauthConfigForProvider` on the
+stored source context. The host resolves the grant from that URL, so the token
+and the server it was issued by live in one record and cannot disagree.
+Configuring a different server replaces the record, dropping the old token.
+Acquisition also compares the current record's server URL with the grant it
+resolved before reading tokens (again under the refresh lock), and before
+starting an attempt. If the source changes during grant discovery, the stale
+grant cannot consume or overwrite the replacement server's tokens. A
+server-bound grant (one with a `credentialBaseUrl`) also requires the source to
+still name that server, so a start whose discovery outlived a clear cannot
+recreate the record without its issuing server.
+
+Every OAuth form POST (device authorization, token exchange, refresh, client
+credentials) is sent with `redirect: "manual"`: those bodies carry credential
+material, and following a 307/308 would forward them past the endpoint origin
+and HTTPS checks the grant was resolved under. A redirect fails like any other
+non-2xx response. Grant setup itself can do network I/O (Connect discovery and
+registration, Databricks OIDC discovery); when it fails during a credential
+read, the engine keeps the stored record and cools down setup retries instead
+of rejecting the host's status aggregate. A host may explicitly allow a
+server-bound, still-valid API-key token to be served from the stored source
+while setup is unavailable; the store backend re-reads the current record and
+uses its persisted server URL as the credential base URL, while the engine
+checks expiry. The host must recheck its server pin and managed-credential
+policy on each fallback read, including cooldown reads. An absent grant (e.g.
+a host declining sign-in) never activates this fallback; an expired token
+still needs live setup for refresh. An explicit sign-in still surfaces the
+setup error.
+
+`connect-oauth.ts` holds Posit Connect's grant:
+`createConnectDeviceCodeGrantResolver()` performs RFC 8414 discovery and RFC
+7591 client registration (bounded by a 30s setup deadline), memoized per
+normalized server, with failures evicted. Both setup requests reject redirects
+rather than contacting another origin outside the selected server. When a token or device endpoint
+answers `invalid_client` (for example, an administrator deleted the
+registration), the acquisition engine calls the backend's optional
+`rejectGrant` hook; StoreBackend forwards it as `onGrantRejected`, and the
+host's Connect wiring calls the resolver's `forget(serverUrl)` so the next
+sign-in registers again instead of reusing the dead `client_id`. The grant's
+`credentialBaseUrl` is the server URL, so the default shaper produces
+`{ type: "apikey", apiKey, baseUrl }` for that server. `normalizeConnectBaseUrl`
+is the shared URL policy (https or loopback, no userinfo, query, or fragment).
+Connect has no env credential mapping.
+
 ## Shared vocabulary in the pure `/types` entry
 
 Three pieces live in `/types` specifically so platform-agnostic consumers can
@@ -205,6 +275,11 @@ resolve without any host-application import:
   `SUPPORTED_CUSTOM_CLIENT_KIND_VALUES ⊆ CLIENT_KIND_VALUES`. Custom
   `anthropic`, `openai`, and `gemini` map to required `apikey` auth;
   product-bound `positai`, `copilot`, and `databricks` remain excluded.
+- **Custom-provider auth mapping and session tokens (`customProviderAuthMapping`,
+  `serializeSessionToken`)** — `customProviderAuthMapping` returns a custom
+  entry's mapping: the host's aggregate auth provider, with the entry name as the
+  scope. `serializeSessionToken` writes the Google Cloud and AWS session tokens in
+  the shape `shapeCredentials` reads back.
 
 ## On-disk format — `StoredProviderCredentials`
 
@@ -257,8 +332,10 @@ Every mapped field is an `EnvironmentFieldDescriptor` (`{ name, scrub }`), so
 one declaration drives env resolution, host capture/scrubbing, and SDK
 credential construction. `scrub: true` means captured AND deleted from the
 ambient environment; `scrub: false` means captured only (the non-secret Azure
-tenant/client IDs, which user code may legitimately read). Fields a provider
-SDK reads directly are declared under `sdkCredentialEnvironment`, keyed by the
+tenant/client IDs, which user code may legitimately read). Fields read outside
+the API-key and OAuth mappings (by a provider SDK directly, or by a
+credential-source check such as the Workbench Databricks marker) are declared
+under `sdkCredentialEnvironment`, keyed by the
 semantic fields of `SdkCredentialEnvironment` — a misspelled key is a compile
 error, and a behavioral test proves every declared key is represented in the
 reader's result.

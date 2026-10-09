@@ -76,6 +76,7 @@ Re-exports the pure entry, plus:
   discipline rather than being salvaged. It stays on the Node entry because the full raw entry
   may include advanced fields that must be preserved server-side and never projected to a browser.
 - **Write seam**: `mutateProvidersConfig(mutator, opts)` — cross-process-safe mutation.
+  Invalid content rejects with `ProvidersConfigInvalidError` (see File I/O Seams).
 - **Watch seam**: `watchResolvedProviderCatalog(handler, opts)` — emits typed `ProviderCatalogChange` events.
 - **Catalog diff**: `diffProviderCatalogs(previous, current)` — the watcher's per-provider classifier (added/removed/updated + enabled/connection/models flags); the watcher's aggregate flags are its OR. Exported for hosts that install catalogs themselves.
 - **Types**: `LoadCatalogOptions` (including the transitional `legacyPositronSettings` / `legacyPositronEnforcedSettings` options), `MutateConfigOptions`, `WatchCatalogOptions`, `ProviderCatalogChange`, `ProviderCatalogEntryDiff`, `LoggerLike`, `Disposable`.
@@ -141,6 +142,46 @@ resolved catalog always carries both. Env overlays: `MS_FOUNDRY_AUTH_MODE` /
 runtime by `@azure/identity` in the bridge — nothing secret is stored, and a
 fresh entra configuration writes nothing to the credential store.
 
+**Scalar connection fields.** `BUILTIN_SCALAR_CONNECTION_FIELDS` is the one
+definition for per-provider scalar fields the section machinery can't express.
+It feeds both the strict per-key blocks and the permissive superset (an
+intersection of every provider's scalar shape). Two fields today:
+
+- `opencode.product` (`"go" | "zen"`) resolves to a base URL at catalog build
+  and never reaches the bridge.
+- `portkey.keyType` (`"portkey" | "upstream"`, env `PORTKEY_KEY_TYPE`) says what
+  the stored API key is. It is carried onto `ResolvedConnection.keyType` and
+  reaches the bridge as data. Absent means "infer from `baseUrl`" (canonical
+  hosted origin → `portkey`, anything else → `upstream`), so older configs keep
+  their behavior. An invalid `PORTKEY_KEY_TYPE` (e.g. `Portkey`) fails the
+  whole env source's strict schema, so every env connection setting —
+  including `PORTKEY_BASE_URL` and other providers' env vars — is dropped and
+  an issue is reported, matching `MS_FOUNDRY_AUTH_MODE`. The schema declares
+  only the enum: cross-field rules (URL required, `upstream` + hosted URL is an
+  error, a Portkey key must be present,
+  hosted hostname only on the exact HTTPS origin) live in the pure
+  `checkPortkeyConnection({ baseUrl, keyType, apiKeyPresent })`
+  (`src/portkey-connection.ts`), so a bad combination never makes the file
+  invalid. The bridge resolver runs it on effective values; forms and mutators
+  run it before writing. `inferredPortkeyKeyType(baseUrl)` lets writers omit a
+  `keyType` equal to what the URL implies, so older strict readers (which drop a
+  block carrying an unknown field) keep the block.
+
+**`apiKeyHelper` (command-supplied API key).** A provider block may name a
+command that prints its API key: `{ command, args?, timeoutMs?, refreshIntervalMs? }`
+(strict, all non-secret). `args` present means exec without a shell; absent
+means `command` is one shell line. It is a capability section in both maps,
+attached to the API-key built-ins (`anthropic`, `openai`, `gemini`,
+`openrouter`, `deepseek`, `openai-compatible`, `ms-foundry`, `litellm`,
+`portkey`, `opencode`) and the matching custom kinds — not to `snowflake-cortex`
+/ custom `snowflake` (TOML selection outranks a key), nor to the non-key
+providers. ai-config only parses and carries it on
+`ResolvedConnection.apiKeyHelper` (copied in both `resolveConnectionFromBlock`
+and the built-in-defaults branch of `resolveConnection`; never merged with
+defaults). Running it is a host concern (`@assistant/node`'s
+`apiKeyHelper.ts`). A helper edit changes `connection`, so the catalog diff
+reports it as a connection change with no watcher-specific code.
+
 **Strict validation vs. permissive working type.** Strictness is a parse-time
 property. The inferred `ProvidersMap` built-in blocks and `ResolvedConnection`
 stay a permissive **superset** (all sub-sections optional), so reader/writer code
@@ -162,7 +203,10 @@ Config flows through three stages: **assemble sources → resolve → watch**. P
    `POSIT_AI_PROVIDERS_DEFAULT` (both remain strict JSON and are validated against the relaxed
    `providersConfigFragmentSchema`), plus the legacy Positron layers the
    loader opted into (`legacyPositronSettings` → `legacy-positron`,
-   `legacyPositronEnforcedSettings` → `legacy-positron-enforced`). Each
+   `legacyPositronEnforcedSettings` → `legacy-positron-enforced`), and the
+   host's `hostDefaults` fragment when the loader passes one (also `default`,
+   read after `POSIT_AI_PROVIDERS_DEFAULT`, for host-specific values such as
+   the OAuth client id the host is registered under). Each
    reader returns `{ source?, issues }`; present sources are tagged with their
    `kind` (`enforced` / `legacy-positron-enforced` / `user` /
    `legacy-positron` / `default`).
@@ -230,6 +274,21 @@ values. The source is the highest-precedence kept source that sets the field;
 `authMode`/`scope` fall back to `"default"` (built-in defaults) when no source
 sets them, while `baseUrl`/`tenantId` are absent until some layer sets them.
 
+For the built-in `portkey` provider it records `portkey.keyType` and
+`portkey.baseUrl` sources the same way (absent when no layer sets them), so
+forms render env- or admin-owned fields read-only and saves can pin them
+(`isPinnedConnectionFieldSource` is the shared "environment or enforced"
+predicate). It also records `portkey.keyTypeAfterUserClear`: the key type the
+kept stack yields with the user layer removed (an admin default or a pin;
+absent when only the URL would decide). Like Snowflake's `valueAfterUserClear`,
+it stays visible while a user value hides it, so a save can tell whether
+omitting the user's `keyType` keeps its meaning.
+
+For `ollama` and `lmstudio` it records the source of `endpoint` the same way,
+falling back to `"default"`. Hosts that store their own local endpoint let an
+`"enforced"` or `"environment"` source override it, even when its value equals
+the built-in one; a `"user"` or `"default"` source yields to the stored endpoint.
+
 ### Model selection (`resolveModels`)
 
 `resolveModels(modelsBlock, discovered, providerConnection, context?)` runs the
@@ -265,7 +324,11 @@ the effective administrator limits rather than the original discovery facts.
 - **Connection**: enforced > legacy-positron-enforced > connection env vars >
   user file > legacy-positron (legacy Positron settings via the
   `legacyPositronSettings` reader) > built-in defaults. Object keys deep-merge
-  across layers.
+  across layers, except a provider block's `apiKeyHelper`, which the highest
+  layer replaces wholesale like an array (`isApiKeyHelperPath` in `enforce.ts`,
+  matched by position so a custom provider or model id named `apiKeyHelper` is
+  unaffected). An enforced `{ command }` therefore never inherits a user
+  layer's `args` or `timeoutMs`.
 - **Model protocol**: user config (override/custom) > provider protocol >
   inferred routing (OpenCode: recomputed per model from the effective routing
   URL) > discovered model inference.
@@ -350,6 +413,19 @@ without managing locking, atomicity, or watch lifecycle themselves.
   initial non-emitting snapshot has loaded so callers can safely coordinate a
   subsequent mutation. It logs only issue-set additions; clear-then-recur logs
   again. The initial load does not emit.
+- **Mutate failures are typed.** When the existing file fails to parse or
+  validate, or the mutator's result fails validation, `mutateProvidersConfig`
+  rejects with `ProvidersConfigInvalidError` (`src/node/providers-config-invalid-error.ts`):
+  `configPath`, `phase` (`existing-file` | `proposed-result`), and `detail`
+  (`syntax` with jsonc code/line/column, or `schema` with Zod issue paths and
+  messages). These fields are secret-safe — `invalid_type` messages are rebuilt
+  from the expected type (Zod's own can print a file-controlled
+  `constructor.name`), other built-in messages name only schema values or key
+  names, and custom messages name keys only — so hosts may show them. The
+  detail/phase types are browser-safe and exported from the pure entry
+  (`src/providers-config-invalid.ts`); the class is node-only. Read failures
+  (e.g. EACCES) stay plain errors. `parseJsonc` throws `JsoncSyntaxError` (a
+  `SyntaxError` carrying the position).
 - **Mutate** (`src/node/mutate-config.ts`) takes cross-process safety seriously:
   a `proper-lockfile` lock (with retries and stale detection), an in-process
   serialization queue per config path, race-safe first-creation via the
@@ -419,8 +495,23 @@ since that profile table is bridge SDK-routing logic (which wire API
 regex-driven lookups from a provider-specific model id to a partial capability
 set — no imports beyond `InferredModelCapabilities` (a projection of
 `ModelInfoLike` with identity/routing fields dropped and `protocol` narrowed to
-the canonical `Protocol` union). `positai-helpers.ts` composes the Anthropic
-and Gemma tables, since Posit AI Pass routes both families.
+the canonical `Protocol` union) and private sibling modules. `positai-helpers.ts`
+composes the Anthropic and Gemma tables, since Posit AI Pass routes both
+families.
+
+**Shared GPT-6 traits** live in the private `gpt6-model-profile.ts`
+(`getGpt6ModelProfile`, not exported from the package). It takes a canonical,
+unprefixed ID and owns the traits that hold on every endpoint: family, tools,
+image/PDF input, tool-result images, and reasoning levels — including which
+models lack `off` (GPT-6 Astra and GPT-6.1 Sol, matched at a model-name boundary
+for any accepted suffix; original Sol/Luna and unknown future GPT-6 IDs keep
+`off`). `openai-helpers.ts` and `bedrock-mantle-helpers.ts` both consume it
+(Bedrock strips `openai.` first) and layer their own endpoint policy on top:
+token limits, protocol, web search. The profile must never carry limits,
+routes, or eligibility — a published OpenAI capacity is not an assumed
+Bedrock capacity. A provider overrides a shared trait only for an evidenced
+endpoint difference. GPT-5 and gpt-oss rules stay per-provider because their
+reasoning lists and routing already differ.
 
 **`inferModelCapabilities(providerId, modelId)`** (`src/model-capabilities/infer.ts`)
 first preserves the partial provider-family result as `facts`, then merges a
@@ -445,12 +536,16 @@ Per-provider cases:
   bare and Sol/Terra/Luna IDs, including dated named variants, carry the
   published 1M combined context fact while input and output remain unknown;
   known older GPT-5.4/5.5 IDs retain the prior 272K rule, and unknown future
-  GPT-5.x IDs default to the 1M family window.
+  GPT-5.x IDs default to the 1M family window. GPT-6 uses Responses with the
+  shared GPT-6 profile; only bare and dated Astra IDs carry the published
+  1.05M/128K facts, and other GPT-6 IDs get a 1M window with unknown output —
+  so a suffixed Astra ID can inherit Astra's no-`off` rule without its limits.
 - `openai` → the OpenAI table, with `maxInputTokens` re-derived via
   `openaiMaxInputTokens()` (context window minus reserved output budget) —
   the table itself doesn't set it. GPT-5.6 Sol/Terra/Luna/bare/snapshot IDs
   carry the published 1.05M combined window and 128K output facts, producing a
-  922K derived input fact.
+  922K derived input fact. GPT-6 IDs take the shared GPT-6 profile with the
+  same 1.05M/128K facts.
 - `positai` → the combined Anthropic/Gemma lookup.
 - `gemini` → the Gemini-API endpoint composition
   (`getGeminiApiModelCapabilities`, `gemini-api-helpers.ts`): hosted-Gemma
@@ -636,14 +731,15 @@ Classification rules, in order:
   not read — splits change independently of the configuration observed here);
   the native route requires every entity to resolve to the same protocol
   (mixed/empty/ambiguous prefers unified MLflow Responses when every entity
-  advertises it, then falls back to `openai-chat` when chat is unanimously
-  advertised); capabilities aggregate conservatively across
+  advertises it and is eligible, then falls back to `openai-chat` when chat is
+  unanimously advertised); capabilities aggregate conservatively across
   same-protocol entities (minimum numeric limits, intersection of
   media-type/effort-level sets, boolean AND, `vendor`/`family` only when
   unanimous); and the whole computation is entity-order invariant.
 - **Fallback stamps are always explicit**, never `undefined`: a gateway endpoint
-  gets `mlflow-responses` when unanimously advertised, otherwise `openai-chat`
-  wherever chat exists. `undefined` stays reserved for providers that made no
+  gets `mlflow-responses` when every entity advertises it and can stream tool
+  arguments on that route (unlike GPT OSS), otherwise `openai-chat` wherever
+  chat exists. `undefined` stays reserved for providers that made no
   routing decision at all.
 
 **Two documented limitations, not fixed here:**
@@ -688,14 +784,33 @@ table's levels.
 completions.** The gateway exposes `/ai-gateway/mlflow/v1/responses` alongside
 `/ai-gateway/mlflow/v1/chat/completions`. It is a different API from the
 `openai/v1/responses` **native passthrough**, which Databricks refuses for
-models it does not proxy natively. Endpoints advertising the
-`mlflow/v1/responses` api_type are therefore stamped `mlflow-responses`, which
-routes to `{host}/ai-gateway/mlflow/v1` in the SDK's Responses mode. The chat
-surface loses on all three counts that matter: it rejects `store`, rejects
-`max_completion_tokens`, and streams reasoning as a `delta.content` block array
-that the OpenAI chunk schema cannot represent (so reasoning is discarded),
-while Responses accepts the same thinking controls and carries reasoning as
-first-class items.
+models it does not proxy natively. When every served entity advertises
+`mlflow/v1/responses` and can stream tool arguments on it, the endpoint is
+stamped `mlflow-responses`. This routes to `{host}/ai-gateway/mlflow/v1` in the
+SDK's Responses mode. The chat surface loses on all three counts that matter:
+it rejects `store` and `max_completion_tokens`, and streams reasoning as a
+`delta.content` block array that the OpenAI chunk schema cannot represent,
+while Responses accepts those thinking controls and carries reasoning as
+first-class items. On the chat
+surface the OpenAI-compatible fetch (transform 7) collapses that array to its
+text parts: the AI SDK otherwise rejects the whole chunk, and Databricks can
+send tool call arguments in the same chunk as reasoning (GPT OSS on classic
+serving completed every tool call with `{}`). With that transform in place the
+block array no longer breaks tool calls, so the remaining reason to prefer
+Responses here is reasoning fidelity: chat still discards the reasoning.
+
+**GPT OSS is the exception: it stays on chat completions on the gateway.** Its
+streamed `mlflow/v1/responses` output carries `function_call` items with
+`arguments: ""` in every event (including `response.completed`) and no
+argument deltas, so every tool call reaches the client as `{}`; the same
+request non-streamed carries the arguments, and other hosted families (Qwen,
+Llama) stream them fine. The classifier therefore withholds the
+`mlflow-responses` stamp from `gpt-oss*` identities, and they fall back to
+`openai-chat` (which they advertise). Chat completions is the better of two
+imperfect routes rather than a clean one: it streams the arguments, but it has
+also been observed to drop GPT OSS output entirely on large, tool-heavy
+requests (observed 2026-09, on both surfaces; re-test before relaxing the
+rule).
 
 The stamp is **gateway-only**: classic serving has no unified Responses route
 (`/serving-endpoints/responses` is native passthrough and refuses
@@ -775,37 +890,40 @@ the bridge's `ModelInfo` — compatible by contract, not by import.
 
 ## Code Layout
 
-| Location                               | What it does                                                                                                                                     |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `src/vocabulary.ts`                    | Provider-ID / protocol / client-kind / reserved-key value tuples + type guards                                                                   |
-| `src/schema.ts`                        | Zod schemas (full + enforced variants) for `providers.json`                                                                                      |
-| `src/types.ts`                         | Types inferred from Zod + resolution outputs + branded `CustomProviderId` / `mintCustomProviderId`                                               |
-| `src/defaults.ts`                      | Built-in provider connection defaults; `PROVIDER_CONNECTION_DEFAULTS`                                                                            |
-| `src/enforce.ts`                       | `mergeEnforced()` deep-merge of enforced over user config                                                                                        |
-| `src/resolve-enabled.ts`               | `resolveEnabled()` enablement precedence ladder                                                                                                  |
-| `src/resolve-connection.ts`            | Internal baseUrl/endpoint resolution precedence                                                                                                  |
-| `src/resolve-models.ts`                | `resolveModels()` model selection + routing pipeline                                                                                             |
-| `src/model-capabilities/*-helpers.ts`  | Per-provider capability tables (moved from the bridge, ai-lib#9)                                                                                 |
-| `src/model-capabilities/infer.ts`      | `inferModelCapabilities()` — baseline + provider-family merge, Snowflake protocol rule                                                           |
-| `src/model-capabilities/web-search.ts` | `resolveWebSearchServing()` / `finalizeWebSearchCapability()` — hosted web-search capability finalization over the resolved serving context      |
-| `src/index.ts`                         | Pure entrypoint exports                                                                                                                          |
-| `src/node/paths.ts`                    | `AI_CONFIG_DIR`, `PROVIDERS_CONFIG_PATH`, enforced env-var name, lockfile path                                                                   |
-| `src/node/types.ts`                    | Node seam option/result types (`LoadCatalogOptions`, `ProviderCatalogChange`, `Disposable`, …)                                                   |
-| `src/resolve-catalog.ts`               | `resolveProviderCatalog()` — pure deep resolver seam; owns the precedence stack + sealed-enforced invariant                                      |
-| `src/base-url.ts`                      | Legacy bare-host correction plus `normalizeOpenRouterBaseUrl()` / `OPENROUTER_DEFAULT_BASE_URL`, shared by OpenRouter discovery, chat, and forms |
-| `src/edit-jsonc.ts`                    | Pure validation-free JSONC diff-to-edits transformer + JSON serialization normalization                                                          |
-| `src/config-source.ts`                 | `ProviderConfigSource` + internal `ProviderConfigSourceProvider` loader machinery                                                                |
-| `src/legacy-positron-settings/`        | PROVIDER-SETTINGS-MIGRATION: legacy settings map, translator, and internal source builders                                                       |
-| `src/build-catalog.ts`                 | `buildCatalog()` — assemble `ResolvedProvider[]` from merged config + enablement layers (pure entry)                                             |
-| `src/node/load-config.ts`              | `loadConfigSourceReports()` / readers — silently assemble `{ source?, issues }` reports; compatibility wrapper renders and returns sources       |
-| `src/node/parse-jsonc.ts`              | Internal JSONC parser; comments/trailing commas, null-prototype object materialization, `SyntaxError` on invalid input                           |
-| `src/node/parse-providers-config.ts`   | Internal strict `parseProvidersConfig()` mutation seam + tolerant `parseProvidersConfigTolerant()` read seam                                     |
-| `src/node/load-catalog.ts`             | Canonical `loadProviderCatalogReport()` seam + bare-catalog `loadResolvedProviderCatalog()` compatibility wrapper                                |
-| `src/node/mutate-config.ts`            | `mutateProvidersConfig()` — locked, atomic, serialized mutation                                                                                  |
-| `src/node/watch-catalog.ts`            | `watchResolvedProviderCatalog()` — watch, reload, diff, emit typed changes                                                                       |
-| `src/node/index.ts`                    | Node entrypoint; re-exports pure entry + filesystem seams                                                                                        |
-| `providers.schema.json`                | Generated JSON Schema, exported for editor validation                                                                                            |
-| `scripts/generate-schema.ts`           | Regenerates `providers.schema.json` from the Zod schemas                                                                                         |
+| Location                                     | What it does                                                                                                                                     |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src/vocabulary.ts`                          | Provider-ID / protocol / client-kind / reserved-key value tuples + type guards                                                                   |
+| `src/schema.ts`                              | Zod schemas (full + enforced variants) for `providers.json`                                                                                      |
+| `src/types.ts`                               | Types inferred from Zod + resolution outputs + branded `CustomProviderId` / `mintCustomProviderId`                                               |
+| `src/defaults.ts`                            | Built-in provider connection defaults; `PROVIDER_CONNECTION_DEFAULTS`                                                                            |
+| `src/enforce.ts`                             | `mergeEnforced()` deep-merge of enforced over user config                                                                                        |
+| `src/resolve-enabled.ts`                     | `resolveEnabled()` enablement precedence ladder                                                                                                  |
+| `src/resolve-connection.ts`                  | Internal baseUrl/endpoint resolution precedence                                                                                                  |
+| `src/resolve-models.ts`                      | `resolveModels()` model selection + routing pipeline                                                                                             |
+| `src/model-capabilities/*-helpers.ts`        | Per-provider capability tables (moved from the bridge, ai-lib#9); `gpt6-model-profile.ts` holds shared GPT-6 traits                              |
+| `src/model-capabilities/infer.ts`            | `inferModelCapabilities()` — baseline + provider-family merge, Snowflake protocol rule                                                           |
+| `src/model-capabilities/web-search.ts`       | `resolveWebSearchServing()` / `finalizeWebSearchCapability()` — hosted web-search capability finalization over the resolved serving context      |
+| `src/index.ts`                               | Pure entrypoint exports                                                                                                                          |
+| `src/node/paths.ts`                          | `AI_CONFIG_DIR`, `PROVIDERS_CONFIG_PATH`, enforced env-var name, lockfile path                                                                   |
+| `src/node/types.ts`                          | Node seam option/result types (`LoadCatalogOptions`, `ProviderCatalogChange`, `Disposable`, …)                                                   |
+| `src/resolve-catalog.ts`                     | `resolveProviderCatalog()` — pure deep resolver seam; owns the precedence stack + sealed-enforced invariant                                      |
+| `src/portkey-connection.ts`                  | Portkey key-type vocabulary, `checkPortkeyConnection()`, `inferredPortkeyKeyType()` — the one owner of Portkey cross-field rules                 |
+| `src/providers-config-invalid.ts`            | Browser-safe detail/phase types for invalid providers.json mutation failures                                                                     |
+| `src/node/providers-config-invalid-error.ts` | `ProvidersConfigInvalidError` thrown by `mutateProvidersConfig()`                                                                                |
+| `src/base-url.ts`                            | Legacy bare-host correction plus `normalizeOpenRouterBaseUrl()` / `OPENROUTER_DEFAULT_BASE_URL`, shared by OpenRouter discovery, chat, and forms |
+| `src/edit-jsonc.ts`                          | Pure validation-free JSONC diff-to-edits transformer + JSON serialization normalization                                                          |
+| `src/config-source.ts`                       | `ProviderConfigSource` + internal `ProviderConfigSourceProvider` loader machinery                                                                |
+| `src/legacy-positron-settings/`              | PROVIDER-SETTINGS-MIGRATION: legacy settings map, translator, and internal source builders                                                       |
+| `src/build-catalog.ts`                       | `buildCatalog()` — assemble `ResolvedProvider[]` from merged config + enablement layers (pure entry)                                             |
+| `src/node/load-config.ts`                    | `loadConfigSourceReports()` / readers — silently assemble `{ source?, issues }` reports; compatibility wrapper renders and returns sources       |
+| `src/node/parse-jsonc.ts`                    | Internal JSONC parser; comments/trailing commas, null-prototype object materialization, `SyntaxError` on invalid input                           |
+| `src/node/parse-providers-config.ts`         | Internal strict `parseProvidersConfig()` mutation seam + tolerant `parseProvidersConfigTolerant()` read seam                                     |
+| `src/node/load-catalog.ts`                   | Canonical `loadProviderCatalogReport()` seam + bare-catalog `loadResolvedProviderCatalog()` compatibility wrapper                                |
+| `src/node/mutate-config.ts`                  | `mutateProvidersConfig()` — locked, atomic, serialized mutation                                                                                  |
+| `src/node/watch-catalog.ts`                  | `watchResolvedProviderCatalog()` — watch, reload, diff, emit typed changes                                                                       |
+| `src/node/index.ts`                          | Node entrypoint; re-exports pure entry + filesystem seams                                                                                        |
+| `providers.schema.json`                      | Generated JSON Schema, exported for editor validation                                                                                            |
+| `scripts/generate-schema.ts`                 | Regenerates `providers.schema.json` from the Zod schemas                                                                                         |
 
 ## Invariants & Design Decisions
 

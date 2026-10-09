@@ -98,7 +98,12 @@ export type OAuthGrantConfig =
 	  };
 
 export type CredentialSourceContext =
-	| { type: "oauth-device"; origin: "stored" | "implicit" }
+	| {
+			type: "oauth-device";
+			origin: "stored" | "implicit";
+			/** Server a stored device-code sign-in targets (Posit Connect). */
+			serverUrl?: string;
+	  }
 	| { type: "oauth-u2m"; origin: "stored"; workspaceHost: string }
 	| {
 			type: "oauth-m2m";
@@ -125,11 +130,45 @@ export interface StoredOAuthTokens {
 
 export type AuthenticationCommitResult = "committed" | "superseded";
 
+/**
+ * The stored OAuth tokens a refresh read, with writes bound to the generation
+ * of that same read. Each commit lands only while the stored record still holds
+ * that generation; otherwise it writes nothing and resolves "superseded". Once
+ * the transaction's operation settles, commits always resolve "superseded".
+ */
+export interface RefreshTransaction {
+	tokens: StoredOAuthTokens;
+	commitTokens(tokens: TokenData): Promise<AuthenticationCommitResult>;
+	commitError(error: string): Promise<AuthenticationCommitResult>;
+}
+
 /** Durable hooks used by the generalized acquisition engine. */
 export interface AcquisitionBackendHooks {
 	configForProvider(providerId: string): Promise<OAuthGrantConfig | undefined>;
-	readTokens(providerId: string): Promise<StoredOAuthTokens | null>;
-	beginAuthentication(providerId: string): Promise<string>;
+	/**
+	 * Serve a still-valid server-bound token when grant setup itself failed.
+	 * Only called on a setup failure, never when the host declined to offer a grant.
+	 */
+	readOnGrantSetupFailure?(providerId: string): Promise<{
+		tokens: StoredOAuthTokens;
+		credentials: ProviderCredentials;
+	} | null>;
+	/**
+	 * Non-secret identity of the source `configForProvider` would set up (e.g.
+	 * the stored Connect server). A grant setup failure's cooldown applies only
+	 * while this is unchanged. Without it, the cooldown is per provider.
+	 */
+	grantSetupScope?(providerId: string): Promise<string | undefined>;
+	/** Check the current stored server against this grant before returning tokens. */
+	readTokens(providerId: string, config: OAuthGrantConfig): Promise<StoredOAuthTokens | null>;
+	/** Reject a server switch before replacing a record with a pending attempt. */
+	beginAuthentication(providerId: string, config: OAuthGrantConfig): Promise<string>;
+	/**
+	 * Whether the stored record still holds the pending record an attempt began
+	 * with `generation`. False once anything (this process or another sharing
+	 * the store) replaced, cleared, or completed it.
+	 */
+	holdsAuthentication(providerId: string, generation: string): Promise<boolean>;
 	commitAuthentication(
 		providerId: string,
 		generation: string,
@@ -140,9 +179,22 @@ export interface AcquisitionBackendHooks {
 		generation: string,
 		error: string,
 	): Promise<AuthenticationCommitResult>;
-	persistRefreshedTokens(providerId: string, tokens: TokenData): Promise<void>;
-	persistRefreshError(providerId: string, error: string): Promise<void>;
-	withRefreshTransaction<T>(providerId: string, operation: () => Promise<T>): Promise<T>;
+	/**
+	 * Read the stored OAuth tokens once under the backing's lock and run
+	 * `operation` against them; `null` when no ready OAuth tokens matching this
+	 * grant are stored.
+	 */
+	withRefreshTransaction<T>(
+		providerId: string,
+		config: OAuthGrantConfig,
+		operation: (refresh: RefreshTransaction | null) => Promise<T>,
+	): Promise<T>;
+	/**
+	 * The authorization server rejected this grant's client (`invalid_client`).
+	 * A host that caches resolved grants should drop this one so the next
+	 * resolution sets the client up again.
+	 */
+	rejectGrant?(providerId: string, config: OAuthGrantConfig): void;
 	shapeToken(
 		providerId: string,
 		accessToken: string,

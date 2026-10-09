@@ -5,8 +5,8 @@
 /**
  * Shared OpenAI-compatible fetch wrapper.
  *
- * Many OpenAI-compatible providers (Snowflake Cortex, MS Foundry, generic
- * endpoints) return responses that deviate from the OpenAI Chat Completions
+ * Many OpenAI-compatible providers (Snowflake Cortex, MS Foundry, Databricks,
+ * generic endpoints) return responses that deviate from the OpenAI Chat Completions
  * spec in small but breaking ways. The AI SDK's Zod schema validation
  * rejects these malformed chunks, crashing the stream.
  *
@@ -39,19 +39,27 @@
  *    (e.g. Snowflake Cortex) send `""`. The AI SDK's Zod validation fails:
  *    `Invalid enum value. Expected 'assistant', received ''`.
  *
- * 5. Empty tool `arguments` `""` → `"{}"` for no-parameter tools
- *    When a tool has no parameters, the correct response is `arguments: "{}"`.
- *    Some providers send `""` instead, which fails JSON.parse in the SDK.
- *    Only fixed for tools identified as no-arg from the request — for tools
- *    WITH parameters, `""` is a valid streaming partial (arguments are
- *    streamed incrementally across chunks and concatenated by the SDK).
+ * (5 is retired. It rewrote empty tool `arguments` `""` to `"{}"` for no-arg
+ *    tools, but the SDK concatenates argument deltas, so the standard `""`
+ *    then `"{}"` stream became `{}{}`. Empty input is already treated as `{}`
+ *    downstream. Numbers are not reused because docs refer to them.)
  *
  * 6. Empty tool `type` `""` → `"function"` in tool call chunks
  *    Spec requires `type` to be `"function"`. Some providers send `""`.
  *
+ * 7. Array `content` → string (or `null`) in delta chunks
+ *    Spec requires `content` to be a string or null. Databricks streams
+ *    reasoning models (e.g. GPT OSS) with an array of content parts —
+ *    `{type: "reasoning", summary: [...]}` and `{type: "text", text}`. The AI
+ *    SDK rejects the whole chunk, and Databricks can send tool call arguments
+ *    in the same chunk as reasoning, so the tool call completes with `{}`.
+ *    Text parts (`text` or `output_text`) are kept; every other part type,
+ *    reasoning included, is dropped (the chat completions path has no
+ *    reasoning channel to carry them).
+ *
  * ## Auth
  *
- * 7. Strip `Authorization` header when `apiKey === ""`
+ * 8. Strip `Authorization` header when `apiKey === ""`
  *    For unauthenticated endpoints (e.g., local servers with no auth).
  *    Only matches empty string — `undefined` means the caller manages
  *    auth separately (e.g. Foundry injects its own token).
@@ -68,19 +76,13 @@ import { additiveHeaders } from "../custom-headers";
 // on parsed JSON objects.
 // ---------------------------------------------------------------------------
 
-/**
- * A tool call function where `arguments` may be missing or empty string
- * instead of valid JSON. Correct per spec: `arguments: "{}"` for no-arg tools.
- */
+/** A tool call function delta; `arguments` is a streamed partial JSON string. */
 interface MalformedToolCallFunction {
 	name?: string;
-	arguments?: string; // may be "" instead of "{}"
+	arguments?: string;
 }
 
-/**
- * A tool call where `type` may be empty string instead of `"function"`,
- * and `function.arguments` may be malformed.
- */
+/** A tool call where `type` may be empty string instead of `"function"`. */
 interface MalformedToolCall {
 	index: number;
 	id?: string;
@@ -90,11 +92,12 @@ interface MalformedToolCall {
 
 /**
  * A delta where `role` may be empty string instead of `"assistant"`,
- * and `tool_calls` may contain malformed entries.
+ * `content` may be an array of parts instead of a string, and `tool_calls`
+ * may contain malformed entries.
  */
 interface MalformedDelta {
 	role?: "assistant" | ""; // may be "" instead of "assistant"
-	content?: string | null;
+	content?: string | null | unknown[]; // may be an array of untrusted content parts
 	tool_calls?: MalformedToolCall[];
 }
 
@@ -199,16 +202,10 @@ export function createOpenAICompatibleFetchMiddleware(
 				modifiedInit.headers = additiveHeaders(modifiedInit.headers, customHeaders);
 			}
 
-			// Apply request body transforms and identify no-arg tools.
-			// No-arg tools need special handling in the response: some providers
-			// return arguments: "" for them, which must be fixed to "{}".
-			// We only fix empty arguments for these specific tools — for tools
-			// WITH parameters, an empty string is a valid streaming partial.
-			let noArgTools: string[] = [];
+			// Apply request body transforms.
 			if (modifiedInit.body && typeof modifiedInit.body === "string") {
 				try {
 					const body = JSON.parse(modifiedInit.body);
-					noArgTools = extractNoArgTools(body);
 					transformRequestBody(body, renameMaxTokens);
 					modifiedInit.body = JSON.stringify(body);
 				} catch {
@@ -225,33 +222,13 @@ export function createOpenAICompatibleFetchMiddleware(
 			}
 
 			// Wrap the streaming body with response transforms
-			const transformedBody = transformSSEStream(response.body, noArgTools);
+			const transformedBody = transformSSEStream(response.body);
 			return new Response(transformedBody, {
 				status: response.status,
 				statusText: response.statusText,
 				headers: response.headers,
 			});
 		};
-}
-
-/**
- * Identify tools that take no arguments from the request body.
- *
- * These tools may receive `arguments: ""` in the response instead of the
- * correct `arguments: "{}"`. We track them here so the response transform
- * can fix only these tools — for tools WITH parameters, `""` is a valid
- * initial streaming partial that the SDK concatenates across chunks.
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function extractNoArgTools(body: any): string[] {
-	if (!Array.isArray(body.tools)) return [];
-	return body.tools
-		.filter((t: { function?: { parameters?: { properties?: Record<string, unknown> } } }) => {
-			const params = t.function?.parameters;
-			return !params || !params.properties || Object.keys(params.properties).length === 0;
-		})
-		.map((t: { function?: { name?: string } }) => t.function?.name)
-		.filter(Boolean) as string[];
 }
 
 /**
@@ -293,10 +270,7 @@ function transformRequestBody(body: any, renameMaxTokens: boolean): void {
  * complete JSON lines before parsing. Each `data:` line is parsed,
  * fixed via {@link fixMalformedChunk}, and re-serialized.
  */
-function transformSSEStream(
-	body: ReadableStream<Uint8Array>,
-	noArgTools: string[],
-): ReadableStream<Uint8Array> {
+function transformSSEStream(body: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
 	const decoder = new TextDecoder();
 	const encoder = new TextEncoder();
 	let buffer = "";
@@ -324,7 +298,7 @@ function transformSSEStream(
 					buffer = lines.pop() || "";
 
 					for (const line of lines) {
-						const transformed = transformSSELine(line, noArgTools);
+						const transformed = transformSSELine(line);
 						controller.enqueue(encoder.encode(transformed + "\n"));
 					}
 				}
@@ -339,14 +313,14 @@ function transformSSEStream(
  * Transform a single SSE `data:` line by parsing the JSON payload,
  * fixing known malformations, and re-serializing.
  */
-function transformSSELine(line: string, noArgTools: string[]): string {
+function transformSSELine(line: string): string {
 	if (!line.startsWith("data: ") || line === "data: [DONE]") {
 		return line;
 	}
 
 	try {
 		const chunk = JSON.parse(line.slice(6)) as MalformedChatCompletionChunk;
-		fixMalformedChunk(chunk, noArgTools);
+		fixMalformedChunk(chunk);
 		return "data: " + JSON.stringify(chunk);
 	} catch {
 		// Not valid JSON, pass through unchanged
@@ -360,7 +334,7 @@ function transformSSELine(line: string, noArgTools: string[]): string {
  * See the {@link MalformedChatCompletionChunk} type for the specific
  * deviations from the OpenAI spec that providers are known to send.
  */
-function fixMalformedChunk(chunk: MalformedChatCompletionChunk, noArgTools: string[]): void {
+function fixMalformedChunk(chunk: MalformedChatCompletionChunk): void {
 	if (!chunk.choices) return;
 
 	for (const choice of chunk.choices) {
@@ -375,25 +349,19 @@ function fixMalformedChunk(chunk: MalformedChatCompletionChunk, noArgTools: stri
 			delta.role = "assistant";
 		}
 
+		// Transform 7: Array content → string (or null).
+		// Spec: content is a string or null.
+		// Broken: Databricks streams reasoning models with an array of
+		// `{type: "reasoning"}` / `{type: "text"}` parts.
+		// Impact: AI SDK Zod validation rejects the chunk, dropping any tool
+		// call arguments it can carry alongside the reasoning.
+		if (Array.isArray(delta.content)) {
+			delta.content = flattenContentParts(delta.content);
+		}
+
 		if (!Array.isArray(delta.tool_calls)) continue;
 
 		for (const tc of delta.tool_calls) {
-			// Transform 5: Empty tool arguments → "{}" (no-arg tools only).
-			// Spec: arguments is a JSON string, e.g. `"{}"` for no-arg tools.
-			// Broken: some providers send `""` instead of `"{}"`.
-			// Impact: SDK calls JSON.parse("") which throws.
-			// IMPORTANT: Only fix for tools with no parameters. For tools
-			// WITH parameters, `""` is a valid initial streaming partial —
-			// the SDK concatenates argument chunks across delta events.
-			if (
-				tc.function &&
-				tc.function.arguments === "" &&
-				tc.function.name &&
-				noArgTools.includes(tc.function.name)
-			) {
-				tc.function.arguments = "{}";
-			}
-
 			// Transform 6: Empty tool type → "function".
 			// Spec: type must be "function" when present.
 			// Broken: some providers send `"type": ""`.
@@ -402,4 +370,26 @@ function fixMalformedChunk(chunk: MalformedChatCompletionChunk, noArgTools: stri
 			}
 		}
 	}
+}
+
+/**
+ * Collapse array-valued delta `content` to the string the spec requires:
+ * the concatenated text of its text parts, or `null` when it has none.
+ * Every other part type (reasoning included) is dropped deliberately.
+ */
+function flattenContentParts(parts: unknown[]): string | null {
+	let text = "";
+	for (const part of parts) {
+		if (
+			typeof part === "object" &&
+			part !== null &&
+			"type" in part &&
+			(part.type === "text" || part.type === "output_text") &&
+			"text" in part &&
+			typeof part.text === "string"
+		) {
+			text += part.text;
+		}
+	}
+	return text === "" ? null : text;
 }

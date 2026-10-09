@@ -18,7 +18,11 @@
  */
 
 import type { ProviderCredentials } from "../types/credentials.js";
-import { PROVIDER_ENV_MAPPINGS, type ProviderEnvMapping } from "./providerEnvMappings.js";
+import {
+	PROVIDER_ENV_MAPPINGS,
+	type ProviderEnvMapping,
+	readSdkCredentialEnvironment,
+} from "./providerEnvMappings.js";
 
 /**
  * Attempt to resolve credentials for a provider from environment variables.
@@ -35,10 +39,25 @@ export function resolveCredentialsFromEnv(
 	providerId: string,
 	envVars: Readonly<Record<string, string | undefined>> = process.env,
 ): ProviderCredentials | null {
+	if (providerId === "databricks" && isWorkbenchManagedDatabricks(envVars)) return null;
+
 	const mapping = PROVIDER_ENV_MAPPINGS[providerId];
 	if (!mapping) return null;
 
 	return resolveFromMapping(mapping, envVars);
+}
+
+/**
+ * Whether Posit Workbench provisioned the Databricks profile. The admin
+ * credential then outranks every Databricks credential in the shell (PAT and
+ * M2M alike), so environment resolution yields nothing.
+ */
+export function isWorkbenchManagedDatabricks(
+	envVars: Readonly<Record<string, string | undefined>>,
+): boolean {
+	return (readSdkCredentialEnvironment(envVars).databricksConfigFile ?? "").includes(
+		"posit-workbench",
+	);
 }
 
 /**
@@ -62,12 +81,12 @@ function resolveFromMapping(
 ): ProviderCredentials | null {
 	// API key providers
 	if (mapping.apiKey) {
-		const apiKey = envVars[mapping.apiKey.name];
-		if (apiKey) {
-			return {
-				type: "apikey",
-				apiKey,
-			};
+		const names = [mapping.apiKey, ...(mapping.apiKeyAliases ?? [])];
+		for (const descriptor of names) {
+			const apiKey = envVars[descriptor.name];
+			if (apiKey) {
+				return { type: "apikey", apiKey };
+			}
 		}
 		return null;
 	}

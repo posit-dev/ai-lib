@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 
 import { hasEnvCredentials, resolveCredentialsFromEnv } from "../envCredentialResolver.js";
+import { captureProviderEnvironment } from "../providerEnvMappings.js";
 
 describe("resolveCredentialsFromEnv", () => {
 	it.each([
@@ -19,7 +20,6 @@ describe("resolveCredentialsFromEnv", () => {
 		["databricks", "DATABRICKS_TOKEN", "databricks-token"],
 		["litellm", "LITELLM_API_KEY", "litellm-key"],
 		["portkey", "PORTKEY_API_KEY", "portkey-key"],
-		["posit-connect", "CONNECT_API_KEY", "connect-key"],
 		["opencode", "OPENCODE_API_KEY", "opencode-key"],
 	] as const)("resolves the %s API key mapping", (providerId, envName, apiKey) => {
 		expect(resolveCredentialsFromEnv(providerId, { [envName]: apiKey })).toEqual({
@@ -46,6 +46,19 @@ describe("resolveCredentialsFromEnv", () => {
 
 	it("returns null when a mapped API key is not set", () => {
 		expect(resolveCredentialsFromEnv("anthropic", {})).toBeNull();
+	});
+
+	it("falls back to GOOGLE_API_KEY for gemini", () => {
+		expect(resolveCredentialsFromEnv("gemini", { GOOGLE_API_KEY: "g-1" })).toEqual({
+			type: "apikey",
+			apiKey: "g-1",
+		});
+	});
+
+	it("prefers GEMINI_API_KEY over GOOGLE_API_KEY", () => {
+		expect(
+			resolveCredentialsFromEnv("gemini", { GEMINI_API_KEY: "gem", GOOGLE_API_KEY: "goog" }),
+		).toEqual({ type: "apikey", apiKey: "gem" });
 	});
 
 	it("returns null for an unknown provider", () => {
@@ -114,6 +127,37 @@ describe("resolveCredentialsFromEnv", () => {
 		["google-vertex", { GOOGLE_CLOUD_PROJECT: "my-project", GOOGLE_CLOUD_LOCATION: "us-central1" }],
 	] as const)("returns null for %s non-secret environment config", (providerId, env) => {
 		expect(resolveCredentialsFromEnv(providerId, env)).toBeNull();
+	});
+
+	describe("Workbench-managed Databricks profile", () => {
+		it("ignores DATABRICKS_TOKEN when DATABRICKS_CONFIG_FILE is Workbench-managed", () => {
+			const env = {
+				DATABRICKS_TOKEN: "shell-pat",
+				DATABRICKS_CONFIG_FILE: "/home/user/.posit-workbench/databricks/cfg",
+			};
+			expect(resolveCredentialsFromEnv("databricks", env)).toBeNull();
+			expect(hasEnvCredentials("databricks", env)).toBe(false);
+		});
+
+		it("ignores DATABRICKS_TOKEN from a captured environment when Workbench manages the profile", () => {
+			const captured = captureProviderEnvironment(["databricks"], {
+				DATABRICKS_TOKEN: "shell-pat",
+				DATABRICKS_CONFIG_FILE: "/home/user/.posit-workbench/databricks/cfg",
+			});
+			expect(resolveCredentialsFromEnv("databricks", captured.environment)).toBeNull();
+			expect(captured.scrubbedNames).not.toContain("DATABRICKS_CONFIG_FILE");
+		});
+
+		it("reads DATABRICKS_TOKEN when the config file is not Workbench-managed", () => {
+			const env = {
+				DATABRICKS_TOKEN: "shell-pat",
+				DATABRICKS_CONFIG_FILE: "/home/user/.databrickscfg",
+			};
+			expect(resolveCredentialsFromEnv("databricks", env)).toEqual({
+				type: "apikey",
+				apiKey: "shell-pat",
+			});
+		});
 	});
 });
 

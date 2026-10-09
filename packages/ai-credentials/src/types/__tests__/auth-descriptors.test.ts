@@ -4,7 +4,11 @@
 
 import { describe, expect, it } from "vitest";
 
-import { CUSTOM_CLIENT_KIND_AUTH_MAP, resolveCustomAuthMapping } from "../auth-descriptors.js";
+import {
+	CUSTOM_CLIENT_KIND_AUTH_MAP,
+	customProviderAuthMapping,
+	resolveCustomAuthMapping,
+} from "../auth-descriptors.js";
 
 describe("resolveCustomAuthMapping", () => {
 	it("returns the kind-level mapping when the entry authors nothing", () => {
@@ -43,5 +47,50 @@ describe("resolveCustomAuthMapping", () => {
 		expect(resolveCustomAuthMapping("anthropic")).toBe(
 			CUSTOM_CLIENT_KIND_AUTH_MAP.get("anthropic"),
 		);
+	});
+});
+
+describe("customProviderAuthMapping", () => {
+	it("maps an openai-compatible entry to apikey with the entry name as scope", () => {
+		expect(
+			customProviderAuthMapping("my-gateway", "openai-compatible", "custom-providers"),
+		).toEqual({
+			authProviderId: "custom-providers",
+			scopes: ["my-gateway"],
+			credentialType: "apikey",
+		});
+	});
+
+	it("maps an aws entry to aws-credentials", () => {
+		expect(customProviderAuthMapping("my-bedrock", "aws", "custom-providers")).toEqual({
+			authProviderId: "custom-providers",
+			scopes: ["my-bedrock"],
+			credentialType: "aws-credentials",
+		});
+	});
+
+	it("maps a google-vertex entry to google-cloud", () => {
+		expect(customProviderAuthMapping("my-vertex", "google-vertex", "custom-providers")).toEqual({
+			authProviderId: "custom-providers",
+			scopes: ["my-vertex"],
+			credentialType: "google-cloud",
+		});
+	});
+
+	it("carries structuredBaseUrl for a snowflake entry", () => {
+		expect(customProviderAuthMapping("my-snow", "snowflake", "custom-providers")).toEqual({
+			authProviderId: "custom-providers",
+			scopes: ["my-snow"],
+			credentialType: "apikey",
+			structuredBaseUrl: "snowflake",
+		});
+	});
+
+	it("returns undefined for a local kind", () => {
+		expect(customProviderAuthMapping("my-ollama", "ollama", "custom-providers")).toBeUndefined();
+	});
+
+	it("returns undefined for an unknown kind", () => {
+		expect(customProviderAuthMapping("my-thing", "positai", "custom-providers")).toBeUndefined();
 	});
 });

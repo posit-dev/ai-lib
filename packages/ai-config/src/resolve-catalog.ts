@@ -321,7 +321,7 @@ function resolveConnectionProvenance(
 	// source sets it, fields with a built-in default report "default"
 	// (overridable), the rest are absent.
 	const fieldSourceFor = (
-		providerId: "ms-foundry" | "opencode",
+		providerId: "ms-foundry" | "opencode" | "portkey" | "ollama" | "lmstudio",
 		read: (block: BuiltinProviderBlock | undefined) => unknown,
 		hasBuiltinDefault: boolean,
 	): ResolvedConnectionFieldSource | undefined => {
@@ -373,6 +373,33 @@ function resolveConnectionProvenance(
 		if (product !== undefined || baseUrl !== undefined) {
 			result.set("opencode", { opencode: { product, baseUrl } });
 		}
+	}
+
+	// Portkey: per-field sources for the UI-managed `keyType` and `baseUrl`,
+	// so forms render env/admin-owned fields read-only and saves pin them.
+	// `keyTypeAfterUserClear` is the key type below the user layer, which a
+	// user value can hide (the same idea as Snowflake's `valueAfterUserClear`).
+	{
+		const keyTypeAfterUserClear = kept
+			.filter((source) => source.kind !== "user" && source.kind !== "legacy-positron") // PROVIDER-SETTINGS-MIGRATION(legacy-positron)
+			.map((source) => source.config.providers?.portkey?.keyType)
+			.find((keyType) => keyType !== undefined);
+		result.set("portkey", {
+			portkey: {
+				keyType: fieldSourceFor("portkey", (block) => block?.keyType, false),
+				baseUrl: fieldSourceFor("portkey", (block) => block?.baseUrl, false),
+				...(keyTypeAfterUserClear !== undefined ? { keyTypeAfterUserClear } : {}),
+			},
+		});
+	}
+
+	// Local providers: the endpoint's source, so a host that stores its own
+	// endpoint can yield to an enforced or env value even when it equals the
+	// built-in default.
+	for (const providerId of ["ollama", "lmstudio"] as const) {
+		result.set(providerId, {
+			endpoint: fieldSourceFor(providerId, (block) => block?.endpoint, true),
+		});
 	}
 
 	const snowflakeConnectionName = config.providers?.["snowflake-cortex"]?.snowflake?.connectionName;

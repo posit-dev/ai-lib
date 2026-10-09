@@ -19,7 +19,12 @@ import { safeSdkCustomHeaders } from "../custom-headers";
 import { streamTextAnthropicWire } from "../tool-call-ids";
 import type { LMStreamPart, Logger } from "../types";
 import { normalizeProtocol } from "../types";
-import { isClaudeModel, isThinkingEnabled, rejectsEagerInputStreaming } from "../utils";
+import {
+	anthropicProviderOptions,
+	isClaudeModel,
+	isThinkingEnabled,
+	rejectsEagerInputStreaming,
+} from "../utils";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
@@ -258,27 +263,12 @@ export class SnowflakeClient implements ModelClient {
 
 		const { abortController, cleanup } = createAbortControllerFromToken(params.cancellationToken);
 
-		const useThinking = isThinkingEnabled(params.thinkingEffort);
 		// Some Claude models reject the `eager_input_streaming` field on Snowflake
 		// Cortex; opt those out (see rejectsEagerInputStreaming). Others accept it.
-		const disableEagerToolStreaming = rejectsEagerInputStreaming(params.model);
-		const providerOptions =
-			useThinking || disableEagerToolStreaming
-				? {
-						anthropic: {
-							...(disableEagerToolStreaming ? { toolStreaming: false } : {}),
-							...(useThinking
-								? {
-										// `display: "summarized"` is required to receive thinking summary text.
-										// Opus 4.7+/Fable 5 default to `"omitted"`, which streams thinking blocks
-										// with only a signature and no text — so the UI shows no <thinking>.
-										thinking: { type: "adaptive", display: "summarized" },
-										effort: params.thinkingEffort,
-									}
-								: {}),
-						},
-					}
-				: undefined;
+		const providerOptions = anthropicProviderOptions(
+			params.thinkingEffort,
+			rejectsEagerInputStreaming(params.model) ? { toolStreaming: false } : {},
+		);
 
 		const result = streamTextAnthropicWire(
 			{

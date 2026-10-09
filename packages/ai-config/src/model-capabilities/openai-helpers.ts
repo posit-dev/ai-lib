@@ -3,13 +3,9 @@
  *--------------------------------------------------------------------------------------------*/
 
 import type { InferredModelCapabilities as ModelInfo } from "../types.js";
+import { getGpt6ModelProfile } from "./gpt6-model-profile.js";
 
 const OPENAI_THINKING_EFFORT_LEVELS = ["off", "low", "medium", "high"];
-// GPT-6 adds the "xhigh"/"max" levels. Astra has no "none" level, so its list
-// omits "off": the product's "off" maps onto OpenAI's "none" (the OpenAI
-// client omits reasoning_effort; Bedrock Mantle sends the wire value "none").
-const GPT6_THINKING_EFFORT_LEVELS = ["off", "low", "medium", "high", "xhigh", "max"];
-const GPT6_ASTRA_THINKING_EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"];
 
 /**
  * Determine OpenAI model capabilities based on ID.
@@ -116,66 +112,19 @@ export function getOpenAIModelCapabilities(modelId: string): Partial<ModelInfo> 
 		};
 	}
 
-	// Sources verified 2026-09-22:
+	// Model traits, including which GPT-6 models lack "off", are shared with
+	// Bedrock (gpt6-model-profile.ts); only the endpoint limits are OpenAI's.
+	// Sources verified 2026-09-22 (Astra) and 2026-09-30 (6.1 Sol):
 	// https://developers.openai.com/api/docs/models/gpt-6-astra
-	// OpenAI documents the same 1.05M window and 128K output maximum for Astra,
-	// Sol, and Luna. Astra has no "none" effort level, so its list omits "off".
-	if (/^gpt-6-astra(?:-|$)/.test(modelId)) {
+	// https://developers.openai.com/api/docs/models/gpt-6.1-sol
+	// OpenAI documents a 1.05M window and 128K output maximum for both; other
+	// and unknown future GPT-6 IDs default to the same family window.
+	const gpt6 = getGpt6ModelProfile(modelId);
+	if (gpt6) {
 		return {
-			family: "gpt-6",
-			supportsTools: true,
-			supportsImages: true,
-			supportedInputMediaTypes: [
-				"image/png",
-				"image/jpeg",
-				"image/gif",
-				"image/webp",
-				"application/pdf",
-			],
-			supportsToolResultImages: true,
+			...gpt6,
 			maxContextLength: 1_050_000,
 			maxOutputTokens: 128000,
-			thinkingEffortLevels: GPT6_ASTRA_THINKING_EFFORT_LEVELS,
-		};
-	}
-
-	if (/^gpt-6-(?:sol|luna)(?:-|$)/.test(modelId)) {
-		return {
-			family: "gpt-6",
-			supportsTools: true,
-			supportsImages: true,
-			supportedInputMediaTypes: [
-				"image/png",
-				"image/jpeg",
-				"image/gif",
-				"image/webp",
-				"application/pdf",
-			],
-			supportsToolResultImages: true,
-			maxContextLength: 1_050_000,
-			maxOutputTokens: 128000,
-			thinkingEffortLevels: GPT6_THINKING_EFFORT_LEVELS,
-		};
-	}
-
-	// Unknown future GPT-6 IDs default to the 1.05M window documented for the
-	// family's current generation (see the GPT-6 sources above).
-	if (modelId.startsWith("gpt-6")) {
-		return {
-			family: "gpt-6",
-			supportsTools: true,
-			supportsImages: true,
-			supportedInputMediaTypes: [
-				"image/png",
-				"image/jpeg",
-				"image/gif",
-				"image/webp",
-				"application/pdf",
-			],
-			supportsToolResultImages: true,
-			maxContextLength: 1_050_000,
-			maxOutputTokens: 128000,
-			thinkingEffortLevels: GPT6_THINKING_EFFORT_LEVELS,
 		};
 	}
 

@@ -43,6 +43,11 @@ export {
 	registerCustomGoogleVertexProvider,
 	registerGoogleVertexProvider,
 } from "./providers/google-vertex-provider";
+export {
+	resolveGoogleVertexAccessToken,
+	resolveGoogleVertexCredentialSource,
+} from "./google-vertex-credentials";
+export type { GoogleVertexCredentialSource } from "./google-vertex-credentials";
 export type { GoogleVertexProviderCallbacks } from "./providers/google-vertex-provider";
 export {
 	registerCustomLitellmProvider,
@@ -79,6 +84,10 @@ export type { SnowflakeProviderCallbacks } from "./providers/snowflake-cortex-pr
 // Provider registration orchestrator
 export { registerAllProviders } from "./register-all-providers";
 export type { ProviderRegistrationConfig } from "./register-all-providers";
+
+// AWS credential provider
+export { createAwsCredentialProvider, hasManualAwsKeys } from "./aws-credentials";
+export type { AwsCredentialSource, ResolvedAwsCredentials } from "./aws-credentials";
 
 // Bedrock SSO utilities
 export { isAwsSsoProfileConfigured, parseAwsConfig } from "./providers/bedrock-sso";
