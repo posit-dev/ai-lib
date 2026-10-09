@@ -14,8 +14,8 @@ import type { AiToolWithJsonSchema, CancellationToken, LMStreamPart, Protocol } 
 /**
  * Runtime request metadata supplied by the host for a chat request.
  *
- * `sessionId` and `rootConversationId` are opaque routing identities owned
- * by the host; the bridge never derives, splits, or invents them.
+ * Both fields are opaque routing identities owned by the host; the bridge
+ * never derives, splits, or invents them.
  *
  * - `sessionId`: the host's full structured session identity for this
  *   request. Projections that consume it (Posit AI Pass `Session-Id`,
