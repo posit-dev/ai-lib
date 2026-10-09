@@ -8,9 +8,10 @@
 
 import type { ModelMessage } from "ai";
 
-import type { GatewayMetadata } from "../providers/connect-gateway-metadata";
 import type { StepLogger } from "../StepLogger";
 import type { AiToolWithJsonSchema, CancellationToken, LMStreamPart, Protocol } from "../types";
+
+export type RequestAttribution = Readonly<Record<string, string>>;
 
 /**
  * Runtime request metadata supplied by the host for a chat request.
@@ -25,16 +26,24 @@ import type { AiToolWithJsonSchema, CancellationToken, LMStreamPart, Protocol } 
  *   belongs to. Endpoint-specific transport policies (e.g. OpenCode's
  *   `x-opencode-session`) route on this value so every request in a
  *   conversation — main chat, subagents, auxiliary requests — shares it.
- * - `gatewayMetadata`: request-scoped key/value attribution fields for
- *   gateways that support them. Clients that do not use gateway attribution
- *   ignore these fields.
+ * - `attribution`: request-scoped key/value fields for providers that support
+ *   attribution. Clients that do not use them ignore these fields.
  *
  * This is runtime metadata only; it is not a persisted schema.
  */
 export interface ChatRequestMetadata {
 	sessionId?: string;
 	rootConversationId?: string;
-	gatewayMetadata?: GatewayMetadata;
+	attribution?: RequestAttribution;
+}
+
+/** Add attribution to request metadata, preserving the original when none is supplied. */
+export function withAttribution(
+	metadata: ChatRequestMetadata | undefined,
+	attribution: RequestAttribution | undefined,
+): ChatRequestMetadata | undefined {
+	if (attribution === undefined) return metadata;
+	return { ...metadata, attribution };
 }
 
 /**

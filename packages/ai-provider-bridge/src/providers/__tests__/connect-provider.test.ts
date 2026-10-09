@@ -396,7 +396,7 @@ describe("connect chat routing", () => {
 
 	describe("gateway metadata header", () => {
 		const HEADER = "Posit-Connect-Gateway-Metadata";
-		const metadata = { gatewayMetadata: { "workbench-session-id": "s1" } };
+		const metadata = { attribution: { "workbench-session-id": "s1" } };
 
 		it("sends the header on the Anthropic route", async () => {
 			const client = await clientAfterDiscovery();
@@ -497,7 +497,7 @@ describe("connect chat routing", () => {
 			});
 			await client.chat({
 				...chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`, "anthropic-messages"),
-				metadata: { gatewayMetadata: { team: "\uD800" } },
+				metadata: { attribution: { team: "\uD800" } },
 			});
 			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toBeUndefined();
 		});

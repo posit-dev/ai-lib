@@ -4,11 +4,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import {
-	encodeGatewayMetadata,
-	gatewayMetadataFromEnv,
-	withGatewayMetadata,
-} from "../connect-gateway-metadata";
+import { withAttribution } from "../../model-clients/ModelClient";
+import { encodeGatewayMetadata, gatewayMetadataFromEnv } from "../connect-gateway-metadata";
 
 describe("encodeGatewayMetadata", () => {
 	it("encodes Workbench keys first, then sorted user keys", () => {
@@ -192,14 +189,14 @@ describe("gatewayMetadataFromEnv", () => {
 	});
 });
 
-describe("withGatewayMetadata", () => {
+describe("withAttribution", () => {
 	it("returns the same object when there is no gateway metadata", () => {
 		const metadata = { sessionId: "s" };
-		expect(withGatewayMetadata(metadata, undefined)).toBe(metadata);
+		expect(withAttribution(metadata, undefined)).toBe(metadata);
 	});
 
 	it("creates metadata when there was none", () => {
 		const m = { team: "a" };
-		expect(withGatewayMetadata(undefined, m)).toEqual({ gatewayMetadata: m });
+		expect(withAttribution(undefined, m)).toEqual({ attribution: m });
 	});
 });

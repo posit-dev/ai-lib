@@ -2,10 +2,7 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import type { ChatRequestMetadata } from "../model-clients/ModelClient";
-
-/** Request-scoped key/value attribution fields for gateway clients. */
-export type GatewayMetadata = Readonly<Record<string, string>>;
+import type { RequestAttribution } from "../model-clients/ModelClient";
 
 /** Header Posit Connect's LLM gateway reads (and strips before the provider). */
 export const GATEWAY_METADATA_HEADER = "Posit-Connect-Gateway-Metadata";
@@ -46,7 +43,7 @@ export interface GatewayMetadataRejection {
  * limit, are dropped (never truncated) and reported; blank values count as
  * absent and are not reported.
  */
-export function encodeGatewayMetadata(metadata: GatewayMetadata | undefined): {
+export function encodeGatewayMetadata(metadata: RequestAttribution | undefined): {
 	header: string | undefined;
 	rejected: GatewayMetadataRejection[];
 } {
@@ -116,7 +113,7 @@ export function encodeGatewayMetadata(metadata: GatewayMetadata | undefined): {
  * describes every dropped value, for the host to log once.
  */
 export function gatewayMetadataFromEnv(env: Readonly<Record<string, string | undefined>>): {
-	metadata: GatewayMetadata | undefined;
+	metadata: RequestAttribution | undefined;
 	warnings: string[];
 } {
 	const warnings: string[] = [];
@@ -195,13 +192,4 @@ export function gatewayMetadataFromEnv(env: Readonly<Record<string, string | und
 		delete metadata[key];
 	}
 	return { metadata: Object.keys(metadata).length > 0 ? metadata : undefined, warnings };
-}
-
-/** Merge gatewayMetadata into request metadata; returns metadata unchanged when it is undefined. */
-export function withGatewayMetadata(
-	metadata: ChatRequestMetadata | undefined,
-	gatewayMetadata: GatewayMetadata | undefined,
-): ChatRequestMetadata | undefined {
-	if (gatewayMetadata === undefined) return metadata;
-	return { ...metadata, gatewayMetadata };
 }

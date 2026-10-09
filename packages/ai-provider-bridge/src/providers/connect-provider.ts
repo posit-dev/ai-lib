@@ -591,10 +591,10 @@ class ConnectClient implements ModelClient {
 	/**
 	 * Headers for one gateway request: configured customHeaders (excluding
 	 * any metadata header) plus the validated runtime metadata, if present.
-	 * Configuration cannot set or replace Workbench attribution.
+	 * Configuration cannot set or replace request attribution.
 	 */
 	private requestHeaders(params: ModelClientChatParams): Record<string, string> | undefined {
-		const { header } = encodeGatewayMetadata(params.metadata?.gatewayMetadata);
+		const { header } = encodeGatewayMetadata(params.metadata?.attribution);
 		const headers = { ...connectCustomHeaders(this.credentials.customHeaders) };
 		if (header !== undefined) headers[GATEWAY_METADATA_HEADER] = header;
 		return Object.keys(headers).length > 0 ? headers : undefined;
