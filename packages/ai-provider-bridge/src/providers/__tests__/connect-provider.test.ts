@@ -352,9 +352,10 @@ describe("connect chat routing", () => {
 	function clientWithoutDiscovery(
 		callbacks?: ConnectProviderCallbacks,
 		creds: ProviderCredentials = credentials,
+		getGatewayMetadata?: () => string | undefined,
 	) {
 		const registry = new ProviderRegistry(logger);
-		registerConnectProvider(registry, logger, callbacks);
+		registerConnectProvider(registry, logger, callbacks, getGatewayMetadata);
 		const client = registry.getClientForProvider("posit-connect", creds);
 		expect(client).not.toBeNull();
 		return client!;
@@ -363,10 +364,11 @@ describe("connect chat routing", () => {
 	async function clientAfterDiscovery(
 		callbacks?: ConnectProviderCallbacks,
 		creds: ProviderCredentials = credentials,
+		getGatewayMetadata?: () => string | undefined,
 	) {
 		stubDiscoveryFetch();
 		const registry = new ProviderRegistry(logger);
-		registerConnectProvider(registry, logger, callbacks);
+		registerConnectProvider(registry, logger, callbacks, getGatewayMetadata);
 		await registry.getModelsForProvider("posit-connect", creds);
 		const client = registry.getClientForProvider("posit-connect", creds);
 		expect(client).not.toBeNull();
@@ -396,14 +398,21 @@ describe("connect chat routing", () => {
 
 	describe("gateway metadata header", () => {
 		const HEADER = "Posit-Connect-Gateway-Metadata";
-		const metadata = { attribution: { "workbench-session-id": "s1" } };
+		const gatewayValue = JSON.stringify({ "workbench-session-id": "s1" });
+		const clientWithMetadata = (callbacks?: ConnectProviderCallbacks, creds = credentials) =>
+			clientAfterDiscovery(callbacks, creds, () => gatewayValue);
+
+		it("does not read attribution during discovery", async () => {
+			const getter = vi.fn(() => gatewayValue);
+			await clientAfterDiscovery(undefined, credentials, getter);
+			expect(getter).not.toHaveBeenCalled();
+		});
 
 		it("sends the header on the Anthropic route", async () => {
-			const client = await clientAfterDiscovery();
-			await client.chat({
-				...chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`, "anthropic-messages"),
-				metadata,
-			});
+			const client = await clientWithMetadata();
+			await client.chat(
+				chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`, "anthropic-messages"),
+			);
 			expect(AnthropicClient).toHaveBeenCalledWith(
 				{ apiKey: "tok" },
 				ANTHROPIC_GATEWAY,
@@ -413,14 +422,13 @@ describe("connect chat routing", () => {
 		});
 
 		it("keeps other customHeaders alongside the header", async () => {
-			const client = await clientAfterDiscovery(undefined, {
+			const client = await clientWithMetadata(undefined, {
 				...credentials,
 				customHeaders: { "x-proxy-token": "t" },
 			});
-			await client.chat({
-				...chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`, "anthropic-messages"),
-				metadata,
-			});
+			await client.chat(
+				chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`, "anthropic-messages"),
+			);
 			expect(AnthropicClient).toHaveBeenCalledWith(
 				{ apiKey: "tok" },
 				ANTHROPIC_GATEWAY,
@@ -430,14 +438,13 @@ describe("connect chat routing", () => {
 		});
 
 		it("does not let customHeaders replace the header", async () => {
-			const client = await clientAfterDiscovery(undefined, {
+			const client = await clientWithMetadata(undefined, {
 				...credentials,
 				customHeaders: { "posit-connect-gateway-metadata": "workbench-session-id=fake" },
 			});
-			await client.chat({
-				...chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`, "anthropic-messages"),
-				metadata,
-			});
+			await client.chat(
+				chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`, "anthropic-messages"),
+			);
 			expect(AnthropicClient).toHaveBeenCalledWith(
 				{ apiKey: "tok" },
 				ANTHROPIC_GATEWAY,
@@ -447,11 +454,10 @@ describe("connect chat routing", () => {
 		});
 
 		it("sends the header on the Bedrock route", async () => {
-			const client = await clientAfterDiscovery({ getAwsCredentials: mintSuccess() });
-			await client.chat({
-				...chatParams(`${AWS_PREFIX}/${CONNECT_BEDROCK_MODEL_IDS[0]}`, "bedrock-converse"),
-				metadata,
-			});
+			const client = await clientWithMetadata({ getAwsCredentials: mintSuccess() });
+			await client.chat(
+				chatParams(`${AWS_PREFIX}/${CONNECT_BEDROCK_MODEL_IDS[0]}`, "bedrock-converse"),
+			);
 			expect(BedrockClient).toHaveBeenCalledWith(
 				expect.objectContaining({
 					customHeaders: expect.objectContaining({ [HEADER]: "workbench-session-id=s1" }),
@@ -491,14 +497,27 @@ describe("connect chat routing", () => {
 		});
 
 		it("drops configured metadata headers when runtime metadata is invalid", async () => {
-			const client = await clientAfterDiscovery(undefined, {
-				...credentials,
-				customHeaders: { "POSIT-CONNECT-GATEWAY-METADATA": "team=fake" },
-			});
-			await client.chat({
-				...chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`, "anthropic-messages"),
-				metadata: { attribution: { team: "\uD800" } },
-			});
+			const client = await clientAfterDiscovery(
+				undefined,
+				{
+					...credentials,
+					customHeaders: { "POSIT-CONNECT-GATEWAY-METADATA": "team=fake" },
+				},
+				() => JSON.stringify({ team: "\uD800" }),
+			);
+			await client.chat(
+				chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`, "anthropic-messages"),
+			);
+			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toBeUndefined();
+		});
+
+		it("never uses configured metadata headers when the Workbench value is malformed", async () => {
+			const client = await clientAfterDiscovery(
+				undefined,
+				{ ...credentials, customHeaders: { "Posit-Connect-Gateway-Metadata": "team=forged" } },
+				() => "{broken",
+			);
+			await client.chat(chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`));
 			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toBeUndefined();
 		});
 

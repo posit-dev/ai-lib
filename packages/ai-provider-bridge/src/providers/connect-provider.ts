@@ -48,7 +48,11 @@ import type { ModelClient, ModelClientChatParams } from "../model-clients/ModelC
 import type { ApiKeyCredentials, AwsCredentials, Logger, LMStreamPart, ModelInfo } from "../types";
 import { normalizeProtocol } from "../types";
 import { createCachedModelFetcher } from "./cached-model-fetcher";
-import { encodeGatewayMetadata, GATEWAY_METADATA_HEADER } from "./connect-gateway-metadata";
+import {
+	encodeGatewayMetadata,
+	GATEWAY_METADATA_HEADER,
+	parseWorkbenchGatewayMetadata,
+} from "./connect-gateway-metadata";
 import type { ClientFactory, ProviderRegistry } from "./ProviderRegistry";
 
 const DEFAULT_TEMPLATES = ["anthropic", "aws"] as const;
@@ -585,7 +589,9 @@ class ConnectClient implements ModelClient {
 		private readonly credentials: ApiKeyCredentials,
 		private readonly cache: ConnectIntegrationCache,
 		private readonly logger: Logger,
+		private readonly reportedMetadataWarnings: Set<string>,
 		private readonly callbacks?: ConnectProviderCallbacks,
+		private readonly getGatewayMetadata?: () => string | undefined,
 	) {}
 
 	/**
@@ -593,8 +599,14 @@ class ConnectClient implements ModelClient {
 	 * any metadata header) plus the validated runtime metadata, if present.
 	 * Configuration cannot set or replace request attribution.
 	 */
-	private requestHeaders(params: ModelClientChatParams): Record<string, string> | undefined {
-		const { header } = encodeGatewayMetadata(params.metadata?.attribution);
+	private requestHeaders(): Record<string, string> | undefined {
+		const { metadata, warnings } = parseWorkbenchGatewayMetadata(this.getGatewayMetadata?.());
+		const { header } = encodeGatewayMetadata(metadata);
+		for (const warning of warnings) {
+			if (this.reportedMetadataWarnings.has(warning)) continue;
+			this.reportedMetadataWarnings.add(warning);
+			this.logger.warn(`[gateway-metadata] ${warning}`);
+		}
 		const headers = { ...connectCustomHeaders(this.credentials.customHeaders) };
 		if (header !== undefined) headers[GATEWAY_METADATA_HEADER] = header;
 		return Object.keys(headers).length > 0 ? headers : undefined;
@@ -679,7 +691,7 @@ class ConnectClient implements ModelClient {
 		const client = new AnthropicClient(
 			{ apiKey: this.credentials.apiKey },
 			baseUrl,
-			this.requestHeaders(params),
+			this.requestHeaders(),
 			this.logger,
 		);
 		return client.chat({ ...params, model: wireModel, baseUrl });
@@ -763,7 +775,7 @@ class ConnectClient implements ModelClient {
 				accessKeyId: aws.accessKeyId,
 				secretAccessKey: aws.secretAccessKey,
 				sessionToken: aws.sessionToken,
-				customHeaders: this.requestHeaders(params),
+				customHeaders: this.requestHeaders(),
 				// Routing through Connect's gateway is a deliberate, admin-configured
 				// redirect (not an accidental override), so it overrides even a FIPS
 				// runtime endpoint.
@@ -782,12 +794,21 @@ function createConnectClientFactory(
 	logger: Logger,
 	cache: ConnectIntegrationCache,
 	callbacks?: ConnectProviderCallbacks,
+	getGatewayMetadata?: () => string | undefined,
 ): ClientFactory {
+	const reportedMetadataWarnings = new Set<string>();
 	return (credentials) => {
 		if (credentials.type !== "apikey") {
 			throw new Error(`Connect provider requires API key credentials, got: ${credentials.type}`);
 		}
-		return new ConnectClient(credentials, cache, logger, callbacks);
+		return new ConnectClient(
+			credentials,
+			cache,
+			logger,
+			reportedMetadataWarnings,
+			callbacks,
+			getGatewayMetadata,
+		);
 	};
 }
 
@@ -795,6 +816,7 @@ export function registerConnectProvider(
 	registry: ProviderRegistry,
 	logger: Logger,
 	callbacks?: ConnectProviderCallbacks,
+	getGatewayMetadata?: () => string | undefined,
 ): void {
 	// Shared between the fetcher (writer) and the client (reader) so chat can
 	// resolve user-configured models that carry no discovery stamp; stamped
@@ -806,6 +828,6 @@ export function registerConnectProvider(
 	);
 	registry.registerClientFactory(
 		"posit-connect",
-		createConnectClientFactory(logger, cache, callbacks),
+		createConnectClientFactory(logger, cache, callbacks, getGatewayMetadata),
 	);
 }

@@ -11,8 +11,6 @@ import type { ModelMessage } from "ai";
 import type { StepLogger } from "../StepLogger";
 import type { AiToolWithJsonSchema, CancellationToken, LMStreamPart, Protocol } from "../types";
 
-export type RequestAttribution = Readonly<Record<string, string>>;
-
 /**
  * Runtime request metadata supplied by the host for a chat request.
  *
@@ -26,24 +24,12 @@ export type RequestAttribution = Readonly<Record<string, string>>;
  *   belongs to. Endpoint-specific transport policies (e.g. OpenCode's
  *   `x-opencode-session`) route on this value so every request in a
  *   conversation — main chat, subagents, auxiliary requests — shares it.
- * - `attribution`: request-scoped key/value fields for providers that support
- *   attribution. Clients that do not use them ignore these fields.
  *
  * This is runtime metadata only; it is not a persisted schema.
  */
 export interface ChatRequestMetadata {
 	sessionId?: string;
 	rootConversationId?: string;
-	attribution?: RequestAttribution;
-}
-
-/** Add attribution to request metadata, preserving the original when none is supplied. */
-export function withAttribution(
-	metadata: ChatRequestMetadata | undefined,
-	attribution: RequestAttribution | undefined,
-): ChatRequestMetadata | undefined {
-	if (attribution === undefined) return metadata;
-	return { ...metadata, attribution };
 }
 
 /**

@@ -42,20 +42,16 @@ export type {
 	ChatRequestMetadata,
 	ModelClient,
 	ModelClientChatParams,
-	RequestAttribution,
 } from "./model-clients/ModelClient";
-export { withAttribution } from "./model-clients/ModelClient";
 
-// Connect gateway header encoding and environment mapping.
+// Connect gateway header encoding and Workbench value parsing.
 export type { GatewayMetadataRejection } from "./providers/connect-gateway-metadata";
 export {
 	encodeGatewayMetadata,
-	GATEWAY_META_ENV_PREFIX,
 	GATEWAY_METADATA_HEADER,
 	GATEWAY_METADATA_LIMITS,
-	gatewayMetadataFromEnv,
-	WORKBENCH_KEY_PREFIX,
-	WORKBENCH_METADATA_ENV,
+	parseWorkbenchGatewayMetadata,
+	WORKBENCH_GATEWAY_METADATA_ENV,
 } from "./providers/connect-gateway-metadata";
 
 // AI SDK types surfaced through the bridge so consumers can use the public API
