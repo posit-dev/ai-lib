@@ -8,7 +8,7 @@
 
 import type { ModelMessage } from "ai";
 
-import type { GatewayMetadata } from "../gateway-metadata";
+import type { GatewayMetadata } from "../providers/connect-gateway-metadata";
 import type { StepLogger } from "../StepLogger";
 import type { AiToolWithJsonSchema, CancellationToken, LMStreamPart, Protocol } from "../types";
 

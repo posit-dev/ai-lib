@@ -8,7 +8,7 @@ import {
 	encodeGatewayMetadata,
 	gatewayMetadataFromEnv,
 	withGatewayMetadata,
-} from "../gateway-metadata";
+} from "../connect-gateway-metadata";
 
 describe("encodeGatewayMetadata", () => {
 	it("encodes Workbench keys first, then sorted user keys", () => {

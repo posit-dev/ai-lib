@@ -41,7 +41,6 @@ import {
 } from "ai-config";
 
 import { additiveHeaderRecord } from "../custom-headers";
-import { encodeGatewayMetadata, GATEWAY_METADATA_HEADER } from "../gateway-metadata";
 import { createAbortControllerFromToken } from "../model-clients/ai-sdk-helpers";
 import { AnthropicClient } from "../model-clients/AnthropicClient";
 import { BedrockClient } from "../model-clients/BedrockClient";
@@ -49,6 +48,7 @@ import type { ModelClient, ModelClientChatParams } from "../model-clients/ModelC
 import type { ApiKeyCredentials, AwsCredentials, Logger, LMStreamPart, ModelInfo } from "../types";
 import { normalizeProtocol } from "../types";
 import { createCachedModelFetcher } from "./cached-model-fetcher";
+import { encodeGatewayMetadata, GATEWAY_METADATA_HEADER } from "./connect-gateway-metadata";
 import type { ClientFactory, ProviderRegistry } from "./ProviderRegistry";
 
 const DEFAULT_TEMPLATES = ["anthropic", "aws"] as const;

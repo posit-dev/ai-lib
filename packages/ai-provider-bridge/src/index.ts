@@ -45,7 +45,10 @@ export type {
 } from "./model-clients/ModelClient";
 
 // Attribution metadata sent to the Posit Connect LLM gateway.
-export type { GatewayMetadata, GatewayMetadataRejection } from "./gateway-metadata";
+export type {
+	GatewayMetadata,
+	GatewayMetadataRejection,
+} from "./providers/connect-gateway-metadata";
 export {
 	encodeGatewayMetadata,
 	GATEWAY_META_ENV_PREFIX,
@@ -55,7 +58,7 @@ export {
 	WORKBENCH_KEY_PREFIX,
 	WORKBENCH_METADATA_ENV,
 	withGatewayMetadata,
-} from "./gateway-metadata";
+} from "./providers/connect-gateway-metadata";
 
 // AI SDK types surfaced through the bridge so consumers can use the public API
 // without importing `ai` directly: `ModelMessage` appears in ModelClient.chat's
