@@ -11,6 +11,9 @@
  * auth-error guidance all act on the same resolved source.
  */
 
+import type * as NodeFs from "node:fs";
+import type * as NodePath from "node:path";
+
 import {
 	readSdkCredentialEnvironment,
 	type SdkCredentialEnvironment,
@@ -21,6 +24,16 @@ import {
 	type GoogleAuthOptions,
 	type JWTInput,
 } from "google-auth-library";
+
+// Looked up lazily so this module stays bundleable for browser targets.
+const nodeFs =
+	typeof process !== "undefined"
+		? (process.getBuiltinModule?.("node:fs") as typeof NodeFs | undefined)
+		: undefined;
+const nodePath =
+	typeof process !== "undefined"
+		? (process.getBuiltinModule?.("node:path") as typeof NodePath | undefined)
+		: undefined;
 
 type CredentialEnvironment = Readonly<Record<string, string | undefined>>;
 
@@ -52,6 +65,21 @@ class InlineServiceAccountError extends Error {
 /** Whether Google rejected the inline service-account credentials while minting a token. */
 export function isInlineServiceAccountError(error: unknown): boolean {
 	return error instanceof Error && error.name === INLINE_SERVICE_ACCOUNT_ERROR;
+}
+
+const ADC_ERROR = "ApplicationDefaultCredentialsError";
+
+/** Application Default Credentials could not be loaded or were rejected, e.g. a missing key file. */
+class ApplicationDefaultCredentialsError extends Error {
+	constructor(cause: string) {
+		super(`Application Default Credentials failed: ${cause}`);
+		this.name = ADC_ERROR;
+	}
+}
+
+/** Whether Application Default Credentials failed for a reason other than a transient network error. */
+export function isApplicationDefaultCredentialsError(error: unknown): boolean {
+	return error instanceof Error && error.name === ADC_ERROR;
 }
 
 const TRANSIENT_NETWORK_CODES: ReadonlySet<string> = new Set([
@@ -138,6 +166,45 @@ export function googleVertexAuthOptions(
 	}
 }
 
+/** Where gcloud writes ADC, following google-auth-library's well-known file lookup. */
+function wellKnownAdcFile(path: typeof NodePath): string | undefined {
+	const configDir =
+		process.platform === "win32"
+			? process.env.APPDATA
+			: process.env.HOME && path.join(process.env.HOME, ".config");
+	return configDir && path.join(configDir, "gcloud", "application_default_credentials.json");
+}
+
+/**
+ * Where the credential comes from, for logs. For ADC this names the file
+ * google-auth-library will read and whether it exists, since a stale
+ * `GOOGLE_APPLICATION_CREDENTIALS` path fails without falling back to gcloud's file.
+ */
+export function describeGoogleVertexCredentialSource(source: GoogleVertexCredentialSource): string {
+	switch (source.kind) {
+		case "brokered":
+			return "a token from the host's credential broker";
+		case "inline":
+			return "the inline service account in GOOGLE_CLIENT_EMAIL and GOOGLE_PRIVATE_KEY";
+		case "adc": {
+			// With no captured path, google-auth-library reads the ambient environment itself.
+			const envFile =
+				source.keyFilename ??
+				readSdkCredentialEnvironment(process.env).googleApplicationCredentials;
+			if (envFile) {
+				const missing = nodeFs && !nodeFs.existsSync(envFile) ? ", which does not exist" : "";
+				return `Application Default Credentials from GOOGLE_APPLICATION_CREDENTIALS (${envFile}${missing})`;
+			}
+			if (!nodeFs || !nodePath) return "Application Default Credentials";
+			const gcloudFile = wellKnownAdcFile(nodePath);
+			if (gcloudFile && nodeFs.existsSync(gcloudFile)) {
+				return `Application Default Credentials from gcloud's file (${gcloudFile})`;
+			}
+			return `Application Default Credentials with no file (GOOGLE_APPLICATION_CREDENTIALS is unset and there is no gcloud file at ${gcloudFile ?? "the default location"}), so only the metadata server can supply them`;
+		}
+	}
+}
+
 async function tokenFrom(auth: GoogleAuth): Promise<string | undefined> {
 	const client = await auth.getClient();
 	const { token } = await client.getAccessToken();
@@ -147,8 +214,9 @@ async function tokenFrom(auth: GoogleAuth): Promise<string | undefined> {
 /**
  * A cloud-platform access token for the Vertex REST API. An inline failure is
  * surfaced rather than masked by an ADC "no credentials" error, because setting
- * both inline variables signals explicit intent; transient token-service
- * failures pass through unchanged.
+ * both inline variables signals explicit intent. Other inline and ADC failures
+ * come back as typed credential errors; transient token-service failures pass
+ * through unchanged.
  */
 export async function mintGoogleVertexAccessToken(
 	source: GoogleVertexCredentialSource,
@@ -177,10 +245,15 @@ export async function mintGoogleVertexAccessToken(
 				scopes: [CLOUD_PLATFORM_SCOPE],
 				keyFilename: source.keyFilename,
 			});
-			const token = await tokenFrom(auth);
-			if (!token) {
-				throw new Error("Failed to obtain access token from Application Default Credentials");
+			let token: string | undefined;
+			try {
+				token = await tokenFrom(auth);
+			} catch (err) {
+				if (isTransientTokenError(err)) throw err;
+				const message = err instanceof Error ? err.message : String(err);
+				throw new ApplicationDefaultCredentialsError(message);
 			}
+			if (!token) throw new ApplicationDefaultCredentialsError("no access token was returned");
 			return token;
 		}
 	}
