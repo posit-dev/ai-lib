@@ -323,6 +323,15 @@ function resolveTemplates(
 	return configured.filter((template) => SUPPORTED_TEMPLATES.has(template));
 }
 
+function connectCustomHeaders(
+	customHeaders: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+	const entries = Object.entries(customHeaders ?? {}).filter(
+		([name]) => name.toLowerCase() !== GATEWAY_METADATA_HEADER.toLowerCase(),
+	);
+	return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
 /**
  * Fetch the integrations visible to this API key and shape the allowlisted
  * ones. Throws on HTTP failure or a non-array body. This is the canonical
@@ -338,7 +347,7 @@ export async function fetchConnectIntegrations(
 	const baseUrl = connectUrl.replace(/\/+$/, "");
 	const headers = additiveHeaderRecord(
 		{ Authorization: `Key ${credentials.apiKey}` },
-		credentials.customHeaders,
+		connectCustomHeaders(credentials.customHeaders),
 	);
 	const response = await fetch(`${baseUrl}${INTEGRATIONS_PATH}`, { headers, signal });
 	if (!response.ok) {
@@ -400,7 +409,7 @@ async function discoverAnthropicGatewayModels(
 ): Promise<ModelInfo[]> {
 	const headers = additiveHeaderRecord(
 		{ "x-api-key": credentials.apiKey, "anthropic-version": ANTHROPIC_VERSION_HEADER },
-		credentials.customHeaders,
+		connectCustomHeaders(credentials.customHeaders),
 	);
 	const response = await fetch(`${integration.baseUrl}/models`, { headers, signal });
 	if (!response.ok) {
@@ -586,10 +595,7 @@ class ConnectClient implements ModelClient {
 	 */
 	private requestHeaders(params: ModelClientChatParams): Record<string, string> | undefined {
 		const { header } = encodeGatewayMetadata(params.metadata?.gatewayMetadata);
-		const headers: Record<string, string> = {};
-		for (const [name, value] of Object.entries(this.credentials.customHeaders ?? {})) {
-			if (name.toLowerCase() !== GATEWAY_METADATA_HEADER.toLowerCase()) headers[name] = value;
-		}
+		const headers = { ...connectCustomHeaders(this.credentials.customHeaders) };
 		if (header !== undefined) headers[GATEWAY_METADATA_HEADER] = header;
 		return Object.keys(headers).length > 0 ? headers : undefined;
 	}

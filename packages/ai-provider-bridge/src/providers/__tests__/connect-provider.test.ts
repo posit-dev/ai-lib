@@ -264,6 +264,35 @@ describe("connect model fetcher", () => {
 		expect(models).toHaveLength(1 + CONNECT_BEDROCK_MODEL_IDS.length);
 	});
 
+	it("does not forward configured gateway metadata during discovery", async () => {
+		const fetchMock = stubDiscoveryFetch();
+		const models = await registryWithProvider().getModelsForProvider("posit-connect", {
+			...credentials,
+			customHeaders: {
+				"pOSIT-cONNECT-gATEWAY-mETADATA": "workbench-session-id=fake",
+				"x-proxy-token": "proxy",
+			},
+		});
+
+		expect(models).toHaveLength(1);
+		expect(fetchMock).toHaveBeenCalledWith(
+			`${CONNECT_URL}/__api__/v1/oauth/integrations`,
+			expect.objectContaining({
+				headers: { Authorization: "Key tok", "x-proxy-token": "proxy" },
+			}),
+		);
+		expect(fetchMock).toHaveBeenCalledWith(
+			`${ANTHROPIC_GATEWAY}/models`,
+			expect.objectContaining({
+				headers: {
+					"x-api-key": "tok",
+					"anthropic-version": "2023-06-01",
+					"x-proxy-token": "proxy",
+				},
+			}),
+		);
+	});
+
 	it("skips AWS-backed integrations and warns when no credential callback is provided", async () => {
 		stubDiscoveryFetch();
 		const models = await registryWithProvider().getModelsForProvider("posit-connect", credentials);

@@ -2,6 +2,8 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
+import type { ChatRequestMetadata } from "../model-clients/ModelClient";
+
 /**
  * Key/value metadata sent to Posit Connect's LLM gateway for attribution:
  * the Posit Workbench session and project, plus user-supplied fields. The
@@ -200,10 +202,10 @@ export function gatewayMetadataFromEnv(env: Readonly<Record<string, string | und
 }
 
 /** Merge gatewayMetadata into request metadata; returns metadata unchanged when it is undefined. */
-export function withGatewayMetadata<T extends { gatewayMetadata?: GatewayMetadata }>(
-	metadata: T | undefined,
+export function withGatewayMetadata(
+	metadata: ChatRequestMetadata | undefined,
 	gatewayMetadata: GatewayMetadata | undefined,
-): T | undefined {
+): ChatRequestMetadata | undefined {
 	if (gatewayMetadata === undefined) return metadata;
-	return { ...metadata, gatewayMetadata } as T;
+	return { ...metadata, gatewayMetadata };
 }
