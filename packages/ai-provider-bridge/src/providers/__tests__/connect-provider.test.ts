@@ -437,7 +437,7 @@ describe("connect chat routing", () => {
 			);
 		});
 
-		it("combines colliding keys without giving either source priority", async () => {
+		it("does not let configured labels remove Workbench identity", async () => {
 			const client = await clientWithMetadata(undefined, {
 				...credentials,
 				customHeaders: { "posit-connect-gateway-metadata": "workbench-session-id=fake" },
@@ -448,7 +448,7 @@ describe("connect chat routing", () => {
 			expect(AnthropicClient).toHaveBeenCalledWith(
 				{ apiKey: "tok" },
 				ANTHROPIC_GATEWAY,
-				{ [HEADER]: "workbench-session-id=s1,workbench-session-id=fake" },
+				{ [HEADER]: gatewayValue },
 				logger,
 			);
 		});
@@ -541,19 +541,28 @@ describe("connect chat routing", () => {
 			);
 		});
 
+		it("rejects forged Workbench identity in configured-only metadata", async () => {
+			const client = await clientAfterDiscovery(undefined, {
+				...credentials,
+				customHeaders: { [HEADER]: "workbench-session-id=fake,team=research" },
+			});
+			await client.chat(chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`));
+			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toBeUndefined();
+		});
+
 		it("combines case-insensitive configured metadata headers without Workbench", async () => {
 			const client = await clientAfterDiscovery(undefined, {
 				...credentials,
 				customHeaders: {
-					"Posit-Connect-Gateway-Metadata": "workbench-session-id=fake",
-					"pOSIT-cONNECT-gATEWAY-mETADATA": "team=fake",
+					"Posit-Connect-Gateway-Metadata": "region=east",
+					"pOSIT-cONNECT-gATEWAY-mETADATA": "team=analytics",
 				},
 			});
 			await client.chat(
 				chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`, "anthropic-messages"),
 			);
 			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toEqual({
-				[HEADER]: "workbench-session-id=fake,team=fake",
+				[HEADER]: "region=east,team=analytics",
 			});
 		});
 

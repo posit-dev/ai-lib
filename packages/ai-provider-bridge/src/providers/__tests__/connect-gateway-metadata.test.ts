@@ -4,7 +4,28 @@
 
 import { describe, expect, it } from "vitest";
 
-import { isSafeGatewayMetadataHeader } from "../connect-gateway-metadata";
+import {
+	combineGatewayMetadataHeaders,
+	isSafeGatewayMetadataHeader,
+} from "../connect-gateway-metadata";
+
+describe("combineGatewayMetadataHeaders", () => {
+	it("keeps Workbench identity when a configured header claims a reserved key", () => {
+		expect(
+			combineGatewayMetadataHeaders("workbench-session-id=s1", {
+				"Posit-Connect-Gateway-Metadata": "WORKBENCH%2DSESSION-ID=fake,team=analytics",
+			}),
+		).toBe("workbench-session-id=s1");
+	});
+
+	it("cannot send forged Workbench keys without Workbench metadata", () => {
+		expect(
+			combineGatewayMetadataHeaders(undefined, {
+				"Posit-Connect-Gateway-Metadata": "workbench-project-name=Fake",
+			}),
+		).toBeUndefined();
+	});
+});
 
 describe("isSafeGatewayMetadataHeader", () => {
 	it("passes an encoded Workbench header without changing it", () => {

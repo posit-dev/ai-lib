@@ -15,7 +15,20 @@ export function isSafeGatewayMetadataHeader(value: string): boolean {
 	return value.length > 0 && value.length <= 4096 && /^[\x20-\x7e]+$/.test(value);
 }
 
-/** Keep each source's wire value intact; Connect decides which entries are valid. */
+/** Configured labels must not impersonate or remove Workbench's authoritative fields. */
+function containsWorkbenchField(value: string): boolean {
+	return value.split(",").some((entry) => {
+		const key = entry.split("=", 1)[0].trim();
+		try {
+			return decodeURIComponent(key).toLowerCase().startsWith("workbench-");
+		} catch {
+			// Connect will reject malformed encoding; never treat it as a safe label.
+			return true;
+		}
+	});
+}
+
+/** Keep each source's wire value intact; Connect decides which ordinary entries are valid. */
 export function combineGatewayMetadataHeaders(
 	workbenchValue: string | undefined,
 	customHeaders: Record<string, string> | undefined,
@@ -27,8 +40,13 @@ export function combineGatewayMetadataHeaders(
 	let entries = 0;
 	// Workbench goes first so a configured value cannot exceed Connect's global
 	// header/entry limits and cause it to discard the entire Workbench header.
-	for (const value of [workbenchValue, ...configuredValues]) {
+	for (const source of [
+		{ value: workbenchValue, configured: false },
+		...configuredValues.map((value) => ({ value, configured: true })),
+	]) {
+		const { value } = source;
 		if (value === undefined || !isSafeGatewayMetadataHeader(value)) continue;
+		if (source.configured && containsWorkbenchField(value)) continue;
 		const valueEntries = value.split(",").filter((entry) => entry.trim().length > 0).length;
 		if (valueEntries === 0 || entries + valueEntries > 16) continue;
 		if ((combined?.length ?? 0) + value.length + (combined === undefined ? 0 : 1) > 4096) continue;
