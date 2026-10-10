@@ -138,8 +138,8 @@ on `POST /v1beta/interactions`.
   `ModelClientChatParams.tools` contract stays narrow (local
   `AiToolWithJsonSchema` tools only); the merged record is wider because a
   provider-defined tool has no JSON-schema input. The merged toolset is part
-  of the `streamArgs` reused by `withExpiredIdRetry()`, so the tool survives
-  the expired-interaction retry unchanged.
+  of the `streamArgs` the expired-interaction retry is built from, so the tool
+  survives the retry unchanged.
 - **The client takes eligibility as a per-request flag only** — it does not
   re-check model IDs. Advertisement is the catalog's job: `buildGeminiModel`
   sets `supportsWebSearch` from `googleHosted && isGeminiWebSearchVerified(id)`.
@@ -199,6 +199,23 @@ run).
 errors. On retry, it resends the full signature-filtered history with no
 `previousInteractionId` (fresh interaction). The replacement `interactionId` persists
 via the normal finish-metadata path.
+
+- **The rejection arrives as an in-stream `error` part, not a throw.** When the
+  request fails (`doStream` rejects with an `APICallError`), the AI SDK emits
+  its leading `start` part and then an `error` part. The wrapper consumes that
+  part and retries; a thrown error is handled the same way.
+- **Retry only while chaining and before content.** The retry fires only when
+  the request carried a `previousInteractionId` and nothing but `start` has been
+  yielded. An expired-interaction error after content passes through unchanged,
+  so the consumer never sees spliced partial output.
+- **The retry request is built in `chat()`** from the same `streamArgs` as the
+  first attempt (only `messages` and `providerOptions` differ) and handed to the
+  wrapper as a callback, so every other argument — tools, system prompt,
+  `allowSystemInMessages`, `onError`, abort signal — cannot drift between the
+  two attempts. The retry's duplicate `start` part is dropped.
+- `streamArgs` sets `onError: suppressAiSdkDefaultErrorLogging`, so a recovered
+  rejection does not reach stderr through the SDK's default `console.error`;
+  the `[GeminiClient] stream error part` diagnostic goes through the logger.
 
 ## Error Diagnostics
 

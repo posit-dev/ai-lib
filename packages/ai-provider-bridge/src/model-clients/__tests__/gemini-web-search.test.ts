@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 interface StreamTextArgs {
 	tools?: Record<string, unknown>;
 	toolChoice?: string;
+	providerOptions?: { google?: Record<string, unknown> };
 }
 
 const { streamText, googleSearch, interactionsModel } = vi.hoisted(() => ({
@@ -112,10 +113,7 @@ function textStream(text: string, error?: unknown) {
 	};
 }
 
-/**
- * Route `streamText` to the real SDK over a mock Interactions model, and
- * capture the SDK's default `console.error` reporting of stream errors.
- */
+/** Route `streamText` to the real SDK over a mock Interactions model. */
 async function useRealSdk(doStream: MockLanguageModelV3["doStream"]) {
 	const { streamText: realStreamText } = await vi.importActual<typeof import("ai")>("ai");
 	// The hoisted mock is typed narrowly for the arg-inspection tests above.
@@ -125,8 +123,7 @@ async function useRealSdk(doStream: MockLanguageModelV3["doStream"]) {
 	const model = new MockLanguageModelV3({ provider: "google.interactions", doStream });
 	interactionsModel.current = model;
 	googleSearch.mockReturnValueOnce({ type: "provider", id: "google.google_search", args: {} });
-	const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-	return { model, consoleError };
+	return model;
 }
 
 async function drain(stream: AsyncIterable<LMStreamPart>): Promise<LMStreamPart[]> {
@@ -226,14 +223,13 @@ describe("GeminiClient expired-interaction retry", () => {
 		googleSearch.mockClear();
 	});
 	afterEach(() => {
-		vi.restoreAllMocks();
 		interactionsModel.current = {};
 	});
 
 	it("retries a rejected chained request with a fresh interaction, keeping google_search", async () => {
 		const expired = expiredInteractionError();
 		let call = 0;
-		const { model, consoleError } = await useRealSdk(async () => {
+		const model = await useRealSdk(async () => {
 			call++;
 			if (call === 1) throw expired;
 			return textStream("Fresh answer");
@@ -267,12 +263,11 @@ describe("GeminiClient expired-interaction retry", () => {
 				expect.objectContaining({ type: "provider", name: "google_search" }),
 			);
 		}
-		expect(consoleError).toHaveBeenCalledExactlyOnceWith(expired);
 	});
 
 	it("does not retry an expired-interaction error that arrives after content", async () => {
 		const expired = expiredInteractionError();
-		const { model, consoleError } = await useRealSdk(async () => textStream("Partial", expired));
+		const model = await useRealSdk(async () => textStream("Partial", expired));
 
 		const client = new GeminiClient("test-key");
 		const parts = await drain(
@@ -286,6 +281,29 @@ describe("GeminiClient expired-interaction retry", () => {
 
 		expect(model.doStreamCalls).toHaveLength(1);
 		expect(parts.flatMap((p) => (p.type === "error" ? [p.error] : []))).toEqual([expired]);
-		expect(consoleError).toHaveBeenCalledExactlyOnceWith(expired);
+	});
+
+	it("retries when the chained stream throws before any content", async () => {
+		streamText.mockReturnValueOnce({
+			fullStream: (async function* () {
+				throw expiredInteractionError();
+			})(),
+		});
+		streamText.mockReturnValueOnce(emptyStream());
+
+		const client = new GeminiClient("test-key");
+		await drain(
+			await client.chat({
+				model: "gemini-3.8-flash",
+				messages: chainedMessages(),
+				webSearchEnabled: true,
+				cancellationToken,
+			}),
+		);
+
+		expect(streamText).toHaveBeenCalledTimes(2);
+		expect(streamTextArgs(0).providerOptions?.google?.previousInteractionId).toBe("v1_prev");
+		expect(streamTextArgs(1).providerOptions?.google?.previousInteractionId).toBeUndefined();
+		expect(streamTextArgs(1).tools?.google_search).toBeDefined();
 	});
 });

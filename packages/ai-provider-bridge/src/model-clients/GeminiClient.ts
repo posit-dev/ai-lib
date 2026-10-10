@@ -25,6 +25,7 @@ import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
 	createStepLogger,
+	suppressAiSdkDefaultErrorLogging,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 import { mergeProviderTools } from "./provider-tools";
@@ -424,20 +425,30 @@ export class GeminiClient implements ModelClient {
 			toolChoice: tools ? ("auto" as const) : undefined,
 			abortSignal: abortController.signal,
 			providerOptions,
+			onError: suppressAiSdkDefaultErrorLogging,
 			onStepFinish: createStepLogger(params.stepLoggers || [], "gemini", params.model),
 		};
 
-		// Attempt to stream. If we get an expired-interaction error on the
-		// first chunk, retry once with a fresh interaction (no chaining).
+		// Same request as a fresh interaction: full filtered history, no
+		// chaining. Everything else (tools, system, abort signal, ...) is shared.
+		const startFreshInteraction = () =>
+			streamText({
+				...streamArgs,
+				messages: filterUnsignedReasoning(params.messages),
+				providerOptions: buildInteractionsOptions({
+					thinkingEffort: params.thinkingEffort,
+					modelId: params.model,
+					previousInteractionId: null,
+				}),
+			}).fullStream;
+
+		// Attempt to stream. If a chained request is rejected as an expired
+		// interaction before any content, retry once with a fresh interaction.
 		try {
 			const result = streamText(streamArgs);
 			return convertAiSdkStreamToPlatform(
 				this.withRawUsageMetadata(
-					this.withExpiredIdRetry(result.fullStream, {
-						...streamArgs,
-						messages: params.messages,
-						cleanup,
-					}),
+					this.withExpiredIdRetry(result.fullStream, previousInteractionId, startFreshInteraction),
 				),
 				cleanup,
 			);
@@ -467,29 +478,16 @@ export class GeminiClient implements ModelClient {
 	 * while chaining and only before any content has been yielded, so the
 	 * consumer never sees partial first-attempt output or the swallowed error.
 	 *
-	 * On retry:
-	 * - Resend the full signature-filtered local history
-	 * - No `previousInteractionId` (fresh interaction)
-	 * - Same toolset, including hosted provider tools such as `google_search`
-	 * - The replacement `interactionId` persists via the normal finish-metadata path
+	 * `startFreshInteraction` issues the same request as a fresh interaction
+	 * (full signature-filtered history, no `previousInteractionId`, same
+	 * toolset). The replacement `interactionId` persists via the normal
+	 * finish-metadata path.
 	 */
 	private async *withExpiredIdRetry(
 		stream: AsyncIterable<LMStreamPart>,
-		retryContext: {
-			allowSystemInMessages?: boolean;
-			model: ReturnType<ReturnType<typeof createGoogleGenerativeAI>["interactions"]>;
-			messages: ModelMessage[];
-			system?: string;
-			maxOutputTokens?: number;
-			tools?: Record<string, ai.Tool>;
-			toolChoice?: "auto";
-			abortSignal: AbortSignal;
-			providerOptions: { google: Record<string, string | number | boolean | null> };
-			onStepFinish: ReturnType<typeof createStepLogger>;
-			cleanup: () => void;
-		},
+		previousInteractionId: string | null,
+		startFreshInteraction: () => AsyncIterable<LMStreamPart>,
 	): AsyncIterable<LMStreamPart> {
-		const previousInteractionId = retryContext.providerOptions.google.previousInteractionId ?? null;
 		// [diagnostics] Raw error shape plus chaining state, so a rejection can
 		// be correlated with the outgoing chaining decision.
 		const logError = (label: string, error: unknown) =>
@@ -527,22 +525,7 @@ export class GeminiClient implements ModelClient {
 		}
 		if (!retrying) return;
 
-		// Retry with fresh interaction: full filtered history, no chaining
-		const { previousInteractionId: _, ...rest } = retryContext.providerOptions.google;
-		const retryResult = streamText({
-			allowSystemInMessages: retryContext.allowSystemInMessages,
-			model: retryContext.model,
-			messages: filterUnsignedReasoning(retryContext.messages),
-			system: retryContext.system,
-			maxOutputTokens: retryContext.maxOutputTokens,
-			tools: retryContext.tools,
-			toolChoice: retryContext.toolChoice,
-			abortSignal: retryContext.abortSignal,
-			providerOptions: { google: rest },
-			onStepFinish: retryContext.onStepFinish,
-		});
-
-		for await (const chunk of retryResult.fullStream) {
+		for await (const chunk of startFreshInteraction()) {
 			// Don't repeat the stream's `start` part if the first attempt yielded it.
 			if (chunk.type === "start" && yieldedStart) continue;
 			yield chunk;
