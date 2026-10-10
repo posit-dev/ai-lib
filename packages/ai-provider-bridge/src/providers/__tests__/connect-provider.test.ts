@@ -264,6 +264,35 @@ describe("connect model fetcher", () => {
 		expect(models).toHaveLength(1 + CONNECT_BEDROCK_MODEL_IDS.length);
 	});
 
+	it("does not forward configured gateway metadata during discovery", async () => {
+		const fetchMock = stubDiscoveryFetch();
+		const models = await registryWithProvider().getModelsForProvider("posit-connect", {
+			...credentials,
+			customHeaders: {
+				"pOSIT-cONNECT-gATEWAY-mETADATA": "workbench-session-id=fake",
+				"x-proxy-token": "proxy",
+			},
+		});
+
+		expect(models).toHaveLength(1);
+		expect(fetchMock).toHaveBeenCalledWith(
+			`${CONNECT_URL}/__api__/v1/oauth/integrations`,
+			expect.objectContaining({
+				headers: { Authorization: "Key tok", "x-proxy-token": "proxy" },
+			}),
+		);
+		expect(fetchMock).toHaveBeenCalledWith(
+			`${ANTHROPIC_GATEWAY}/models`,
+			expect.objectContaining({
+				headers: {
+					"x-api-key": "tok",
+					"anthropic-version": "2023-06-01",
+					"x-proxy-token": "proxy",
+				},
+			}),
+		);
+	});
+
 	it("skips AWS-backed integrations and warns when no credential callback is provided", async () => {
 		stubDiscoveryFetch();
 		const models = await registryWithProvider().getModelsForProvider("posit-connect", credentials);
@@ -323,9 +352,10 @@ describe("connect chat routing", () => {
 	function clientWithoutDiscovery(
 		callbacks?: ConnectProviderCallbacks,
 		creds: ProviderCredentials = credentials,
+		getGatewayMetadata?: () => string | undefined,
 	) {
 		const registry = new ProviderRegistry(logger);
-		registerConnectProvider(registry, logger, callbacks);
+		registerConnectProvider(registry, logger, callbacks, getGatewayMetadata);
 		const client = registry.getClientForProvider("posit-connect", creds);
 		expect(client).not.toBeNull();
 		return client!;
@@ -334,10 +364,11 @@ describe("connect chat routing", () => {
 	async function clientAfterDiscovery(
 		callbacks?: ConnectProviderCallbacks,
 		creds: ProviderCredentials = credentials,
+		getGatewayMetadata?: () => string | undefined,
 	) {
 		stubDiscoveryFetch();
 		const registry = new ProviderRegistry(logger);
-		registerConnectProvider(registry, logger, callbacks);
+		registerConnectProvider(registry, logger, callbacks, getGatewayMetadata);
 		await registry.getModelsForProvider("posit-connect", creds);
 		const client = registry.getClientForProvider("posit-connect", creds);
 		expect(client).not.toBeNull();
@@ -363,6 +394,240 @@ describe("connect chat routing", () => {
 				baseUrl: ANTHROPIC_GATEWAY,
 			}),
 		);
+	});
+
+	describe("gateway metadata header", () => {
+		const HEADER = "Posit-Connect-Gateway-Metadata";
+		const gatewayValue = "workbench-session-id=s1";
+		const clientWithMetadata = (callbacks?: ConnectProviderCallbacks, creds = credentials) =>
+			clientAfterDiscovery(callbacks, creds, () => gatewayValue);
+
+		it("does not read attribution during discovery", async () => {
+			const getter = vi.fn(() => gatewayValue);
+			await clientAfterDiscovery(undefined, credentials, getter);
+			expect(getter).not.toHaveBeenCalled();
+		});
+
+		it("sends the header on the Anthropic route", async () => {
+			const client = await clientWithMetadata();
+			await client.chat(
+				chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`, "anthropic-messages"),
+			);
+			expect(AnthropicClient).toHaveBeenCalledWith(
+				{ apiKey: "tok" },
+				ANTHROPIC_GATEWAY,
+				{ [HEADER]: "workbench-session-id=s1" },
+				logger,
+			);
+		});
+
+		it("keeps other customHeaders alongside the header", async () => {
+			const client = await clientWithMetadata(undefined, {
+				...credentials,
+				customHeaders: { "x-proxy-token": "t" },
+			});
+			await client.chat(
+				chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`, "anthropic-messages"),
+			);
+			expect(AnthropicClient).toHaveBeenCalledWith(
+				{ apiKey: "tok" },
+				ANTHROPIC_GATEWAY,
+				{ "x-proxy-token": "t", [HEADER]: "workbench-session-id=s1" },
+				logger,
+			);
+		});
+
+		it("combines colliding keys without giving either source priority", async () => {
+			const client = await clientWithMetadata(undefined, {
+				...credentials,
+				customHeaders: { "posit-connect-gateway-metadata": "workbench-session-id=fake" },
+			});
+			await client.chat(
+				chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`, "anthropic-messages"),
+			);
+			expect(AnthropicClient).toHaveBeenCalledWith(
+				{ apiKey: "tok" },
+				ANTHROPIC_GATEWAY,
+				{ [HEADER]: "workbench-session-id=s1,workbench-session-id=fake" },
+				logger,
+			);
+		});
+
+		it("combines configured and Workbench metadata without rewriting either value", async () => {
+			const client = await clientAfterDiscovery(
+				undefined,
+				{
+					...credentials,
+					customHeaders: { "posit-connect-gateway-metadata": "team=analytics%20group" },
+				},
+				() => "workbench-session-id=s1,workbench-project-name=My%20Project",
+			);
+			await client.chat(chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`));
+			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toEqual({
+				[HEADER]:
+					"workbench-session-id=s1,workbench-project-name=My%20Project,team=analytics%20group",
+			});
+		});
+
+		it("sends configured metadata when Workbench provides none", async () => {
+			const client = await clientAfterDiscovery(undefined, {
+				...credentials,
+				customHeaders: { "pOSIT-cONNECT-gATEWAY-mETADATA": "team=analytics" },
+			});
+			await client.chat(chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`));
+			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toEqual({
+				[HEADER]: "team=analytics",
+			});
+		});
+
+		it("does not let an oversized combined header erase Workbench metadata", async () => {
+			const client = await clientAfterDiscovery(
+				undefined,
+				{
+					...credentials,
+					customHeaders: { [HEADER]: "team=" + "x".repeat(4070) },
+				},
+				() => gatewayValue,
+			);
+			await client.chat(chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`));
+			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toEqual({ [HEADER]: gatewayValue });
+		});
+
+		it("does not let too many configured fields erase Workbench metadata", async () => {
+			const client = await clientAfterDiscovery(
+				undefined,
+				{
+					...credentials,
+					customHeaders: { [HEADER]: Array.from({ length: 16 }, (_, i) => `k${i}=v`).join(",") },
+				},
+				() => gatewayValue,
+			);
+			await client.chat(chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`));
+			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toEqual({ [HEADER]: gatewayValue });
+		});
+
+		it("ignores a transport-unsafe configured value without losing Workbench metadata", async () => {
+			const client = await clientWithMetadata(undefined, {
+				...credentials,
+				customHeaders: { [HEADER]: "team=raw\nnewline" },
+			});
+			await client.chat(chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`));
+			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toEqual({ [HEADER]: gatewayValue });
+		});
+
+		it("sends combined metadata on the Bedrock route", async () => {
+			const client = await clientWithMetadata(
+				{ getAwsCredentials: mintSuccess() },
+				{ ...credentials, customHeaders: { [HEADER]: "team=analytics" } },
+			);
+			await client.chat(
+				chatParams(`${AWS_PREFIX}/${CONNECT_BEDROCK_MODEL_IDS[0]}`, "bedrock-converse"),
+			);
+			expect(vi.mocked(BedrockClient).mock.calls.at(-1)![0].customHeaders).toEqual({
+				[HEADER]: "workbench-session-id=s1,team=analytics",
+			});
+		});
+
+		it("sends the header on the Bedrock route", async () => {
+			const client = await clientWithMetadata({ getAwsCredentials: mintSuccess() });
+			await client.chat(
+				chatParams(`${AWS_PREFIX}/${CONNECT_BEDROCK_MODEL_IDS[0]}`, "bedrock-converse"),
+			);
+			expect(BedrockClient).toHaveBeenCalledWith(
+				expect.objectContaining({
+					customHeaders: expect.objectContaining({ [HEADER]: "workbench-session-id=s1" }),
+				}),
+				logger,
+			);
+		});
+
+		it("combines case-insensitive configured metadata headers without Workbench", async () => {
+			const client = await clientAfterDiscovery(undefined, {
+				...credentials,
+				customHeaders: {
+					"Posit-Connect-Gateway-Metadata": "workbench-session-id=fake",
+					"pOSIT-cONNECT-gATEWAY-mETADATA": "team=fake",
+				},
+			});
+			await client.chat(
+				chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`, "anthropic-messages"),
+			);
+			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toEqual({
+				[HEADER]: "workbench-session-id=fake,team=fake",
+			});
+		});
+
+		it("keeps unrelated customHeaders when runtime metadata is absent", async () => {
+			const client = await clientAfterDiscovery(undefined, {
+				...credentials,
+				customHeaders: {
+					"posit-connect-gateway-metadata": "team=fake",
+					"x-proxy-token": "t",
+				},
+			});
+			await client.chat(
+				chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`, "anthropic-messages"),
+			);
+			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toEqual({
+				"x-proxy-token": "t",
+				[HEADER]: "team=fake",
+			});
+		});
+
+		it("uses configured metadata when Workbench metadata is transport-unsafe", async () => {
+			const client = await clientAfterDiscovery(
+				undefined,
+				{
+					...credentials,
+					customHeaders: { "POSIT-CONNECT-GATEWAY-METADATA": "team=fake" },
+				},
+				() => "team=raw\nnewline",
+			);
+			await client.chat(
+				chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`, "anthropic-messages"),
+			);
+			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toEqual({ [HEADER]: "team=fake" });
+		});
+
+		it("forwards even malformed metadata syntax unchanged for Connect to parse", async () => {
+			const client = await clientAfterDiscovery(undefined, credentials, () => "team=%ZZ");
+			await client.chat(chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`));
+			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toEqual({ [HEADER]: "team=%ZZ" });
+		});
+
+		it("uses safe configured metadata when Workbench metadata is unsafe", async () => {
+			const client = await clientAfterDiscovery(
+				undefined,
+				{ ...credentials, customHeaders: { "Posit-Connect-Gateway-Metadata": "team=forged" } },
+				() => "team=raw\rreturn",
+			);
+			await client.chat(chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`));
+			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toEqual({ [HEADER]: "team=forged" });
+		});
+
+		it("sends configured metadata on the Bedrock route without Workbench", async () => {
+			const client = await clientAfterDiscovery(
+				{ getAwsCredentials: mintSuccess() },
+				{
+					...credentials,
+					customHeaders: { "POSIT-CONNECT-GATEWAY-METADATA": "team=fake" },
+				},
+			);
+			await client.chat(
+				chatParams(`${AWS_PREFIX}/${CONNECT_BEDROCK_MODEL_IDS[0]}`, "bedrock-converse"),
+			);
+			expect(vi.mocked(BedrockClient).mock.calls.at(-1)![0].customHeaders).toEqual({
+				[HEADER]: "team=fake",
+			});
+		});
+
+		it("passes customHeaders through unchanged without metadata", async () => {
+			const client = await clientAfterDiscovery();
+			await client.chat(
+				chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`, "anthropic-messages"),
+			);
+			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toBeUndefined();
+		});
 	});
 
 	it("routes bedrock-converse through per-request STS credentials without forcing a protocol", async () => {
