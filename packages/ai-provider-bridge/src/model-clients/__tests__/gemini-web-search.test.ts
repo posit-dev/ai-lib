@@ -4,21 +4,24 @@
 
 import { APICallError } from "@ai-sdk/provider";
 import { jsonSchema } from "ai";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock only `streamText` and the Google provider factory so the tests below
 // can drive `GeminiClient.chat()` end-to-end and inspect the exact toolset
 // handed to the SDK. Everything else — the provider-tool merge, the
 // expired-interaction retry, and the platform stream conversion — runs for
-// real.
+// real. The retry tests additionally route `streamText` to the real SDK over
+// a mock language model, so provider failures arrive through the SDK's own
+// error channel.
 interface StreamTextArgs {
 	tools?: Record<string, unknown>;
 	toolChoice?: string;
 }
 
-const { streamText, googleSearch } = vi.hoisted(() => ({
+const { streamText, googleSearch, interactionsModel } = vi.hoisted(() => ({
 	streamText: vi.fn<(args: StreamTextArgs) => unknown>(),
-	googleSearch: vi.fn(() => ({ __providerTool: "google_search" })),
+	googleSearch: vi.fn<() => unknown>(() => ({ __providerTool: "google_search" })),
+	interactionsModel: { current: {} as unknown },
 }));
 vi.mock("ai", async (importOriginal) => ({
 	...(await importOriginal<Record<string, unknown>>()),
@@ -26,12 +29,15 @@ vi.mock("ai", async (importOriginal) => ({
 }));
 vi.mock("@ai-sdk/google", () => ({
 	createGoogleGenerativeAI: vi.fn(() => ({
-		interactions: vi.fn(() => ({})),
+		interactions: vi.fn(() => interactionsModel.current),
 		tools: { googleSearch },
 	})),
 }));
 
-import type { AiToolWithJsonSchema, CancellationToken } from "../../types";
+import type { LanguageModelV3StreamPart } from "@ai-sdk/provider";
+import { MockLanguageModelV3 } from "ai/test";
+
+import type { AiToolWithJsonSchema, CancellationToken, LMStreamPart } from "../../types";
 import { GeminiClient } from "../GeminiClient";
 
 const cancellationToken: CancellationToken = {
@@ -63,19 +69,70 @@ function chainedMessages() {
 	];
 }
 
-/** Stream whose first read throws an expired-interaction API error. */
-function expiredInteractionStream() {
+/** Google's rejection of a request chained to an expired interaction. */
+function expiredInteractionError() {
+	return new APICallError({
+		message: "Bad request",
+		url: "https://generativelanguage.googleapis.com/v1beta/interactions",
+		requestBodyValues: {},
+		statusCode: 400,
+		responseBody: "The interaction has expired",
+	});
+}
+
+/** Model stream parts for a short text answer, optionally ending in an error. */
+function textStream(text: string, error?: unknown) {
+	const parts: LanguageModelV3StreamPart[] = [
+		{ type: "stream-start", warnings: [] },
+		{ type: "text-start", id: "t1" },
+		{ type: "text-delta", id: "t1", delta: text },
+	];
+	if (error !== undefined) {
+		parts.push({ type: "error", error });
+	} else {
+		parts.push(
+			{ type: "text-end", id: "t1" },
+			{
+				type: "finish",
+				finishReason: { unified: "stop", raw: "STOP" },
+				usage: {
+					inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined },
+					outputTokens: { total: 1, text: 1, reasoning: undefined },
+				},
+			},
+		);
+	}
 	return {
-		fullStream: (async function* () {
-			throw new APICallError({
-				message: "Bad request",
-				url: "https://generativelanguage.googleapis.com/v1beta/interactions",
-				requestBodyValues: {},
-				statusCode: 400,
-				responseBody: "The interaction has expired",
-			});
-		})(),
+		stream: new ReadableStream<LanguageModelV3StreamPart>({
+			start(controller) {
+				for (const part of parts) controller.enqueue(part);
+				controller.close();
+			},
+		}),
 	};
+}
+
+/**
+ * Route `streamText` to the real SDK over a mock Interactions model, and
+ * capture the SDK's default `console.error` reporting of stream errors.
+ */
+async function useRealSdk(doStream: MockLanguageModelV3["doStream"]) {
+	const { streamText: realStreamText } = await vi.importActual<typeof import("ai")>("ai");
+	// The hoisted mock is typed narrowly for the arg-inspection tests above.
+	streamText.mockImplementation((args) =>
+		realStreamText(args as Parameters<typeof realStreamText>[0]),
+	);
+	const model = new MockLanguageModelV3({ provider: "google.interactions", doStream });
+	interactionsModel.current = model;
+	googleSearch.mockReturnValueOnce({ type: "provider", id: "google.google_search", args: {} });
+	const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+	return { model, consoleError };
+}
+
+async function drain(stream: AsyncIterable<LMStreamPart>): Promise<LMStreamPart[]> {
+	const parts: LMStreamPart[] = [];
+	for await (const part of stream) parts.push(part);
+	return parts;
 }
 
 function streamTextArgs(callIndex: number): StreamTextArgs {
@@ -161,27 +218,74 @@ describe("GeminiClient web search toolset", () => {
 			}),
 		).rejects.toThrowError(/local tool named "google_search"/);
 	});
+});
 
-	it("keeps google_search on the expired-interaction retry", async () => {
-		streamText.mockReturnValueOnce(expiredInteractionStream());
-		streamText.mockReturnValueOnce(emptyStream());
+describe("GeminiClient expired-interaction retry", () => {
+	beforeEach(() => {
+		streamText.mockReset();
+		googleSearch.mockClear();
+	});
+	afterEach(() => {
+		vi.restoreAllMocks();
+		interactionsModel.current = {};
+	});
+
+	it("retries a rejected chained request with a fresh interaction, keeping google_search", async () => {
+		const expired = expiredInteractionError();
+		let call = 0;
+		const { model, consoleError } = await useRealSdk(async () => {
+			call++;
+			if (call === 1) throw expired;
+			return textStream("Fresh answer");
+		});
 
 		const client = new GeminiClient("test-key");
-		const stream = await client.chat({
-			model: "gemini-3.8-flash",
-			messages: chainedMessages(),
-			webSearchEnabled: true,
-			cancellationToken,
-		});
-		for await (const _part of stream) {
-			// Drain — drives the first stream into the expired-interaction error
-			// and the retry to completion.
-		}
+		const parts = await drain(
+			await client.chat({
+				model: "gemini-3.8-flash",
+				messages: chainedMessages(),
+				webSearchEnabled: true,
+				cancellationToken,
+			}),
+		);
 
-		expect(streamText).toHaveBeenCalledTimes(2);
-		// Both the chained first attempt and the fresh-interaction retry carry
-		// the provider tool.
-		expect(streamTextArgs(0).tools?.google_search).toBeDefined();
-		expect(streamTextArgs(1).tools?.google_search).toBeDefined();
+		// The SDK reports the rejection as an error part, which the retry
+		// consumes: the caller sees one clean stream from the fresh request.
+		expect(parts.filter((p) => p.type === "error")).toEqual([]);
+		expect(parts.filter((p) => p.type === "start")).toHaveLength(1);
+		expect(parts.flatMap((p) => (p.type === "text-delta" ? [p.text] : []))).toEqual([
+			"Fresh answer",
+		]);
+
+		expect(model.doStreamCalls).toHaveLength(2);
+		const [chained, fresh] = model.doStreamCalls;
+		expect(chained.providerOptions?.google?.previousInteractionId).toBe("v1_prev");
+		expect(fresh.providerOptions?.google?.previousInteractionId).toBeUndefined();
+		// Both attempts carry the hosted search tool.
+		for (const request of model.doStreamCalls) {
+			expect(request.tools).toContainEqual(
+				expect.objectContaining({ type: "provider", name: "google_search" }),
+			);
+		}
+		expect(consoleError).toHaveBeenCalledExactlyOnceWith(expired);
+	});
+
+	it("does not retry an expired-interaction error that arrives after content", async () => {
+		const expired = expiredInteractionError();
+		const { model, consoleError } = await useRealSdk(async () => textStream("Partial", expired));
+
+		const client = new GeminiClient("test-key");
+		const parts = await drain(
+			await client.chat({
+				model: "gemini-3.8-flash",
+				messages: chainedMessages(),
+				webSearchEnabled: true,
+				cancellationToken,
+			}),
+		);
+
+		expect(model.doStreamCalls).toHaveLength(1);
+		expect(parts.flatMap((p) => (p.type === "error" ? [p.error] : []))).toEqual([expired]);
+		expect(consoleError).toHaveBeenCalledExactlyOnceWith(expired);
 	});
 });
