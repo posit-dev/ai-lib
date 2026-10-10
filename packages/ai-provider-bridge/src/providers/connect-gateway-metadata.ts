@@ -14,3 +14,26 @@ export function isSafeGatewayMetadataHeader(value: string): boolean {
 	// Connect independently validates the format and its own 4 KiB cap.
 	return value.length > 0 && value.length <= 4096 && /^[\x20-\x7e]+$/.test(value);
 }
+
+/** Keep each source's wire value intact; Connect decides which entries are valid. */
+export function combineGatewayMetadataHeaders(
+	workbenchValue: string | undefined,
+	customHeaders: Record<string, string> | undefined,
+): string | undefined {
+	const configuredValues = Object.entries(customHeaders ?? {})
+		.filter(([name]) => name.toLowerCase() === GATEWAY_METADATA_HEADER.toLowerCase())
+		.map(([, value]) => value);
+	let combined: string | undefined;
+	let entries = 0;
+	// Workbench goes first so a configured value cannot exceed Connect's global
+	// header/entry limits and cause it to discard the entire Workbench header.
+	for (const value of [workbenchValue, ...configuredValues]) {
+		if (value === undefined || !isSafeGatewayMetadataHeader(value)) continue;
+		const valueEntries = value.split(",").filter((entry) => entry.trim().length > 0).length;
+		if (valueEntries === 0 || entries + valueEntries > 16) continue;
+		if ((combined?.length ?? 0) + value.length + (combined === undefined ? 0 : 1) > 4096) continue;
+		combined = combined === undefined ? value : `${combined},${value}`;
+		entries += valueEntries;
+	}
+	return combined;
+}

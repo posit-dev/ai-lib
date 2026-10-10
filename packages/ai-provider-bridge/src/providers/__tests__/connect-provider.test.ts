@@ -437,7 +437,7 @@ describe("connect chat routing", () => {
 			);
 		});
 
-		it("does not let customHeaders replace the header", async () => {
+		it("combines colliding keys without giving either source priority", async () => {
 			const client = await clientWithMetadata(undefined, {
 				...credentials,
 				customHeaders: { "posit-connect-gateway-metadata": "workbench-session-id=fake" },
@@ -448,9 +448,84 @@ describe("connect chat routing", () => {
 			expect(AnthropicClient).toHaveBeenCalledWith(
 				{ apiKey: "tok" },
 				ANTHROPIC_GATEWAY,
-				{ [HEADER]: "workbench-session-id=s1" },
+				{ [HEADER]: "workbench-session-id=s1,workbench-session-id=fake" },
 				logger,
 			);
+		});
+
+		it("combines configured and Workbench metadata without rewriting either value", async () => {
+			const client = await clientAfterDiscovery(
+				undefined,
+				{
+					...credentials,
+					customHeaders: { "posit-connect-gateway-metadata": "team=analytics%20group" },
+				},
+				() => "workbench-session-id=s1,workbench-project-name=My%20Project",
+			);
+			await client.chat(chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`));
+			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toEqual({
+				[HEADER]:
+					"workbench-session-id=s1,workbench-project-name=My%20Project,team=analytics%20group",
+			});
+		});
+
+		it("sends configured metadata when Workbench provides none", async () => {
+			const client = await clientAfterDiscovery(undefined, {
+				...credentials,
+				customHeaders: { "pOSIT-cONNECT-gATEWAY-mETADATA": "team=analytics" },
+			});
+			await client.chat(chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`));
+			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toEqual({
+				[HEADER]: "team=analytics",
+			});
+		});
+
+		it("does not let an oversized combined header erase Workbench metadata", async () => {
+			const client = await clientAfterDiscovery(
+				undefined,
+				{
+					...credentials,
+					customHeaders: { [HEADER]: "team=" + "x".repeat(4070) },
+				},
+				() => gatewayValue,
+			);
+			await client.chat(chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`));
+			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toEqual({ [HEADER]: gatewayValue });
+		});
+
+		it("does not let too many configured fields erase Workbench metadata", async () => {
+			const client = await clientAfterDiscovery(
+				undefined,
+				{
+					...credentials,
+					customHeaders: { [HEADER]: Array.from({ length: 16 }, (_, i) => `k${i}=v`).join(",") },
+				},
+				() => gatewayValue,
+			);
+			await client.chat(chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`));
+			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toEqual({ [HEADER]: gatewayValue });
+		});
+
+		it("ignores a transport-unsafe configured value without losing Workbench metadata", async () => {
+			const client = await clientWithMetadata(undefined, {
+				...credentials,
+				customHeaders: { [HEADER]: "team=raw\nnewline" },
+			});
+			await client.chat(chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`));
+			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toEqual({ [HEADER]: gatewayValue });
+		});
+
+		it("sends combined metadata on the Bedrock route", async () => {
+			const client = await clientWithMetadata(
+				{ getAwsCredentials: mintSuccess() },
+				{ ...credentials, customHeaders: { [HEADER]: "team=analytics" } },
+			);
+			await client.chat(
+				chatParams(`${AWS_PREFIX}/${CONNECT_BEDROCK_MODEL_IDS[0]}`, "bedrock-converse"),
+			);
+			expect(vi.mocked(BedrockClient).mock.calls.at(-1)![0].customHeaders).toEqual({
+				[HEADER]: "workbench-session-id=s1,team=analytics",
+			});
 		});
 
 		it("sends the header on the Bedrock route", async () => {
@@ -466,7 +541,7 @@ describe("connect chat routing", () => {
 			);
 		});
 
-		it("drops configured metadata headers without runtime metadata", async () => {
+		it("combines case-insensitive configured metadata headers without Workbench", async () => {
 			const client = await clientAfterDiscovery(undefined, {
 				...credentials,
 				customHeaders: {
@@ -477,7 +552,9 @@ describe("connect chat routing", () => {
 			await client.chat(
 				chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`, "anthropic-messages"),
 			);
-			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toBeUndefined();
+			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toEqual({
+				[HEADER]: "workbench-session-id=fake,team=fake",
+			});
 		});
 
 		it("keeps unrelated customHeaders when runtime metadata is absent", async () => {
@@ -493,10 +570,11 @@ describe("connect chat routing", () => {
 			);
 			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toEqual({
 				"x-proxy-token": "t",
+				[HEADER]: "team=fake",
 			});
 		});
 
-		it("drops configured metadata headers when runtime metadata is invalid", async () => {
+		it("uses configured metadata when Workbench metadata is transport-unsafe", async () => {
 			const client = await clientAfterDiscovery(
 				undefined,
 				{
@@ -508,7 +586,7 @@ describe("connect chat routing", () => {
 			await client.chat(
 				chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`, "anthropic-messages"),
 			);
-			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toBeUndefined();
+			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toEqual({ [HEADER]: "team=fake" });
 		});
 
 		it("forwards even malformed metadata syntax unchanged for Connect to parse", async () => {
@@ -517,17 +595,17 @@ describe("connect chat routing", () => {
 			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toEqual({ [HEADER]: "team=%ZZ" });
 		});
 
-		it("never uses configured metadata headers when the Workbench value is unsafe", async () => {
+		it("uses safe configured metadata when Workbench metadata is unsafe", async () => {
 			const client = await clientAfterDiscovery(
 				undefined,
 				{ ...credentials, customHeaders: { "Posit-Connect-Gateway-Metadata": "team=forged" } },
 				() => "team=raw\rreturn",
 			);
 			await client.chat(chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`));
-			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toBeUndefined();
+			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toEqual({ [HEADER]: "team=forged" });
 		});
 
-		it("filters configured metadata headers on the Bedrock route without runtime metadata", async () => {
+		it("sends configured metadata on the Bedrock route without Workbench", async () => {
 			const client = await clientAfterDiscovery(
 				{ getAwsCredentials: mintSuccess() },
 				{
@@ -538,7 +616,9 @@ describe("connect chat routing", () => {
 			await client.chat(
 				chatParams(`${AWS_PREFIX}/${CONNECT_BEDROCK_MODEL_IDS[0]}`, "bedrock-converse"),
 			);
-			expect(vi.mocked(BedrockClient).mock.calls.at(-1)![0].customHeaders).toBeUndefined();
+			expect(vi.mocked(BedrockClient).mock.calls.at(-1)![0].customHeaders).toEqual({
+				[HEADER]: "team=fake",
+			});
 		});
 
 		it("passes customHeaders through unchanged without metadata", async () => {

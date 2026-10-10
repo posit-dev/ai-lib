@@ -48,7 +48,7 @@ import type { ModelClient, ModelClientChatParams } from "../model-clients/ModelC
 import type { ApiKeyCredentials, AwsCredentials, Logger, LMStreamPart, ModelInfo } from "../types";
 import { normalizeProtocol } from "../types";
 import { createCachedModelFetcher } from "./cached-model-fetcher";
-import { GATEWAY_METADATA_HEADER, isSafeGatewayMetadataHeader } from "./connect-gateway-metadata";
+import { combineGatewayMetadataHeaders, GATEWAY_METADATA_HEADER } from "./connect-gateway-metadata";
 import type { ClientFactory, ProviderRegistry } from "./ProviderRegistry";
 
 const DEFAULT_TEMPLATES = ["anthropic", "aws"] as const;
@@ -591,16 +591,16 @@ class ConnectClient implements ModelClient {
 
 	/**
 	 * Headers for one gateway request: configured customHeaders (excluding
-	 * any metadata header) plus Workbench's header value unchanged, if safe
-	 * for HTTP transport. Connect validates its contents on receipt.
-	 * Configuration cannot set or replace request attribution.
+	 * the metadata header) plus the combined Workbench and configured metadata.
+	 * Each metadata value is left intact; Connect validates its entries.
 	 */
 	private requestHeaders(): Record<string, string> | undefined {
-		const header = this.getGatewayMetadata?.();
+		const metadata = combineGatewayMetadataHeaders(
+			this.getGatewayMetadata?.(),
+			this.credentials.customHeaders,
+		);
 		const headers = { ...connectCustomHeaders(this.credentials.customHeaders) };
-		if (header !== undefined && isSafeGatewayMetadataHeader(header)) {
-			headers[GATEWAY_METADATA_HEADER] = header;
-		}
+		if (metadata !== undefined) headers[GATEWAY_METADATA_HEADER] = metadata;
 		return Object.keys(headers).length > 0 ? headers : undefined;
 	}
 
