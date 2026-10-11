@@ -14,18 +14,21 @@
 
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { APICallError } from "@ai-sdk/provider";
+import type * as ai from "ai";
 import type { ModelMessage } from "ai";
 import { streamText } from "ai";
 
 import { safeSdkCustomHeaders } from "../custom-headers";
 import { getGeminiInteractionsProfile } from "../model-capabilities/gemini-interactions";
-import type { AiToolWithJsonSchema, LMStreamPart, Logger } from "../types";
+import type { LMStreamPart, Logger } from "../types";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
 	createStepLogger,
+	suppressAiSdkDefaultErrorLogging,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
+import { mergeProviderTools } from "./provider-tools";
 import { withRawHttpLogging } from "./raw-http-logging";
 
 // ---------------------------------------------------------------------------
@@ -380,6 +383,20 @@ export class GeminiClient implements ModelClient {
 			previousInteractionId,
 		});
 
+		// Build the request toolset. Callers supply only local tools; when web
+		// search is explicitly enabled per-request, attach Google's server-side
+		// Search grounding tool under the fixed `google_search` key. The merged
+		// record is wider than the public contract (provider-defined tools have
+		// no JSON-schema input), so the widening is absorbed here. The merge
+		// rejects a local tool occupying the reserved key rather than silently
+		// overwriting it.
+		let tools: Record<string, ai.Tool> | undefined = params.tools;
+		if (params.webSearchEnabled) {
+			tools = mergeProviderTools(params.tools, {
+				google_search: provider.tools.googleSearch({}),
+			});
+		}
+
 		// [diagnostics] Record the outgoing chaining decision so we can correlate
 		// it with any server rejection (400 invalid_argument / 404 not found).
 		this.logger?.debug(
@@ -404,24 +421,34 @@ export class GeminiClient implements ModelClient {
 			messages: requestMessages,
 			system: params.systemPrompt,
 			maxOutputTokens: params.maxOutputTokens,
-			tools: params.tools,
-			toolChoice: params.tools ? ("auto" as const) : undefined,
+			tools,
+			toolChoice: tools ? ("auto" as const) : undefined,
 			abortSignal: abortController.signal,
 			providerOptions,
+			onError: suppressAiSdkDefaultErrorLogging,
 			onStepFinish: createStepLogger(params.stepLoggers || [], "gemini", params.model),
 		};
 
-		// Attempt to stream. If we get an expired-interaction error on the
-		// first chunk, retry once with a fresh interaction (no chaining).
+		// Same request as a fresh interaction: full filtered history, no
+		// chaining. Everything else (tools, system, abort signal, ...) is shared.
+		const startFreshInteraction = () =>
+			streamText({
+				...streamArgs,
+				messages: filterUnsignedReasoning(params.messages),
+				providerOptions: buildInteractionsOptions({
+					thinkingEffort: params.thinkingEffort,
+					modelId: params.model,
+					previousInteractionId: null,
+				}),
+			}).fullStream;
+
+		// Attempt to stream. If a chained request is rejected as an expired
+		// interaction before any content, retry once with a fresh interaction.
 		try {
 			const result = streamText(streamArgs);
 			return convertAiSdkStreamToPlatform(
 				this.withRawUsageMetadata(
-					this.withExpiredIdRetry(result.fullStream, {
-						...streamArgs,
-						messages: params.messages,
-						cleanup,
-					}),
+					this.withExpiredIdRetry(result.fullStream, previousInteractionId, startFreshInteraction),
 				),
 				cleanup,
 			);
@@ -445,89 +472,63 @@ export class GeminiClient implements ModelClient {
 	/**
 	 * Wrap a stream to retry exactly once on expired-interaction errors.
 	 *
-	 * The invalid-interaction error surfaces at stream start (before content),
-	 * so there's no partial first-attempt output to worry about.
+	 * The AI SDK reports a rejected request as an in-stream `error` part
+	 * (after its leading `start` part) rather than throwing; a thrown error
+	 * is also handled in case that changes. Either way, the retry fires only
+	 * while chaining and only before any content has been yielded, so the
+	 * consumer never sees partial first-attempt output or the swallowed error.
 	 *
-	 * On retry:
-	 * - Resend the full signature-filtered local history
-	 * - No `previousInteractionId` (fresh interaction)
-	 * - The replacement `interactionId` persists via the normal finish-metadata path
+	 * `startFreshInteraction` issues the same request as a fresh interaction
+	 * (full signature-filtered history, no `previousInteractionId`, same
+	 * toolset). The replacement `interactionId` persists via the normal
+	 * finish-metadata path.
 	 */
 	private async *withExpiredIdRetry(
 		stream: AsyncIterable<LMStreamPart>,
-		retryContext: {
-			model: ReturnType<ReturnType<typeof createGoogleGenerativeAI>["interactions"]>;
-			messages: ModelMessage[];
-			system?: string;
-			maxOutputTokens?: number;
-			tools?: Record<string, AiToolWithJsonSchema>;
-			toolChoice?: "auto";
-			abortSignal: AbortSignal;
-			providerOptions: { google: Record<string, string | number | boolean | null> };
-			onStepFinish: ReturnType<typeof createStepLogger>;
-			cleanup: () => void;
-		},
+		previousInteractionId: string | null,
+		startFreshInteraction: () => AsyncIterable<LMStreamPart>,
 	): AsyncIterable<LMStreamPart> {
-		try {
-			for await (const chunk of stream) {
-				// [diagnostics] Provider errors surface as in-stream `error` parts
-				// (not thrown), which means the catch below never sees them. Log the
-				// raw shape here so we can see the real Google status/body and whether
-				// we were chaining when it failed.
-				if ((chunk as { type?: string }).type === "error") {
-					this.logger?.info(
-						"[GeminiClient] stream error part",
-						JSON.stringify({
-							wasChaining: Boolean(retryContext.providerOptions.google.previousInteractionId),
-							previousInteractionId:
-								retryContext.providerOptions.google.previousInteractionId ?? null,
-							error: serializeGeminiError((chunk as { error?: unknown }).error),
-						}),
-					);
-				}
-				yield chunk;
-			}
-		} catch (error) {
-			// [diagnostics] Thrown errors (typically pre-stream, e.g. a 404 on the
-			// initial request) land here. Capture the raw shape too.
+		// [diagnostics] Raw error shape plus chaining state, so a rejection can
+		// be correlated with the outgoing chaining decision.
+		const logError = (label: string, error: unknown) =>
 			this.logger?.info(
-				"[GeminiClient] stream threw",
+				label,
 				JSON.stringify({
-					wasChaining: Boolean(retryContext.providerOptions.google.previousInteractionId),
-					previousInteractionId: retryContext.providerOptions.google.previousInteractionId ?? null,
+					wasChaining: previousInteractionId !== null,
+					previousInteractionId,
 					error: serializeGeminiError(error),
 				}),
 			);
-			// Only retry expired-interaction errors with an active previousInteractionId
-			if (
-				!isExpiredInteractionError(error) ||
-				!retryContext.providerOptions.google.previousInteractionId
-			) {
-				throw error;
-			}
+		let yieldedStart = false;
+		let sawContent = false;
+		const shouldRetry = (error: unknown) =>
+			previousInteractionId !== null && !sawContent && isExpiredInteractionError(error);
 
-			// Retry with fresh interaction: full filtered history, no chaining
-			const { previousInteractionId: _, ...rest } = retryContext.providerOptions.google;
-			const freshOptions = {
-				google: rest,
-			};
-			const freshMessages = filterUnsignedReasoning(retryContext.messages);
-
-			const retryResult = streamText({
-				model: retryContext.model,
-				messages: freshMessages,
-				system: retryContext.system,
-				maxOutputTokens: retryContext.maxOutputTokens,
-				tools: retryContext.tools,
-				toolChoice: retryContext.toolChoice,
-				abortSignal: retryContext.abortSignal,
-				providerOptions: freshOptions,
-				onStepFinish: retryContext.onStepFinish,
-			});
-
-			for await (const chunk of retryResult.fullStream) {
+		let retrying = false;
+		try {
+			for await (const chunk of stream) {
+				if (chunk.type === "error") {
+					logError("[GeminiClient] stream error part", chunk.error);
+					if (shouldRetry(chunk.error)) {
+						retrying = true;
+						break;
+					}
+				}
+				if (chunk.type === "start") yieldedStart = true;
+				else sawContent = true;
 				yield chunk;
 			}
+		} catch (error) {
+			logError("[GeminiClient] stream threw", error);
+			if (!shouldRetry(error)) throw error;
+			retrying = true;
+		}
+		if (!retrying) return;
+
+		for await (const chunk of startFreshInteraction()) {
+			// Don't repeat the stream's `start` part if the first attempt yielded it.
+			if (chunk.type === "start" && yieldedStart) continue;
+			yield chunk;
 		}
 	}
 }

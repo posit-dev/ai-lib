@@ -112,6 +112,7 @@ export type {
 	GeminiGenerateContentThinking,
 } from "./model-capabilities/gemini-generate-content.js";
 export { getGeminiModelCapabilities } from "./model-capabilities/gemini-helpers.js";
+export { isGeminiWebSearchVerified } from "./model-capabilities/gemini-api-helpers.js";
 export { getGemmaModelCapabilities } from "./model-capabilities/gemma-helpers.js";
 export {
 	classifyLitellmModel,
@@ -170,6 +171,11 @@ export {
 
 // --- Resolution helpers (public) -------------------------------------------
 export { resolveModels } from "./resolve-models.js";
+export {
+	finalizeWebSearchCapability,
+	resolveWebSearchServing,
+} from "./model-capabilities/web-search.js";
+export type { WebSearchServing, WebSearchServingFacts } from "./model-capabilities/web-search.js";
 export type { ModelResolutionContext } from "./resolve-models.js";
 
 // --- Bare-host base URL correction ------------------------------------------
