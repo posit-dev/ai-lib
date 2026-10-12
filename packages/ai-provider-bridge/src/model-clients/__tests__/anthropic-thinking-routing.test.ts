@@ -4,8 +4,9 @@
 
 /**
  * Every Claude-wire client must hand `streamText` the shared thinking options
- * (`anthropicProviderOptions`), so "off" disables thinking on each route. The
- * wire serialization itself is covered by `anthropic-thinking-wire.test.ts`.
+ * (`anthropicRequestOptions`), so "off" disables thinking and the host's
+ * block-binding policy reaches each route. The wire serialization itself is
+ * covered by `anthropic-thinking-wire.test.ts`.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -54,6 +55,7 @@ vi.mock("../ai-sdk-helpers", () => ({
 }));
 
 import type { CancellationToken, Logger } from "../../types";
+import type { ThinkingBlockBinding } from "../../utils";
 import { BedrockClient } from "../BedrockClient";
 import { GoogleVertexClient } from "../GoogleVertexClient";
 import type { ModelClient } from "../ModelClient";
@@ -73,23 +75,33 @@ const logger: Logger = {
 	trace: vi.fn(),
 };
 
-/** Send one request and read `providerOptions.anthropic` from the `streamText` call. */
-async function anthropicOptions(
+/** Send one request and return the `providerOptions.anthropic` and headers handed to `streamText`. */
+async function streamTextOptions(
 	client: ModelClient,
 	model: string,
 	thinkingEffort: string | undefined,
-): Promise<unknown> {
+	thinkingBlockBinding?: ThinkingBlockBinding,
+): Promise<{ anthropic: unknown; headers: unknown }> {
 	await client.chat({
 		model,
 		messages: [],
 		maxOutputTokens: 1024,
 		thinkingEffort,
+		thinkingBlockBinding,
 		cancellationToken,
 	});
 	const opts = streamText.mock.calls.at(-1)?.[0] as
-		| { providerOptions?: { anthropic?: unknown } }
+		| { providerOptions?: { anthropic?: unknown }; headers?: unknown }
 		| undefined;
-	return opts?.providerOptions?.anthropic;
+	return { anthropic: opts?.providerOptions?.anthropic, headers: opts?.headers };
+}
+
+async function anthropicOptions(
+	client: ModelClient,
+	model: string,
+	thinkingEffort: string | undefined,
+): Promise<unknown> {
+	return (await streamTextOptions(client, model, thinkingEffort)).anthropic;
 }
 
 beforeEach(() => {
@@ -101,6 +113,7 @@ describe.each([
 		name: "Bedrock",
 		client: new BedrockClient({ region: "us-east-1" }),
 		model: "anthropic.claude-haiku-5-5",
+		bindsThinking: true,
 	},
 	{
 		name: "Google Vertex",
@@ -109,18 +122,22 @@ describe.each([
 			logger,
 		),
 		model: "claude-haiku-5-5",
+		bindsThinking: true,
 	},
 	{
 		name: "Snowflake",
 		client: new SnowflakeClient("token", "https://acct.snowflakecomputing.com/api/v2/cortex"),
 		model: "claude-haiku-5-5",
+		bindsThinking: true,
 	},
 	{
 		name: "Posit AI",
 		client: new PositAiClient("token", "https://api.posit.example", "test-agent", logger),
 		model: "claude-haiku-5-5",
+		// The gateway rejects the beta: 400 "disallowed Anthropic-Beta value".
+		bindsThinking: false,
 	},
-])("$name Claude thinking options", ({ client, model }) => {
+])("$name Claude thinking options", ({ client, model, bindsThinking }) => {
 	it('disables thinking for "off"', async () => {
 		expect(await anthropicOptions(client, model, "off")).toEqual({
 			thinking: { type: "disabled" },
@@ -131,6 +148,36 @@ describe.each([
 		expect(await anthropicOptions(client, model, "medium")).toEqual({
 			thinking: { type: "adaptive", display: "summarized" },
 			effort: "medium",
+		});
+	});
+
+	it("forwards the block-binding policy with adaptive thinking, unless the transport vetoes it", async () => {
+		expect(await streamTextOptions(client, model, "medium", "drop_block")).toEqual({
+			anthropic: {
+				thinking: {
+					type: "adaptive",
+					display: "summarized",
+					...(bindsThinking ? { blockBinding: { prefixMismatchBehavior: "drop_block" } } : {}),
+				},
+				effort: "medium",
+			},
+			headers: undefined,
+		});
+	});
+
+	it("sends only the beta header for header-only, unless the transport vetoes it", async () => {
+		expect(await streamTextOptions(client, model, "medium", "header-only")).toEqual({
+			anthropic: { thinking: { type: "adaptive", display: "summarized" }, effort: "medium" },
+			headers: bindsThinking
+				? { "anthropic-beta": "thinking-binding-controls-2026-08-01" }
+				: undefined,
+		});
+	});
+
+	it("never binds next to disabled thinking", async () => {
+		expect(await streamTextOptions(client, model, "off", "drop_block")).toEqual({
+			anthropic: { thinking: { type: "disabled" } },
+			headers: undefined,
 		});
 	});
 });

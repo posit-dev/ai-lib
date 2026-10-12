@@ -280,6 +280,7 @@ export class GeminiGenerateContentClient implements ModelClient {
 		const loggedFetch = withRawHttpLogging(undefined, {
 			provider: "gemini",
 			model: params.model,
+			session: params.metadata?.sessionId,
 		});
 		const authSettings: { apiKey: string; fetch?: FetchFunction } =
 			"authToken" in this.auth

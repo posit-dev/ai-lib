@@ -25,14 +25,58 @@ export type AnthropicClientOptions = {
 	toolStreaming?: false;
 };
 
+/**
+ * Host policy for Anthropic thinking-block binding (the prefix check on replayed
+ * thinking). The host decides whether a model gets a policy at all; see
+ * `ModelClientChatParams.thinkingBlockBinding`.
+ *
+ * - `"error"`: `prefix_mismatch_behavior: "error"`; a prefix change is a 400.
+ * - `"drop_block"`: drop each mismatched block and every later one; the request
+ *   succeeds and `input_transformations` lists the drops.
+ * - `"header-only"`: send only the beta header, no body field. Accounts that are
+ *   not enforced by default then report mismatches as
+ *   `thinking_mismatch_allowed` without enforcing them.
+ */
+export type ThinkingBlockBinding = "error" | "drop_block" | "header-only";
+
+/** Beta that enables `thinking.block_binding` and `input_transformations`. */
+export const THINKING_BINDING_BETA = "thinking-binding-controls-2026-08-01";
+
+/** The transport a request on the Anthropic Messages wire travels over. */
+export type AnthropicTransport = "anthropic" | "bedrock" | "vertex" | "positai" | "snowflake";
+
+/**
+ * Transports whose endpoint rejects or drops thinking-block binding. Requests
+ * over them never carry the beta or the body field. Add a transport here when
+ * live verification shows it fails; see
+ * plans/2026-10-09-1737-preserved-thinking-sequencing.md (phase 0).
+ *
+ * - `positai`: the gateway rejects the request with 400 `disallowed
+ *   Anthropic-Beta value: "thinking-binding-controls-2026-08-01"` (verified
+ *   2026-10-12 against staging). Remove once the gateway allows the beta.
+ */
+const TRANSPORTS_WITHOUT_BLOCK_BINDING: ReadonlySet<AnthropicTransport> = new Set(["positai"]);
+
 type AnthropicThinkingOptions = {
-	thinking?: { type: "disabled" } | { type: "adaptive"; display: "summarized" };
+	thinking?:
+		| { type: "disabled" }
+		| {
+				type: "adaptive";
+				display: "summarized";
+				blockBinding?: { prefixMismatchBehavior: "error" | "drop_block" };
+		  };
 	effort?: string;
 };
 
+/** Provider options and extra request headers for one Anthropic Messages request. */
+export type AnthropicRequestOptions = {
+	providerOptions: { anthropic: AnthropicThinkingOptions & AnthropicClientOptions } | undefined;
+	headers: Record<string, string> | undefined;
+};
+
 /**
- * `providerOptions` for a request on the Anthropic Messages wire, shared by
- * every Claude client so the thinking mapping cannot drift between routes:
+ * Request options for the Anthropic Messages wire, shared by every Claude
+ * client so the thinking mapping cannot drift between routes:
  *
  * - `undefined` effort (provider default): no thinking type or effort, so the
  *   model's own default applies.
@@ -43,21 +87,46 @@ type AnthropicThinkingOptions = {
  *   is required to receive thinking text; Opus 4.7+/Fable 5 default to
  *   `"omitted"`, which streams signature-only blocks and shows no <thinking>.
  *
- * `clientOptions` are merged on top. Returns `undefined` when there is nothing
- * to send.
+ * `blockBinding` applies only with adaptive thinking: the API rejects
+ * `block_binding` next to `disabled`, and with the provider default PA replays
+ * no thinking, so there is nothing to bind. A transport in
+ * `TRANSPORTS_WITHOUT_BLOCK_BINDING` vetoes it. `"error"` and `"drop_block"`
+ * set the body field (the SDK adds the beta header); `"header-only"` adds only
+ * the beta header.
+ *
+ * `clientOptions` are merged on top.
  */
-export function anthropicProviderOptions(
-	effort: string | undefined,
-	clientOptions: AnthropicClientOptions,
-): { anthropic: AnthropicThinkingOptions & AnthropicClientOptions } | undefined {
+export function anthropicRequestOptions(request: {
+	effort: string | undefined;
+	transport: AnthropicTransport;
+	blockBinding: ThinkingBlockBinding | undefined;
+	clientOptions: AnthropicClientOptions;
+}): AnthropicRequestOptions {
+	const { effort, transport, clientOptions } = request;
+	const adaptive = isThinkingEnabled(effort);
+	const blockBinding =
+		adaptive && !TRANSPORTS_WITHOUT_BLOCK_BINDING.has(transport) ? request.blockBinding : undefined;
 	const thinkingOptions: AnthropicThinkingOptions =
 		effort === undefined
 			? {}
 			: effort === "off"
 				? { thinking: { type: "disabled" } }
-				: { thinking: { type: "adaptive", display: "summarized" }, effort };
+				: {
+						thinking: {
+							type: "adaptive",
+							display: "summarized",
+							...(blockBinding === "error" || blockBinding === "drop_block"
+								? { blockBinding: { prefixMismatchBehavior: blockBinding } }
+								: {}),
+						},
+						effort,
+					};
 	const anthropic = { ...thinkingOptions, ...clientOptions };
-	return Object.keys(anthropic).length > 0 ? { anthropic } : undefined;
+	return {
+		providerOptions: Object.keys(anthropic).length > 0 ? { anthropic } : undefined,
+		headers:
+			blockBinding === "header-only" ? { "anthropic-beta": THINKING_BINDING_BETA } : undefined,
+	};
 }
 
 /**
