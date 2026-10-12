@@ -127,7 +127,11 @@ export class OpenAIClient implements ModelClient {
 		// Raw HTTP logging sits innermost (wrapping the global fetch) so the log
 		// records the physical wire call after any middleware mutations.
 		const isEmptyKey = this.apiKey === "";
-		const loggedFetch = withRawHttpLogging(undefined, { provider: "openai", model: params.model });
+		const loggedFetch = withRawHttpLogging(undefined, {
+			provider: "openai",
+			model: params.model,
+			session: params.metadata?.sessionId,
+		});
 		const wireFetch = loggedFetch ?? globalThis.fetch;
 		const effectiveFetch = this.customFetch
 			? this.customFetch(wireFetch)

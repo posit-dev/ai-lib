@@ -57,6 +57,7 @@ export class OpenRouterClient implements ModelClient {
 		const loggedFetch = withRawHttpLogging(undefined, {
 			provider: "openrouter",
 			model: params.model,
+			session: params.metadata?.sessionId,
 		});
 		const provider = createOpenRouter({
 			apiKey: this.apiKey,

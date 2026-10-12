@@ -73,6 +73,7 @@ export class OllamaClient implements ModelClient {
 		const loggedFetch = withRawHttpLogging(undefined, {
 			provider: "ollama",
 			model: params.model,
+			session: params.metadata?.sessionId,
 		});
 		const provider = createOllama({
 			baseURL: effectiveBaseUrl,

@@ -26,11 +26,7 @@ import {
 } from "../tool-result-images";
 import type { LMStreamPart, Logger, Protocol } from "../types";
 import { normalizeProtocol } from "../types";
-import {
-	anthropicProviderOptions as buildAnthropicProviderOptions,
-	isThinkingEnabled,
-	rejectsEagerInputStreaming,
-} from "../utils";
+import { anthropicRequestOptions, isThinkingEnabled, rejectsEagerInputStreaming } from "../utils";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
@@ -126,7 +122,13 @@ export class BedrockClient implements ModelClient {
 			profile: this.config.profile,
 			logger: this.logger,
 		});
-		const model = this.createModel(params.model, transport, normalizedProtocol, params.baseUrl);
+		const model = this.createModel(
+			params.model,
+			transport,
+			normalizedProtocol,
+			params.baseUrl,
+			params.metadata?.sessionId,
+		);
 
 		// Create abort controller with cleanup to prevent EventEmitter memory leaks
 		const { abortController, cleanup } = createAbortControllerFromToken(params.cancellationToken);
@@ -142,12 +144,14 @@ export class BedrockClient implements ModelClient {
 		// so it accepts the same `anthropic` provider options as the direct Anthropic provider.
 		// Some Claude models reject the `eager_input_streaming` field on Bedrock; opt
 		// those out (see rejectsEagerInputStreaming). Others accept it, so leave them on.
-		const anthropicProviderOptions = isAnthropic
-			? buildAnthropicProviderOptions(
-					params.thinkingEffort,
-					rejectsEagerInputStreaming(params.model) ? { toolStreaming: false } : {},
-				)
-			: undefined;
+		const anthropicOptions = isAnthropic
+			? anthropicRequestOptions({
+					effort: params.thinkingEffort,
+					transport: "bedrock",
+					blockBinding: params.thinkingBlockBinding,
+					clientOptions: rejectsEagerInputStreaming(params.model) ? { toolStreaming: false } : {},
+				})
+			: { providerOptions: undefined, headers: undefined };
 
 		const isMantleChat = normalizedProtocol === "openai-chat";
 		const isMantleResponses = normalizedProtocol === "openai-responses";
@@ -210,7 +214,7 @@ export class BedrockClient implements ModelClient {
 							reasoningEffort: params.thinkingEffort,
 						},
 					}
-				: anthropicProviderOptions;
+				: anthropicOptions.providerOptions;
 
 		// The Anthropic Messages wire validates tool_use.id against
 		// `^[a-zA-Z0-9_-]+$`; sanitize outbound IDs on that route only.
@@ -232,6 +236,7 @@ export class BedrockClient implements ModelClient {
 			toolChoice: tools ? "auto" : undefined,
 			abortSignal: abortController.signal,
 			providerOptions,
+			headers: anthropicOptions.headers,
 			// Capture raw JSON on each step finish
 			onStepFinish: createStepLogger(
 				params.stepLoggers || [],
@@ -267,14 +272,16 @@ export class BedrockClient implements ModelClient {
 	private createModel(
 		modelId: string,
 		transport: BedrockTransport,
-		protocol?: Protocol,
-		baseUrl?: string,
+		protocol: Protocol | undefined,
+		baseUrl: string | undefined,
+		session: string | undefined,
 	): LanguageModelV3 {
 		const credentialProvider = createAwsCredentialProvider(this.config);
 		const headers = safeSdkCustomHeaders(this.config.customHeaders);
 		const loggedFetch = withRawHttpLogging(undefined, {
 			provider: "bedrock",
 			model: modelId,
+			session,
 		});
 
 		if (protocol === "openai-chat" || protocol === "openai-responses") {

@@ -22,7 +22,7 @@ import {
 import { sanitizeToolCallIdsForAnthropic } from "../tool-call-ids";
 import type { LMStreamPart, Logger, Protocol } from "../types";
 import { normalizeProtocol } from "../types";
-import { anthropicProviderOptions } from "../utils";
+import { anthropicRequestOptions } from "../utils";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
@@ -76,7 +76,7 @@ export class GoogleVertexClient implements ModelClient {
 			throw new Error(`Unsupported protocol for Google Vertex: ${normalizedProtocol}`);
 		}
 
-		const model = this.createModel(params.model, normalizedProtocol);
+		const model = this.createModel(params.model, normalizedProtocol, params.metadata?.sessionId);
 
 		// Create abort controller with cleanup to prevent EventEmitter memory leaks
 		const { abortController, cleanup } = createAbortControllerFromToken(params.cancellationToken);
@@ -91,9 +91,14 @@ export class GoogleVertexClient implements ModelClient {
 			? normalizedProtocol === "anthropic-messages"
 			: isVertexAnthropicModel(params.model);
 
-		const providerOptions = isAnthropic
-			? anthropicProviderOptions(params.thinkingEffort, {})
-			: undefined;
+		const { providerOptions, headers: requestHeaders } = isAnthropic
+			? anthropicRequestOptions({
+					effort: params.thinkingEffort,
+					transport: "vertex",
+					blockBinding: params.thinkingBlockBinding,
+					clientOptions: {},
+				})
+			: { providerOptions: undefined, headers: undefined };
 
 		// The Anthropic Messages wire validates tool_use.id against
 		// `^[a-zA-Z0-9_-]+$`; sanitize outbound IDs on that route only.
@@ -112,6 +117,7 @@ export class GoogleVertexClient implements ModelClient {
 			toolChoice: params.tools ? "auto" : undefined,
 			abortSignal: abortController.signal,
 			providerOptions,
+			headers: requestHeaders,
 			// Capture raw JSON on each step finish
 			onStepFinish: createStepLogger(params.stepLoggers || [], "google-vertex", params.model),
 		});
@@ -131,7 +137,11 @@ export class GoogleVertexClient implements ModelClient {
 	 * partner models), even if the model ID doesn't match the
 	 * `isVertexAnthropicModel()` pattern.
 	 */
-	private createModel(modelId: string, protocol?: Protocol): LanguageModelV3 {
+	private createModel(
+		modelId: string,
+		protocol: Protocol | undefined,
+		session: string | undefined,
+	): LanguageModelV3 {
 		const googleAuthOptions = googleVertexAuthOptions(this.config.credentialSource);
 
 		const useAnthropicApi = protocol
@@ -148,6 +158,7 @@ export class GoogleVertexClient implements ModelClient {
 		const loggedFetch = withRawHttpLogging(undefined, {
 			provider: "google-vertex",
 			model: modelId,
+			session,
 		});
 
 		if (useAnthropicApi) {

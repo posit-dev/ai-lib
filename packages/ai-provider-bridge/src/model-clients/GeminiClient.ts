@@ -350,6 +350,7 @@ export class GeminiClient implements ModelClient {
 		const loggedFetch = withRawHttpLogging(undefined, {
 			provider: "gemini",
 			model: params.model,
+			session: params.metadata?.sessionId,
 		});
 		const provider = createGoogleGenerativeAI({
 			apiKey: this.apiKey,
