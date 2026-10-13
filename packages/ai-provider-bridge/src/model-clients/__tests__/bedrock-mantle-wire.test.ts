@@ -2,7 +2,7 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import type { ModelMessage } from "ai";
+import type { ModelMessage, ProviderMetadata } from "ai";
 import { jsonSchema } from "ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -16,7 +16,10 @@ const { resolveBedrockTransport } = vi.hoisted(() => ({
 
 vi.mock("../../providers/bedrock-transport", () => ({ resolveBedrockTransport }));
 
-import { createRawFetchCapture } from "../../../tests/helpers/raw-fetch-capture";
+import {
+	createRawFetchCapture,
+	type RawFetchCapture,
+} from "../../../tests/helpers/raw-fetch-capture";
 import type { CancellationToken } from "../../types";
 import { BedrockClient } from "../BedrockClient";
 
@@ -93,6 +96,14 @@ function markedContinuationMessages(): ModelMessage[] {
 	];
 }
 
+function responsesSse(events: Record<string, unknown>[]): string {
+	return events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("");
+}
+
+function requestBodyAt(capture: RawFetchCapture, index: number): Record<string, unknown> {
+	return JSON.parse(String(capture.call(index)[1]?.body));
+}
+
 async function consumeIgnoringNetworkFailure(
 	streamPromise: ReturnType<BedrockClient["chat"]>,
 ): Promise<void> {
@@ -148,7 +159,7 @@ describe("Bedrock Mantle wire requests", () => {
 		expect(requestBody).toMatchObject({
 			model: "openai.gpt-5.5",
 			store: false,
-			reasoning: { effort: "none", summary: "auto" },
+			reasoning: { effort: "none", summary: "detailed" },
 			include: ["reasoning.encrypted_content"],
 		});
 		expect(requestBody).not.toHaveProperty("max_output_tokens");
@@ -156,6 +167,136 @@ describe("Bedrock Mantle wire requests", () => {
 		expect(requestBody).not.toHaveProperty("prompt_cache_options");
 		expect(authorization).toContain("/us-east-2/bedrock-mantle/aws4_request");
 		expect(authorization).not.toContain("Bearer");
+	});
+
+	it("streams a reasoning summary and replays it with encrypted content", async () => {
+		// store: false delivers encrypted_content only on the final output_item.done.
+		const sse = responsesSse([
+			{ type: "response.created", response: { id: "resp_1", created_at: 1, model: "m" } },
+			{
+				type: "response.output_item.added",
+				output_index: 0,
+				item: { type: "reasoning", id: "rs_1", encrypted_content: null, summary: [] },
+			},
+			{ type: "response.reasoning_summary_part.added", item_id: "rs_1", summary_index: 0 },
+			...["**Planning** ", "Check the data first."].map((delta) => ({
+				type: "response.reasoning_summary_text.delta",
+				item_id: "rs_1",
+				summary_index: 0,
+				delta,
+			})),
+			{ type: "response.reasoning_summary_part.done", item_id: "rs_1", summary_index: 0 },
+			{
+				type: "response.output_item.done",
+				output_index: 0,
+				item: {
+					type: "reasoning",
+					id: "rs_1",
+					encrypted_content: "enc-rs-1",
+					summary: [{ type: "summary_text", text: "**Planning** Check the data first." }],
+				},
+			},
+			{
+				type: "response.output_item.added",
+				output_index: 1,
+				item: { type: "message", id: "msg_1", role: "assistant", content: [] },
+			},
+			{ type: "response.output_text.delta", item_id: "msg_1", output_index: 1, delta: "Done." },
+			{
+				type: "response.output_item.done",
+				output_index: 1,
+				item: {
+					type: "message",
+					id: "msg_1",
+					role: "assistant",
+					content: [{ type: "output_text", text: "Done.", annotations: [] }],
+				},
+			},
+			{
+				type: "response.completed",
+				response: {
+					incomplete_details: null,
+					usage: {
+						input_tokens: 10,
+						output_tokens: 20,
+						input_tokens_details: { cached_tokens: 0 },
+						output_tokens_details: { reasoning_tokens: 12 },
+					},
+				},
+			},
+		]);
+		const fetchCapture = createRawFetchCapture(
+			async () =>
+				new Response(sse, { status: 200, headers: { "content-type": "text/event-stream" } }),
+		);
+		vi.stubGlobal("fetch", fetchCapture.mock);
+
+		const request = (messages: ModelMessage[]) =>
+			client.chat({
+				model: "openai.gpt-6.1-sol",
+				protocol: "openai-responses",
+				baseUrl: "https://bedrock-mantle.us-east-2.api.aws/openai/v1",
+				messages,
+				thinkingEffort: "high",
+				cancellationToken,
+			});
+
+		const drain = async (messages: ModelMessage[]) => {
+			const parts = [];
+			for await (const part of await request(messages)) {
+				parts.push(part);
+			}
+			return parts;
+		};
+
+		const firstTurn: ModelMessage[] = [{ role: "user", content: "Hello" }];
+		const parts = await drain(firstTurn);
+		expect(requestBodyAt(fetchCapture, 0)).toMatchObject({
+			reasoning: { effort: "high", summary: "detailed" },
+			include: ["reasoning.encrypted_content"],
+		});
+		expect(parts.filter((part) => part.type === "error")).toEqual([]);
+		expect(parts.map((part) => part.type)).toContain("finish");
+
+		// Accumulate reasoning the way core does: concatenate deltas and merge
+		// provider metadata one level deep per provider key.
+		let reasoningText = "";
+		const reasoningOptions: ProviderMetadata = {};
+		for (const part of parts) {
+			if (part.type === "reasoning-delta") {
+				reasoningText += part.text;
+			}
+			if (
+				part.type === "reasoning-start" ||
+				part.type === "reasoning-delta" ||
+				part.type === "reasoning-end"
+			) {
+				for (const [provider, value] of Object.entries(part.providerMetadata ?? {})) {
+					reasoningOptions[provider] = { ...reasoningOptions[provider], ...value };
+				}
+			}
+		}
+		expect(reasoningText).toBe("**Planning** Check the data first.");
+
+		const replayParts = await drain([
+			...firstTurn,
+			{
+				role: "assistant",
+				content: [
+					{ type: "reasoning", text: reasoningText, providerOptions: reasoningOptions },
+					{ type: "text", text: "Done." },
+				],
+			},
+			{ role: "user", content: "Continue" },
+		]);
+
+		expect(replayParts.filter((part) => part.type === "error")).toEqual([]);
+		expect(requestBodyAt(fetchCapture, 1).input).toContainEqual({
+			type: "reasoning",
+			id: "rs_1",
+			encrypted_content: "enc-rs-1",
+			summary: [{ type: "summary_text", text: "**Planning** Check the data first." }],
+		});
 	});
 
 	it("serializes GPT-5.6 cache options and a structured tool-result breakpoint", async () => {
@@ -191,7 +332,7 @@ describe("Bedrock Mantle wire requests", () => {
 			prompt_cache_key: "bedrock-conversation-1",
 			prompt_cache_options: { mode: "explicit", ttl: "30m" },
 			store: false,
-			reasoning: { effort: "high", summary: "auto" },
+			reasoning: { effort: "high", summary: "detailed" },
 		});
 		expect(breakpointPaths(requestBody)).toEqual([
 			"input[0].content[0].prompt_cache_breakpoint",
