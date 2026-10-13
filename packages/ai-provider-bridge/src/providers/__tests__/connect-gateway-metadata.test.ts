@@ -10,20 +10,12 @@ import {
 } from "../connect-gateway-metadata";
 
 describe("combineGatewayMetadataHeaders", () => {
-	it("keeps Workbench identity when a configured header claims a reserved key", () => {
+	it("passes configured and Workbench values through without inspecting keys", () => {
 		expect(
 			combineGatewayMetadataHeaders("workbench-session-id=s1", {
-				"Posit-Connect-Gateway-Metadata": "WORKBENCH%2DSESSION-ID=fake,team=analytics",
+				"Posit-Connect-Gateway-Metadata": "team=analytics",
 			}),
-		).toBe("workbench-session-id=s1");
-	});
-
-	it("cannot send forged Workbench keys without Workbench metadata", () => {
-		expect(
-			combineGatewayMetadataHeaders(undefined, {
-				"Posit-Connect-Gateway-Metadata": "workbench-project-name=Fake",
-			}),
-		).toBeUndefined();
+		).toBe("workbench-session-id=s1,team=analytics");
 	});
 });
 

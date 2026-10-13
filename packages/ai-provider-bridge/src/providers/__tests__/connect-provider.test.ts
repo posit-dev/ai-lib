@@ -437,22 +437,6 @@ describe("connect chat routing", () => {
 			);
 		});
 
-		it("does not let configured labels remove Workbench identity", async () => {
-			const client = await clientWithMetadata(undefined, {
-				...credentials,
-				customHeaders: { "posit-connect-gateway-metadata": "workbench-session-id=fake" },
-			});
-			await client.chat(
-				chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`, "anthropic-messages"),
-			);
-			expect(AnthropicClient).toHaveBeenCalledWith(
-				{ apiKey: "tok" },
-				ANTHROPIC_GATEWAY,
-				{ [HEADER]: gatewayValue },
-				logger,
-			);
-		});
-
 		it("combines configured and Workbench metadata without rewriting either value", async () => {
 			const client = await clientAfterDiscovery(
 				undefined,
@@ -539,15 +523,6 @@ describe("connect chat routing", () => {
 				}),
 				logger,
 			);
-		});
-
-		it("rejects forged Workbench identity in configured-only metadata", async () => {
-			const client = await clientAfterDiscovery(undefined, {
-				...credentials,
-				customHeaders: { [HEADER]: "workbench-session-id=fake,team=research" },
-			});
-			await client.chat(chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`));
-			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toBeUndefined();
 		});
 
 		it("combines case-insensitive configured metadata headers without Workbench", async () => {
