@@ -2,6 +2,23 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
+import type { OAuthCredentials, ProviderCredentials } from "./types";
+
+/**
+ * Credential variants whose requests our own transports send, and which
+ * therefore carry `customHeaders` (the product User-Agent plus any additive
+ * gateway headers). OAuth is excluded: Posit AI Pass receives the product
+ * identity directly. A new credential variant is header-carrying by default,
+ * and the compiler flags every `customHeaders` read if it lacks the field.
+ */
+export type HeaderCarryingCredentials = Exclude<ProviderCredentials, OAuthCredentials>;
+
+export function isHeaderCarrying(
+	credentials: ProviderCredentials,
+): credentials is HeaderCarryingCredentials {
+	return credentials.type !== "oauth";
+}
+
 const SDK_MANAGED_HEADER_NAMES = new Set([
 	"accept",
 	"anthropic-version",
@@ -88,6 +105,20 @@ export function additiveHeaderRecord(
 	}
 
 	return result;
+}
+
+/**
+ * The non-empty `User-Agent` value among custom headers (matched
+ * case-insensitively), for transports that take the identity as a dedicated
+ * option rather than a header (e.g. the AWS SDK's `customUserAgent`).
+ */
+export function userAgentHeaderValue(
+	customHeaders: Record<string, string> | undefined,
+): string | undefined {
+	for (const [name, value] of Object.entries(customHeaders ?? {})) {
+		if (name.toLowerCase() === USER_AGENT_HEADER_NAME && value.length > 0) return value;
+	}
+	return undefined;
 }
 
 /**

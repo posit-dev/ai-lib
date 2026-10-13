@@ -136,7 +136,7 @@ const lmStudioClientFactory: ClientFactory = (credentials) => {
 			`LM Studio provider requires local endpoint credentials, got: ${credentials.type}`,
 		);
 	}
-	return new LMStudioClient(credentials.endpoint);
+	return new LMStudioClient(credentials.endpoint, credentials.customHeaders);
 };
 
 export function registerLMStudioProvider(registry: ProviderRegistry, logger: Logger): void {

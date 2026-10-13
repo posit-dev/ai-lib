@@ -80,7 +80,55 @@ describe("ProviderRegistry default User-Agent", () => {
 		);
 	});
 
-	it("uses the latest default and leaves unsupported credential variants untouched", () => {
+	it("injects the default into AWS, Google Cloud, and local credentials", async () => {
+		const registry = new ProviderRegistry(logger);
+		const fetcher = vi.fn(async (_credentials: ProviderCredentials) => []);
+		const factory = vi.fn((_credentials: ProviderCredentials): ModelClient => client);
+		registry.registerModelFetcher("models", fetcher);
+		registry.registerClientFactory("direct", factory);
+		registry.setDefaultUserAgent("PositAssistant/1.0 posit_test");
+		const variants: ProviderCredentials[] = [
+			{ type: "aws-credentials", region: "us-east-1", profile: "prod" },
+			{ type: "google-cloud", project: "project", location: "us-central1" },
+			{ type: "local", endpoint: "http://localhost:11434" },
+		];
+
+		for (const credentials of variants) {
+			const snapshot = structuredClone(credentials);
+			await registry.getModelsForProvider("models", credentials);
+			registry.getClientForProvider("direct", credentials);
+
+			const expected = {
+				...snapshot,
+				customHeaders: { "User-Agent": "PositAssistant/1.0 posit_test" },
+			};
+			expect(fetcher).toHaveBeenLastCalledWith(expected, undefined);
+			expect(factory).toHaveBeenLastCalledWith(expected);
+			// The caller's credentials are never mutated.
+			expect(credentials).toEqual(snapshot);
+		}
+	});
+
+	it("injects the default on the custom-kind handoff for AWS credentials", () => {
+		const registry = new ProviderRegistry(logger);
+		const bedrockFactory = vi.fn((_credentials: ProviderCredentials): ModelClient => client);
+		registry.registerClientFactory("bedrock", bedrockFactory);
+		registry.setDefaultUserAgent("PositAssistant/1.0 posit_test");
+
+		registry.getClientForProviderOrKind(
+			"my-bedrock",
+			{ type: "aws-credentials", region: "us-east-1" },
+			"aws",
+		);
+
+		expect(bedrockFactory).toHaveBeenCalledWith({
+			type: "aws-credentials",
+			region: "us-east-1",
+			customHeaders: { "User-Agent": "PositAssistant/1.0 posit_test" },
+		});
+	});
+
+	it("uses the latest default and leaves OAuth credentials untouched", () => {
 		const registry = new ProviderRegistry(logger);
 		const factory = vi.fn((_credentials: ProviderCredentials): ModelClient => client);
 		registry.registerClientFactory("direct", factory);

@@ -256,17 +256,29 @@ If the provider's models support thinking/reasoning:
 
 ## Custom Headers Support
 
-New providers should support the `customHeaders` field from `ApiKeyCredentials`. The
-`ProviderRegistry` injects the host's default product `User-Agent` into credentials before they
-reach a fetcher or client factory, so a provider gets that identity for free when it forwards
-`customHeaders`. An explicit non-empty `User-Agent` replaces the default; the SDK's own library
-tokens remain appended after it.
+New providers must forward the `customHeaders` field that every non-OAuth credential variant
+carries (`HeaderCarryingCredentials` in `src/custom-headers.ts`). The `ProviderRegistry` injects
+the host's default product `User-Agent` into credentials before they reach a fetcher or client
+factory, so a provider gets that identity for free when it forwards `customHeaders` from both its
+client factory and every discovery request. An explicit non-empty `User-Agent` replaces the
+default; the SDK's own library tokens remain appended after it.
 
 The forwarding pattern is:
 
 - **Model discovery** (via `createCachedModelFetcher`): Pass `credentials.customHeaders` -- the fetcher handles merging (additive only, provider headers win on collision except for User-Agent composition).
-- **Direct-SDK chat**: Pass `customHeaders` to the AI SDK's `headers` option. See `AnthropicClient.ts` or `OpenAIClient.ts` for the pattern.
+- **Other raw discovery `fetch` calls**: Merge with `additiveHeaderRecord(providerHeaders, credentials.customHeaders)`. See `google-vertex-provider.ts` and Ollama's `/api/show`.
+- **Direct-SDK chat**: Pass `safeSdkCustomHeaders(customHeaders)` to the AI SDK's `headers` option. See `AnthropicClient.ts`, `OpenAIClient.ts`, `BedrockClient.ts`, or `GoogleVertexClient.ts`.
 - **OpenAI-compatible chat** (via `createOpenAICompatibleFetchMiddleware`): Pass `customHeaders` -- the middleware prepends the product identity to the SDK's existing User-Agent.
+- **SDKs without a headers option**: Use the SDK's own identity hook, e.g. the AWS SDK's `customUserAgent` with `userAgentHeaderValue(customHeaders)`.
+
+**Placing a header is not delivering it.** Some SDKs rewrite headers after we hand them over:
+ollama-js drops any supplied header whose name matches one of its defaults (including
+`User-Agent`), so `OllamaClient` merges at a wrapped `fetch` instead of through `headers`. The
+only proof that a transport delivers the identity is a wire test that asserts on the request as
+it reached `fetch` (or the SDK's request handler). Add every new route to
+`default-user-agent-wire.test.ts`, obtaining the client through the registry. Assert a library
+token only where the transport supplies one; never add one to production requests to satisfy a
+test.
 
 See `src/custom-headers.ts` for the shared filtering/merging utilities.
 

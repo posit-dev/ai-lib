@@ -15,6 +15,7 @@ import { createVertexAnthropic } from "@ai-sdk/google-vertex/anthropic";
 import type { LanguageModelV3 } from "@ai-sdk/provider";
 import { streamText } from "ai";
 
+import { safeSdkCustomHeaders } from "../custom-headers";
 import {
 	type GoogleVertexCredentialSource,
 	googleVertexAuthOptions,
@@ -55,6 +56,8 @@ export interface GoogleVertexClientConfig {
 	location: string;
 	/** The credential requests authenticate with, from `resolveGoogleVertexCredentialSource`. */
 	credentialSource: GoogleVertexCredentialSource;
+	/** Additive request headers (the product User-Agent); the SDK appends its own tokens. */
+	customHeaders?: Record<string, string>;
 }
 
 export class GoogleVertexClient implements ModelClient {
@@ -155,6 +158,7 @@ export class GoogleVertexClient implements ModelClient {
 				? "global"
 				: getEffectiveLocation(modelId, this.config.location);
 
+		const headers = safeSdkCustomHeaders(this.config.customHeaders);
 		const loggedFetch = withRawHttpLogging(undefined, {
 			provider: "google-vertex",
 			model: modelId,
@@ -166,6 +170,7 @@ export class GoogleVertexClient implements ModelClient {
 				project: this.config.project,
 				location,
 				googleAuthOptions,
+				headers,
 				...(loggedFetch && { fetch: loggedFetch }),
 			})(modelId);
 		}
@@ -174,6 +179,7 @@ export class GoogleVertexClient implements ModelClient {
 			project: this.config.project,
 			location,
 			googleAuthOptions,
+			headers,
 			...(loggedFetch && { fetch: loggedFetch }),
 		})(modelId);
 	}

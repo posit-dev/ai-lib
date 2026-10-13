@@ -852,10 +852,24 @@ function recordForSource(
 				configured: true,
 				localAuth: { endpoint: source.endpoint },
 			};
-		case "aws-credentials": {
-			const { type: _type, ...awsAuth } = source;
-			return { generation, readiness: "ready", configured: true, awsAuth };
-		}
+		case "aws-credentials":
+			// Project field by field: a runtime AwsCredentials value (which may
+			// carry registry-injected request headers) is assignable to this
+			// source, and nothing beyond the documented fields may persist.
+			return {
+				generation,
+				readiness: "ready",
+				configured: true,
+				awsAuth: {
+					region: source.region,
+					...(source.profile !== undefined ? { profile: source.profile } : {}),
+					...(source.accessKeyId !== undefined ? { accessKeyId: source.accessKeyId } : {}),
+					...(source.secretAccessKey !== undefined
+						? { secretAccessKey: source.secretAccessKey }
+						: {}),
+					...(source.sessionToken !== undefined ? { sessionToken: source.sessionToken } : {}),
+				},
+			};
 		case "google-cloud":
 			return {
 				generation,

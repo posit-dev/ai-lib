@@ -9,8 +9,8 @@
  * Used by: Anthropic, OpenAI, OpenRouter, Ollama (local), LM Studio (local)
  */
 
-import { additiveHeaderRecord } from "../custom-headers";
-import type { ApiKeyCredentials, Logger, ModelInfo, ProviderCredentials } from "../types";
+import { additiveHeaderRecord, isHeaderCarrying } from "../custom-headers";
+import type { Logger, ModelInfo, ProviderCredentials } from "../types";
 import type { ModelRequestCoalescer } from "./request-coalescer";
 import { fingerprintHeaders, normalizeRequestUrl } from "./request-coalescer";
 
@@ -319,9 +319,11 @@ export function createCachedModelFetcher<T extends ProviderCredentials = Provide
 				const apiUrl = config.resolveUrl ? config.resolveUrl(typedCredentials) : config.apiUrl!;
 
 				config.logger.debug(`${logPrefix} Fetching models from API`);
-				const apiKeyCreds = typedCredentials as Partial<ApiKeyCredentials>;
 				const providerHeaders = config.createHeaders(typedCredentials);
-				const headers = additiveHeaderRecord(providerHeaders, apiKeyCreds.customHeaders);
+				const headers = additiveHeaderRecord(
+					providerHeaders,
+					isHeaderCarrying(credentials) ? credentials.customHeaders : undefined,
+				);
 
 				let data: unknown;
 				if (config.requestCoalescer) {
