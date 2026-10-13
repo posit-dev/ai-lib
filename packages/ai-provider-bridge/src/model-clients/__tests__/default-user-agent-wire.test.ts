@@ -106,13 +106,17 @@ const messages: ModelMessage[] = [{ role: "user", content: "Hello" }];
 /**
  * Ambient variables that re-route a request: `GOOGLE_VERTEX_API_KEY` bypasses
  * the supplied Google auth, `AWS_BEARER_TOKEN_BEDROCK` swaps SigV4 for Bearer,
- * FIPS config disables Mantle and changes hosts, and an AWS profile could
- * supply any of them. Raw HTTP logging would interpose its own fetch.
+ * FIPS config disables Mantle and changes hosts, endpoint-URL and dualstack
+ * settings change the AWS SDK listing host, and an AWS profile could supply
+ * any of them. Raw HTTP logging would interpose its own fetch.
  */
 const ISOLATED_ENV_KEYS = [
 	"GOOGLE_VERTEX_API_KEY",
 	"AWS_BEARER_TOKEN_BEDROCK",
 	"AWS_USE_FIPS_ENDPOINT",
+	"AWS_USE_DUALSTACK_ENDPOINT",
+	"AWS_ENDPOINT_URL",
+	"AWS_ENDPOINT_URL_BEDROCK",
 	"AWS_CONFIG_FILE",
 	"AWS_SHARED_CREDENTIALS_FILE",
 	"AWS_PROFILE",
@@ -139,6 +143,7 @@ beforeEach(() => {
 	savedEnv = Object.fromEntries(ISOLATED_ENV_KEYS.map((key) => [key, process.env[key]]));
 	for (const key of ISOLATED_ENV_KEYS) delete process.env[key];
 	process.env.AWS_USE_FIPS_ENDPOINT = "false";
+	process.env.AWS_USE_DUALSTACK_ENDPOINT = "false";
 	process.env.AWS_CONFIG_FILE = join(fixtureDir, "aws-config");
 	process.env.AWS_SHARED_CREDENTIALS_FILE = join(fixtureDir, "aws-credentials");
 	awsSdk.requests.length = 0;
