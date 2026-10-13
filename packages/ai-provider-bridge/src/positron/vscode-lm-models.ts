@@ -15,6 +15,7 @@ import {
 	getOpenAIModelCapabilities,
 	openaiMaxInputTokens,
 } from "ai-config";
+import { POSITRON_LEGACY_AUTH_PROVIDER_IDS } from "ai-credentials/types";
 import * as vscode from "vscode";
 
 import { MAPPED_PROVIDER_IDS, PROVIDER_MAP } from "../provider-map";
@@ -41,18 +42,12 @@ export function isProviderId(value: string): value is ProviderId {
 // provider IDs. Vendors that already match a ProviderId exactly (e.g.
 // "copilot", "anthropic") are handled by isProviderId() and don't need
 // entries here.
-const VENDOR_TO_PROVIDER = new Map<string, ProviderId>([
-	// vscode.lm vendor strings, including auth provider ids retired when
-	// Positron's auth extension moved to catalog ids.
-	["amazon-bedrock", "bedrock"],
-	["posit-ai", "positai"],
-	["anthropic-api", "anthropic"],
-	["openai-api", "openai"],
-	["google", "gemini"],
-	["deepseek-api", "deepseek"],
-	["google-cloud", "google-vertex"],
-]);
-// Also register auth provider IDs from PROVIDER_MAP (e.g. "anthropic-api" → "anthropic")
+const VENDOR_TO_PROVIDER = new Map<string, ProviderId>();
+// Older Positron releases register vscode.lm vendors under their legacy auth ids.
+for (const [logicalId, legacyId] of Object.entries(POSITRON_LEGACY_AUTH_PROVIDER_IDS)) {
+	if (isProviderId(logicalId)) VENDOR_TO_PROVIDER.set(legacyId, logicalId);
+}
+// Also register auth provider IDs from PROVIDER_MAP (e.g. "github" → "copilot")
 for (const logicalId of MAPPED_PROVIDER_IDS) {
 	const mapping = PROVIDER_MAP[logicalId];
 	if (!mapping) continue;
