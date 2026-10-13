@@ -220,6 +220,9 @@ function resolveConnection(
 		googleCloud: mergeOptionalSection(defaults.googleCloud, fromBlock.googleCloud),
 		snowflake: mergeOptionalSection(defaults.snowflake, fromBlock.snowflake),
 		databricks: mergeOptionalSection(defaults.databricks, fromBlock.databricks),
+		keyType: fromBlock.keyType,
+		// Never merged with defaults: no built-in default carries a helper.
+		apiKeyHelper: fromBlock.apiKeyHelper,
 	};
 }
 
@@ -253,6 +256,8 @@ function resolveConnectionFromBlock(
 		googleCloud: superset.googleCloud,
 		snowflake: superset.snowflake,
 		databricks: superset.databricks,
+		keyType: superset.keyType,
+		apiKeyHelper: superset.apiKeyHelper,
 	};
 }
 

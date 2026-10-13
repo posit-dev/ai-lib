@@ -66,12 +66,33 @@ factory. The value is late-bound: a host may call `setDefaultUserAgent()` again,
 requests use the latest value without rebuilding registrations. A non-empty case-insensitive
 `User-Agent` already present in `customHeaders` wins over the default.
 
-This reaches `ApiKeyCredentials` and `AzureEntraCredentials`, the credential variants that carry
-`customHeaders`. OAuth, local, AWS, and Google Cloud credentials pass through unchanged, so
-Bedrock, Vertex, Copilot, Ollama, and LM Studio are outside this default. Direct SDK clients pass
-the identity through their `headers` option and let the SDK append its library tokens. Fetch
-middleware sees the SDK's existing User-Agent later, so `additiveHeaders` and
-`additiveHeaderRecord` prepend the custom product identity there; the merge is idempotent.
+The gate is type-driven: every `HeaderCarryingCredentials` variant
+(`Exclude<ProviderCredentials, OAuthCredentials>`, in `src/custom-headers.ts`) carries
+`customHeaders` and receives the default — API key, Azure Entra, AWS, Google Cloud, and local.
+Only OAuth passes through unchanged (Posit AI Pass gets the identity directly; Copilot's requests
+are made by the Copilot CLI subprocess). A new credential variant is header-carrying by default,
+and the compiler flags every `customHeaders` read if it lacks the field. The injected credentials
+are built per call and never written back; the credential store projects AWS fields explicitly so
+an enriched value passed to a `replace` mutation cannot persist headers.
+
+How each transport delivers it:
+
+- **Direct AI SDK clients** (Anthropic, OpenAI, Gemini, Bedrock, Vertex, LM Studio via
+  `OpenAIClient`) pass the identity through the SDK's `headers` option; the SDK appends its
+  library tokens.
+- **Fetch middleware** sees the SDK's existing User-Agent later, so `additiveHeaders` and
+  `additiveHeaderRecord` prepend the product identity there; the merge is idempotent.
+- **Ollama chat**: ollama-js discards any supplied header that matches one of its defaults and
+  restores `User-Agent: ollama-js/...`, so `OllamaClient` wraps the `fetch` it hands to
+  `createOllama` and merges with `additiveHeaders` after ollama-js has built its headers.
+- **Bedrock model listing** (`@aws-sdk/client-bedrock`) takes no arbitrary headers; the provider
+  sets `customUserAgent`, which the SDK appends after its own tokens with spaces and parentheses
+  escaped (`PositAssistant/1.4.1-posit_positron/2026.10.0--linux-`).
+- **Raw discovery fetches** (cached fetcher, Vertex publisher listing, Ollama `/api/show`, Mantle
+  `/v1/models` via the SigV4 signer) send the product token alone.
+
+The wire matrix in `default-user-agent-wire.test.ts` asserts the captured outgoing request for
+every route; see providerGuide.md for why that is the only proof.
 
 ### Endpoint-required transport headers (OpenCode)
 
@@ -309,6 +330,51 @@ permissions are not needed after subscription. AWS's
 `store: false` disables retrievable Responses storage but is not a
 zero-retention guarantee: AWS account/project retention policy is configured
 separately and may still retain data according to that policy.
+
+### Hosted web search on the OpenAI Responses transports
+
+Direct OpenAI Responses and Bedrock Mantle Responses share one hosted-tool
+seam: `mergeOpenAIWebSearchTool()` (`src/model-clients/provider-tools.ts`)
+attaches the SDK's `openai.tools.webSearch(...)` provider tool under the
+fixed `web_search` key, merging through `mergeProviderTools()` so a local
+tool occupying that key rejects the request instead of being silently
+overwritten. Both routes run the AI SDK's `OpenAIResponsesLanguageModel`, so
+the same provider tool serializes correctly on either, and callers derive
+`toolChoice` from the single merged record the helper returns. (The SDK
+factory's return type is re-wrapped into this repo's `ai.Tool` because
+`@ai-sdk/openai` and `ai` pin different `@ai-sdk/provider-utils` copies whose
+unique-symbol schema brands are nominally incompatible; provider tools
+serialize from `id`/`args` alone, so the re-wrap loses nothing.)
+
+Each client vetoes an incompatible route before any network call —
+`OpenAIClient` rejects `webSearchEnabled` unless the effective mode is
+Responses, and `BedrockClient` rejects it unless the resolved protocol is
+`openai-responses` (Mantle Chat, Converse, and Anthropic Messages carry no
+hosted search). The veto is defense in depth for non-host consumers; whether
+a model may advertise the toggle at all is decided upstream, at ai-config's
+capability finalization seam (see `memory-bank/aiConfig.md` → "Web-search
+capability finalization").
+
+Mantle search has its own IAM namespace and egress boundary:
+
+- Retrieval needs `bedrock-websearch:InvokeSearch` and
+  `bedrock-websearch:InvokeFetch` in addition to the Mantle inference
+  permissions above. The commonly used `AmazonBedrockFullAccess` policy
+  grants Search and Fetch but **not** external access. PA never probes these
+  actions during discovery — permission varies by identity and the invocation
+  error is authoritative.
+- `external_web_access` controls whether a cache-miss Fetch may reach the
+  live external page; when off, retrieval is restricted to AWS's own web
+  index and cache. AWS defaults an omitted flag to `true`, which would widen
+  the egress boundary, so `BedrockClient` always serializes an explicit
+  boolean from the optional `ModelClientChatParams.bedrockExternalWebAccess`
+  (omission defaults to `false`). Enabling it additionally requires the
+  `bedrock-websearch:ExternalWebAccess` IAM action. Direct OpenAI omits the
+  option and keeps OpenAI's own defaults.
+- AWS documents web search only for specific Mantle GPT model families and a
+  region allowlist narrower than Mantle inference availability; both gates
+  are applied at capability finalization, and FIPS vetoes the route entirely
+  (AWS publishes no Mantle FIPS endpoint).
 
 ### Databricks: pinned surface + native protocol dispatch
 

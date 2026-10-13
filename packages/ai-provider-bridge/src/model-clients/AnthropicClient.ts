@@ -14,7 +14,7 @@ import type * as ai from "ai";
 import { safeSdkCustomHeaders } from "../custom-headers";
 import { streamTextAnthropicWire } from "../tool-call-ids";
 import type { LMStreamPart, Logger } from "../types";
-import { isThinkingEnabled } from "../utils";
+import { anthropicRequestOptions } from "../utils";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
@@ -91,6 +91,7 @@ export class AnthropicClient implements ModelClient {
 		const loggedFetch = withRawHttpLogging(undefined, {
 			provider: "anthropic",
 			model: params.model,
+			session: params.metadata?.sessionId,
 		});
 		const wireFetch = loggedFetch ?? globalThis.fetch;
 		const effectiveFetch = isAnonymous
@@ -121,17 +122,12 @@ export class AnthropicClient implements ModelClient {
 			tools = mergeProviderTools(params.tools, { web_search: webSearchTool });
 		}
 
-		const providerOptions = isThinkingEnabled(params.thinkingEffort)
-			? {
-					anthropic: {
-						// `display: "summarized"` is required to receive thinking summary text.
-						// Opus 4.7+/Fable 5 default to `"omitted"`, which streams thinking blocks
-						// with only a signature and no text — so the UI shows no <thinking>.
-						thinking: { type: "adaptive", display: "summarized" },
-						effort: params.thinkingEffort,
-					},
-				}
-			: undefined;
+		const { providerOptions, headers: requestHeaders } = anthropicRequestOptions({
+			effort: params.thinkingEffort,
+			transport: "anthropic",
+			blockBinding: params.thinkingBlockBinding,
+			clientOptions: {},
+		});
 
 		// Stream the response
 		const result = streamTextAnthropicWire(
@@ -145,6 +141,7 @@ export class AnthropicClient implements ModelClient {
 				toolChoice: tools ? "auto" : undefined,
 				abortSignal: abortController.signal,
 				providerOptions,
+				headers: requestHeaders,
 				onError: suppressAiSdkDefaultErrorLogging,
 				// Capture raw JSON on each step finish
 				onStepFinish: createStepLogger(params.stepLoggers || [], "anthropic", params.model),

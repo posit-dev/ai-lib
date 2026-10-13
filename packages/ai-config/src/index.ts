@@ -53,6 +53,7 @@ export {
 	MODEL_ROUTING_FIELD_NAMES,
 } from "./types.js";
 export type {
+	ApiKeyHelperConfig,
 	AzureAuthMode,
 	BuiltinProviderBlock,
 	CustomModel,
@@ -111,6 +112,7 @@ export type {
 	GeminiGenerateContentThinking,
 } from "./model-capabilities/gemini-generate-content.js";
 export { getGeminiModelCapabilities } from "./model-capabilities/gemini-helpers.js";
+export { isGeminiWebSearchVerified } from "./model-capabilities/gemini-api-helpers.js";
 export { getGemmaModelCapabilities } from "./model-capabilities/gemma-helpers.js";
 export {
 	classifyLitellmModel,
@@ -169,6 +171,11 @@ export {
 
 // --- Resolution helpers (public) -------------------------------------------
 export { resolveModels } from "./resolve-models.js";
+export {
+	finalizeWebSearchCapability,
+	resolveWebSearchServing,
+} from "./model-capabilities/web-search.js";
+export type { WebSearchServing, WebSearchServingFacts } from "./model-capabilities/web-search.js";
 export type { ModelResolutionContext } from "./resolve-models.js";
 
 // --- Bare-host base URL correction ------------------------------------------
@@ -197,6 +204,23 @@ export {
 } from "./base-url.js";
 export type { OpencodeProduct } from "./base-url.js";
 
+// --- Connection field provenance ---------------------------------------------
+export { isPinnedConnectionFieldSource } from "./connection-field-source.js";
+
+// --- Portkey key type and connection rules ---------------------------------
+export {
+	checkPortkeyConnection,
+	inferredPortkeyKeyType,
+	isPortkeyKeyType,
+	PORTKEY_KEY_TYPES,
+} from "./portkey-connection.js";
+export type {
+	PortkeyConnectionCheck,
+	PortkeyConnectionField,
+	PortkeyConnectionInput,
+	PortkeyKeyType,
+} from "./portkey-connection.js";
+
 // --- Deep resolver seam (owns the precedence stack) ------------------------
 export { resolveProviderCatalog, resolveProviderCatalogReport } from "./resolve-catalog.js";
 export type {
@@ -206,6 +230,11 @@ export type {
 	ResolveProviderCatalogOptions,
 } from "./resolve-catalog.js";
 export type { ConfigIssue, SourcedConfigIssue } from "./config-issue.js";
+export type {
+	ProvidersConfigInvalidDetail,
+	ProvidersConfigInvalidPhase,
+	ProvidersConfigSchemaIssue,
+} from "./providers-config-invalid.js";
 
 // --- Tolerant providers.json validation ------------------------------------
 export { salvageProvidersConfig } from "./salvage-config.js";

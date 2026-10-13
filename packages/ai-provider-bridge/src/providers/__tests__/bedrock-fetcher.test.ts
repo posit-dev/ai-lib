@@ -207,6 +207,29 @@ describe("Bedrock provider Mantle aggregation", () => {
 		expect(listFoundationModels).toHaveBeenCalledTimes(1);
 	});
 
+	it.each(["openai.gpt-6.1-sol", "openai.gpt-6.1-sol-2026-09-29"])(
+		"discovers %s on Responses without the unsupported off level",
+		async (id) => {
+			listMantleModels.mockResolvedValueOnce([{ id }]);
+			const registry = new ProviderRegistry(logger());
+			registerBedrockProvider(registry, logger());
+
+			const models = await registry.getModelsForProvider("bedrock", credentialsFor("us-east-2"));
+
+			expect(models.find((model) => model.id === id)).toMatchObject({
+				protocol: "openai-responses",
+				baseUrl: "https://bedrock-mantle.us-east-2.api.aws/openai/v1",
+				thinkingEffortLevels: ["low", "medium", "high", "xhigh", "max"],
+				maxContextLength: 1_000_000,
+				capabilityFacts: {
+					maxContextLength: 1_000_000,
+					maxInputTokens: undefined,
+					maxOutputTokens: undefined,
+				},
+			});
+		},
+	);
+
 	it("keeps Converse models when Mantle discovery returns no models", async () => {
 		listMantleModels.mockResolvedValueOnce([]);
 		const registry = new ProviderRegistry(logger());

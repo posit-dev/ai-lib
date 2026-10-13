@@ -55,24 +55,38 @@ export function mergeConfigFragments(
 }
 
 /**
+ * Whether `path` addresses a provider block's `apiKeyHelper` section:
+ * `providers.<builtin>.apiKeyHelper` or `providers.custom.<name>.apiKeyHelper`.
+ * Matched by position so a custom provider or model id that happens to be
+ * named `apiKeyHelper` is still merged per key.
+ */
+function isApiKeyHelperPath(path: readonly string[]): boolean {
+	if (path[0] !== "providers") return false;
+	if (path[1] === "custom") return path.length === 4 && path[3] === "apiKeyHelper";
+	return path.length === 3 && path[2] === "apiKeyHelper";
+}
+
+/**
  * Recursive deep-merge. `override` values take precedence over `base`.
  *
  * Rules:
  * - Plain objects: recurse per key.
  * - Arrays: replace (override wins wholesale).
+ * - A provider block's `apiKeyHelper`: replace wholesale, like arrays, so an
+ *   enforced `{ command }` never inherits a lower layer's `args`/`timeoutMs`.
  * - Primitives / null / undefined: override wins if present.
  */
-function deepMerge(base: unknown, override: unknown): unknown {
+function deepMerge(base: unknown, override: unknown, path: readonly string[] = []): unknown {
 	// override not provided — keep base
 	if (override === undefined) {
 		return base;
 	}
 
 	// Both are plain objects — recurse
-	if (isPlainObject(base) && isPlainObject(override)) {
+	if (isPlainObject(base) && isPlainObject(override) && !isApiKeyHelperPath(path)) {
 		const result: Record<string, unknown> = { ...base };
 		for (const key of Object.keys(override)) {
-			result[key] = deepMerge(base[key], override[key]);
+			result[key] = deepMerge(base[key], override[key], [...path, key]);
 		}
 		return result;
 	}

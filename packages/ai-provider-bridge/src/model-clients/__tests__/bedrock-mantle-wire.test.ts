@@ -3,6 +3,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import type { ModelMessage } from "ai";
+import { jsonSchema } from "ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const { resolveBedrockTransport } = vi.hoisted(() => ({
@@ -323,6 +324,142 @@ describe("Bedrock Mantle wire requests", () => {
 		expect(messages[0].providerOptions).toEqual(breakpointProviderOptions);
 	});
 
+	it("serializes the hosted web_search tool with AWS-only retrieval by default", async () => {
+		let requestBody: Record<string, unknown> | undefined;
+		const fetchCapture = createRawFetchCapture(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
+				requestBody = JSON.parse(String(init?.body));
+				return new Response("data: [DONE]\n\n", {
+					status: 200,
+					headers: { "content-type": "text/event-stream" },
+				});
+			},
+		);
+		vi.stubGlobal("fetch", fetchCapture.mock);
+
+		await consumeIgnoringNetworkFailure(
+			client.chat({
+				model: "openai.gpt-5.6-sol",
+				protocol: "openai-responses",
+				baseUrl: "https://bedrock-mantle.us-east-2.api.aws/openai/v1",
+				messages: [{ role: "user", content: "Hello" }],
+				webSearchEnabled: true,
+				cancellationToken,
+			}),
+		);
+
+		// An omitted policy must serialize `false`: AWS defaults an absent
+		// `external_web_access` to `true`, which would widen the egress boundary.
+		expect(requestBody?.tools).toEqual([{ type: "web_search", external_web_access: false }]);
+		expect(requestBody?.include).toContain("web_search_call.action.sources");
+		expect(requestBody?.tool_choice).toBe("auto");
+	});
+
+	it("serializes external_web_access true when the host policy opts in", async () => {
+		let requestBody: Record<string, unknown> | undefined;
+		const fetchCapture = createRawFetchCapture(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
+				requestBody = JSON.parse(String(init?.body));
+				return new Response("data: [DONE]\n\n", {
+					status: 200,
+					headers: { "content-type": "text/event-stream" },
+				});
+			},
+		);
+		vi.stubGlobal("fetch", fetchCapture.mock);
+
+		await consumeIgnoringNetworkFailure(
+			client.chat({
+				model: "openai.gpt-5.6-sol",
+				protocol: "openai-responses",
+				baseUrl: "https://bedrock-mantle.us-east-2.api.aws/openai/v1",
+				messages: [{ role: "user", content: "Hello" }],
+				webSearchEnabled: true,
+				bedrockExternalWebAccess: true,
+				cancellationToken,
+			}),
+		);
+
+		expect(requestBody?.tools).toEqual([{ type: "web_search", external_web_access: true }]);
+	});
+
+	it("merges the hosted tool alongside a local function tool", async () => {
+		let requestBody: Record<string, unknown> | undefined;
+		const fetchCapture = createRawFetchCapture(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
+				requestBody = JSON.parse(String(init?.body));
+				return new Response("data: [DONE]\n\n", {
+					status: 200,
+					headers: { "content-type": "text/event-stream" },
+				});
+			},
+		);
+		vi.stubGlobal("fetch", fetchCapture.mock);
+
+		await consumeIgnoringNetworkFailure(
+			client.chat({
+				model: "openai.gpt-5.6-sol",
+				protocol: "openai-responses",
+				baseUrl: "https://bedrock-mantle.us-east-2.api.aws/openai/v1",
+				messages: [{ role: "user", content: "Hello" }],
+				webSearchEnabled: true,
+				tools: {
+					lookup: {
+						description: "Look up a value",
+						inputSchema: jsonSchema({
+							type: "object",
+							properties: { query: { type: "string" } },
+						}),
+					},
+				},
+				cancellationToken,
+			}),
+		);
+
+		expect(requestBody?.tools).toEqual([
+			{
+				type: "function",
+				name: "lookup",
+				description: "Look up a value",
+				parameters: { type: "object", properties: { query: { type: "string" } } },
+				strict: undefined,
+			},
+			{ type: "web_search", external_web_access: false },
+		]);
+	});
+
+	it.each([
+		["openai-chat", "https://bedrock-mantle.us-east-2.api.aws/v1"],
+		["anthropic-messages", undefined],
+		["bedrock-converse", undefined],
+		[undefined, undefined],
+	] as const)(
+		"rejects webSearchEnabled on the %s route before any request",
+		async (protocol, baseUrl) => {
+			const fetchCapture = createRawFetchCapture(
+				async () =>
+					new Response("data: [DONE]\n\n", {
+						status: 200,
+						headers: { "content-type": "text/event-stream" },
+					}),
+			);
+			vi.stubGlobal("fetch", fetchCapture.mock);
+
+			await expect(
+				client.chat({
+					model:
+						protocol === "anthropic-messages" ? "anthropic.claude-sonnet-4-5" : "openai.gpt-5.5",
+					...(protocol !== undefined ? { protocol } : {}),
+					...(baseUrl !== undefined ? { baseUrl } : {}),
+					messages: [{ role: "user", content: "Hello" }],
+					webSearchEnabled: true,
+					cancellationToken,
+				}),
+			).rejects.toThrow(/Mantle Responses route/);
+			expect(fetchCapture.mock).not.toHaveBeenCalled();
+		},
+	);
+
 	it("keeps gpt-oss on Chat Completions with system roles and reasoning_effort", async () => {
 		let requestBody: Record<string, unknown> | undefined;
 		const fetchCapture = createRawFetchCapture(
@@ -438,6 +575,10 @@ describe("Bedrock Mantle wire requests", () => {
 		["openai.gpt-5.5", "openai-responses", "medium", "medium"],
 		["openai.gpt-5.5", "openai-responses", "high", "high"],
 		["openai.gpt-5.5", "openai-responses", "xhigh", "xhigh"],
+		// GPT-6.1 Sol routes through Responses with forced reasoning. Its
+		// metadata omits "off", so the client never receives "off" for it;
+		// core's turn-setup tests cover that resolution.
+		["openai.gpt-6.1-sol", "openai-responses", "low", "low"],
 		["openai.gpt-oss-120b", "openai-chat", "low", "low"],
 		["openai.gpt-oss-120b", "openai-chat", "medium", "medium"],
 		["openai.gpt-oss-120b", "openai-chat", "high", "high"],

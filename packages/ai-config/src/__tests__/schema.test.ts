@@ -465,6 +465,55 @@ describe("providersConfigSchema", () => {
 		});
 		expect(result.success).toBe(false);
 	});
+
+	// --- apiKeyHelper (command-supplied API keys) ---
+
+	it("accepts apiKeyHelper on an API-key built-in and a custom API-key kind", () => {
+		const result = providersConfigSchema.safeParse({
+			providers: {
+				anthropic: {
+					apiKeyHelper: {
+						command: "vault",
+						args: ["kv", "get", "-field=api_key", "secret/anthropic"],
+						timeoutMs: 10_000,
+						refreshIntervalMs: 0,
+					},
+				},
+				custom: {
+					gw: {
+						type: "openai-compatible",
+						baseUrl: "https://llm.example/v1",
+						apiKeyHelper: { command: "acme-token --audience llm" },
+					},
+				},
+			},
+		});
+		expect(result.success).toBe(true);
+	});
+
+	it("rejects apiKeyHelper on providers whose credential is not a plain API key", () => {
+		const helper = { command: "x" };
+		for (const providers of [
+			{ bedrock: { apiKeyHelper: helper } },
+			{ "snowflake-cortex": { apiKeyHelper: helper } },
+			{ custom: { gw: { type: "aws", apiKeyHelper: helper } } },
+		]) {
+			expect(providersConfigSchema.safeParse({ providers }).success).toBe(false);
+		}
+	});
+
+	it("rejects an apiKeyHelper without a command or with an unknown key", () => {
+		for (const apiKeyHelper of [
+			{ args: ["x"] },
+			{ command: "" },
+			{ command: "x", shell: "bash" },
+			{ command: "x", timeoutMs: 0 },
+		]) {
+			expect(
+				providersConfigSchema.safeParse({ providers: { openai: { apiKeyHelper } } }).success,
+			).toBe(false);
+		}
+	});
 });
 
 describe("providersConfigFragmentSchema", () => {

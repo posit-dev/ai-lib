@@ -2,10 +2,11 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
+import { mintCustomProviderId } from "ai-config";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Logger } from "../../types";
-import { registerGeminiProvider } from "../gemini-provider";
+import { registerCustomGeminiProvider, registerGeminiProvider } from "../gemini-provider";
 import { ProviderRegistry } from "../ProviderRegistry";
 
 const logger: Logger = {
@@ -167,5 +168,71 @@ describe("registerGeminiProvider model discovery", () => {
 			supportsTools: true,
 		});
 		expect(models[1].thinkingEffortLevels).toBeUndefined();
+	});
+});
+
+describe("Gemini web search capability advertisement", () => {
+	afterEach(() => vi.unstubAllGlobals());
+
+	function stubModelsResponse(ids: string[]): void {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response(
+						JSON.stringify({
+							models: ids.map((id) => ({
+								name: `models/${id}`,
+								displayName: id,
+								supportedGenerationMethods: ["generateContent", "countTokens"],
+							})),
+						}),
+						{ status: 200, headers: { "content-type": "application/json" } },
+					),
+			),
+		);
+	}
+
+	async function fetchHostedModels(ids: string[]) {
+		stubModelsResponse(ids);
+		const registry = new ProviderRegistry(logger);
+		registerGeminiProvider(registry, logger);
+		return registry.getModelsForProvider("gemini", { type: "apikey", apiKey: "key" });
+	}
+
+	it("advertises web search for verified 3.x models on the Google-hosted endpoint", async () => {
+		const models = await fetchHostedModels([
+			"gemini-3.5-flash",
+			"gemini-3.5-flash-lite",
+			"gemini-3.6-flash",
+			"gemini-3.7-flash",
+			"gemini-3.8-flash",
+		]);
+		expect(models.map((model) => model.supportsWebSearch)).toEqual([true, true, true, true, true]);
+	});
+
+	it("does not advertise web search for an unverified future model", async () => {
+		const models = await fetchHostedModels(["gemini-3.9-flash"]);
+		expect(models[0].supportsWebSearch).toBe(false);
+	});
+
+	it("does not advertise web search for Gemini 2.5", async () => {
+		// 2.5 rejects built-in Search combined with function tools (verified
+		// live 2026-09-05), and PA always sends local tools.
+		const models = await fetchHostedModels(["gemini-2.5-flash", "gemini-2.5-pro"]);
+		expect(models.map((model) => model.supportsWebSearch)).toEqual([false, false]);
+	});
+
+	it("never advertises web search on a custom Gemini endpoint, even for verified IDs", async () => {
+		stubModelsResponse(["gemini-3.8-flash"]);
+		const registry = new ProviderRegistry(logger);
+		const providerId = mintCustomProviderId("my-gemini-compatible");
+		registerCustomGeminiProvider(registry, providerId, logger);
+		const models = await registry.getModelsForProvider(providerId, {
+			type: "apikey",
+			apiKey: "key",
+			baseUrl: "https://gemini-compatible.test/v1beta",
+		});
+		expect(models[0].supportsWebSearch).toBe(false);
 	});
 });

@@ -4,6 +4,7 @@
 
 import type { ResolvedProviderId } from "ai-config";
 
+import { additiveHeaderRecord } from "../custom-headers";
 import { OllamaClient } from "../model-clients/OllamaClient";
 import type { Logger, ModelInfo } from "../types";
 import type { LocalCredentials } from "../types";
@@ -108,6 +109,7 @@ export function getOllamaThinkingLevels(
 const fetchOllamaCapabilities = async (
 	modelId: string,
 	endpoint: string,
+	customHeaders: Record<string, string> | undefined,
 	signal: AbortSignal,
 ): Promise<{
 	supportsTools: boolean;
@@ -122,7 +124,7 @@ const fetchOllamaCapabilities = async (
 
 		const response = await fetch(showUrl, {
 			method: "POST",
-			headers: { "Content-Type": "application/json" },
+			headers: additiveHeaderRecord({ "Content-Type": "application/json" }, customHeaders),
 			body: JSON.stringify({ name: modelId }),
 			signal,
 		});
@@ -236,7 +238,12 @@ function createOllamaModelFetcher(
 
 			return Promise.all(
 				models.map(async (model) => {
-					const caps = await fetchOllamaCapabilities(model.id, endpoint, signal);
+					const caps = await fetchOllamaCapabilities(
+						model.id,
+						endpoint,
+						credentials.customHeaders,
+						signal,
+					);
 
 					return {
 						...model,
@@ -271,7 +278,7 @@ const ollamaClientFactory: ClientFactory = (credentials) => {
 			`Ollama provider requires local endpoint credentials, got: ${credentials.type}`,
 		);
 	}
-	return new OllamaClient(credentials.endpoint);
+	return new OllamaClient(credentials.endpoint, credentials.customHeaders);
 };
 
 export function registerOllamaProvider(registry: ProviderRegistry, logger: Logger): void {

@@ -5,6 +5,7 @@
 import type { ResolvedProviderId } from "ai-config";
 import { getAnthropicModelCapabilities } from "ai-config";
 
+import { additiveHeaderRecord } from "../custom-headers";
 import {
 	type GoogleVertexCredentialSource,
 	isInlineServiceAccountError,
@@ -93,6 +94,7 @@ async function fetchPublisherModels(
 	location: string,
 	publisher: string,
 	token: string,
+	customHeaders: Record<string, string> | undefined,
 ): Promise<
 	Array<{ name: string; displayName?: string; inputTokenLimit?: number; outputTokenLimit?: number }>
 > {
@@ -102,10 +104,13 @@ async function fetchPublisherModels(
 		location === "global" ? "aiplatform.googleapis.com" : `${location}-aiplatform.googleapis.com`;
 	const url = `https://${host}/v1beta1/publishers/${publisher}/models`;
 	const response = await fetch(url, {
-		headers: {
-			Authorization: `Bearer ${token}`,
-			"x-goog-user-project": project,
-		},
+		headers: additiveHeaderRecord(
+			{
+				Authorization: `Bearer ${token}`,
+				"x-goog-user-project": project,
+			},
+			customHeaders,
+		),
 		signal: AbortSignal.timeout(15000),
 	});
 
@@ -243,12 +248,24 @@ function createGoogleVertexModelFetcher(
 				let googleError: Error | null = null;
 				let anthropicError: Error | null = null;
 				const [googleModels, anthropicModels] = await Promise.all([
-					fetchPublisherModels(credentials.project, location, "google", token).catch((err) => {
+					fetchPublisherModels(
+						credentials.project,
+						location,
+						"google",
+						token,
+						credentials.customHeaders,
+					).catch((err) => {
 						googleError = err instanceof Error ? err : new Error(String(err));
 						logger.warn(`[GoogleVertex] Failed to fetch Google models: ${googleError.message}`);
 						return [];
 					}),
-					fetchPublisherModels(credentials.project, "global", "anthropic", token).catch((err) => {
+					fetchPublisherModels(
+						credentials.project,
+						"global",
+						"anthropic",
+						token,
+						credentials.customHeaders,
+					).catch((err) => {
 						anthropicError = err instanceof Error ? err : new Error(String(err));
 						logger.warn(
 							`[GoogleVertex] Failed to fetch Anthropic models: ${anthropicError.message}`,
@@ -426,6 +443,7 @@ function createGoogleVertexClientFactory(
 					credentials.accessToken,
 					credentialEnvironment,
 				),
+				customHeaders: credentials.customHeaders,
 			},
 			logger,
 		);

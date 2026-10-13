@@ -5,12 +5,30 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	anthropicRequestOptions,
 	buildSnowflakeCortexUrl,
 	buildSnowflakeCortexUrlFromHost,
 	normalizeProviderBaseUrl,
 	positAiThinkingRequestFields,
 	thinkingRequestFields,
 } from "../utils";
+
+// The per-effort thinking options are covered end to end by
+// `anthropic-thinking-wire.test.ts` (real SDK) and `anthropic-thinking-routing.test.ts`.
+describe("anthropicRequestOptions", () => {
+	const request = { transport: "anthropic", clientOptions: { toolStreaming: false } } as const;
+
+	it("merges client options with and without thinking options", () => {
+		expect(
+			anthropicRequestOptions({ ...request, effort: "off", blockBinding: undefined })
+				.providerOptions,
+		).toEqual({ anthropic: { thinking: { type: "disabled" }, toolStreaming: false } });
+		expect(
+			anthropicRequestOptions({ ...request, effort: undefined, blockBinding: undefined })
+				.providerOptions,
+		).toEqual({ anthropic: { toolStreaming: false } });
+	});
+});
 
 describe("thinkingRequestFields", () => {
 	it("returns undefined when thinking is off or unset", () => {

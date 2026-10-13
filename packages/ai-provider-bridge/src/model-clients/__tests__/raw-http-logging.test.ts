@@ -338,6 +338,29 @@ describe("withRawHttpLogging", () => {
 		expect(files.some((f) => f.includes("my-provider") && f.includes("a-b-c"))).toBe(true);
 	});
 
+	it("names files with the request session so interleaved requests can be grouped", async () => {
+		process.env[ENV_VAR] = workDir;
+		const session = "10000000-0000-4000-8000-000000000001:20000000-0000-4000-8000-000000000002";
+		const wrapped = withRawHttpLogging(fakeSseFetch(["data: [DONE]\n\n"]), {
+			provider: "anthropic",
+			model: "claude-opus-5-5",
+			session,
+		});
+		const response = await wrapped!("https://api.example.com/", { method: "POST", body: "{}" });
+		await response.arrayBuffer();
+		await waitForPair();
+
+		const files = listFiles(workDir);
+		expect(files).toHaveLength(2);
+		for (const f of files) {
+			expect(f).toContain(
+				"-anthropic-claude-opus-5-5-session.10000000-0000-4000-8000-000000000001-20000000-0000-4000-8000-000000000002-",
+			);
+		}
+		// The session is a file-name label only; the logged body is the wire body.
+		expect(splitMessage(readPair(workDir).request).body.toString("utf8")).toBe("{}");
+	});
+
 	it("bounds long model IDs in file names with a stable hash suffix", async () => {
 		process.env[ENV_VAR] = workDir;
 		const longModel = `arn:aws:bedrock:us-east-1:123456789012:inference-profile/${"x".repeat(300)}`;

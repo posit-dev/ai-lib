@@ -26,9 +26,9 @@ import {
 import type { LMStreamPart, Logger } from "../types";
 import { normalizeProtocol } from "../types";
 import {
+	anthropicRequestOptions,
 	isAgreementRequiredBody,
 	isClaudeModel,
-	isThinkingEnabled,
 	joinPath,
 	positAiThinkingRequestFields,
 } from "../utils";
@@ -184,8 +184,11 @@ export class PositAiClient implements ModelClient {
 		// reflects the final wire request after the auth rewrite below (auth
 		// header values are redacted in the log files).
 		const wireFetch =
-			withRawHttpLogging(undefined, { provider: "positai", model: params.model }) ??
-			globalThis.fetch;
+			withRawHttpLogging(undefined, {
+				provider: "positai",
+				model: params.model,
+				session: params.metadata?.sessionId,
+			}) ?? globalThis.fetch;
 		// Create custom fetch with OAuth Bearer authentication and headers
 		const authenticatedFetch = createAuthenticatedFetch(
 			this.accessToken,
@@ -200,17 +203,12 @@ export class PositAiClient implements ModelClient {
 		const { abortController, cleanup } = createAbortControllerFromToken(params.cancellationToken);
 
 		if (normalizedProtocol === "anthropic-messages") {
-			const providerOptions = isThinkingEnabled(params.thinkingEffort)
-				? {
-						anthropic: {
-							// `display: "summarized"` is required to receive thinking summary text.
-							// Opus 4.7+/Fable 5 default to `"omitted"`, which streams thinking blocks
-							// with only a signature and no text — so the UI shows no <thinking>.
-							thinking: { type: "adaptive", display: "summarized" },
-							effort: params.thinkingEffort,
-						},
-					}
-				: undefined;
+			const { providerOptions, headers: requestHeaders } = anthropicRequestOptions({
+				effort: params.thinkingEffort,
+				transport: "positai",
+				blockBinding: params.thinkingBlockBinding,
+				clientOptions: {},
+			});
 
 			// Use Anthropic provider with OAuth authentication
 			const provider = createAnthropic({
@@ -240,6 +238,7 @@ export class PositAiClient implements ModelClient {
 					toolChoice: tools ? "auto" : undefined,
 					abortSignal: abortController.signal,
 					providerOptions,
+					headers: requestHeaders,
 					// Capture raw JSON on each step finish
 					onStepFinish: createStepLogger(params.stepLoggers || [], "positai", params.model),
 				},

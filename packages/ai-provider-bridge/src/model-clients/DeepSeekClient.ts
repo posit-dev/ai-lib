@@ -75,6 +75,7 @@ export class DeepSeekClient implements ModelClient {
 		const loggedFetch = withRawHttpLogging(undefined, {
 			provider: "deepseek",
 			model: params.model,
+			session: params.metadata?.sessionId,
 		});
 		const effectiveFetch = thinkingOn
 			? createFetchWithReasoningEffort(params.thinkingEffort!, loggedFetch ?? globalThis.fetch)

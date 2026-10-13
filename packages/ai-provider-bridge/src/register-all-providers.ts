@@ -87,8 +87,8 @@ export interface ProviderRegistrationConfig {
 	getPositAiAuthHostCandidates?: () => readonly string[];
 	/**
 	 * Host product User-Agent. Sent to Posit AI Pass as-is, and applied by the
-	 * registry as the default `User-Agent` for every other provider whose
-	 * credentials carry `customHeaders`, beneath any explicit custom value.
+	 * registry as the default `User-Agent` for every other provider (every
+	 * non-OAuth credential variant), beneath any explicit custom value.
 	 */
 	userAgent?: string;
 	/** If set, only these providers register; an empty list registers none. */

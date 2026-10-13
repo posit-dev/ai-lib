@@ -26,7 +26,7 @@ import {
 } from "../tool-result-images";
 import type { LMStreamPart, Logger, Protocol } from "../types";
 import { normalizeProtocol } from "../types";
-import { isThinkingEnabled, rejectsEagerInputStreaming } from "../utils";
+import { anthropicRequestOptions, isThinkingEnabled, rejectsEagerInputStreaming } from "../utils";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
@@ -34,6 +34,7 @@ import {
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 import { prepareExplicitOpenAIRequest } from "./openai-prompt-caching";
+import { mergeOpenAIWebSearchTool } from "./provider-tools";
 import { withRawHttpLogging } from "./raw-http-logging";
 
 const EXPLICIT_PROMPT_CACHE_OPTIONS: { mode: "explicit"; ttl: "30m" } = {
@@ -92,12 +93,42 @@ export class BedrockClient implements ModelClient {
 			throw new Error(`Unsupported protocol for Bedrock: ${normalizedProtocol}`);
 		}
 
+		// Hosted web search exists only on the Mantle Responses route (which
+		// speaks the OpenAI Responses wire shape). Reject an explicit request on
+		// any other route before any network call rather than silently dropping
+		// the requested capability.
+		if (params.webSearchEnabled && normalizedProtocol !== "openai-responses") {
+			throw new Error(
+				`webSearchEnabled is only supported on the Bedrock Mantle Responses route, but this ` +
+					`request routes to ${normalizedProtocol ?? "the inferred Converse/Anthropic route"} ` +
+					`(model: ${params.model})`,
+			);
+		}
+
+		// Attach the hosted web_search tool when requested. The guard above
+		// guarantees this only happens on the Mantle Responses route. Mantle
+		// requires an explicit `external_web_access` boolean: AWS defaults it to
+		// `true`, so omission would widen the egress boundary — default the
+		// omitted policy to `false`. The merged record is the single source for
+		// both `tools` and `toolChoice`. Compute it before any cancellation
+		// registration below: a rejected merge (provider-tool name collision)
+		// throws synchronously and must not leak the abort subscription.
+		const tools = mergeOpenAIWebSearchTool(params.tools, params.webSearchEnabled === true, {
+			externalWebAccess: params.bedrockExternalWebAccess ?? false,
+		});
+
 		const transport = await resolveBedrockTransport({
 			region: this.config.region,
 			profile: this.config.profile,
 			logger: this.logger,
 		});
-		const model = this.createModel(params.model, transport, normalizedProtocol, params.baseUrl);
+		const model = this.createModel(
+			params.model,
+			transport,
+			normalizedProtocol,
+			params.baseUrl,
+			params.metadata?.sessionId,
+		);
 
 		// Create abort controller with cleanup to prevent EventEmitter memory leaks
 		const { abortController, cleanup } = createAbortControllerFromToken(params.cancellationToken);
@@ -111,27 +142,16 @@ export class BedrockClient implements ModelClient {
 		// For Anthropic models on Bedrock, pass thinking config via providerOptions.
 		// The createBedrockAnthropic provider uses AnthropicMessagesLanguageModel internally,
 		// so it accepts the same `anthropic` provider options as the direct Anthropic provider.
-		const useThinking = isThinkingEnabled(params.thinkingEffort) && isAnthropic;
 		// Some Claude models reject the `eager_input_streaming` field on Bedrock; opt
 		// those out (see rejectsEagerInputStreaming). Others accept it, so leave them on.
-		const disableEagerToolStreaming = rejectsEagerInputStreaming(params.model);
-		const anthropicProviderOptions =
-			useThinking || disableEagerToolStreaming
-				? {
-						anthropic: {
-							...(disableEagerToolStreaming ? { toolStreaming: false } : {}),
-							...(useThinking
-								? {
-										// `display: "summarized"` is required to receive thinking summary text.
-										// Opus 4.7+/Fable 5 default to `"omitted"`, which streams thinking blocks
-										// with only a signature and no text — so the UI shows no <thinking>.
-										thinking: { type: "adaptive", display: "summarized" },
-										effort: params.thinkingEffort,
-									}
-								: {}),
-						},
-					}
-				: undefined;
+		const anthropicOptions = isAnthropic
+			? anthropicRequestOptions({
+					effort: params.thinkingEffort,
+					transport: "bedrock",
+					blockBinding: params.thinkingBlockBinding,
+					clientOptions: rejectsEagerInputStreaming(params.model) ? { toolStreaming: false } : {},
+				})
+			: { providerOptions: undefined, headers: undefined };
 
 		const isMantleChat = normalizedProtocol === "openai-chat";
 		const isMantleResponses = normalizedProtocol === "openai-responses";
@@ -194,7 +214,7 @@ export class BedrockClient implements ModelClient {
 							reasoningEffort: params.thinkingEffort,
 						},
 					}
-				: anthropicProviderOptions;
+				: anthropicOptions.providerOptions;
 
 		// The Anthropic Messages wire validates tool_use.id against
 		// `^[a-zA-Z0-9_-]+$`; sanitize outbound IDs on that route only.
@@ -212,10 +232,11 @@ export class BedrockClient implements ModelClient {
 			// historic Bedrock fallback on Mantle Responses; all existing routes
 			// retain it, and gpt-oss discovery supplies 16,384 explicitly.
 			maxOutputTokens: isMantleResponses ? params.maxOutputTokens : params.maxOutputTokens || 4096,
-			tools: params.tools,
-			toolChoice: params.tools ? "auto" : undefined,
+			tools,
+			toolChoice: tools ? "auto" : undefined,
 			abortSignal: abortController.signal,
 			providerOptions,
+			headers: anthropicOptions.headers,
 			// Capture raw JSON on each step finish
 			onStepFinish: createStepLogger(
 				params.stepLoggers || [],
@@ -251,14 +272,16 @@ export class BedrockClient implements ModelClient {
 	private createModel(
 		modelId: string,
 		transport: BedrockTransport,
-		protocol?: Protocol,
-		baseUrl?: string,
+		protocol: Protocol | undefined,
+		baseUrl: string | undefined,
+		session: string | undefined,
 	): LanguageModelV3 {
 		const credentialProvider = createAwsCredentialProvider(this.config);
 		const headers = safeSdkCustomHeaders(this.config.customHeaders);
 		const loggedFetch = withRawHttpLogging(undefined, {
 			provider: "bedrock",
 			model: modelId,
+			session,
 		});
 
 		if (protocol === "openai-chat" || protocol === "openai-responses") {

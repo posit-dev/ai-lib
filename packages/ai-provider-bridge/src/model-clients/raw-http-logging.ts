@@ -23,8 +23,11 @@ import type * as NodeFs from "node:fs";
  *    set, the directory is created automatically and logging is always on.
  *
  * Output: two files per HTTP call sharing a
- * `{timestamp}-{provider}-{model}-{nonce}-{seq}` base name (the nonce makes
- * the name unique across processes sharing a directory). Files are published
+ * `{timestamp}-{provider}-{model}[-session.{session}]-{nonce}-{seq}` base name
+ * (the nonce makes the name unique across processes sharing a directory; the
+ * optional session component is the host's request session identity, so
+ * offline tools can group interleaved requests by conversation without any
+ * change to the request bytes). Files are published
  * via temp-file-plus-rename, so an existing `.http` file always holds
  * complete contents.
  *
@@ -528,11 +531,12 @@ function writeLogFile(outputDir: string, baseName: string, suffix: string, conte
  *
  * @param fetchFn - The fetch the client would otherwise use (may be undefined
  *   to wrap the global fetch).
- * @param context - Provider and model names, used in log file names.
+ * @param context - Provider and model names, and the request's session
+ *   identity when the host supplied one, used in log file names.
  */
 export function withRawHttpLogging(
 	fetchFn: typeof globalThis.fetch | undefined,
-	context: { provider: string; model: string },
+	context: { provider: string; model: string; session?: string },
 ): typeof globalThis.fetch | undefined {
 	const outputDir = resolveOutputDir();
 	if (!outputDir) {
@@ -544,9 +548,11 @@ export function withRawHttpLogging(
 		fetchFn ?? ((...args: Parameters<typeof globalThis.fetch>) => globalThis.fetch(...args));
 	const provider = boundedFilenameComponent(context.provider);
 	const model = boundedFilenameComponent(context.model);
+	const session =
+		context.session !== undefined ? `-session.${boundedFilenameComponent(context.session)}` : "";
 
 	return async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
-		const baseName = `${timestamp()}-${provider}-${model}-${processNonce}-${sequence++}`;
+		const baseName = `${timestamp()}-${provider}-${model}${session}-${processNonce}-${sequence++}`;
 
 		// Capture the request (wrapping stream bodies in a recording
 		// pass-through so the SDK's bytes are undisturbed) and write the

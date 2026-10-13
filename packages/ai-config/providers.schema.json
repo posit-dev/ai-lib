@@ -16,6 +16,40 @@
           "additionalProperties": false,
           "description": "Configuration for the built-in anthropic provider.",
           "properties": {
+            "apiKeyHelper": {
+              "additionalProperties": false,
+              "description": "Get this provider's API key by running a command. The first non-empty line the command prints is used as the key. When set, a stored key or API key environment variable for this provider is ignored.",
+              "properties": {
+                "args": {
+                  "description": "Arguments passed to `command`. When set, `command` is run without a shell.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "command": {
+                  "description": "Command that prints the API key. Without `args`, this is run as one line by the system shell; with `args`, it is the executable to run directly.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "refreshIntervalMs": {
+                  "description": "How long to reuse a key before running the command again, in milliseconds. Default 300000 (5 minutes); 0 keeps the key until the app restarts.",
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "timeoutMs": {
+                  "description": "How long to wait for the command before giving up, in milliseconds. Default 10000.",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "command"
+              ],
+              "type": "object"
+            },
             "baseUrl": {
               "description": "Base URL for the provider's API. Some providers need a version segment: `https://api.anthropic.com/v1` for Anthropic, `https://api.openai.com/v1` for OpenAI, and `https://generativelanguage.googleapis.com/v1beta` for Gemini. A bare host will fail for those.",
               "type": "string"
@@ -858,6 +892,40 @@
               {
                 "additionalProperties": false,
                 "properties": {
+                  "apiKeyHelper": {
+                    "additionalProperties": false,
+                    "description": "Get this provider's API key by running a command. The first non-empty line the command prints is used as the key. When set, a stored key or API key environment variable for this provider is ignored.",
+                    "properties": {
+                      "args": {
+                        "description": "Arguments passed to `command`. When set, `command` is run without a shell.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "command": {
+                        "description": "Command that prints the API key. Without `args`, this is run as one line by the system shell; with `args`, it is the executable to run directly.",
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "refreshIntervalMs": {
+                        "description": "How long to reuse a key before running the command again, in milliseconds. Default 300000 (5 minutes); 0 keeps the key until the app restarts.",
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "timeoutMs": {
+                        "description": "How long to wait for the command before giving up, in milliseconds. Default 10000.",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "command"
+                    ],
+                    "type": "object"
+                  },
                   "baseUrl": {
                     "description": "Base URL for the provider's API. Some providers need a version segment: `https://api.anthropic.com/v1` for Anthropic, `https://api.openai.com/v1` for OpenAI, and `https://generativelanguage.googleapis.com/v1beta` for Gemini. A bare host will fail for those.",
                     "type": "string"
@@ -1148,6 +1216,40 @@
               {
                 "additionalProperties": false,
                 "properties": {
+                  "apiKeyHelper": {
+                    "additionalProperties": false,
+                    "description": "Get this provider's API key by running a command. The first non-empty line the command prints is used as the key. When set, a stored key or API key environment variable for this provider is ignored.",
+                    "properties": {
+                      "args": {
+                        "description": "Arguments passed to `command`. When set, `command` is run without a shell.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "command": {
+                        "description": "Command that prints the API key. Without `args`, this is run as one line by the system shell; with `args`, it is the executable to run directly.",
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "refreshIntervalMs": {
+                        "description": "How long to reuse a key before running the command again, in milliseconds. Default 300000 (5 minutes); 0 keeps the key until the app restarts.",
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "timeoutMs": {
+                        "description": "How long to wait for the command before giving up, in milliseconds. Default 10000.",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "command"
+                    ],
+                    "type": "object"
+                  },
                   "apiKeyOptional": {
                     "description": "Whether an API key is optional for this provider. Set to true when the endpoint authenticates another way, such as a local proxy that adds SSO credentials, so no API key needs to be configured.",
                     "type": "boolean"
@@ -1442,6 +1544,40 @@
               {
                 "additionalProperties": false,
                 "properties": {
+                  "apiKeyHelper": {
+                    "additionalProperties": false,
+                    "description": "Get this provider's API key by running a command. The first non-empty line the command prints is used as the key. When set, a stored key or API key environment variable for this provider is ignored.",
+                    "properties": {
+                      "args": {
+                        "description": "Arguments passed to `command`. When set, `command` is run without a shell.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "command": {
+                        "description": "Command that prints the API key. Without `args`, this is run as one line by the system shell; with `args`, it is the executable to run directly.",
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "refreshIntervalMs": {
+                        "description": "How long to reuse a key before running the command again, in milliseconds. Default 300000 (5 minutes); 0 keeps the key until the app restarts.",
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "timeoutMs": {
+                        "description": "How long to wait for the command before giving up, in milliseconds. Default 10000.",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "command"
+                    ],
+                    "type": "object"
+                  },
                   "baseUrl": {
                     "description": "Base URL for the provider's API. Some providers need a version segment: `https://api.anthropic.com/v1` for Anthropic, `https://api.openai.com/v1` for OpenAI, and `https://generativelanguage.googleapis.com/v1beta` for Gemini. A bare host will fail for those.",
                     "type": "string"
@@ -1732,6 +1868,40 @@
               {
                 "additionalProperties": false,
                 "properties": {
+                  "apiKeyHelper": {
+                    "additionalProperties": false,
+                    "description": "Get this provider's API key by running a command. The first non-empty line the command prints is used as the key. When set, a stored key or API key environment variable for this provider is ignored.",
+                    "properties": {
+                      "args": {
+                        "description": "Arguments passed to `command`. When set, `command` is run without a shell.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "command": {
+                        "description": "Command that prints the API key. Without `args`, this is run as one line by the system shell; with `args`, it is the executable to run directly.",
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "refreshIntervalMs": {
+                        "description": "How long to reuse a key before running the command again, in milliseconds. Default 300000 (5 minutes); 0 keeps the key until the app restarts.",
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "timeoutMs": {
+                        "description": "How long to wait for the command before giving up, in milliseconds. Default 10000.",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "command"
+                    ],
+                    "type": "object"
+                  },
                   "baseUrl": {
                     "description": "Base URL for the provider's API. Some providers need a version segment: `https://api.anthropic.com/v1` for Anthropic, `https://api.openai.com/v1` for OpenAI, and `https://generativelanguage.googleapis.com/v1beta` for Gemini. A bare host will fail for those.",
                     "type": "string"
@@ -3525,6 +3695,40 @@
               {
                 "additionalProperties": false,
                 "properties": {
+                  "apiKeyHelper": {
+                    "additionalProperties": false,
+                    "description": "Get this provider's API key by running a command. The first non-empty line the command prints is used as the key. When set, a stored key or API key environment variable for this provider is ignored.",
+                    "properties": {
+                      "args": {
+                        "description": "Arguments passed to `command`. When set, `command` is run without a shell.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "command": {
+                        "description": "Command that prints the API key. Without `args`, this is run as one line by the system shell; with `args`, it is the executable to run directly.",
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "refreshIntervalMs": {
+                        "description": "How long to reuse a key before running the command again, in milliseconds. Default 300000 (5 minutes); 0 keeps the key until the app restarts.",
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "timeoutMs": {
+                        "description": "How long to wait for the command before giving up, in milliseconds. Default 10000.",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "command"
+                    ],
+                    "type": "object"
+                  },
                   "baseUrl": {
                     "description": "Base URL for the provider's API. Some providers need a version segment: `https://api.anthropic.com/v1` for Anthropic, `https://api.openai.com/v1` for OpenAI, and `https://generativelanguage.googleapis.com/v1beta` for Gemini. A bare host will fail for those.",
                     "type": "string"
@@ -3815,6 +4019,40 @@
               {
                 "additionalProperties": false,
                 "properties": {
+                  "apiKeyHelper": {
+                    "additionalProperties": false,
+                    "description": "Get this provider's API key by running a command. The first non-empty line the command prints is used as the key. When set, a stored key or API key environment variable for this provider is ignored.",
+                    "properties": {
+                      "args": {
+                        "description": "Arguments passed to `command`. When set, `command` is run without a shell.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "command": {
+                        "description": "Command that prints the API key. Without `args`, this is run as one line by the system shell; with `args`, it is the executable to run directly.",
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "refreshIntervalMs": {
+                        "description": "How long to reuse a key before running the command again, in milliseconds. Default 300000 (5 minutes); 0 keeps the key until the app restarts.",
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "timeoutMs": {
+                        "description": "How long to wait for the command before giving up, in milliseconds. Default 10000.",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "command"
+                    ],
+                    "type": "object"
+                  },
                   "baseUrl": {
                     "description": "Base URL for the provider's API. Some providers need a version segment: `https://api.anthropic.com/v1` for Anthropic, `https://api.openai.com/v1` for OpenAI, and `https://generativelanguage.googleapis.com/v1beta` for Gemini. A bare host will fail for those.",
                     "type": "string"
@@ -4105,6 +4343,40 @@
               {
                 "additionalProperties": false,
                 "properties": {
+                  "apiKeyHelper": {
+                    "additionalProperties": false,
+                    "description": "Get this provider's API key by running a command. The first non-empty line the command prints is used as the key. When set, a stored key or API key environment variable for this provider is ignored.",
+                    "properties": {
+                      "args": {
+                        "description": "Arguments passed to `command`. When set, `command` is run without a shell.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "command": {
+                        "description": "Command that prints the API key. Without `args`, this is run as one line by the system shell; with `args`, it is the executable to run directly.",
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "refreshIntervalMs": {
+                        "description": "How long to reuse a key before running the command again, in milliseconds. Default 300000 (5 minutes); 0 keeps the key until the app restarts.",
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "timeoutMs": {
+                        "description": "How long to wait for the command before giving up, in milliseconds. Default 10000.",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "command"
+                    ],
+                    "type": "object"
+                  },
                   "baseUrl": {
                     "description": "Base URL for the provider's API. Some providers need a version segment: `https://api.anthropic.com/v1` for Anthropic, `https://api.openai.com/v1` for OpenAI, and `https://generativelanguage.googleapis.com/v1beta` for Gemini. A bare host will fail for those.",
                     "type": "string"
@@ -4395,6 +4667,40 @@
               {
                 "additionalProperties": false,
                 "properties": {
+                  "apiKeyHelper": {
+                    "additionalProperties": false,
+                    "description": "Get this provider's API key by running a command. The first non-empty line the command prints is used as the key. When set, a stored key or API key environment variable for this provider is ignored.",
+                    "properties": {
+                      "args": {
+                        "description": "Arguments passed to `command`. When set, `command` is run without a shell.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "command": {
+                        "description": "Command that prints the API key. Without `args`, this is run as one line by the system shell; with `args`, it is the executable to run directly.",
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "refreshIntervalMs": {
+                        "description": "How long to reuse a key before running the command again, in milliseconds. Default 300000 (5 minutes); 0 keeps the key until the app restarts.",
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "timeoutMs": {
+                        "description": "How long to wait for the command before giving up, in milliseconds. Default 10000.",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "command"
+                    ],
+                    "type": "object"
+                  },
                   "baseUrl": {
                     "description": "Base URL for the provider's API. Some providers need a version segment: `https://api.anthropic.com/v1` for Anthropic, `https://api.openai.com/v1` for OpenAI, and `https://generativelanguage.googleapis.com/v1beta` for Gemini. A bare host will fail for those.",
                     "type": "string"
@@ -4685,6 +4991,40 @@
               {
                 "additionalProperties": false,
                 "properties": {
+                  "apiKeyHelper": {
+                    "additionalProperties": false,
+                    "description": "Get this provider's API key by running a command. The first non-empty line the command prints is used as the key. When set, a stored key or API key environment variable for this provider is ignored.",
+                    "properties": {
+                      "args": {
+                        "description": "Arguments passed to `command`. When set, `command` is run without a shell.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "command": {
+                        "description": "Command that prints the API key. Without `args`, this is run as one line by the system shell; with `args`, it is the executable to run directly.",
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "refreshIntervalMs": {
+                        "description": "How long to reuse a key before running the command again, in milliseconds. Default 300000 (5 minutes); 0 keeps the key until the app restarts.",
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "timeoutMs": {
+                        "description": "How long to wait for the command before giving up, in milliseconds. Default 10000.",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "command"
+                    ],
+                    "type": "object"
+                  },
                   "baseUrl": {
                     "description": "Base URL for the provider's API. Some providers need a version segment: `https://api.anthropic.com/v1` for Anthropic, `https://api.openai.com/v1` for OpenAI, and `https://generativelanguage.googleapis.com/v1beta` for Gemini. A bare host will fail for those.",
                     "type": "string"
@@ -5271,6 +5611,40 @@
           "additionalProperties": false,
           "description": "Configuration for the built-in deepseek provider.",
           "properties": {
+            "apiKeyHelper": {
+              "additionalProperties": false,
+              "description": "Get this provider's API key by running a command. The first non-empty line the command prints is used as the key. When set, a stored key or API key environment variable for this provider is ignored.",
+              "properties": {
+                "args": {
+                  "description": "Arguments passed to `command`. When set, `command` is run without a shell.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "command": {
+                  "description": "Command that prints the API key. Without `args`, this is run as one line by the system shell; with `args`, it is the executable to run directly.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "refreshIntervalMs": {
+                  "description": "How long to reuse a key before running the command again, in milliseconds. Default 300000 (5 minutes); 0 keeps the key until the app restarts.",
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "timeoutMs": {
+                  "description": "How long to wait for the command before giving up, in milliseconds. Default 10000.",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "command"
+              ],
+              "type": "object"
+            },
             "baseUrl": {
               "description": "Base URL for the provider's API. Some providers need a version segment: `https://api.anthropic.com/v1` for Anthropic, `https://api.openai.com/v1` for OpenAI, and `https://generativelanguage.googleapis.com/v1beta` for Gemini. A bare host will fail for those.",
               "type": "string"
@@ -5557,6 +5931,40 @@
           "additionalProperties": false,
           "description": "Configuration for the built-in gemini provider.",
           "properties": {
+            "apiKeyHelper": {
+              "additionalProperties": false,
+              "description": "Get this provider's API key by running a command. The first non-empty line the command prints is used as the key. When set, a stored key or API key environment variable for this provider is ignored.",
+              "properties": {
+                "args": {
+                  "description": "Arguments passed to `command`. When set, `command` is run without a shell.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "command": {
+                  "description": "Command that prints the API key. Without `args`, this is run as one line by the system shell; with `args`, it is the executable to run directly.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "refreshIntervalMs": {
+                  "description": "How long to reuse a key before running the command again, in milliseconds. Default 300000 (5 minutes); 0 keeps the key until the app restarts.",
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "timeoutMs": {
+                  "description": "How long to wait for the command before giving up, in milliseconds. Default 10000.",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "command"
+              ],
+              "type": "object"
+            },
             "baseUrl": {
               "description": "Base URL for the provider's API. Some providers need a version segment: `https://api.anthropic.com/v1` for Anthropic, `https://api.openai.com/v1` for OpenAI, and `https://generativelanguage.googleapis.com/v1beta` for Gemini. A bare host will fail for those.",
               "type": "string"
@@ -6122,6 +6530,40 @@
           "additionalProperties": false,
           "description": "Configuration for the built-in litellm provider.",
           "properties": {
+            "apiKeyHelper": {
+              "additionalProperties": false,
+              "description": "Get this provider's API key by running a command. The first non-empty line the command prints is used as the key. When set, a stored key or API key environment variable for this provider is ignored.",
+              "properties": {
+                "args": {
+                  "description": "Arguments passed to `command`. When set, `command` is run without a shell.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "command": {
+                  "description": "Command that prints the API key. Without `args`, this is run as one line by the system shell; with `args`, it is the executable to run directly.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "refreshIntervalMs": {
+                  "description": "How long to reuse a key before running the command again, in milliseconds. Default 300000 (5 minutes); 0 keeps the key until the app restarts.",
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "timeoutMs": {
+                  "description": "How long to wait for the command before giving up, in milliseconds. Default 10000.",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "command"
+              ],
+              "type": "object"
+            },
             "baseUrl": {
               "description": "Base URL for the provider's API. Some providers need a version segment: `https://api.anthropic.com/v1` for Anthropic, `https://api.openai.com/v1` for OpenAI, and `https://generativelanguage.googleapis.com/v1beta` for Gemini. A bare host will fail for those.",
               "type": "string"
@@ -6672,6 +7114,40 @@
           "additionalProperties": false,
           "description": "Configuration for the built-in ms-foundry provider.",
           "properties": {
+            "apiKeyHelper": {
+              "additionalProperties": false,
+              "description": "Get this provider's API key by running a command. The first non-empty line the command prints is used as the key. When set, a stored key or API key environment variable for this provider is ignored.",
+              "properties": {
+                "args": {
+                  "description": "Arguments passed to `command`. When set, `command` is run without a shell.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "command": {
+                  "description": "Command that prints the API key. Without `args`, this is run as one line by the system shell; with `args`, it is the executable to run directly.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "refreshIntervalMs": {
+                  "description": "How long to reuse a key before running the command again, in milliseconds. Default 300000 (5 minutes); 0 keeps the key until the app restarts.",
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "timeoutMs": {
+                  "description": "How long to wait for the command before giving up, in milliseconds. Default 10000.",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "command"
+              ],
+              "type": "object"
+            },
             "azure": {
               "additionalProperties": false,
               "description": "Microsoft Entra ID connection settings for the built-in ms-foundry provider.",
@@ -7245,6 +7721,40 @@
           "additionalProperties": false,
           "description": "Configuration for the built-in openai provider.",
           "properties": {
+            "apiKeyHelper": {
+              "additionalProperties": false,
+              "description": "Get this provider's API key by running a command. The first non-empty line the command prints is used as the key. When set, a stored key or API key environment variable for this provider is ignored.",
+              "properties": {
+                "args": {
+                  "description": "Arguments passed to `command`. When set, `command` is run without a shell.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "command": {
+                  "description": "Command that prints the API key. Without `args`, this is run as one line by the system shell; with `args`, it is the executable to run directly.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "refreshIntervalMs": {
+                  "description": "How long to reuse a key before running the command again, in milliseconds. Default 300000 (5 minutes); 0 keeps the key until the app restarts.",
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "timeoutMs": {
+                  "description": "How long to wait for the command before giving up, in milliseconds. Default 10000.",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "command"
+              ],
+              "type": "object"
+            },
             "baseUrl": {
               "description": "Base URL for the provider's API. Some providers need a version segment: `https://api.anthropic.com/v1` for Anthropic, `https://api.openai.com/v1` for OpenAI, and `https://generativelanguage.googleapis.com/v1beta` for Gemini. A bare host will fail for those.",
               "type": "string"
@@ -7520,6 +8030,40 @@
           "additionalProperties": false,
           "description": "Configuration for the built-in openai-compatible provider.",
           "properties": {
+            "apiKeyHelper": {
+              "additionalProperties": false,
+              "description": "Get this provider's API key by running a command. The first non-empty line the command prints is used as the key. When set, a stored key or API key environment variable for this provider is ignored.",
+              "properties": {
+                "args": {
+                  "description": "Arguments passed to `command`. When set, `command` is run without a shell.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "command": {
+                  "description": "Command that prints the API key. Without `args`, this is run as one line by the system shell; with `args`, it is the executable to run directly.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "refreshIntervalMs": {
+                  "description": "How long to reuse a key before running the command again, in milliseconds. Default 300000 (5 minutes); 0 keeps the key until the app restarts.",
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "timeoutMs": {
+                  "description": "How long to wait for the command before giving up, in milliseconds. Default 10000.",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "command"
+              ],
+              "type": "object"
+            },
             "baseUrl": {
               "description": "Base URL for the provider's API. Some providers need a version segment: `https://api.anthropic.com/v1` for Anthropic, `https://api.openai.com/v1` for OpenAI, and `https://generativelanguage.googleapis.com/v1beta` for Gemini. A bare host will fail for those.",
               "type": "string"
@@ -7795,6 +8339,40 @@
           "additionalProperties": false,
           "description": "Configuration for the built-in opencode provider.",
           "properties": {
+            "apiKeyHelper": {
+              "additionalProperties": false,
+              "description": "Get this provider's API key by running a command. The first non-empty line the command prints is used as the key. When set, a stored key or API key environment variable for this provider is ignored.",
+              "properties": {
+                "args": {
+                  "description": "Arguments passed to `command`. When set, `command` is run without a shell.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "command": {
+                  "description": "Command that prints the API key. Without `args`, this is run as one line by the system shell; with `args`, it is the executable to run directly.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "refreshIntervalMs": {
+                  "description": "How long to reuse a key before running the command again, in milliseconds. Default 300000 (5 minutes); 0 keeps the key until the app restarts.",
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "timeoutMs": {
+                  "description": "How long to wait for the command before giving up, in milliseconds. Default 10000.",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "command"
+              ],
+              "type": "object"
+            },
             "baseUrl": {
               "description": "Base URL for the provider's API. Some providers need a version segment: `https://api.anthropic.com/v1` for Anthropic, `https://api.openai.com/v1` for OpenAI, and `https://generativelanguage.googleapis.com/v1beta` for Gemini. A bare host will fail for those.",
               "type": "string"
@@ -8078,6 +8656,40 @@
           "additionalProperties": false,
           "description": "Configuration for the built-in openrouter provider.",
           "properties": {
+            "apiKeyHelper": {
+              "additionalProperties": false,
+              "description": "Get this provider's API key by running a command. The first non-empty line the command prints is used as the key. When set, a stored key or API key environment variable for this provider is ignored.",
+              "properties": {
+                "args": {
+                  "description": "Arguments passed to `command`. When set, `command` is run without a shell.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "command": {
+                  "description": "Command that prints the API key. Without `args`, this is run as one line by the system shell; with `args`, it is the executable to run directly.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "refreshIntervalMs": {
+                  "description": "How long to reuse a key before running the command again, in milliseconds. Default 300000 (5 minutes); 0 keeps the key until the app restarts.",
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "timeoutMs": {
+                  "description": "How long to wait for the command before giving up, in milliseconds. Default 10000.",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "command"
+              ],
+              "type": "object"
+            },
             "baseUrl": {
               "description": "Base URL for the provider's API. Some providers need a version segment: `https://api.anthropic.com/v1` for Anthropic, `https://api.openai.com/v1` for OpenAI, and `https://generativelanguage.googleapis.com/v1beta` for Gemini. A bare host will fail for those.",
               "type": "string"
@@ -8353,6 +8965,40 @@
           "additionalProperties": false,
           "description": "Configuration for the built-in portkey provider.",
           "properties": {
+            "apiKeyHelper": {
+              "additionalProperties": false,
+              "description": "Get this provider's API key by running a command. The first non-empty line the command prints is used as the key. When set, a stored key or API key environment variable for this provider is ignored.",
+              "properties": {
+                "args": {
+                  "description": "Arguments passed to `command`. When set, `command` is run without a shell.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "command": {
+                  "description": "Command that prints the API key. Without `args`, this is run as one line by the system shell; with `args`, it is the executable to run directly.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "refreshIntervalMs": {
+                  "description": "How long to reuse a key before running the command again, in milliseconds. Default 300000 (5 minutes); 0 keeps the key until the app restarts.",
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "timeoutMs": {
+                  "description": "How long to wait for the command before giving up, in milliseconds. Default 10000.",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "command"
+              ],
+              "type": "object"
+            },
             "baseUrl": {
               "description": "Base URL for the provider's API. Some providers need a version segment: `https://api.anthropic.com/v1` for Anthropic, `https://api.openai.com/v1` for OpenAI, and `https://generativelanguage.googleapis.com/v1beta` for Gemini. A bare host will fail for those.",
               "type": "string"
@@ -8396,6 +9042,14 @@
                 "type": "string"
               },
               "type": "object"
+            },
+            "keyType": {
+              "description": "What the API key is: `portkey` for a Portkey API key (hosted Portkey, a proxy in front of it, or a Portkey hybrid gateway), or `upstream` for the upstream provider's key on a self-hosted open-source gateway. When omitted, it is inferred from `baseUrl`: `portkey` for https://api.portkey.ai, `upstream` for any other URL. With `portkey` on a URL other than https://api.portkey.ai, the base URL is used exactly as entered, so include `/v1` if your gateway needs it.",
+              "enum": [
+                "portkey",
+                "upstream"
+              ],
+              "type": "string"
             },
             "models": {
               "additionalProperties": false,

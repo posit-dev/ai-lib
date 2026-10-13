@@ -10,6 +10,7 @@ import type { ModelMessage } from "ai";
 
 import type { StepLogger } from "../StepLogger";
 import type { AiToolWithJsonSchema, CancellationToken, LMStreamPart, Protocol } from "../types";
+import type { ThinkingBlockBinding } from "../utils";
 
 /**
  * Runtime request metadata supplied by the host for a chat request.
@@ -51,10 +52,25 @@ export interface ModelClientChatParams {
 	cancellationToken: CancellationToken;
 	/** Thinking/reasoning effort level. */
 	thinkingEffort?: string;
+	/**
+	 * Host policy for Anthropic thinking-block binding. The host sets it only for
+	 * models that run the prefix check; absent means no binding controls are
+	 * sent. Clients on the Anthropic Messages wire apply it with adaptive
+	 * thinking and may veto it on transport grounds; other clients ignore it.
+	 */
+	thinkingBlockBinding?: ThinkingBlockBinding;
 	/** Context length hint for the model (e.g., Ollama num_ctx). From ModelInfo.maxContextLength. */
 	contextLength?: number;
 	/** Whether provider-side web search should be enabled for this request. */
 	webSearchEnabled?: boolean;
+	/**
+	 * Whether Bedrock Mantle's hosted web search may fetch live external pages
+	 * on a cache miss (`external_web_access` on the wire). Consumed only by
+	 * BedrockClient on the Mantle Responses route; omitted defaults to `false`
+	 * so retrieval stays within AWS's web index/cache unless the host
+	 * explicitly opts in. Ignored by every other client and route.
+	 */
+	bedrockExternalWebAccess?: boolean;
 	/** Whether the model requires vLLM-style `chat_template_kwargs` to enable thinking. */
 	requiresChatTemplateKwargs?: boolean;
 	/**

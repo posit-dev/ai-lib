@@ -11,6 +11,7 @@
  * values can never be overridden by a user's shell variables.
  */
 
+import type { PortkeyKeyType } from "./portkey-connection.js";
 import type { BuiltinProviderBlock, ProvidersConfigFragment } from "./types.js";
 import { BUILTIN_PROVIDER_IDS } from "./vocabulary.js";
 import type { BuiltinProviderId } from "./vocabulary.js";
@@ -40,6 +41,7 @@ interface ConnectionEnvMapping {
 	googleCloud?: { project?: EnvNames; location?: EnvNames };
 	snowflake?: { account?: EnvNames; host?: EnvNames; home?: EnvNames };
 	databricks?: { host?: EnvNames };
+	keyType?: EnvNames;
 }
 
 /**
@@ -90,10 +92,10 @@ const CONNECTION_ENV_MAPPINGS: Partial<Record<BuiltinProviderId, ConnectionEnvMa
 	// bridge derives the serving-endpoints / AI Gateway URL from it.
 	databricks: { databricks: { host: "DATABRICKS_HOST" } },
 	litellm: { baseUrl: "LITELLM_BASE_URL" },
-	// Required for Portkey (no default): the base URL selects hosted vs OSS
-	// mode, which determines what the stored key *is* — see base-url.ts's
-	// PORTKEY_HOSTED_BASE_URL and the bridge's resolvePortkeyConnection.
-	portkey: { baseUrl: "PORTKEY_BASE_URL" },
+	// Required for Portkey (no default): the base URL is where the key goes.
+	// The optional key type says what the key *is*; absent, it is inferred
+	// from the URL — see portkey-connection.ts.
+	portkey: { baseUrl: "PORTKEY_BASE_URL", keyType: "PORTKEY_KEY_TYPE" },
 	// The Connect server root URL (NOT a gateway route); integration discovery
 	// and the per-integration gateway routes are both derived from it.
 	"posit-connect": { baseUrl: "POSIT_CONNECT_URL" },
@@ -127,6 +129,14 @@ export function readEnvConnectionConfig(
 		if (mapping.endpoint) {
 			const val = readEnv(mapping.endpoint, envVars);
 			if (val) block.endpoint = val;
+		}
+		if (mapping.keyType) {
+			const val = readEnv(mapping.keyType, envVars);
+			// Like MS_FOUNDRY_AUTH_MODE below: the raw string flows through and
+			// the merged result is validated against the strict schema
+			// downstream, so an invalid value is reported rather than silently
+			// ignored. The cast only narrows to the enum the schema re-checks.
+			if (val) block.keyType = val as PortkeyKeyType;
 		}
 
 		const positaiLogin = mapping.positaiLogin && readEnvSection(mapping.positaiLogin, envVars);

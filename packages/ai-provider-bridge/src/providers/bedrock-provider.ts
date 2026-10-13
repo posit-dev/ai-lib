@@ -14,6 +14,7 @@ import {
 } from "ai-config";
 
 import { createAwsCredentialProvider } from "../aws-credentials";
+import { userAgentHeaderValue } from "../custom-headers";
 import { BedrockClient } from "../model-clients/BedrockClient";
 import type { AwsCredentials, Logger, ModelInfo, ProviderCredentials } from "../types";
 import { NOTIFICATION_ACTIONS } from "../types";
@@ -205,10 +206,14 @@ async function createBedrockListClient(
 ): Promise<BedrockListClient | null> {
 	try {
 		const resolvedCreds = await createAwsCredentialProvider(credentials)();
+		// The AWS SDK takes no arbitrary headers; it appends `customUserAgent`
+		// after its own tokens (escaping spaces and parentheses).
+		const customUserAgent = userAgentHeaderValue(credentials.customHeaders);
 		return new BedrockListClient({
 			region: credentials.region,
 			credentials: resolvedCreds,
 			useFipsEndpoint: transport.useFipsEndpoint,
+			...(customUserAgent !== undefined ? { customUserAgent } : {}),
 		});
 	} catch (credError) {
 		await reportCredentialResolutionFailure(providerId, credentials, callbacks, logger, credError);
@@ -505,6 +510,7 @@ function createBedrockClientFactory(logger: Logger): ClientFactory {
 				accessKeyId: credentials.accessKeyId,
 				secretAccessKey: credentials.secretAccessKey,
 				sessionToken: credentials.sessionToken,
+				customHeaders: credentials.customHeaders,
 			},
 			logger,
 		);

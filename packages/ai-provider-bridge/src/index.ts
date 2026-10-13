@@ -118,6 +118,7 @@ export type { LocalProviderId, LocalProviderManagerOptions } from "./local-provi
 
 // Small utilities
 export { isThinkingEnabled } from "./utils";
+export type { ThinkingBlockBinding } from "./utils";
 export { buildSnowflakeCortexUrl } from "./utils";
 export { normalizeDatabricksHost } from "./utils";
 export { isAgreementRequiredBody } from "./utils";

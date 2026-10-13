@@ -15,6 +15,7 @@
 
 import type { ClientKind } from "ai-config";
 
+import { isHeaderCarrying, userAgentHeaderValue } from "../custom-headers";
 import type { ModelClient } from "../model-clients/ModelClient";
 import type { Logger, ModelInfo, ProviderId, ProviderCredentials } from "../types";
 import type {
@@ -122,34 +123,29 @@ export class ProviderRegistry implements ModelRequestCoalescer {
 	constructor(private readonly logger: Logger) {}
 
 	/**
-	 * Set the product identity added to provider credentials that support custom
-	 * headers. An explicit non-empty User-Agent always wins. Hosts may update the
-	 * value after registration; the latest value applies when credentials next
-	 * enter a fetcher or client factory.
+	 * Set the product identity added to every header-carrying credential (all
+	 * variants except OAuth) before it enters a fetcher or client factory. An
+	 * explicit non-empty User-Agent always wins. Hosts may update the value
+	 * after registration; the latest value applies when credentials next enter
+	 * a fetcher or client factory.
 	 */
 	setDefaultUserAgent(userAgent: string | undefined): void {
 		this.defaultUserAgent = userAgent;
 	}
 
 	private withDefaultUserAgent(credentials: ProviderCredentials): ProviderCredentials {
-		if (
-			!this.defaultUserAgent ||
-			(credentials.type !== "apikey" && credentials.type !== "azure-entra")
-		) {
+		if (!this.defaultUserAgent || !isHeaderCarrying(credentials)) {
 			return credentials;
 		}
 
-		const customHeaderEntries = Object.entries(credentials.customHeaders ?? {});
-		if (
-			customHeaderEntries.some(
-				([name, value]) => name.toLowerCase() === USER_AGENT_HEADER_NAME && value.length > 0,
-			)
-		) {
+		if (userAgentHeaderValue(credentials.customHeaders) !== undefined) {
 			return credentials;
 		}
 
 		const customHeaders = Object.fromEntries(
-			customHeaderEntries.filter(([name]) => name.toLowerCase() !== USER_AGENT_HEADER_NAME),
+			Object.entries(credentials.customHeaders ?? {}).filter(
+				([name]) => name.toLowerCase() !== USER_AGENT_HEADER_NAME,
+			),
 		);
 		return {
 			...credentials,

@@ -53,10 +53,31 @@ export type AuthenticationStartResult =
 			reason: string;
 	  };
 
+/**
+ * Outcome of one attempt started by `startAuthentication`, as this process saw
+ * it. `superseded` means the stored record the attempt was signing in to was
+ * replaced, cleared, or completed by something else (another window, a
+ * configuration change); the attempt's own token, if any, was not stored.
+ */
+export type AuthenticationAttemptOutcome =
+	| { status: "pending" }
+	| { status: "succeeded" }
+	| { status: "failed"; error: string }
+	| { status: "cancelled" }
+	| { status: "superseded" };
+
 /** Strict semantic inputs accepted by the store-backed credential controller. */
 export type CredentialSourceInput =
 	| { type: "api-key"; apiKey: string; baseUrl?: string }
-	| { type: "oauth-device" }
+	| {
+			type: "oauth-device";
+			/**
+			 * Server the sign-in runs against, for providers without a fixed
+			 * authorization server (Posit Connect). Stored with the token, so the
+			 * token and the server it was issued by can never disagree.
+			 */
+			serverUrl?: string;
+	  }
 	| { type: "oauth-u2m"; workspaceHost: string }
 	| {
 			type: "oauth-m2m";
@@ -151,6 +172,15 @@ export interface CredentialProvider {
 
 	/** Cancel one opaque authentication attempt. Unknown ids are ignored. */
 	cancelAuthentication(attemptId: string): void;
+
+	/**
+	 * Outcome of an attempt this provider started, or `undefined` for an
+	 * unknown (or long-settled) attempt id. A pending attempt whose stored
+	 * record was replaced elsewhere reports `superseded` and stops polling.
+	 */
+	getAuthenticationAttemptOutcome(
+		attemptId: string,
+	): Promise<AuthenticationAttemptOutcome | undefined>;
 
 	/**
 	 * Current OAuth access token for a provider, refreshing if it is expired or

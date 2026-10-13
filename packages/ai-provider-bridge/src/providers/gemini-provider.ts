@@ -3,7 +3,12 @@
  *--------------------------------------------------------------------------------------------*/
 
 import type { ResolvedProviderId } from "ai-config";
-import { GEMINI_API_VERSION, GEMINI_HOST, inferModelCapabilities } from "ai-config";
+import {
+	GEMINI_API_VERSION,
+	GEMINI_HOST,
+	inferModelCapabilities,
+	isGeminiWebSearchVerified,
+} from "ai-config";
 
 import {
 	getGeminiInteractionsProfile,
@@ -27,6 +32,7 @@ const GEMINI_FALLBACK_ROWS = [
 
 function buildGeminiModel(
 	providerId: ResolvedProviderId,
+	googleHosted: boolean,
 	id: string,
 	name: string,
 	inputTokenLimit?: number,
@@ -62,13 +68,19 @@ function buildGeminiModel(
 		// advertise no levels. (ai-config's table levels serve Vertex and
 		// other inference consumers, not this path.)
 		thinkingEffortLevels: profile ? Object.keys(profile.effortToWireLevel) : undefined,
-		supportsWebSearch: caps.supportsWebSearch,
+		// Server-side Google Search grounding is implemented only by
+		// GeminiClient against Google's hosted Interactions endpoint, and is
+		// gated on an explicit verified-model list because discovery is
+		// fail-open — an unverified model must not advertise the toggle.
+		// Custom Gemini endpoints and Vertex stay false. (ai-config's table
+		// stays provider-neutral, like its thinking levels.)
+		supportsWebSearch: googleHosted && isGeminiWebSearchVerified(id),
 	};
 }
 
 function createGeminiModelFetcher(
 	providerId: ResolvedProviderId,
-	includeHostedModels: boolean,
+	googleHosted: boolean,
 	logger: Logger,
 	registry: ProviderRegistry,
 ) {
@@ -119,6 +131,7 @@ function createGeminiModelFetcher(
 					.map((model) =>
 						buildGeminiModel(
 							providerId,
+							googleHosted,
 							model.modelId,
 							model.displayName || model.name,
 							model.inputTokenLimit,
@@ -127,9 +140,10 @@ function createGeminiModelFetcher(
 					)
 			);
 		},
-		fallbackModels: includeHostedModels
+		// Only the Google-hosted endpoint gets the curated fallback rows
+		fallbackModels: googleHosted
 			? GEMINI_FALLBACK_ROWS.filter(({ id }) => hasGeminiInteractionsProfile(id)).map(
-					({ id, name }) => buildGeminiModel(providerId, id, name),
+					({ id, name }) => buildGeminiModel(providerId, googleHosted, id, name),
 				)
 			: [],
 		logger,

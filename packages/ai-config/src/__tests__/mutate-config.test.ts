@@ -12,6 +12,7 @@ import { PROVIDERS_CONFIG_VERSION } from "../index.js";
 import { mutateProvidersConfig } from "../node/mutate-config.js";
 import { parseJsonc } from "../node/parse-jsonc.js";
 import { PROVIDERS_SCHEMA_URL } from "../node/paths.js";
+import { ProvidersConfigInvalidError } from "../node/providers-config-invalid-error.js";
 import type { ProvidersConfig } from "../types.js";
 
 const LEGACY_SCHEMA_PATH = "./providers.schema.json";
@@ -233,6 +234,96 @@ describe("mutateProvidersConfig", () => {
 
 		expect(mutator).not.toHaveBeenCalled();
 		expect(await fixture.readRaw()).toBe(original);
+	});
+
+	it("reports a JSONC syntax error with its line and column", async () => {
+		await fixture.writeRawJsonc('{\n  "providers": {\n    "anthropic" {}\n  }\n}\n');
+
+		const error = await mutateProvidersConfig((c) => c, { configPath }).catch((e: unknown) => e);
+
+		expect(error).toBeInstanceOf(ProvidersConfigInvalidError);
+		const invalid = error as ProvidersConfigInvalidError;
+		expect(invalid.configPath).toBe(configPath);
+		expect(invalid.phase).toBe("existing-file");
+		expect(invalid.detail).toEqual({
+			kind: "syntax",
+			code: "ColonExpected",
+			line: 3,
+			column: 17,
+		});
+	});
+
+	it("reports a schema issue on a secret-valued header by path, never by value", async () => {
+		const secret = "pk-live-SECRET-VALUE-123";
+		await fixture.writeRawJsonc(
+			JSON.stringify({
+				providers: {
+					portkey: {
+						baseUrl: "https://proxy.example.com/portkey",
+						customHeaders: { "x-portkey-api-key": secret },
+					},
+					litellm: {
+						baseUrl: "https://litellm.example.com",
+						customHeaders: { "x-token": { value: secret } },
+					},
+				},
+			}),
+		);
+
+		const error = await mutateProvidersConfig((c) => c, { configPath }).catch((e: unknown) => e);
+
+		expect(error).toBeInstanceOf(ProvidersConfigInvalidError);
+		const invalid = error as ProvidersConfigInvalidError;
+		expect(invalid.phase).toBe("existing-file");
+		expect(invalid.detail.kind).toBe("schema");
+		const paths = invalid.detail.kind === "schema" ? invalid.detail.issues.map((i) => i.path) : [];
+		expect(paths).toContainEqual(["providers", "portkey", "customHeaders", "x-portkey-api-key"]);
+		expect(paths).toContainEqual(["providers", "litellm", "customHeaders", "x-token"]);
+		expect(JSON.stringify({ ...invalid, message: invalid.message })).not.toContain(secret);
+		expect(String(invalid.stack)).not.toContain(secret);
+	});
+
+	it("keeps a file-controlled constructor.name out of an invalid_type message", async () => {
+		// jsonc yields null-prototype objects, for which Zod's invalid_type
+		// message prints `constructor.name` as the received type.
+		const secret = "pk-live-SECRET-CTOR-456";
+		await fixture.writeRawJsonc(
+			JSON.stringify({
+				providers: {
+					litellm: {
+						baseUrl: "https://litellm.example.com",
+						customHeaders: { "x-token": { constructor: { name: secret } } },
+					},
+				},
+			}),
+		);
+
+		const error = await mutateProvidersConfig((c) => c, { configPath }).catch((e: unknown) => e);
+
+		if (!(error instanceof ProvidersConfigInvalidError) || error.detail.kind !== "schema") {
+			throw new Error(`expected a schema ProvidersConfigInvalidError, got ${String(error)}`);
+		}
+		expect(error.detail.issues).toContainEqual({
+			path: ["providers", "litellm", "customHeaders", "x-token"],
+			message: "Invalid input: expected string",
+		});
+		expect(JSON.stringify(error.detail.issues)).not.toContain(secret);
+		expect(error.message).not.toContain(secret);
+		expect(String(error.stack)).not.toContain(secret);
+	});
+
+	it("reports an invalid mutation result as a proposed-result schema failure", async () => {
+		await fixture.writeTypedConfig({});
+
+		const error = await mutateProvidersConfig(
+			() => ({ version: 99 }) as unknown as ProvidersConfig,
+			{ configPath },
+		).catch((e: unknown) => e);
+
+		expect(error).toBeInstanceOf(ProvidersConfigInvalidError);
+		const invalid = error as ProvidersConfigInvalidError;
+		expect(invalid.phase).toBe("proposed-result");
+		expect(invalid.detail.kind === "schema" && invalid.detail.issues[0].path).toEqual(["version"]);
 	});
 
 	it("names an unknown provider key and leaves the file byte-for-byte untouched", async () => {

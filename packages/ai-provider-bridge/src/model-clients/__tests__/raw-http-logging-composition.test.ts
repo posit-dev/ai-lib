@@ -297,7 +297,7 @@ describe("raw HTTP logging composition", () => {
 		const expiredBody = JSON.stringify({ code: "390112", message: "session token has expired" });
 		const rawChunk =
 			'data: {"id":"x","object":"chat.completion.chunk","created":0,"model":"m",' +
-			'"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1",' +
+			'"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"",' +
 			'"function":{"name":"noop","arguments":""}}]}}]}\n\n';
 		const fetchSpy = vi
 			.spyOn(globalThis, "fetch")
@@ -352,9 +352,9 @@ describe("raw HTTP logging composition", () => {
 		expect(splitMessage(readLog(first!, "response")).body).toContain("390112");
 
 		// The logged SSE is the raw wire bytes; the consumer saw the compat
-		// fix-up (arguments "" → "{}" for the no-arg tool).
-		expect(splitMessage(readLog(second!, "response")).body).toContain('"arguments":""');
-		expect(seenByConsumer).toContain('"arguments":"{}"');
+		// fix-up (tool call type "" → "function").
+		expect(splitMessage(readLog(second!, "response")).body).toContain('"type":""');
+		expect(seenByConsumer).toContain('"type":"function"');
 	});
 
 	it("gemini generateContent: bearer mode logs beneath the bearer rewrite", async () => {
@@ -384,7 +384,7 @@ describe("raw HTTP logging composition", () => {
 	it("openai: logs beneath customFetch middleware (post-transform request, raw SSE)", async () => {
 		const rawChunk =
 			'data: {"id":"x","object":"chat.completion.chunk","created":0,"model":"m",' +
-			'"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1",' +
+			'"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"",' +
 			'"function":{"name":"noop","arguments":""}}]}}]}\n\n';
 		vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse([rawChunk, "data: [DONE]\n\n"]));
 
@@ -414,9 +414,9 @@ describe("raw HTTP logging composition", () => {
 		// Post-transform: the compat middleware's rename is visible in the log.
 		expect(request.body).toContain('"max_completion_tokens":128');
 		expect(request.body).not.toContain('"max_tokens"');
-		// Raw SSE in the log; the consumer saw the compat fix-up.
-		expect(splitMessage(readLog(listBaseNames()[0]!, "response")).body).toContain('"arguments":""');
-		expect(seenByConsumer).toContain('"arguments":"{}"');
+		// Raw SSE in the log; the consumer saw the compat fix-up (type "" → "function").
+		expect(splitMessage(readLog(listBaseNames()[0]!, "response")).body).toContain('"type":""');
+		expect(seenByConsumer).toContain('"type":"function"');
 	});
 
 	it("openai: empty-key route logs the request after the auth strip", async () => {

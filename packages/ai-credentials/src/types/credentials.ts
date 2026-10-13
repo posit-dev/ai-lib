@@ -62,7 +62,23 @@ export interface ApiKeyCredentials {
 	 * not affect the on-disk credential format.
 	 */
 	snowflake?: { sessionConnectionIdentity: string };
+	/**
+	 * Portkey only. What `apiKey` is: a Portkey API key (`"portkey"`) or the
+	 * upstream provider's key (`"upstream"`). Absent means "infer from
+	 * `baseUrl`" — the bridge's Portkey resolver owns that rule. Ignored by
+	 * every other provider.
+	 *
+	 * Copied from the resolved providers.json connection at credential-merge
+	 * time and never persisted: the credential store builds its records field
+	 * by field from `CredentialSourceInput`, which has no such field, so the
+	 * on-disk credential format is unaffected. Vocabulary pinned to ai-config's
+	 * `PORTKEY_KEY_TYPES` by the shape guard.
+	 */
+	portkey?: { keyType: PortkeyCredentialKeyType };
 }
+
+/** What a Portkey API key is. Mirrors ai-config's `PortkeyKeyType` (shape guard). */
+export type PortkeyCredentialKeyType = "portkey" | "upstream";
 
 /**
  * OAuth credentials (Posit AI Pass)
@@ -74,14 +90,24 @@ export interface OAuthCredentials {
 
 /**
  * Local server credentials (Ollama, LM Studio)
+ *
+ * `customHeaders` carries the default Posit Assistant User-Agent, which the
+ * provider registry injects before every model fetcher and client factory.
+ * Credential shaping does not set it and it is never persisted.
  */
 export interface LocalCredentials {
 	type: "local";
 	endpoint: string;
+	customHeaders?: Record<string, string>;
 }
 
 /**
  * AWS credentials (Amazon Bedrock)
+ *
+ * `customHeaders` carries the default Posit Assistant User-Agent, which the
+ * provider registry injects before every model fetcher and client factory.
+ * Credential shaping does not set it and the credential store never persists
+ * it.
  */
 export interface AwsCredentials {
 	type: "aws-credentials";
@@ -90,6 +116,7 @@ export interface AwsCredentials {
 	accessKeyId?: string;
 	secretAccessKey?: string;
 	sessionToken?: string;
+	customHeaders?: Record<string, string>;
 }
 
 /**
@@ -98,12 +125,17 @@ export interface AwsCredentials {
  * `accessToken` is supplied by credential brokers (e.g. Positron auth ext) so
  * the SDK can authenticate without calling ADC itself. Standalone/node/TUI
  * leave it undefined and let google-auth-library resolve ADC.
+ *
+ * `customHeaders` carries the default Posit Assistant User-Agent, which the
+ * provider registry injects before every model fetcher and client factory.
+ * Credential shaping does not set it and it is never persisted.
  */
 export interface GoogleCloudCredentials {
 	type: "google-cloud";
 	project: string;
 	location: string;
 	accessToken?: string;
+	customHeaders?: Record<string, string>;
 }
 
 /**

@@ -69,4 +69,14 @@ describe("diffProviderCatalogs", () => {
 			["auth", true, false, false],
 		]);
 	});
+
+	it("puts an apiKeyHelper-only edit in the connection category", () => {
+		const helper = (command: string) =>
+			provider("gw", {
+				connection: { baseUrl: "https://gw.example/v1", apiKeyHelper: { command } },
+			});
+		expect(diffProviderCatalogs([helper("old-key")], [helper("new-key")])).toEqual([
+			{ id: "gw", change: "updated", enabled: false, connection: true, models: false },
+		]);
+	});
 });

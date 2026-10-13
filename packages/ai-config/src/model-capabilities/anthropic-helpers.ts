@@ -128,6 +128,16 @@ const CAPABILITY_RULES: CapabilityRule[] = [
 		maxContextLength: 1_000_000,
 		thinkingEffortLevels: ["off", "low", "medium", "high", "max"],
 	},
+	// Haiku 5.5 — 128k output, 1M context. Adaptive thinking is on by default
+	// (default effort "medium"); unlike Sonnet/Opus 5.5 it accepts
+	// `thinking: {type: "disabled"}` (at effort ≤ high), so "off" is offered.
+	{
+		match: /^claude-haiku-5[-.]5/,
+		family: "claude-5.5",
+		maxOutputTokens: 128_000,
+		maxContextLength: 1_000_000,
+		thinkingEffortLevels: ["off", "low", "medium", "high", "xhigh", "max"],
+	},
 	// Haiku 4.5 — 64k output, 200k context (no effort support).
 	{
 		match: /^claude-haiku-4[-.]5/,

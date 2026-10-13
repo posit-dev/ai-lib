@@ -1160,3 +1160,91 @@ describe("resolveProviderCatalog — OpenCode built-in", () => {
 		expect(opencode?.connectionProvenance.opencode?.product).toBe("default");
 	});
 });
+
+describe("resolveProviderCatalog — apiKeyHelper", () => {
+	it("carries the helper through the built-in-defaults path and custom entries", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("user", {
+					providers: {
+						"ms-foundry": { apiKeyHelper: { command: "foundry-key" } },
+						opencode: { apiKeyHelper: { command: "oc-key", args: ["--go"] } },
+						custom: {
+							gw: { type: "openai-compatible", apiKeyHelper: { command: "gw-key" } },
+						},
+					},
+				}),
+			],
+			envVars: {},
+		});
+		expect(find(catalog, "ms-foundry")?.connection.apiKeyHelper).toEqual({
+			command: "foundry-key",
+		});
+		expect(find(catalog, "opencode")?.connection.apiKeyHelper).toEqual({
+			command: "oc-key",
+			args: ["--go"],
+		});
+		expect(find(catalog, "gw")?.connection.apiKeyHelper).toEqual({ command: "gw-key" });
+		expect(find(catalog, "anthropic")?.connection.apiKeyHelper).toBeUndefined();
+	});
+
+	it("an enforced helper replaces a user helper wholesale", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("enforced", {
+					providers: {
+						anthropic: { apiKeyHelper: { command: "vault-read" } },
+						custom: { gw: { apiKeyHelper: { command: "admin-key" } } },
+					},
+				}),
+				source("user", {
+					providers: {
+						anthropic: {
+							apiKeyHelper: { command: "my-script", args: ["--leak"], timeoutMs: 99_000 },
+						},
+						custom: {
+							gw: {
+								type: "anthropic",
+								apiKeyHelper: { command: "user-key", args: ["x"], refreshIntervalMs: 0 },
+							},
+						},
+					},
+				}),
+			],
+			envVars: {},
+		});
+		expect(find(catalog, "anthropic")?.connection.apiKeyHelper).toEqual({
+			command: "vault-read",
+		});
+		expect(find(catalog, "gw")?.connection.apiKeyHelper).toEqual({ command: "admin-key" });
+	});
+
+	it("still merges per key for a custom provider or model named apiKeyHelper", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("enforced", {
+					providers: {
+						openai: { models: { overrides: { apiKeyHelper: { name: "Enforced" } } } },
+						custom: { apiKeyHelper: { enabled: false } },
+					},
+				}),
+				source("user", {
+					providers: {
+						openai: {
+							models: { overrides: { apiKeyHelper: { name: "User", supportsTools: true } } },
+						},
+						custom: { apiKeyHelper: { type: "openai-compatible" } },
+					},
+				}),
+			],
+			envVars: {},
+		});
+		expect(find(catalog, "openai")?.models?.overrides?.apiKeyHelper).toEqual({
+			name: "Enforced",
+			supportsTools: true,
+		});
+		const custom = find(catalog, "apiKeyHelper");
+		expect(custom?.clientKind).toBe("openai-compatible");
+		expect(custom?.enabled).toBe(false);
+	});
+});

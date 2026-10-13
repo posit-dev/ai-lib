@@ -13,6 +13,7 @@
 import { streamText } from "ai";
 import { createOllama } from "ai-sdk-ollama";
 
+import { additiveHeaders } from "../custom-headers";
 import {
 	hasImagesInToolResults,
 	transformToolResultImagesForCompletions,
@@ -58,13 +59,37 @@ export function ollamaThinkParam(thinkingEffort: string | undefined): OllamaThin
 	return undefined;
 }
 
+/**
+ * Merge custom headers into every request at the fetch boundary.
+ *
+ * ollama-js drops any supplied header whose name matches one of its defaults
+ * (case-insensitively) and restores `User-Agent: ollama-js/...`, so the
+ * `headers` option of `createOllama` cannot carry the product identity. This
+ * wrapper runs after ollama-js has built its final headers and prepends the
+ * identity to its token, then delegates to `fetchFn` (raw HTTP logging, when
+ * on) so logs see the composed header.
+ */
+function withCustomHeaders(
+	fetchFn: typeof globalThis.fetch | undefined,
+	customHeaders: Record<string, string> | undefined,
+): typeof globalThis.fetch | undefined {
+	if (!customHeaders) return fetchFn;
+	// Resolve the global fetch per call so later-installed test doubles apply.
+	const underlying =
+		fetchFn ?? ((...args: Parameters<typeof globalThis.fetch>) => globalThis.fetch(...args));
+	return (input, init) =>
+		underlying(input, { ...init, headers: additiveHeaders(init?.headers, customHeaders) });
+}
+
 export class OllamaClient implements ModelClient {
 	private readonly endpoint: string;
+	private readonly customHeaders?: Record<string, string>;
 
-	constructor(endpoint: string) {
+	constructor(endpoint: string, customHeaders?: Record<string, string>) {
 		// Store the server root (e.g., http://localhost:11434).
 		// The ai-sdk-ollama provider appends API paths internally.
 		this.endpoint = endpoint.endsWith("/") ? endpoint.slice(0, -1) : endpoint;
+		this.customHeaders = customHeaders;
 	}
 
 	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {
@@ -73,10 +98,12 @@ export class OllamaClient implements ModelClient {
 		const loggedFetch = withRawHttpLogging(undefined, {
 			provider: "ollama",
 			model: params.model,
+			session: params.metadata?.sessionId,
 		});
+		const fetch = withCustomHeaders(loggedFetch, this.customHeaders);
 		const provider = createOllama({
 			baseURL: effectiveBaseUrl,
-			...(loggedFetch && { fetch: loggedFetch }),
+			...(fetch && { fetch }),
 		});
 
 		// Build model settings

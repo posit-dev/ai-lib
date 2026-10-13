@@ -29,11 +29,13 @@ import type {
 	CLIENT_KIND_VALUES,
 	CUSTOM_KIND_API_KEY_OPTIONAL_DEFAULT,
 	MODEL_METADATA_FIELD_NAMES,
+	PortkeyKeyType,
 	PROTOCOL_VALUES,
 	SUPPORTED_CUSTOM_CLIENT_KIND_VALUES as AI_CONFIG_SUPPORTED_CUSTOM_CLIENT_KIND_VALUES,
 } from "ai-config";
 import type {
 	CUSTOM_CLIENT_KIND_AUTH_DESCRIPTORS,
+	PortkeyCredentialKeyType,
 	SUPPORTED_CUSTOM_CLIENT_KIND_VALUES,
 } from "ai-credentials/types";
 import type {
@@ -193,6 +195,20 @@ const _apiKeyOptionalDefaultsMatch: [ApiKeyOptionalDefaultsMatch] extends [true]
 	true;
 
 // ---------------------------------------------------------------------------
+// Assertion: Portkey key type vocabulary
+//
+// ai-config's `PortkeyKeyType` (the providers.json enum) must equal
+// ai-credentials' runtime `ApiKeyCredentials.portkey.keyType`, which carries
+// the resolved value to the bridge.
+// ---------------------------------------------------------------------------
+
+const _portkeyKeyTypesMatch: [PortkeyKeyType] extends [PortkeyCredentialKeyType]
+	? [PortkeyCredentialKeyType] extends [PortkeyKeyType]
+		? true
+		: never
+	: never = true;
+
+// ---------------------------------------------------------------------------
 // Suppress unused-variable warnings
 // ---------------------------------------------------------------------------
 
@@ -204,3 +220,4 @@ void _clientKindsCovered;
 void _customClientKindsCovered;
 void _supportedCustomKindsEqual;
 void _apiKeyOptionalDefaultsMatch;
+void _portkeyKeyTypesMatch;

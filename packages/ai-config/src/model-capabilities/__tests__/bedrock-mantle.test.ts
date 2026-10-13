@@ -32,6 +32,17 @@ describe("Bedrock Mantle capability rules", () => {
 		expect(getBedrockMantleModelCapabilities("openai.future-model")).toBeUndefined();
 	});
 
+	it("marks only the documented GPT-5.4/5.5/5.6 families as web-search capable", () => {
+		for (const id of ["openai.gpt-5.4", "openai.gpt-5.5", "openai.gpt-5.6-sol", "openai.gpt-5.6"]) {
+			expect(getBedrockMantleModelCapabilities(id)?.supportsWebSearch).toBe(true);
+		}
+		// gpt-oss and unknown/future families stay search-incapable; a newly
+		// supported family requires a deliberate table update.
+		for (const id of ["openai.gpt-oss-120b", "openai.gpt-5.9", "openai.gpt-5.6-unknown"]) {
+			expect(getBedrockMantleModelCapabilities(id)?.supportsWebSearch).toBe(false);
+		}
+	});
+
 	it("pins known older GPT-5.x releases at 272K without inventing an output ceiling", () => {
 		for (const id of ["openai.gpt-5.4", "openai.gpt-5.5"]) {
 			const gpt5 = getBedrockMantleModelCapabilities(id);
@@ -75,6 +86,45 @@ describe("Bedrock Mantle capability rules", () => {
 		const capabilities = getBedrockMantleModelCapabilities("openai.gpt-6.1");
 		expect(capabilities?.maxContextLength).toBe(1_000_000);
 		expect(capabilities?.maxOutputTokens).toBeUndefined();
+	});
+
+	it.each(["openai.gpt-6.1-sol", "openai.gpt-6.1-sol-2026-09-29"])(
+		"omits the unsupported off level for GPT-6.1 Sol id %s",
+		(id) => {
+			const capabilities = getBedrockMantleModelCapabilities(id);
+			expect(capabilities?.protocol).toBe("openai-responses");
+			expect(capabilities?.thinkingEffortLevels).toEqual(["low", "medium", "high", "xhigh", "max"]);
+			// Reasoning is shared with OpenAI; capacity stays Bedrock's own.
+			expect(capabilities?.maxContextLength).toBe(1_000_000);
+			expect(capabilities?.maxOutputTokens).toBeUndefined();
+		},
+	);
+
+	it.each(["openai.gpt-6-sol", "openai.gpt-6-luna", "openai.gpt-6.2"])(
+		"keeps the off level for %s",
+		(id) => {
+			expect(getBedrockMantleModelCapabilities(id)?.thinkingEffortLevels).toEqual([
+				"off",
+				"low",
+				"medium",
+				"high",
+				"xhigh",
+				"max",
+			]);
+		},
+	);
+
+	it("applies Astra's reasoning rule without its dated-ID capacity rule to other suffixes", () => {
+		const capabilities = getBedrockMantleModelCapabilities("openai.gpt-6-astra-preview");
+		expect(capabilities?.thinkingEffortLevels).toEqual(["low", "medium", "high", "xhigh", "max"]);
+		expect(capabilities?.maxContextLength).toBe(1_000_000);
+		expect(capabilities?.maxOutputTokens).toBeUndefined();
+	});
+
+	it("matches the no-off models only at a model-name boundary", () => {
+		for (const id of ["openai.gpt-6-astral", "openai.gpt-6.1-solar"]) {
+			expect(getBedrockMantleModelCapabilities(id)?.thinkingEffortLevels).toContain("off");
+		}
 	});
 
 	it.each([

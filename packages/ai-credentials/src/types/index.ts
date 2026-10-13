@@ -19,6 +19,7 @@ export type {
 	GoogleCloudCredentials,
 	LocalCredentials,
 	OAuthCredentials,
+	PortkeyCredentialKeyType,
 	ProviderCredentials,
 } from "./credentials.js";
 
