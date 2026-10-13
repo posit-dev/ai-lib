@@ -77,7 +77,7 @@ describe("Connect Bedrock gateway attribution", () => {
 					},
 				}),
 			},
-			() => "workbench-session-id=s1",
+			{ PWB_CONNECT_GATEWAY_METADATA: "workbench-session-id=s1" },
 		);
 		const client = registry.getClientForProvider("posit-connect", {
 			type: "apikey",

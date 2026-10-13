@@ -44,9 +44,6 @@ export type {
 	ModelClientChatParams,
 } from "./model-clients/ModelClient";
 
-// Workbench supplies the finished Connect gateway header value.
-export { WORKBENCH_GATEWAY_METADATA_ENV } from "./providers/connect-gateway-metadata";
-
 // AI SDK types surfaced through the bridge so consumers can use the public API
 // without importing `ai` directly: `ModelMessage` appears in ModelClient.chat's
 // `messages`, and `LanguageModelUsage` appears on StepLogData.usage. Other `ai`

@@ -48,7 +48,11 @@ import type { ModelClient, ModelClientChatParams } from "../model-clients/ModelC
 import type { ApiKeyCredentials, AwsCredentials, Logger, LMStreamPart, ModelInfo } from "../types";
 import { normalizeProtocol } from "../types";
 import { createCachedModelFetcher } from "./cached-model-fetcher";
-import { combineGatewayMetadataHeaders, GATEWAY_METADATA_HEADER } from "./connect-gateway-metadata";
+import {
+	combineGatewayMetadataHeaders,
+	GATEWAY_METADATA_HEADER,
+	WORKBENCH_GATEWAY_METADATA_ENV,
+} from "./connect-gateway-metadata";
 import type { ClientFactory, ProviderRegistry } from "./ProviderRegistry";
 
 const DEFAULT_TEMPLATES = ["anthropic", "aws"] as const;
@@ -586,7 +590,7 @@ class ConnectClient implements ModelClient {
 		private readonly cache: ConnectIntegrationCache,
 		private readonly logger: Logger,
 		private readonly callbacks?: ConnectProviderCallbacks,
-		private readonly getGatewayMetadata?: () => string | undefined,
+		private readonly env: NodeJS.ProcessEnv = process.env,
 	) {}
 
 	/**
@@ -596,7 +600,7 @@ class ConnectClient implements ModelClient {
 	 */
 	private requestHeaders(): Record<string, string> | undefined {
 		const metadata = combineGatewayMetadataHeaders(
-			this.getGatewayMetadata?.(),
+			this.env[WORKBENCH_GATEWAY_METADATA_ENV],
 			this.credentials.customHeaders,
 		);
 		const headers = { ...connectCustomHeaders(this.credentials.customHeaders) };
@@ -785,14 +789,14 @@ class ConnectClient implements ModelClient {
 function createConnectClientFactory(
 	logger: Logger,
 	cache: ConnectIntegrationCache,
-	callbacks?: ConnectProviderCallbacks,
-	getGatewayMetadata?: () => string | undefined,
+	callbacks: ConnectProviderCallbacks | undefined,
+	env: NodeJS.ProcessEnv,
 ): ClientFactory {
 	return (credentials) => {
 		if (credentials.type !== "apikey") {
 			throw new Error(`Connect provider requires API key credentials, got: ${credentials.type}`);
 		}
-		return new ConnectClient(credentials, cache, logger, callbacks, getGatewayMetadata);
+		return new ConnectClient(credentials, cache, logger, callbacks, env);
 	};
 }
 
@@ -800,7 +804,9 @@ export function registerConnectProvider(
 	registry: ProviderRegistry,
 	logger: Logger,
 	callbacks?: ConnectProviderCallbacks,
-	getGatewayMetadata?: () => string | undefined,
+	// Workbench hands Connect attribution to the session through this variable;
+	// injectable so tests need not mutate the process environment.
+	env: NodeJS.ProcessEnv = process.env,
 ): void {
 	// Shared between the fetcher (writer) and the client (reader) so chat can
 	// resolve user-configured models that carry no discovery stamp; stamped
@@ -812,6 +818,6 @@ export function registerConnectProvider(
 	);
 	registry.registerClientFactory(
 		"posit-connect",
-		createConnectClientFactory(logger, cache, callbacks, getGatewayMetadata),
+		createConnectClientFactory(logger, cache, callbacks, env),
 	);
 }

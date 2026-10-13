@@ -98,8 +98,6 @@ export interface ProviderRegistrationConfig {
 	googleVertexCallbacks?: GoogleVertexProviderCallbacks;
 	snowflakeCallbacks?: SnowflakeProviderCallbacks;
 	connectCallbacks?: ConnectProviderCallbacks;
-	/** Host-owned structured gateway fields, read only for Connect chat requests. */
-	getConnectGatewayMetadata?: () => string | undefined;
 	/** Host-captured environment for SDK credential constructors after ambient scrubbing. */
 	credentialEnvironment?: Readonly<Record<string, string | undefined>>;
 	/** `providers.custom` entries to register after the built-ins; independent of `allowedProviders`. */
@@ -161,12 +159,7 @@ const PROVIDER_REGISTRARS = {
 	litellm: registerLitellmProvider,
 	portkey: registerPortkeyProvider,
 	"posit-connect": (registry, logger, config) =>
-		registerConnectProvider(
-			registry,
-			logger,
-			config.connectCallbacks,
-			config.getConnectGatewayMetadata,
-		),
+		registerConnectProvider(registry, logger, config.connectCallbacks),
 	opencode: registerOpencodeProvider,
 } satisfies Record<ProviderId, ProviderRegistrar>;
 

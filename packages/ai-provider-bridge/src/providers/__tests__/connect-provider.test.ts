@@ -24,6 +24,7 @@ vi.mock("../../model-clients/BedrockClient", () => ({
 import { AnthropicClient } from "../../model-clients/AnthropicClient";
 import { BedrockClient } from "../../model-clients/BedrockClient";
 import type { CancellationToken, Logger, ProviderCredentials } from "../../types";
+import { WORKBENCH_GATEWAY_METADATA_ENV } from "../connect-gateway-metadata";
 import {
 	registerConnectProvider,
 	shapeConnectIntegrations,
@@ -352,10 +353,10 @@ describe("connect chat routing", () => {
 	function clientWithoutDiscovery(
 		callbacks?: ConnectProviderCallbacks,
 		creds: ProviderCredentials = credentials,
-		getGatewayMetadata?: () => string | undefined,
+		env?: NodeJS.ProcessEnv,
 	) {
 		const registry = new ProviderRegistry(logger);
-		registerConnectProvider(registry, logger, callbacks, getGatewayMetadata);
+		registerConnectProvider(registry, logger, callbacks, env);
 		const client = registry.getClientForProvider("posit-connect", creds);
 		expect(client).not.toBeNull();
 		return client!;
@@ -364,11 +365,11 @@ describe("connect chat routing", () => {
 	async function clientAfterDiscovery(
 		callbacks?: ConnectProviderCallbacks,
 		creds: ProviderCredentials = credentials,
-		getGatewayMetadata?: () => string | undefined,
+		env?: NodeJS.ProcessEnv,
 	) {
 		stubDiscoveryFetch();
 		const registry = new ProviderRegistry(logger);
-		registerConnectProvider(registry, logger, callbacks, getGatewayMetadata);
+		registerConnectProvider(registry, logger, callbacks, env);
 		await registry.getModelsForProvider("posit-connect", creds);
 		const client = registry.getClientForProvider("posit-connect", creds);
 		expect(client).not.toBeNull();
@@ -400,12 +401,17 @@ describe("connect chat routing", () => {
 		const HEADER = "Posit-Connect-Gateway-Metadata";
 		const gatewayValue = "workbench-session-id=s1";
 		const clientWithMetadata = (callbacks?: ConnectProviderCallbacks, creds = credentials) =>
-			clientAfterDiscovery(callbacks, creds, () => gatewayValue);
+			clientAfterDiscovery(callbacks, creds, { [WORKBENCH_GATEWAY_METADATA_ENV]: gatewayValue });
 
 		it("does not read attribution during discovery", async () => {
-			const getter = vi.fn(() => gatewayValue);
-			await clientAfterDiscovery(undefined, credentials, getter);
-			expect(getter).not.toHaveBeenCalled();
+			const read = vi.fn(() => gatewayValue);
+			const env = {
+				get [WORKBENCH_GATEWAY_METADATA_ENV]() {
+					return read();
+				},
+			};
+			await clientAfterDiscovery(undefined, credentials, env);
+			expect(read).not.toHaveBeenCalled();
 		});
 
 		it("sends the header on the Anthropic route", async () => {
@@ -444,7 +450,10 @@ describe("connect chat routing", () => {
 					...credentials,
 					customHeaders: { "posit-connect-gateway-metadata": "team=analytics%20group" },
 				},
-				() => "workbench-session-id=s1,workbench-project-name=My%20Project",
+				{
+					[WORKBENCH_GATEWAY_METADATA_ENV]:
+						"workbench-session-id=s1,workbench-project-name=My%20Project",
+				},
 			);
 			await client.chat(chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`));
 			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toEqual({
@@ -471,7 +480,7 @@ describe("connect chat routing", () => {
 					...credentials,
 					customHeaders: { [HEADER]: "team=" + "x".repeat(4070) },
 				},
-				() => gatewayValue,
+				{ [WORKBENCH_GATEWAY_METADATA_ENV]: gatewayValue },
 			);
 			await client.chat(chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`));
 			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toEqual({ [HEADER]: gatewayValue });
@@ -484,7 +493,7 @@ describe("connect chat routing", () => {
 					...credentials,
 					customHeaders: { [HEADER]: Array.from({ length: 16 }, (_, i) => `k${i}=v`).join(",") },
 				},
-				() => gatewayValue,
+				{ [WORKBENCH_GATEWAY_METADATA_ENV]: gatewayValue },
 			);
 			await client.chat(chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`));
 			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toEqual({ [HEADER]: gatewayValue });
@@ -565,7 +574,7 @@ describe("connect chat routing", () => {
 					...credentials,
 					customHeaders: { "POSIT-CONNECT-GATEWAY-METADATA": "team=fake" },
 				},
-				() => "team=raw\nnewline",
+				{ [WORKBENCH_GATEWAY_METADATA_ENV]: "team=raw\nnewline" },
 			);
 			await client.chat(
 				chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`, "anthropic-messages"),
@@ -574,7 +583,9 @@ describe("connect chat routing", () => {
 		});
 
 		it("forwards even malformed metadata syntax unchanged for Connect to parse", async () => {
-			const client = await clientAfterDiscovery(undefined, credentials, () => "team=%ZZ");
+			const client = await clientAfterDiscovery(undefined, credentials, {
+				[WORKBENCH_GATEWAY_METADATA_ENV]: "team=%ZZ",
+			});
 			await client.chat(chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`));
 			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toEqual({ [HEADER]: "team=%ZZ" });
 		});
@@ -583,7 +594,7 @@ describe("connect chat routing", () => {
 			const client = await clientAfterDiscovery(
 				undefined,
 				{ ...credentials, customHeaders: { "Posit-Connect-Gateway-Metadata": "team=forged" } },
-				() => "team=raw\rreturn",
+				{ [WORKBENCH_GATEWAY_METADATA_ENV]: "team=raw\rreturn" },
 			);
 			await client.chat(chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`));
 			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toEqual({ [HEADER]: "team=forged" });
