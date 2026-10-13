@@ -5,6 +5,7 @@
 import { AwsV4Signer } from "aws4fetch";
 
 import { createAwsCredentialProvider } from "../aws-credentials";
+import { safeSdkCustomHeaders } from "../custom-headers";
 import type { AwsCredentials, Logger } from "../types";
 
 interface MantleResponseModel {
@@ -67,9 +68,13 @@ export async function listMantleModels(
 
 	try {
 		const resolved = await createAwsCredentialProvider(credentials)();
+		// Custom headers (the product User-Agent) go through the signer so the
+		// request is sent with exactly the signer's header set. aws4fetch leaves
+		// User-Agent out of the signature, so it cannot invalidate it.
 		const signer = new AwsV4Signer({
 			url,
 			method: "GET",
+			headers: safeSdkCustomHeaders(credentials.customHeaders),
 			region: credentials.region,
 			service: "bedrock-mantle",
 			accessKeyId: resolved.accessKeyId,

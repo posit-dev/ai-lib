@@ -21,13 +21,14 @@ import { OpenAIClient } from "./OpenAIClient";
 export class LMStudioClient implements ModelClient {
 	private readonly openaiClient: OpenAIClient;
 
-	constructor(endpoint: string) {
+	constructor(endpoint: string, customHeaders?: Record<string, string>) {
 		// LM Studio doesn't require API key - pass dummy string (LM Studio ignores auth headers)
 		// Use 'completions' API mode since LM Studio doesn't support the Responses API
 		this.openaiClient = new OpenAIClient({
 			apiKey: "lmstudio",
 			baseUrl: endpoint,
 			apiMode: "completions",
+			customHeaders,
 		});
 	}
 

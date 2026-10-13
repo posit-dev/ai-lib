@@ -18,7 +18,7 @@ import {
 	type SingleFileStoreFixture,
 } from "../../../tests/helpers/single-file-store-fixture.js";
 import type { CredentialSourceContext } from "../../Backend.js";
-import { storageKeyFor } from "../../types/index.js";
+import { storageKeyFor, type AwsCredentials } from "../../types/index.js";
 import type { AuthMethodDescriptor } from "../StoreBackend.js";
 import { createStoreBackend } from "../StoreBackend.js";
 import type { StoredProviderCredentials } from "../StoredProviderCredentials.js";
@@ -454,6 +454,35 @@ describe("createStoreBackend", () => {
 				region: "ca-central-1",
 				accessKeyId: "AKIA_NEWER",
 				secretAccessKey: "secret_newer",
+			});
+		});
+
+		it("persists only documented AWS fields when replaced with registry-enriched credentials", async () => {
+			// The registry adds `customHeaders` (the product User-Agent) to
+			// runtime AwsCredentials, which remain assignable to the AWS source
+			// input. Request headers must never reach the credential store.
+			const enriched: AwsCredentials = {
+				type: "aws-credentials",
+				region: "us-east-1",
+				profile: "prod",
+				accessKeyId: "AKIA_ENRICHED",
+				secretAccessKey: "secret_enriched",
+				sessionToken: "token_enriched",
+				customHeaders: { "User-Agent": "PositAssistant/1.0" },
+			};
+			const backend = createStoreBackend({ store, resolveAuthMethod, env: {} });
+
+			await backend.mutateCredentials("bedrock", { kind: "replace", source: enriched });
+
+			const stored = await store.get<StoredProviderCredentials>(
+				storageKeyFor("bedrock", "aws-credentials"),
+			);
+			expect(stored?.awsAuth).toEqual({
+				region: "us-east-1",
+				profile: "prod",
+				accessKeyId: "AKIA_ENRICHED",
+				secretAccessKey: "secret_enriched",
+				sessionToken: "token_enriched",
 			});
 		});
 
