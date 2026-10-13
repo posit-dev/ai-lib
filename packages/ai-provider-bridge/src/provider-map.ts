@@ -17,7 +17,8 @@ type MappingSpec = Omit<AuthProviderMapping, "authProviderId"> & { authProviderI
  *
  * Auth provider ids equal catalog ids, except where another extension already
  * owns the id: Copilot uses GitHub's "github", and the Connect gateway uses
- * "posit-connect-llm" because Posit Publisher registers "posit-connect".
+ * "posit-connect-llm" because Posit Publisher registers "posit-connect" for
+ * deployment credentials.
  */
 const MAPPING_SPECS: Partial<Record<ProviderId, MappingSpec>> = {
 	anthropic: { scopes: [], credentialType: "apikey" },
@@ -27,8 +28,6 @@ const MAPPING_SPECS: Partial<Record<ProviderId, MappingSpec>> = {
 	litellm: { scopes: [], credentialType: "apikey" },
 	portkey: { scopes: [], credentialType: "apikey" },
 	opencode: { scopes: [], credentialType: "apikey" },
-	// `posit-connect` as an auth provider id belongs to Posit Publisher, which
-	// registers it for deployment credentials. This is the LLM gateway's key.
 	"posit-connect": { authProviderId: "posit-connect-llm", scopes: [], credentialType: "apikey" },
 	"openai-compatible": { scopes: [], credentialType: "apikey" },
 	bedrock: { scopes: [], credentialType: "aws-credentials" },

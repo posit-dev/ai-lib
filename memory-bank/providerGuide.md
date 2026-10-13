@@ -221,9 +221,8 @@ Add an export for the new `register*Provider()` function. Also export the client
 Every provider has an auth session mapping except local ones, which have no credentials:
 
 1. Add an entry to `PROVIDER_MAP` in `src/provider-map.ts`. The auth provider id defaults to the provider ID; set `authProviderId` only when another extension already registers that id
-2. Add credential handling in the Positron auth backend `ai-credentials/src/positron/PositronBackend.ts` (`createPositronBackend`) — credential resolution moved out of the bridge into `ai-credentials` in Phase 7
-
-Do **not** add a mapping unless Positron or the host registers an auth provider under that id.
+2. Make sure an auth provider is registered under that id. Unless Positron's auth extension already registers it, declare the id under `contributes.authentication` in Assistant's `packages/positron/package.json`
+3. For a new `credentialType` only, add a branch to `shapeCredentials` in `ai-credentials/src/types/credential-shaping.ts`. The Positron backend (`createPositronBackend`) reads any mapping without per-provider code
 
 If it is a local endpoint provider, add it to `LOCAL_PROVIDER_IDS` in `src/local-providers.ts` and wire through `LocalProviderManager`.
 
@@ -237,7 +236,7 @@ If it is a local endpoint provider, add it to `LOCAL_PROVIDER_IDS` in `src/local
 | `src/providers/xyz-provider.ts`                      | New provider module                                           |
 | `src/providers.ts`                                   | Export new registration function + client                     |
 | `src/provider-map.ts`                                | Add auth session mapping (all but local providers)            |
-| `src/positron/auth.ts`                               | Optional: add credential handling                             |
+| `../ai-credentials/src/types/credential-shaping.ts`  | Only for a new credential type: add shaping                   |
 
 ## Thinking/Reasoning Support
 
