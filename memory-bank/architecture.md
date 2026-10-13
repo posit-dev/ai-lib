@@ -45,7 +45,7 @@ That behavior lives in one seam, `prepareExplicitOpenAIRequest`
 the `promptCacheKey` to send. The OpenAI and Bedrock clients call it **unconditionally**, handing
 it their already-resolved `enabled` decision (host opt-in plus any transport veto) rather than
 branching on it; the strip helper is private to the module, so there is no way to take the
-"no caching" path without going through the seam. Two wire invariants it owns:
+"no caching" path without going through the seam. Three wire invariants it owns:
 
 - **`prompt_cache_key` is bounded to 64 characters** — OpenAI rejects anything longer with an
   HTTP 400. The seam projects `metadata.sessionId` into that space: verbatim at ≤ 64 chars,
@@ -55,6 +55,13 @@ branching on it; the strip helper is private to the module, so there is no way t
   and the projection is deliberately private to the seam.
 - **Key presence and breakpoint eligibility cannot drift** — no session ID means no key _and_ a
   full marker strip, decided in one place rather than re-derived per client.
+- **No breakpoint on an empty block** — Bedrock Mantle rejects `prompt_cache_breakpoint` on an
+  exactly empty `input_text` with an HTTP 400 (direct OpenAI accepts it). On the Responses path the
+  seam strips the marker from empty scalar tool output (which `@ai-sdk/openai` would otherwise wrap
+  as one empty block), moves a `content` output's wrapper marker onto its last block with content
+  (non-empty text, or any image/file part, including ID-backed `file-id`/`image-file-id`), and
+  strips markers placed directly on empty text parts, whatever placed them. Whitespace counts as
+  content. Non-empty marked scalar output passes through; the SDK (≥ 3.0.106) wraps it.
 
 ### Default product User-Agent
 

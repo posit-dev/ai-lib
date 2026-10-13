@@ -48,6 +48,62 @@ describe("prepareExplicitOpenAIRequest cache-key projection", () => {
 		expect(keyFor(long)).not.toBe(keyFor(`${long}x`));
 	});
 
+	it("strips only the breakpoint from an empty tool-output text part on Responses", () => {
+		const emptyPartProviderOptions = {
+			anthropic: { cacheControl: { type: "ephemeral" } },
+			openai: { promptCacheBreakpoint: { mode: "explicit" }, imageDetail: "low" },
+		};
+		const messages: ModelMessage[] = [
+			{
+				role: "tool",
+				content: [
+					{
+						type: "tool-result",
+						toolCallId: "call-1",
+						toolName: "bash",
+						output: {
+							type: "content",
+							value: [{ type: "text", text: "", providerOptions: emptyPartProviderOptions }],
+						},
+					},
+				],
+			},
+		];
+
+		const prepared = prepareExplicitOpenAIRequest(messages, {
+			enabled: true,
+			apiMode: "responses",
+			sessionId: "conversation-1",
+		});
+
+		expect(prepared.messages[0]).toEqual({
+			role: "tool",
+			content: [
+				{
+					type: "tool-result",
+					toolCallId: "call-1",
+					toolName: "bash",
+					output: {
+						type: "content",
+						value: [
+							{
+								type: "text",
+								text: "",
+								providerOptions: {
+									anthropic: { cacheControl: { type: "ephemeral" } },
+									openai: { imageDetail: "low" },
+								},
+							},
+						],
+					},
+				},
+			],
+		});
+		expect(messages[0]).toMatchObject({
+			content: [{ output: { value: [{ providerOptions: emptyPartProviderOptions }] } }],
+		});
+	});
+
 	it.each([
 		["the session ID is absent", { enabled: true, sessionId: undefined }],
 		["caching is disabled", { enabled: false, sessionId: "conversation-1" }],
