@@ -358,6 +358,59 @@ describe("Bedrock Mantle wire requests", () => {
 		});
 	});
 
+	it("sends no breakpoint on an empty tool output (Mantle 400s on an empty marked block)", async () => {
+		const fetchCapture = createRawFetchCapture(
+			async () =>
+				new Response("data: [DONE]\n\n", {
+					status: 200,
+					headers: { "content-type": "text/event-stream" },
+				}),
+		);
+		vi.stubGlobal("fetch", fetchCapture.mock);
+
+		const messages: ModelMessage[] = [
+			{ role: "user", content: "Run the command" },
+			{
+				role: "assistant",
+				content: [
+					{ type: "tool-call", toolCallId: "call-1", toolName: "bash", input: { command: "true" } },
+				],
+			},
+			{
+				role: "tool",
+				content: [
+					{
+						type: "tool-result",
+						toolCallId: "call-1",
+						toolName: "bash",
+						output: { type: "text", value: "" },
+						providerOptions: breakpointProviderOptions,
+					},
+				],
+			},
+		];
+		await consumeIgnoringNetworkFailure(
+			client.chat({
+				model: "openai.gpt-6.1-sol",
+				protocol: "openai-responses",
+				baseUrl: "https://bedrock-mantle.us-east-2.api.aws/openai/v1",
+				messages,
+				metadata: { sessionId: "bedrock-conversation-1" },
+				usesExplicitPromptCaching: true,
+				thinkingEffort: "high",
+				allowSystemInMessages: true,
+				cancellationToken,
+			}),
+		);
+
+		const requestBody = requestBodyAt(fetchCapture, 0);
+		expect(breakpointPaths(requestBody)).toEqual([]);
+		expect((requestBody.input as Array<Record<string, unknown>>)[2]).toMatchObject({
+			type: "function_call_output",
+			output: "",
+		});
+	});
+
 	it("bounds an over-long subagent session ID to a stable 64-char cache key", async () => {
 		// A subagent's session ID is `rootUUID:subUUID` — 73 chars, over OpenAI's
 		// 64-char `prompt_cache_key` limit, which used to 400 the request.
