@@ -15,7 +15,7 @@
 
 import type { ClientKind } from "ai-config";
 
-import { isHeaderCarrying } from "../custom-headers";
+import { isHeaderCarrying, userAgentHeaderValue } from "../custom-headers";
 import type { ModelClient } from "../model-clients/ModelClient";
 import type { Logger, ModelInfo, ProviderId, ProviderCredentials } from "../types";
 import type {
@@ -138,17 +138,14 @@ export class ProviderRegistry implements ModelRequestCoalescer {
 			return credentials;
 		}
 
-		const customHeaderEntries = Object.entries(credentials.customHeaders ?? {});
-		if (
-			customHeaderEntries.some(
-				([name, value]) => name.toLowerCase() === USER_AGENT_HEADER_NAME && value.length > 0,
-			)
-		) {
+		if (userAgentHeaderValue(credentials.customHeaders) !== undefined) {
 			return credentials;
 		}
 
 		const customHeaders = Object.fromEntries(
-			customHeaderEntries.filter(([name]) => name.toLowerCase() !== USER_AGENT_HEADER_NAME),
+			Object.entries(credentials.customHeaders ?? {}).filter(
+				([name]) => name.toLowerCase() !== USER_AGENT_HEADER_NAME,
+			),
 		);
 		return {
 			...credentials,
