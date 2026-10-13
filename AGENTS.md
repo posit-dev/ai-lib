@@ -44,7 +44,7 @@ packages/ai-provider-bridge/src/
 ├── providers/           # register*Provider() modules + ProviderRegistry class
 ├── positron/            # VS Code integration (/positron entrypoint)
 ├── types.ts             # PROVIDER_IDS, credential types, ProviderId
-├── provider-map.ts      # PROVIDER_MAP (provider ID -> Positron auth config)
+├── provider-map.ts      # PROVIDER_MAP (provider ID -> auth session mapping)
 ├── credential-shaping.ts # Pure shapeCredentials (browser-safe entrypoint)
 ├── local-providers.ts   # LocalProviderManager (Ollama, LM Studio)
 ├── custom-headers.ts    # Header merging/filtering for customHeaders
@@ -243,7 +243,7 @@ When adding a new provider:
 2. Create a client class in `src/model-clients/`
 3. Create a provider module in `src/providers/`
 4. Export from `src/providers.ts`
-5. If it needs Positron auth, add to `PROVIDER_MAP` in `src/provider-map.ts`
+5. Add it to `PROVIDER_MAP` in `src/provider-map.ts`. Every provider has an entry except local ones (`LOCAL_PROVIDER_IDS`), which have no credentials. The auth provider id defaults to the provider ID.
 6. Add the matching ID to `BUILTIN_PROVIDER_IDS` in `ai-config` so the shape guard passes
 7. If the provider needs capability inference, add its table to `ai-config/src/model-capabilities/` and wire it into `inferModelCapabilities` (the tables live in `ai-config`, not the bridge)
 
