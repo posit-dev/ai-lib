@@ -2,7 +2,7 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { jsonSchema, type ModelMessage } from "ai";
+import { jsonSchema, type ModelMessage, type ToolResultPart } from "ai";
 import { describe, expect, it } from "vitest";
 
 import { createRawFetchCapture } from "../../../tests/helpers/raw-fetch-capture";
@@ -131,6 +131,49 @@ function classifierShapedMessages(): ModelMessage[] {
 			],
 		},
 	];
+}
+
+/** A single tool round trip whose `function_call_output` lands at `input[2]` on Responses. */
+function toolResultMessages(
+	output: ToolResultPart["output"],
+	providerOptions?: ToolResultPart["providerOptions"],
+): ModelMessage[] {
+	return [
+		{ role: "user", content: "Run the command" },
+		{
+			role: "assistant",
+			content: [
+				{ type: "tool-call", toolCallId: "call-1", toolName: "bash", input: { command: "true" } },
+			],
+		},
+		{
+			role: "tool",
+			content: [
+				{
+					type: "tool-result",
+					toolCallId: "call-1",
+					toolName: "bash",
+					output,
+					...(providerOptions && { providerOptions }),
+				},
+			],
+		},
+	];
+}
+
+async function captureToolOutput(
+	messages: ModelMessage[],
+): Promise<{ output: unknown; breakpoints: string[] }> {
+	const requestBody = await captureRequest({
+		apiMode: "responses",
+		usesExplicitPromptCaching: true,
+		model: "gpt-6.1-sol",
+		metadata: { sessionId: "conversation-empty-output" },
+		messages,
+	});
+	const input = requestBody.input as Array<Record<string, unknown>>;
+	expect(input[2]).toMatchObject({ type: "function_call_output" });
+	return { output: input[2].output, breakpoints: breakpointPaths(requestBody) };
 }
 
 /** Assert the foreign marker namespaces did not leak onto the OpenAI wire. */
@@ -401,6 +444,112 @@ describe("OpenAI explicit prompt caching wire requests", () => {
 		expect(requestBody).not.toHaveProperty("prompt_cache_key");
 		expect(breakpointPaths(requestBody)).toEqual([]);
 		expect(messages[0].providerOptions).toEqual(breakpointProviderOptions);
+	});
+
+	// Bedrock Mantle rejects a breakpoint on an exactly empty `input_text` block
+	// with HTTP 400 (posit-dev/assistant#2729), so none may reach the wire.
+	describe("empty tool output", () => {
+		it.each([
+			["marked", breakpointProviderOptions],
+			["unmarked", undefined],
+		] as const)("sends %s empty scalar output as a bare empty string", async (_label, marker) => {
+			const { output, breakpoints } = await captureToolOutput(
+				toolResultMessages({ type: "text", value: "" }, marker),
+			);
+
+			expect(output).toBe("");
+			expect(breakpoints).toEqual([]);
+		});
+
+		it("moves the wrapper marker off a trailing empty text part", async () => {
+			const { output, breakpoints } = await captureToolOutput(
+				toolResultMessages(
+					{
+						type: "content",
+						value: [
+							{ type: "text", text: "answer" },
+							{ type: "text", text: "" },
+						],
+					},
+					breakpointProviderOptions,
+				),
+			);
+
+			expect(breakpoints).toEqual(["input[2].output[0].prompt_cache_breakpoint"]);
+			expect(output).toEqual([
+				{ type: "input_text", text: "answer", prompt_cache_breakpoint: { mode: "explicit" } },
+				{ type: "input_text", text: "" },
+			]);
+		});
+
+		it.each([
+			["without", undefined, []],
+			["with", breakpointProviderOptions, ["input[2].output[0].prompt_cache_breakpoint"]],
+		] as const)(
+			"strips a marker placed directly on an empty part, %s a wrapper marker",
+			async (_label, wrapperMarker, expected) => {
+				const messages = toolResultMessages(
+					{
+						type: "content",
+						value: [
+							{ type: "text", text: "answer" },
+							{ type: "text", text: "", providerOptions: classifierProviderOptions },
+						],
+					},
+					wrapperMarker,
+				);
+				const { output, breakpoints } = await captureToolOutput(messages);
+
+				expect(breakpoints).toEqual(expected);
+				expect(output).toEqual([
+					expect.objectContaining({ type: "input_text", text: "answer" }),
+					{ type: "input_text", text: "" },
+				]);
+				// Request-time sanitizing must not mutate caller messages.
+				expect(messages[2]).toMatchObject({
+					content: [{ output: { value: [{}, { providerOptions: classifierProviderOptions }] } }],
+				});
+			},
+		);
+
+		it("drops the wrapper marker when every content part is empty text", async () => {
+			const { output, breakpoints } = await captureToolOutput(
+				toolResultMessages(
+					{ type: "content", value: [{ type: "text", text: "" }] },
+					breakpointProviderOptions,
+				),
+			);
+
+			expect(breakpoints).toEqual([]);
+			expect(output).toEqual([{ type: "input_text", text: "" }]);
+		});
+
+		it.each([
+			["file-id", "input_file"],
+			["image-file-id", "input_image"],
+		] as const)(
+			"anchors on an ID-backed %s part followed by empty text",
+			async (partType, wireType) => {
+				const { output, breakpoints } = await captureToolOutput(
+					toolResultMessages(
+						{
+							type: "content",
+							value: [
+								{ type: partType, fileId: "file-abc" },
+								{ type: "text", text: "" },
+							],
+						},
+						breakpointProviderOptions,
+					),
+				);
+
+				expect(breakpoints).toEqual(["input[2].output[0].prompt_cache_breakpoint"]);
+				expect(output).toEqual([
+					expect.objectContaining({ type: wireType, file_id: "file-abc" }),
+					{ type: "input_text", text: "" },
+				]);
+			},
+		);
 	});
 
 	it.each([

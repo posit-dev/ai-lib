@@ -250,6 +250,17 @@ describe("providersConfigSchema", () => {
 		}
 	});
 
+	it("accepts configured Connect gateway metadata for static usage labels", () => {
+		const result = providersConfigSchema.safeParse({
+			providers: {
+				"posit-connect": {
+					customHeaders: { "Posit-Connect-Gateway-Metadata": "team=analytics" },
+				},
+			},
+		});
+		expect(result.success).toBe(true);
+	});
+
 	it("keeps non-secret LiteLLM and Portkey routing headers valid", () => {
 		const result = providersConfigSchema.safeParse({
 			providers: {

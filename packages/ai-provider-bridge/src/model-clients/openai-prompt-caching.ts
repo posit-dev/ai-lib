@@ -112,82 +112,86 @@ function stripMessageBreakpoint(message: ModelMessage): ModelMessage {
 	}
 }
 
-function isBreakpointContentPart(
+/**
+ * Whether the part can carry a breakpoint on a non-empty Responses block. Mantle
+ * rejects a breakpoint on an exactly empty `input_text` (whitespace is fine).
+ */
+function canAnchorBreakpoint(
 	part: ContentToolResultPart,
-): part is Exclude<ContentToolResultPart, { type: "media" | "file-id" }> {
-	return (
-		part.type === "text" ||
-		part.type === "image-data" ||
-		part.type === "image-url" ||
-		part.type === "file-data" ||
-		part.type === "file-url"
-	);
+): part is Exclude<ContentToolResultPart, { type: "media" | "custom" }> {
+	switch (part.type) {
+		case "text":
+			return part.text !== "";
+		case "image-data":
+		case "image-url":
+		case "image-file-id":
+		case "file-data":
+		case "file-url":
+		case "file-id":
+			return true;
+		case "media":
+		case "custom":
+			return false;
+	}
 }
 
-function serializeToolResultOutput(output: Exclude<ToolResultOutput, { type: "content" }>): string {
+/** Strip breakpoints from parts that cannot anchor one, whatever placed them. */
+function stripUnanchorableBreakpoints(output: ContentToolResultOutput): ContentToolResultOutput {
+	return {
+		...output,
+		value: output.value.map((part) =>
+			"providerOptions" in part && !canAnchorBreakpoint(part) ? stripValueBreakpoint(part) : part,
+		),
+	};
+}
+
+/** Whether the SDK serializes this scalar output as an empty string. */
+function isEmptyScalarOutput(output: Exclude<ToolResultOutput, { type: "content" }>): boolean {
 	switch (output.type) {
 		case "text":
 		case "error-text":
-			return output.value;
+			return output.value === "";
+		case "execution-denied":
+			return output.reason === "";
 		case "json":
 		case "error-json":
-			return JSON.stringify(output.value);
-		case "execution-denied":
-			return output.reason ?? "Tool call execution denied.";
+			return false;
 	}
 }
 
 /**
- * Responses can serialize cache markers only on structured input content.
- * Move a wrapper/output marker onto the last supported content block, converting
- * scalar tool output to one `input_text` block at request time when necessary.
+ * Responses can serialize cache markers only on structured input content, and
+ * Bedrock Mantle rejects one on an exactly empty `input_text` block. The SDK
+ * wraps marked scalar output as one `input_text` block itself, so scalar output
+ * passes through unless it is empty. For `content` output, move the wrapper
+ * marker onto the last block that can anchor it. A marker that cannot be
+ * anchored is dropped, at the cost of a single cache write.
  */
 function normalizeResponsesToolResult(part: ToolResultPart): ToolResultPart {
-	const wrapperHasBreakpoint =
-		hasExplicitBreakpoint(part.providerOptions) ||
-		("providerOptions" in part.output && hasExplicitBreakpoint(part.output.providerOptions));
-	if (!wrapperHasBreakpoint) {
-		return part;
+	if (part.output.type !== "content") {
+		return isEmptyScalarOutput(part.output)
+			? { ...stripValueBreakpoint(part), output: stripValueBreakpoint(part.output) }
+			: part;
 	}
 
-	const strippedPart = stripValueBreakpoint(part);
-	const strippedOutput =
-		strippedPart.output.type === "content"
-			? strippedPart.output
-			: stripValueBreakpoint(strippedPart.output);
-	if (strippedOutput.type !== "content") {
-		return {
-			...strippedPart,
-			output: {
-				type: "content",
-				value: [
-					{
-						type: "text",
-						text: serializeToolResultOutput(strippedOutput),
-						providerOptions: addExplicitBreakpoint(undefined),
-					},
-				],
-			},
-		};
+	const output = stripUnanchorableBreakpoints(part.output);
+	if (!hasExplicitBreakpoint(part.providerOptions)) {
+		return { ...part, output };
 	}
 
 	let breakpointIndex = -1;
-	for (let index = strippedOutput.value.length - 1; index >= 0; index--) {
-		if (isBreakpointContentPart(strippedOutput.value[index])) {
+	for (let index = output.value.length - 1; index >= 0; index--) {
+		if (canAnchorBreakpoint(output.value[index])) {
 			breakpointIndex = index;
 			break;
 		}
 	}
-	if (breakpointIndex === -1) {
-		return part;
-	}
-
 	return {
-		...strippedPart,
+		...stripValueBreakpoint(part),
 		output: {
-			...strippedOutput,
-			value: strippedOutput.value.map((contentPart, index) =>
-				index === breakpointIndex && isBreakpointContentPart(contentPart)
+			...output,
+			value: output.value.map((contentPart, index) =>
+				index === breakpointIndex && canAnchorBreakpoint(contentPart)
 					? {
 							...contentPart,
 							providerOptions: addExplicitBreakpoint(contentPart.providerOptions),

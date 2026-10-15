@@ -48,6 +48,11 @@ import type { ModelClient, ModelClientChatParams } from "../model-clients/ModelC
 import type { ApiKeyCredentials, AwsCredentials, Logger, LMStreamPart, ModelInfo } from "../types";
 import { normalizeProtocol } from "../types";
 import { createCachedModelFetcher } from "./cached-model-fetcher";
+import {
+	combineGatewayMetadataHeaders,
+	GATEWAY_METADATA_HEADER,
+	WORKBENCH_GATEWAY_METADATA_ENV,
+} from "./connect-gateway-metadata";
 import type { ClientFactory, ProviderRegistry } from "./ProviderRegistry";
 
 const DEFAULT_TEMPLATES = ["anthropic", "aws"] as const;
@@ -322,6 +327,15 @@ function resolveTemplates(
 	return configured.filter((template) => SUPPORTED_TEMPLATES.has(template));
 }
 
+function connectCustomHeaders(
+	customHeaders: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+	const entries = Object.entries(customHeaders ?? {}).filter(
+		([name]) => name.toLowerCase() !== GATEWAY_METADATA_HEADER.toLowerCase(),
+	);
+	return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
 /**
  * Fetch the integrations visible to this API key and shape the allowlisted
  * ones. Throws on HTTP failure or a non-array body. This is the canonical
@@ -337,7 +351,7 @@ export async function fetchConnectIntegrations(
 	const baseUrl = connectUrl.replace(/\/+$/, "");
 	const headers = additiveHeaderRecord(
 		{ Authorization: `Key ${credentials.apiKey}` },
-		credentials.customHeaders,
+		connectCustomHeaders(credentials.customHeaders),
 	);
 	const response = await fetch(`${baseUrl}${INTEGRATIONS_PATH}`, { headers, signal });
 	if (!response.ok) {
@@ -399,7 +413,7 @@ async function discoverAnthropicGatewayModels(
 ): Promise<ModelInfo[]> {
 	const headers = additiveHeaderRecord(
 		{ "x-api-key": credentials.apiKey, "anthropic-version": ANTHROPIC_VERSION_HEADER },
-		credentials.customHeaders,
+		connectCustomHeaders(credentials.customHeaders),
 	);
 	const response = await fetch(`${integration.baseUrl}/models`, { headers, signal });
 	if (!response.ok) {
@@ -576,7 +590,23 @@ class ConnectClient implements ModelClient {
 		private readonly cache: ConnectIntegrationCache,
 		private readonly logger: Logger,
 		private readonly callbacks?: ConnectProviderCallbacks,
+		private readonly env: NodeJS.ProcessEnv = process.env,
 	) {}
+
+	/**
+	 * Headers for one gateway request: configured customHeaders (excluding
+	 * the metadata header) plus the combined Workbench and configured metadata.
+	 * Each metadata value is left intact; Connect validates its entries.
+	 */
+	private requestHeaders(): Record<string, string> | undefined {
+		const metadata = combineGatewayMetadataHeaders(
+			this.env[WORKBENCH_GATEWAY_METADATA_ENV],
+			this.credentials.customHeaders,
+		);
+		const headers = { ...connectCustomHeaders(this.credentials.customHeaders) };
+		if (metadata !== undefined) headers[GATEWAY_METADATA_HEADER] = metadata;
+		return Object.keys(headers).length > 0 ? headers : undefined;
+	}
 
 	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {
 		const connectUrl = this.credentials.baseUrl?.replace(/\/+$/, "");
@@ -657,7 +687,7 @@ class ConnectClient implements ModelClient {
 		const client = new AnthropicClient(
 			{ apiKey: this.credentials.apiKey },
 			baseUrl,
-			this.credentials.customHeaders,
+			this.requestHeaders(),
 			this.logger,
 		);
 		return client.chat({ ...params, model: wireModel, baseUrl });
@@ -741,7 +771,7 @@ class ConnectClient implements ModelClient {
 				accessKeyId: aws.accessKeyId,
 				secretAccessKey: aws.secretAccessKey,
 				sessionToken: aws.sessionToken,
-				customHeaders: this.credentials.customHeaders,
+				customHeaders: this.requestHeaders(),
 				// Routing through Connect's gateway is a deliberate, admin-configured
 				// redirect (not an accidental override), so it overrides even a FIPS
 				// runtime endpoint.
@@ -759,13 +789,14 @@ class ConnectClient implements ModelClient {
 function createConnectClientFactory(
 	logger: Logger,
 	cache: ConnectIntegrationCache,
-	callbacks?: ConnectProviderCallbacks,
+	callbacks: ConnectProviderCallbacks | undefined,
+	env: NodeJS.ProcessEnv,
 ): ClientFactory {
 	return (credentials) => {
 		if (credentials.type !== "apikey") {
 			throw new Error(`Connect provider requires API key credentials, got: ${credentials.type}`);
 		}
-		return new ConnectClient(credentials, cache, logger, callbacks);
+		return new ConnectClient(credentials, cache, logger, callbacks, env);
 	};
 }
 
@@ -773,6 +804,9 @@ export function registerConnectProvider(
 	registry: ProviderRegistry,
 	logger: Logger,
 	callbacks?: ConnectProviderCallbacks,
+	// Workbench hands Connect attribution to the session through this variable;
+	// injectable so tests need not mutate the process environment.
+	env: NodeJS.ProcessEnv = process.env,
 ): void {
 	// Shared between the fetcher (writer) and the client (reader) so chat can
 	// resolve user-configured models that carry no discovery stamp; stamped
@@ -784,6 +818,6 @@ export function registerConnectProvider(
 	);
 	registry.registerClientFactory(
 		"posit-connect",
-		createConnectClientFactory(logger, cache, callbacks),
+		createConnectClientFactory(logger, cache, callbacks, env),
 	);
 }
