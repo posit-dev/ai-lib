@@ -8,6 +8,156 @@
       "description": "Path or URL of the JSON Schema for this file. Editors use it for validation and autocomplete.",
       "type": "string"
     },
+    "agentEngines": {
+      "additionalProperties": false,
+      "description": "Preview: external agent engines that can run a Posit Assistant conversation in place of its own agent loop. Requires Posit Assistant's experimental features. Changes take effect after a restart.",
+      "properties": {
+        "acp": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "description": "An Agent Client Protocol agent. A higher layer's entry replaces this one whole.",
+            "properties": {
+              "allowNamedPrincipals": {
+                "description": "Offer the engine to named principals on a multi-user server. Default false. Each then runs the agent with its own HOME under its storage, never the operator's login.",
+                "type": "boolean"
+              },
+              "args": {
+                "description": "Arguments that start the agent in ACP mode, for example `[\"--acp\"]`.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "command": {
+                "description": "Executable that runs the agent: a name resolved on PATH, or a path. Paths starting with ~ are expanded; relative paths resolve against the Posit Assistant storage directory.",
+                "minLength": 1,
+                "type": "string"
+              },
+              "displayName": {
+                "description": "The agent's name in messages to the user. Defaults to the agent id.",
+                "type": "string"
+              },
+              "env": {
+                "additionalProperties": {
+                  "description": "Variable value.",
+                  "type": "string"
+                },
+                "description": "Extra environment variables for the agent, on top of a minimal ambient set (PATH, HOME, locale, temp dir, terminal). Posit Assistant's own secrets are never passed.",
+                "propertyNames": {
+                  "description": "Variable name.",
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "command"
+            ],
+            "type": "object"
+          },
+          "description": "Agent Client Protocol agents to offer as engines, keyed by agent id. An entry is enabled when it exists.",
+          "propertyNames": {
+            "description": "Agent id: a lowercase letter, then up to 31 of a-z, 0-9 or '-'.",
+            "pattern": "^[a-z][a-z0-9-]{0,31}$",
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "claude": {
+          "additionalProperties": false,
+          "description": "The Claude Agent engine.",
+          "properties": {
+            "configDir": {
+              "description": "CLAUDE_CONFIG_DIR for engine sessions, where engine transcripts are stored. Empty or unset uses a directory under Posit Assistant storage. Paths starting with ~ are expanded; relative paths resolve against the Posit Assistant storage directory.",
+              "type": "string"
+            },
+            "enabled": {
+              "description": "Offer the Claude Agent engine. Default false. It signs in with credentials from the environment Posit Assistant starts with, such as ANTHROPIC_API_KEY or CLAUDE_CODE_USE_BEDROCK.",
+              "type": "boolean"
+            },
+            "executablePath": {
+              "description": "Claude Agent executable to run. Empty or unset uses the SDK's platform package, else a download. Paths starting with ~ are expanded; relative paths resolve against the Posit Assistant storage directory.",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "codex": {
+          "additionalProperties": false,
+          "description": "The Codex engine.",
+          "properties": {
+            "allowNamedPrincipals": {
+              "description": "Offer the engine to named principals on a multi-user server. Default false. Each then runs Codex with its own CODEX_HOME, HOME and temp directory under its storage, never the operator's credentials.",
+              "type": "boolean"
+            },
+            "defaultModel": {
+              "description": "The Codex model a conversation runs on when none is chosen. Empty or unset uses Codex's default.",
+              "type": "string"
+            },
+            "enabled": {
+              "description": "Offer the Codex engine, which runs OpenAI's Codex CLI (`codex app-server`). Default false. It signs in with OPENAI_API_KEY or CODEX_API_KEY, or a login stored in its home directory.",
+              "type": "boolean"
+            },
+            "executablePath": {
+              "description": "Codex CLI executable to run. Empty or unset uses Posit Assistant's download, else `codex` on PATH when its version is supported, else a download. Paths starting with ~ are expanded; relative paths resolve against the Posit Assistant storage directory.",
+              "type": "string"
+            },
+            "homeDirectory": {
+              "description": "CODEX_HOME for engine sessions: configuration, threads and login. Empty or unset uses a directory under Posit Assistant storage. Never the Codex CLI's own ~/.codex. Paths starting with ~ are expanded; relative paths resolve against the Posit Assistant storage directory.",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "copilot": {
+          "additionalProperties": false,
+          "description": "The GitHub Copilot engine.",
+          "properties": {
+            "allowNamedPrincipals": {
+              "description": "Offer the engine to named principals on a multi-user server. Default false. Each then runs its own Copilot runtime with its own HOME and data directory under its storage, never the operator's GitHub sign-in.",
+              "type": "boolean"
+            },
+            "baseDirectory": {
+              "description": "Copilot's data directory for engine sessions. Empty or unset uses a directory under Posit Assistant storage. Never the Copilot CLI's own ~/.copilot, so engine sessions stay out of its resume list. Paths starting with ~ are expanded; relative paths resolve against the Posit Assistant storage directory.",
+              "type": "string"
+            },
+            "defaultModel": {
+              "description": "The Copilot model a conversation runs on when none is chosen. Empty or unset uses Copilot's default.",
+              "type": "string"
+            },
+            "enabled": {
+              "description": "Offer the GitHub Copilot engine. Default false. It signs in as the GitHub user of the account running Posit Assistant, for example through `gh auth login`.",
+              "type": "boolean"
+            },
+            "runtimePath": {
+              "description": "Copilot runtime executable to run. Empty or unset uses the SDK's platform package, else a download. Paths starting with ~ are expanded; relative paths resolve against the Posit Assistant storage directory.",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "downloadBinaries": {
+          "description": "Let Posit Assistant download an engine's executable from registry.npmjs.org when it is not installed. Default true.",
+          "type": "boolean"
+        },
+        "enabled": {
+          "description": "Master switch for every agent engine, including ACP agents. Default true; set to false to turn all engines off.",
+          "type": "boolean"
+        },
+        "idleSessionMinutes": {
+          "description": "Stop an engine session's process after this many minutes without a turn; its next turn resumes the session. Default 15.",
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        "maxLiveSessions": {
+          "description": "Engine session processes each user may keep running; beyond it the least recently used idle one is stopped. Default 4.",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
     "providers": {
       "additionalProperties": false,
       "description": "Provider configuration, keyed by built-in provider id, plus the reserved `default` and `custom` keys.",

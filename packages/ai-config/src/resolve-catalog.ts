@@ -25,6 +25,7 @@ import { mergeConfigFragments } from "./enforce.js";
 import type { EnablementLayer } from "./resolve-enabled.js";
 import { providersConfigSchema } from "./schema.js";
 import type {
+	AgentEnginesConfig,
 	ProvidersConfigFragment,
 	BuiltinProviderBlock,
 	LoggerLike,
@@ -155,6 +156,8 @@ export interface ResolveProviderCatalogOptions {
 /** Canonical resolver result, including every overlay dropped during recovery. */
 export interface ProviderCatalogReport {
 	readonly catalog: readonly ResolvedProvider[];
+	/** The layers' `agentEngines` blocks merged by precedence; `{}` when none sets one. */
+	readonly agentEngines: AgentEnginesConfig;
 	readonly issues: readonly SourcedConfigIssue[];
 }
 
@@ -219,8 +222,29 @@ export function resolveProviderCatalogReport(
 	const authPolicies = resolveAuthPolicies(kept, config);
 	return {
 		catalog: buildCatalog(config, enabledLayers, connectionProvenance, authPolicies),
+		agentEngines: resolveAgentEngines(highestFirst),
 		issues,
 	};
+}
+
+/**
+ * Merge every source's `agentEngines` block, lowest → highest precedence,
+ * with the same `deepMerge` rules as providers: a field set by a higher layer
+ * wins, other fields merge per leaf, and an ACP agent is replaced whole.
+ *
+ * Folded over every source read, not just the ones provider recovery kept:
+ * each source's block is already valid on its own (salvage drops bad fields
+ * and command-less agents), so the merge is always valid, and an admin's
+ * master switch never disappears because of an unrelated provider problem
+ * in the same overlay.
+ */
+function resolveAgentEngines(highestFirst: readonly RankedConfigSource[]): AgentEnginesConfig {
+	let merged: ProvidersConfigFragment = {};
+	for (let i = highestFirst.length - 1; i >= 0; i--) {
+		const { agentEngines } = highestFirst[i].config;
+		if (agentEngines) merged = mergeConfigFragments(merged, { agentEngines });
+	}
+	return merged.agentEngines ?? {};
 }
 
 /**

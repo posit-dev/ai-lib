@@ -11,6 +11,7 @@ import type { Disposable as ConfigDisposable } from "../config-source.js";
 import type { LegacySettingsReader } from "../legacy-positron-settings/translate.js";
 import type { ProviderConfigSource } from "../resolve-catalog.js";
 import type {
+	AgentEnginesConfig,
 	LoggerLike,
 	ProvidersConfigFragment,
 	ResolvedProvider,
@@ -165,6 +166,12 @@ export interface ProviderCatalogChange {
 
 	/** The complete current issue snapshot, including an empty recovery. */
 	readonly issues: readonly SourcedConfigIssue[];
+
+	/** The current resolved `agentEngines` block. */
+	readonly agentEngines: AgentEnginesConfig;
+
+	/** Whether the resolved `agentEngines` block changed. */
+	readonly agentEnginesChanged: boolean;
 
 	/** Whether any provider's `enabled` state changed. */
 	readonly enabledChanged: boolean;

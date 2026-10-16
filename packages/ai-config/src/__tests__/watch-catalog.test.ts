@@ -101,6 +101,26 @@ describe("watchResolvedProviderCatalog", () => {
 		expect(change.catalog.find((provider) => provider.id === "anthropic")?.enabled).toBe(false);
 	});
 
+	it("should fire when only agentEngines changes", async () => {
+		await fixture.writeTypedConfig({ agentEngines: { claude: { enabled: false } } });
+		const probe = createChangeProbe();
+		const watcher = watchResolvedProviderCatalog(probe.handler, { configPath, logger: mockLogger });
+		await awaitReady(watcher);
+
+		const changed = probe.next((change) => change.agentEnginesChanged, "agentEngines change");
+		await fixture.writeTypedConfigAtomic({ agentEngines: { claude: { enabled: true } } });
+		const change = await changed;
+		watcher.dispose();
+
+		expect(change).toMatchObject({
+			agentEngines: { claude: { enabled: true } },
+			enabledChanged: false,
+			connectionChanged: false,
+			modelsChanged: false,
+			issuesChanged: false,
+		});
+	});
+
 	it("should fire on connection change", async () => {
 		await fixture.writeTypedConfig({
 			providers: { anthropic: { baseUrl: "https://a.example.com" } },
