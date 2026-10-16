@@ -10,6 +10,7 @@ import { createConfigFileFixture } from "../../tests/helpers/config-file-fixture
 import type { ConfigFileFixture } from "../../tests/helpers/config-file-fixture.js";
 import { loadProviderCatalogReport, loadResolvedProviderCatalog } from "../node/load-catalog.js";
 import { readEnvFragment } from "../node/load-config.js";
+import { DEFAULT_ENV_VAR, ENFORCED_ENV_VAR } from "../node/paths.js";
 import type { ResolvedProvider } from "../types.js";
 import { BUILTIN_PROVIDER_IDS } from "../vocabulary.js";
 
@@ -301,63 +302,6 @@ describe("loadResolvedProviderCatalog", () => {
 			expect(mockLogger.warn).toHaveBeenCalledWith(
 				expect.stringContaining("Failed to parse TEST_ENFORCED"),
 			);
-		});
-
-		it("drops an unknown provider id from an env fragment and keeps its other rules", async () => {
-			await fixture.writeTypedConfig({
-				providers: { anthropic: { baseUrl: "https://user.example.com" } },
-			});
-			const report = await loadProviderCatalogReport({
-				configPath,
-				enforcedEnvVar: "TEST_ENFORCED",
-				envVars: {
-					TEST_ENFORCED: JSON.stringify({
-						providers: {
-							anthropic: { baseUrl: "https://admin.example.com" },
-							"mystery-provider": {},
-						},
-					}),
-				},
-			});
-
-			expect(findProvider(report.catalog, "anthropic")?.connection.baseUrl).toBe(
-				"https://admin.example.com",
-			);
-			expect(report.issues).toEqual([
-				expect.objectContaining({
-					severity: "warning",
-					source: { kind: "enforced", label: "TEST_ENFORCED" },
-					path: ["providers", "mystery-provider"],
-					message: expect.stringContaining("mystery-provider"),
-				}),
-			]);
-		});
-
-		it("drops an unsafe custom provider name from an env fragment and keeps its siblings", async () => {
-			await fixture.writeTypedConfig({
-				providers: { anthropic: { baseUrl: "https://user.example.com" } },
-			});
-			const report = await loadProviderCatalogReport({
-				configPath,
-				enforcedEnvVar: "TEST_ENFORCED",
-				envVars: {
-					TEST_ENFORCED:
-						'{"providers":{"anthropic":{"baseUrl":"https://admin.example.com"},"custom":{"__proto__":{"enabled":false}}}}',
-				},
-			});
-
-			expect(findProvider(report.catalog, "anthropic")?.connection.baseUrl).toBe(
-				"https://admin.example.com",
-			);
-			// Only the unsafe entry is dropped, so the issue is a warning at its path.
-			expect(report.issues).toEqual([
-				expect.objectContaining({
-					severity: "warning",
-					source: { kind: "enforced", label: "TEST_ENFORCED" },
-					path: ["providers", "custom", "__proto__"],
-					message: 'Custom provider name "__proto__" is unsafe.',
-				}),
-			]);
 		});
 
 		it("enforced fragment can disable a custom provider without specifying type", async () => {
@@ -669,6 +613,215 @@ describe("loadResolvedProviderCatalog", () => {
 					severity: "warning",
 					source: { kind: "default", label: "TEST_DEFAULT" },
 					path: ["agents"],
+				}),
+			]);
+		});
+	});
+
+	// ========================================================================
+	// Env fragment contract (plan decisions 2-5): what is kept, dropped, ignored
+	// ========================================================================
+
+	describe.each(["enforced", "default"] as const)("env fragment contract (%s)", (kind) => {
+		const envVar = kind === "enforced" ? "TEST_ENFORCED" : "TEST_DEFAULT";
+		const source = { kind, label: envVar } as const;
+
+		function loadWith(raw: string) {
+			return loadProviderCatalogReport({
+				configPath,
+				...(kind === "enforced" ? { enforcedEnvVar: envVar } : { defaultEnvVar: envVar }),
+				envVars: { [envVar]: raw },
+			});
+		}
+
+		function readFragment(raw: string) {
+			return readEnvFragment(kind, envVar, { [envVar]: raw });
+		}
+
+		function warningAt(path: readonly (string | number)[]) {
+			return expect.objectContaining({ severity: "warning", source, path });
+		}
+
+		beforeEach(async () => {
+			await fixture.writeTypedConfig({});
+		});
+
+		it.each([
+			{
+				name: "version 2 with otherwise valid rules",
+				raw: JSON.stringify({ version: 2, providers: { anthropic: { enabled: false } } }),
+				message: `Unsupported ${envVar} version; expected 1. Ignoring.`,
+			},
+			{
+				name: "array root",
+				raw: "[]",
+				message: `${envVar} must contain a JSON object. Ignoring.`,
+			},
+			{
+				name: "string root",
+				raw: '"x"',
+				message: `${envVar} must contain a JSON object. Ignoring.`,
+			},
+			{
+				name: "array providers",
+				raw: '{"providers":[]}',
+				message: `"providers" in ${envVar} must be an object of provider blocks. Ignoring.`,
+			},
+		])("ignores the whole payload with one error: $name", async ({ raw, message }) => {
+			const report = await loadWith(raw);
+
+			expect(findProvider(report.catalog, "anthropic")?.enabled).toBe(true);
+			expect(report.issues).toEqual([{ severity: "error", source, path: [], message }]);
+		});
+
+		it("ignores an unparseable payload whole, with an error naming the var", async () => {
+			const report = await loadWith("not valid json{{{");
+
+			expect(report.issues).toEqual([
+				expect.objectContaining({
+					severity: "error",
+					source,
+					path: [],
+					message: expect.stringContaining(`Failed to parse ${envVar} as JSON`),
+				}),
+			]);
+		});
+
+		it("removes an unknown endpoints protocol key and keeps the other endpoints", async () => {
+			const report = readFragment(
+				JSON.stringify({
+					providers: {
+						anthropic: {
+							endpoints: {
+								"openai-chat": "https://a.example",
+								"future-protocol": "https://b.example",
+							},
+						},
+					},
+				}),
+			);
+
+			expect(report.source?.config.providers?.anthropic?.endpoints).toEqual({
+				"openai-chat": "https://a.example",
+			});
+			expect(report.issues).toEqual([
+				warningAt(["providers", "anthropic", "endpoints", "future-protocol"]),
+			]);
+		});
+
+		it.each([
+			{ name: "protocol", block: { protocol: "future-protocol", enabled: false } },
+			{ name: "model protocol", block: { models: { overrides: { m: { protocol: "future" } } } } },
+		])("drops only the block holding an unrecognized $name value", async ({ block }) => {
+			const report = await loadWith(
+				JSON.stringify({ providers: { anthropic: { enabled: false }, openai: block } }),
+			);
+
+			expect(findProvider(report.catalog, "anthropic")?.enabled).toBe(false);
+			expect(findProvider(report.catalog, "openai")?.enabled).toBe(true);
+			expect(report.issues).toEqual([warningAt(["providers", "openai"])]);
+		});
+
+		it("drops only the custom entry holding an unrecognized type value", async () => {
+			const report = readFragment(
+				JSON.stringify({
+					providers: {
+						custom: {
+							"bad-gateway": { type: "future-kind", enabled: false },
+							"ok-gateway": { enabled: false },
+						},
+					},
+				}),
+			);
+
+			expect(Object.keys(report.source?.config.providers?.custom ?? {})).toEqual(["ok-gateway"]);
+			expect(report.issues).toEqual([warningAt(["providers", "custom", "bad-gateway"])]);
+		});
+
+		it.each([
+			{ name: "models as an array", block: { models: [] } },
+			{ name: "models.overrides as an array", block: { models: { overrides: [] } } },
+			{ name: "null field", block: { enabled: null } },
+			{ name: "models.custom as an object", block: { models: { custom: {} } } },
+		])("drops the block with $name and keeps a valid sibling", async ({ block }) => {
+			const report = await loadWith(
+				JSON.stringify({ providers: { anthropic: { enabled: false }, openai: block } }),
+			);
+
+			expect(findProvider(report.catalog, "anthropic")?.enabled).toBe(false);
+			expect(findProvider(report.catalog, "openai")?.enabled).toBe(true);
+			expect(report.issues).toEqual([warningAt(["providers", "openai"])]);
+		});
+
+		it("drops a block with __proto__ under an unknown field and keeps a sibling", async () => {
+			// Hand-built so JSON.parse creates an own `__proto__` key.
+			const report = await loadWith(
+				'{"providers":{"anthropic":{"enabled":false},"openai":{"enabled":false,"futureField":{"__proto__":{"x":1}}}}}',
+			);
+
+			expect(findProvider(report.catalog, "anthropic")?.enabled).toBe(false);
+			expect(findProvider(report.catalog, "openai")?.enabled).toBe(true);
+			expect(report.issues).toEqual([warningAt(["providers", "openai"])]);
+		});
+
+		it("drops an unsafe custom provider name before copying and keeps sibling entries", async () => {
+			const report = readFragment(
+				'{"providers":{"custom":{"__proto__":{"enabled":false},"ok-gateway":{"enabled":false}}}}',
+			);
+
+			expect(Object.keys(report.source?.config.providers?.custom ?? {})).toEqual(["ok-gateway"]);
+			expect(report.issues).toEqual([warningAt(["providers", "custom", "__proto__"])]);
+		});
+	});
+
+	describe("env fragment contract (whole-source messages)", () => {
+		it.each([
+			["enforced", "TEST_ENFORCED"],
+			["enforced", ENFORCED_ENV_VAR],
+			["default", "TEST_DEFAULT"],
+			["default", DEFAULT_ENV_VAR],
+		] as const)("%s source names its env var %s in every whole-source message", (kind, name) => {
+			for (const raw of ["not json{", "[]", '{"version":2}', '{"providers":[]}']) {
+				const issues = readEnvFragment(kind, name, { [name]: raw }).issues;
+				expect(issues).toEqual([
+					expect.objectContaining({
+						severity: "error",
+						source: { kind, label: name },
+						message: expect.stringContaining(name),
+					}),
+				]);
+			}
+		});
+
+		it("enforced custom entry with an unknown field stays disabled; only that field warns", async () => {
+			await fixture.writeTypedConfig({
+				providers: {
+					custom: {
+						"my-gateway": {
+							type: "openai-compatible",
+							baseUrl: "https://my-gateway.example.com",
+							enabled: true,
+						},
+					},
+				},
+			});
+
+			const report = await loadProviderCatalogReport({
+				configPath,
+				enforcedEnvVar: "TEST_ENFORCED",
+				envVars: {
+					TEST_ENFORCED: JSON.stringify({
+						providers: { custom: { "my-gateway": { enabled: false, futureField: 1 } } },
+					}),
+				},
+			});
+
+			expect(findProvider(report.catalog, "my-gateway")?.enabled).toBe(false);
+			expect(report.issues).toEqual([
+				expect.objectContaining({
+					severity: "warning",
+					source: { kind: "enforced", label: "TEST_ENFORCED" },
+					path: ["providers", "custom", "my-gateway", "futureField"],
 				}),
 			]);
 		});
