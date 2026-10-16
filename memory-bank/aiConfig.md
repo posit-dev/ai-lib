@@ -200,8 +200,8 @@ Config flows through three stages: **assemble sources → resolve → watch**. P
    (comments and trailing commas accepted; missing → `{}`; malformed blocks
    salvaged tolerantly into a full-schema-valid source), the enforced fragment from
    `POSIT_AI_PROVIDERS_ENFORCED`, and the defaults fragment from
-   `POSIT_AI_PROVIDERS_DEFAULT` (both remain strict JSON and are validated against the relaxed
-   `providersConfigFragmentSchema`), plus the legacy Positron layers the
+   `POSIT_AI_PROVIDERS_DEFAULT` (both are parsed with strict `JSON.parse` and then salvaged by the
+   fragment profile described under Read salvage), plus the legacy Positron layers the
    loader opted into (`legacyPositronSettings` → `legacy-positron`,
    `legacyPositronEnforcedSettings` → `legacy-positron-enforced`), and the
    host's `hostDefaults` fragment when the loader passes one (also `default`,
@@ -244,14 +244,32 @@ reconstruct. The final full-schema parse is a runtime seal: downstream recovery 
 user source being valid alone. A seal failure degrades to `{}` with an error issue rather than
 throwing.
 
-Every source reader returns the same `{ source?, issues }` report and never logs. Env fragments
-remain strict and all-or-nothing. Internal legacy Positron providers report their current invalid
-keys on every read (including recurrence after a fix); the exported
-`translateLegacyPositronSettings(reader, logger?, warnedKeys?)` compatibility function retains its
-historical warn-once behavior. `resolveProviderCatalogReport` is silent and carries overlay-drop
-issues; `resolveProviderCatalog` renders those issues for compatibility. The one-shot node load
-renders its complete report once, while the watcher renders only newly added/changed issues after
-snapshot comparison.
+**Env fragments use the fragment profile.** `src/salvage-config.ts` has one internal walker with
+two profiles. The user file uses the full profile (`salvageProvidersConfig`): whole blocks are
+kept or dropped and nothing is pruned. Admin env fragments use the fragment profile
+(`salvageProvidersConfigFragment`, called by `readEnvFragment`), which keeps every rule the
+reader understands. For each provider block, in order: (1) the raw block is scanned with
+`unsafeObjectKeyPaths`, and a block holding a `__proto__` key is dropped with a warning; (2)
+`pruneUnknownKeys` (`src/prune-unknown-keys.ts`) removes keys absent from the schema at any depth,
+one warning per key with its full path, keeps record data keys (model ids, header names, custom
+provider names), and removes only record keys the key schema rejects (e.g. an unknown `endpoints`
+protocol); (3) the pruned block is validated against the fragment block schema, and a wrong type,
+an unrecognized enum value, or a wrong container shape drops that block with a warning. Custom
+provider names are checked before their entries are copied. Last, the reconstructed fragment is
+sealed with `providersConfigFragmentSchema`. Only an unusable payload is ignored whole, as an error
+that names the env var: a non-object root or `providers`, a `version` other than 1, or a seal
+failure (bad JSON is handled by the reader before the walker runs). A new allowed enum value for an
+existing setting (a new custom `type`, a `protocol` value, an OpenCode product) counts as a bad
+value, so that provider's block is dropped while siblings survive; this is a known
+forward-compatibility gap.
+
+Every source reader returns the same `{ source?, issues }` report and never logs. Internal legacy
+Positron providers report their current invalid keys on every read (including recurrence after a
+fix); the exported `translateLegacyPositronSettings(reader, logger?, warnedKeys?)` compatibility
+function retains its historical warn-once behavior. `resolveProviderCatalogReport` is silent and
+carries overlay-drop issues; `resolveProviderCatalog` renders those issues for compatibility. The
+one-shot node load renders its complete report once, while the watcher renders only newly
+added/changed issues after snapshot comparison.
 
 ### Connection provenance
 
@@ -392,12 +410,15 @@ without managing locking, atomicity, or watch lifecycle themselves.
   then salvages blocks; syntax/fs failures become sourced issues and `{}`. Readers are silent;
   `loadProviderCatalogReport` renders the completed snapshot once. Severity policy: whole-source
   failures (user-file syntax/read errors, whole-file salvage degrades — non-object
-  root/`providers` or unsupported `version` — env-fragment parse/validation failures, and
+  root/`providers` or unsupported `version` — env-fragment parse failures and unusable env payloads
+  (non-object root/`providers`, unsupported `version`, seal failure), and
   malformed legacy enforced settings, resolver overlay drops from `recoverValidStack`) are
   error-severity with an **empty path** (the source was
   discarded whole; offending key paths stay in the message prose); per-key salvage drops are
-  warnings with the dropped key's path. `ConfigIssue` is a discriminated union encoding this
-  contract (the error branch's path is `readonly []`), and the whole-source shape is
+  warnings with the dropped key's path. Env fragments add only warnings for partial drops:
+  pruned unknown keys, blocks dropped for invalid values or unsafe keys, and rejected custom
+  names. `ConfigIssue` is a discriminated union encoding this contract (the error branch's path is
+  `readonly []`), and the whole-source shape is
   constructed only via `wholeSourceIssue` / `sourcedWholeSourceIssue` (`src/config-issue.ts`),
   so the error-with-a-path combination is unrepresentable. Hosts surface only error-severity
   issues in the UI; warning-severity drops are log-only because the file is shared across

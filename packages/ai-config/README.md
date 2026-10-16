@@ -202,7 +202,7 @@ import { AI_CONFIG_DIR, PROVIDERS_CONFIG_PATH } from "ai-config/node";
 
 #### `loadProviderCatalogReport(opts): Promise<{ catalog, issues }>`
 
-The canonical read seam. Assembles source-read reports (each shaped as `{ source?, issues }`), delegates precedence to `resolveProviderCatalogReport`, and returns one complete issue snapshot beside the catalog. Source readers never log; this one-shot orchestrator renders the completed report once. The JSONC user-file reader salvages valid siblings at whole-provider-block granularity. Strict-JSON admin env fragments remain all-or-nothing. Legacy Positron readers reconstruct their current issues on every read, so a fixed-then-rebroken setting can recur correctly.
+The canonical read seam. Assembles source-read reports (each shaped as `{ source?, issues }`), delegates precedence to `resolveProviderCatalogReport`, and returns one complete issue snapshot beside the catalog. Source readers never log; this one-shot orchestrator renders the completed report once. The JSONC user-file reader salvages valid siblings at whole-provider-block granularity. Admin env fragments (parsed as strict JSON) are salvaged too: unrecognized keys are removed and invalid blocks dropped, each with a warning; only an unusable payload is ignored whole. Legacy Positron readers reconstruct their current issues on every read, so a fixed-then-rebroken setting can recur correctly.
 
 ```ts
 const { catalog, issues } = await loadProviderCatalogReport({});
@@ -318,7 +318,7 @@ custom types. `normalizeOpenRouterBaseUrl()` accepts either a host or an
 
 Config flows through **assemble sources → resolve → watch**:
 
-1. **Assemble sources**: the node seam reads a report from each user/env/legacy layer. The user file is salvaged block-by-block; admin fragments remain strict and all-or-nothing.
+1. **Assemble sources**: the node seam reads a report from each user/env/legacy layer. The user file is salvaged block-by-block; admin fragments are salvaged tolerantly (unknown keys removed, invalid blocks dropped, warnings only); an unusable payload is ignored whole.
 2. **Resolve** (`resolveProviderCatalogReport`): rank the sources by kind (`enforced` > `legacy-positron-enforced` > connection env > `user` > `legacy-positron` > `default`), fold them low → high, runtime-validate the result, and return the catalog plus any overlay-drop issues.
 3. **Watch** (`watchResolvedProviderCatalog`): debounced (~300ms), ancestor-aware watch over every source that re-resolves and structurally diffs both catalog and issue snapshots.
 
