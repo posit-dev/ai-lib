@@ -47,7 +47,7 @@ const VENDOR_TO_PROVIDER = new Map<string, ProviderId>();
 for (const [logicalId, legacyId] of Object.entries(POSITRON_LEGACY_AUTH_PROVIDER_IDS)) {
 	if (isProviderId(logicalId)) VENDOR_TO_PROVIDER.set(legacyId, logicalId);
 }
-// Also register auth provider IDs from PROVIDER_MAP (e.g. "github" → "copilot")
+// Also register auth provider IDs from PROVIDER_MAP (e.g. "posit-connect-llm" → "posit-connect")
 for (const logicalId of MAPPED_PROVIDER_IDS) {
 	const mapping = PROVIDER_MAP[logicalId];
 	if (!mapping) continue;

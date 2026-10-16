@@ -488,7 +488,7 @@ for await (const part of stream) {
   }
 }</code></pre>
 			<p>
-				Every provider -- whether it calls a REST API (Anthropic), spawns a subprocess (Copilot), or
+				Every provider -- whether it calls a REST API (Anthropic), a local server (Ollama), or
 				routes through VS Code's LM service -- looks identical to callers through this interface.
 			</p>
 		</div>
@@ -585,7 +585,6 @@ graph TD
             CL2["OpenAIClient"]
             CL3["BedrockClient"]
             CL4["GeminiClient"]
-            CL5["CopilotSdkClient"]
             CL6["OllamaClient"]
             CL7["VscodeLmClient"]
         end
@@ -611,7 +610,6 @@ graph TD
     CL2 --> API
     CL3 --> API
     CL4 --> API
-    CL5 --> API
     CL6 --> API
     CL7 --> LMS
 </pre>
@@ -709,7 +707,6 @@ graph LR
 			<div class="provider-chip">AWS Bedrock</div>
 			<div class="provider-chip">Google Gemini</div>
 			<div class="provider-chip">Google Vertex</div>
-			<div class="provider-chip">GitHub Copilot</div>
 			<div class="provider-chip">DeepSeek</div>
 			<div class="provider-chip">OpenRouter</div>
 			<div class="provider-chip">Ollama (local)</div>

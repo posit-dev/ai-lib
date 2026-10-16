@@ -32,7 +32,6 @@ These rules keep the dependency graph clean:
 | AWS Bedrock       | BedrockClient      | Cached via API  |
 | Google Gemini     | GeminiClient       | Cached via API  |
 | Google Vertex AI  | GoogleVertexClient | Cached via API  |
-| GitHub Copilot    | CopilotSdkClient   | Via Copilot SDK |
 | DeepSeek          | DeepSeekClient     | Cached via API  |
 | OpenRouter        | OpenRouterClient   | Cached via API  |
 | Ollama (local)    | OllamaClient       | Cached via API  |
@@ -209,7 +208,7 @@ import { PROVIDER_MAP, MAPPED_PROVIDER_IDS } from "ai-provider-bridge";
 // MAPPED_PROVIDER_IDS: readonly ProviderId[] (derived from PROVIDER_MAP)
 // e.g. ["anthropic", "positai", "openai", "gemini", "google-vertex",
 //        "openai-compatible", "bedrock", "ms-foundry", "snowflake-cortex",
-//        "copilot", "deepseek"]
+//        "deepseek"]
 
 // PROVIDER_MAP: Partial<Record<ProviderId, AuthProviderMapping>>
 // Each entry has: { authProviderId, scopes, credentialType }
@@ -266,7 +265,7 @@ export { registry };
 
 ### Client Instances
 
-`getClientForProvider()` creates a new `ModelClient` on each call. For API-key providers (Anthropic, OpenAI, etc.), this is lightweight and stateless -- no caching needed. For expensive providers (e.g., Copilot, which spawns a subprocess), the provider's factory function handles internal caching with auth-state transition detection.
+`getClientForProvider()` creates a new `ModelClient` on each call. Clients are lightweight and stateless, so no caching is needed. A provider whose client is expensive to construct should cache inside its own factory function.
 
 ## Dependencies
 
@@ -303,7 +302,6 @@ Informational -- which SDK backs each provider's client. These are bundled (regu
 | Bedrock              | `@ai-sdk/amazon-bedrock`, `@aws-sdk/client-bedrock`, `@aws-sdk/credential-providers` |
 | Gemini               | `@ai-sdk/google`                                                                     |
 | Google Vertex        | `@ai-sdk/google-vertex`, `google-auth-library`                                       |
-| Copilot              | `@github/copilot-sdk`                                                                |
 | DeepSeek             | `@ai-sdk/deepseek`                                                                   |
 | OpenRouter           | `@openrouter/ai-sdk-provider`                                                        |
 | Ollama               | `ai-sdk-ollama`                                                                      |

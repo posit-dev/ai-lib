@@ -26,7 +26,6 @@ import {
 	registerConnectProvider,
 	type ConnectProviderCallbacks,
 } from "./providers/connect-provider";
-import { registerCopilotProvider } from "./providers/copilot-provider";
 import { registerDatabricksProvider } from "./providers/databricks-provider";
 import {
 	registerCustomDeepSeekProvider,
@@ -123,6 +122,9 @@ type ProviderRegistrar = (
  * Every provider's registration, keyed by the canonical ProviderId tuple. The `satisfies` check
  * makes missing or extra registrations a compile error, so this implementation detail does not
  * need to be exposed for a runtime shape test.
+ *
+ * `copilot` is the one ProviderId without a registrar: Copilot models are reached through
+ * vscode.lm, not a bridge client.
  */
 const PROVIDER_REGISTRARS = {
 	positai: (registry, logger, config) =>
@@ -143,7 +145,6 @@ const PROVIDER_REGISTRARS = {
 			config.credentialEnvironment,
 		),
 	anthropic: registerAnthropicProvider,
-	copilot: registerCopilotProvider,
 	openai: registerOpenAIProvider,
 	openrouter: registerOpenRouterProvider,
 	ollama: registerOllamaProvider,
@@ -161,7 +162,7 @@ const PROVIDER_REGISTRARS = {
 	"posit-connect": (registry, logger, config) =>
 		registerConnectProvider(registry, logger, config.connectCallbacks),
 	opencode: registerOpencodeProvider,
-} satisfies Record<ProviderId, ProviderRegistrar>;
+} satisfies Record<Exclude<ProviderId, "copilot">, ProviderRegistrar>;
 
 type CustomProviderRegistrar = (
 	registry: ProviderRegistry,
@@ -215,6 +216,7 @@ export function registerAllProviders(
 ): void {
 	registry.setDefaultUserAgent(config.userAgent);
 	for (const id of PROVIDER_IDS) {
+		if (id === "copilot") continue;
 		if (!config.allowedProviders || config.allowedProviders.includes(id)) {
 			PROVIDER_REGISTRARS[id](registry, logger, config);
 		}

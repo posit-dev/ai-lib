@@ -14,7 +14,7 @@ describe("toProviderId", () => {
 	});
 
 	it("resolves an auth provider id that differs from the catalog id", () => {
-		expect(toProviderId("github")).toBe("copilot");
+		expect(toProviderId("posit-connect-llm")).toBe("posit-connect");
 	});
 
 	it("returns undefined for an unknown vendor", () => {

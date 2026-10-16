@@ -76,8 +76,7 @@ requests use the latest value without rebuilding registrations. A non-empty case
 The gate is type-driven: every `HeaderCarryingCredentials` variant
 (`Exclude<ProviderCredentials, OAuthCredentials>`, in `src/custom-headers.ts`) carries
 `customHeaders` and receives the default — API key, Azure Entra, AWS, Google Cloud, and local.
-Only OAuth passes through unchanged (Posit AI Pass gets the identity directly; Copilot's requests
-are made by the Copilot CLI subprocess). A new credential variant is header-carrying by default,
+Only OAuth passes through unchanged (Posit AI Pass gets the identity directly). A new credential variant is header-carrying by default,
 and the compiler flags every `customHeaders` read if it lacks the field. The injected credentials
 are built per call and never written back; the credential store projects AWS fields explicitly so
 an enriched value passed to a `replace` mutation cannot persist headers.
@@ -145,7 +144,7 @@ profile gating, and the future-model maintenance procedure live in
 | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
 | `src/types.ts`                                   | `PROVIDER_IDS` tuple (14 internal-build IDs) and `ProviderId` type -- single source of truth for valid provider IDs                                                                                                                                                                           | No            |
 | `src/providers/`                                 | Provider registry, model fetchers, client factories (14 internal-build providers)                                                                                                                                                                                                             | No            |
-| `src/model-clients/`                             | Chat API clients (Anthropic, OpenAI, two Gemini clients -- `GeminiClient` (Interactions) and `GeminiGenerateContentClient` (plain `generateContent`) --, Bedrock, Snowflake, Copilot SDK, DeepSeek, etc.) via AI SDK                                                                          | No            |
+| `src/model-clients/`                             | Chat API clients (Anthropic, OpenAI, two Gemini clients -- `GeminiClient` (Interactions) and `GeminiGenerateContentClient` (plain `generateContent`) --, Bedrock, Snowflake, DeepSeek, etc.) via AI SDK                                                                                       | No            |
 | `src/model-capabilities/gemini-interactions.ts`  | Gemini Interactions API thinking profiles (`getGeminiInteractionsProfile`, `hasGeminiInteractionsProfile`) -- bridge SDK-routing logic; the per-provider capability tables themselves live in `ai-config` (moved in ai-lib#9) and are re-exported from the bridge root for existing consumers | No            |
 | `src/provider-map.ts`                            | `PROVIDER_MAP` and `MAPPED_PROVIDER_IDS` -- maps logical provider IDs to the auth session their credentials come from                                                                                                                                                                         | No            |
 | `src/credential-shaping.ts`                      | `shapeCredentials()` -- pure token-to-`ProviderCredentials` shaping over an injected `CredentialConfig`                                                                                                                                                                                       | No            |
@@ -161,8 +160,8 @@ profile gating, and the future-model maintenance procedure live in
 
 ## Provider Inventory
 
-- `PROVIDER_IDS` (in `src/types.ts`) is the single source of truth for valid provider IDs; a `register*Provider()` function exists for every entry.
-- `copilot` has a full SDK-based provider (`CopilotSdkClient`, `copilot-provider.ts`) in addition to the `vscode.lm` path in Positron
+- `PROVIDER_IDS` (in `src/types.ts`) is the single source of truth for valid provider IDs; a `register*Provider()` function exists for every entry except `copilot`.
+- `copilot` has no bridge client, registrar, or `PROVIDER_MAP` entry: Copilot models are reached only through the `vscode.lm` path in Positron. It stays a `ProviderId` (and an `ai-config` catalog id) because vscode.lm model IDs, persisted model selections, and `providers.json` use it.
 
 Positron's direct path uses two derived sets, so the counts stay correct as providers are added:
 
@@ -171,7 +170,7 @@ Positron's direct path uses two derived sets, so the counts stay correct as prov
 
 Positron's direct providers are the union of those two sets. Currently:
 
-- Mapped auth providers: `anthropic`, `positai`, `openai`, `gemini`, `google-vertex`, `openai-compatible`, `bedrock`, `ms-foundry`, `snowflake-cortex`, `copilot`, `deepseek`
+- Mapped auth providers: `anthropic`, `positai`, `openai`, `gemini`, `litellm`, `portkey`, `opencode`, `posit-connect`, `openai-compatible`, `bedrock`, `ms-foundry`, `snowflake-cortex`, `deepseek`, `databricks`, `google-vertex`
 - Local providers: `ollama`, `lmstudio`
 
 ## Base URLs
@@ -519,7 +518,7 @@ Positron's VS Code base includes it.
 
 ## Provider Registration
 
-`register-all-providers.ts` registers every provider into a caller-owned `ProviderRegistry`, honoring `config.allowedProviders`. Its private registrar map is compile-time exhaustive over `PROVIDER_IDS`, while the public `ProviderRegistrationConfig` remains colocated with the orchestrator. Consumers that want to restrict the available provider set pass `allowedProviders`; there is no build-time provider filtering. `config.customProviders` lists `providers.custom` entries as `{ id, clientKind }`; each registers after the built-ins through a registrar table that is exhaustive over `SupportedCustomClientKind`, independent of `allowedProviders`, with its client factory keyed by kind (look it up with `ProviderRegistry.getClientForProviderOrKind`).
+`register-all-providers.ts` registers every provider into a caller-owned `ProviderRegistry`, honoring `config.allowedProviders`. Its private registrar map is compile-time exhaustive over `PROVIDER_IDS` except `copilot` (typed `satisfies Record<Exclude<ProviderId, "copilot">, …>`; the registration loop skips `copilot`), while the public `ProviderRegistrationConfig` remains colocated with the orchestrator. Consumers that want to restrict the available provider set pass `allowedProviders`; there is no build-time provider filtering. `config.customProviders` lists `providers.custom` entries as `{ id, clientKind }`; each registers after the built-ins through a registrar table that is exhaustive over `SupportedCustomClientKind`, independent of `allowedProviders`, with its client factory keyed by kind (look it up with `ProviderRegistry.getClientForProviderOrKind`).
 
 ## Dependencies
 
