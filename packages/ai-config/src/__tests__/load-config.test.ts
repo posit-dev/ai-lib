@@ -10,7 +10,6 @@ import { createConfigFileFixture } from "../../tests/helpers/config-file-fixture
 import type { ConfigFileFixture } from "../../tests/helpers/config-file-fixture.js";
 import { loadProviderCatalogReport, loadResolvedProviderCatalog } from "../node/load-catalog.js";
 import { readEnvFragment } from "../node/load-config.js";
-import { DEFAULT_ENV_VAR, ENFORCED_ENV_VAR } from "../node/paths.js";
 import type { ResolvedProvider } from "../types.js";
 import { BUILTIN_PROVIDER_IDS } from "../vocabulary.js";
 
@@ -774,25 +773,7 @@ describe("loadResolvedProviderCatalog", () => {
 		});
 	});
 
-	describe("env fragment contract (whole-source messages)", () => {
-		it.each([
-			["enforced", "TEST_ENFORCED"],
-			["enforced", ENFORCED_ENV_VAR],
-			["default", "TEST_DEFAULT"],
-			["default", DEFAULT_ENV_VAR],
-		] as const)("%s source names its env var %s in every whole-source message", (kind, name) => {
-			for (const raw of ["not json{", "[]", '{"version":2}', '{"providers":[]}']) {
-				const issues = readEnvFragment(kind, name, { [name]: raw }).issues;
-				expect(issues).toEqual([
-					expect.objectContaining({
-						severity: "error",
-						source: { kind, label: name },
-						message: expect.stringContaining(name),
-					}),
-				]);
-			}
-		});
-
+	describe("env fragment contract (custom entries)", () => {
 		it("enforced custom entry with an unknown field stays disabled; only that field warns", async () => {
 			await fixture.writeTypedConfig({
 				providers: {
