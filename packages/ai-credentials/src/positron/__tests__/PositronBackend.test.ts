@@ -56,10 +56,11 @@ import type { ProviderMap } from "../PositronBackend.js";
 const PROVIDER_MAP: Record<string, AuthProviderMapping> = {
 	anthropic: { authProviderId: "anthropic", scopes: [], credentialType: "apikey" },
 	positai: { authProviderId: "positai", scopes: ["positai"], credentialType: "oauth" },
-	copilot: {
-		authProviderId: "github",
-		scopes: ["read:user"],
-		fallbackScopes: [["read:user", "user:email", "repo", "workflow"], ["user:email"]],
+	// Neutral fixture for the silent-lookup fallback-scope ladder.
+	"scoped-provider": {
+		authProviderId: "scoped-auth",
+		scopes: ["primary"],
+		fallbackScopes: [["primary", "wide"], ["baseline"]],
 		credentialType: "apikey",
 	},
 	databricks: { authProviderId: "databricks", scopes: [], credentialType: "apikey" },
@@ -214,56 +215,60 @@ describe("createPositronBackend", () => {
 		});
 	});
 
-	// --- Copilot fallback scopes (ported from the removed bridge auth suite) ---
+	// --- Fallback scopes ---
 
-	it("uses the primary read:user scope for copilot when a session exists there", async () => {
+	it("uses the primary scopes when a session exists there", async () => {
 		mockGetSession.mockImplementation(async (_id: string, scopes: string[]) =>
-			scopes.length === 1 && scopes[0] === "read:user" ? makeSession("primary-gh") : undefined,
+			scopes.length === 1 && scopes[0] === "primary" ? makeSession("primary-token") : undefined,
 		);
 		const backend = makeBackend();
 
-		expect(await backend.getCredentials("copilot")).toEqual({
+		expect(await backend.getCredentials("scoped-provider")).toEqual({
 			type: "apikey",
-			apiKey: "primary-gh",
+			apiKey: "primary-token",
 			baseUrl: undefined,
 			customHeaders: undefined,
 		});
 		// Primary match short-circuits — no fallback lookups fire.
 		expect(mockGetSession).toHaveBeenCalledTimes(1);
-		expect(mockGetSession).toHaveBeenCalledWith("github", ["read:user"], { silent: true });
+		expect(mockGetSession).toHaveBeenCalledWith("scoped-auth", ["primary"], { silent: true });
 	});
 
-	it("falls back to the aligned scope set for copilot when the primary is missing", async () => {
-		const aligned = ["read:user", "user:email", "repo", "workflow"];
+	it("falls back to the first fallback scope set when the primary is missing", async () => {
+		const wide = ["primary", "wide"];
 		mockGetSession.mockImplementation(async (_id: string, scopes: string[]) =>
-			scopes.length === aligned.length && scopes.every((s, i) => s === aligned[i])
-				? makeSession("aligned-gh")
+			scopes.length === wide.length && scopes.every((s, i) => s === wide[i])
+				? makeSession("wide-token")
 				: undefined,
 		);
 		const backend = makeBackend();
 
-		expect(await backend.getCredentials("copilot")).toMatchObject({ apiKey: "aligned-gh" });
-		expect(mockGetSession).toHaveBeenNthCalledWith(1, "github", ["read:user"], { silent: true });
-		expect(mockGetSession).toHaveBeenNthCalledWith(2, "github", aligned, { silent: true });
+		expect(await backend.getCredentials("scoped-provider")).toMatchObject({ apiKey: "wide-token" });
+		expect(mockGetSession).toHaveBeenNthCalledWith(1, "scoped-auth", ["primary"], { silent: true });
+		expect(mockGetSession).toHaveBeenNthCalledWith(2, "scoped-auth", wide, { silent: true });
 	});
 
-	it("falls back to user:email for copilot when neither primary nor aligned exist", async () => {
+	it("walks the fallback scope sets in order", async () => {
 		mockGetSession.mockImplementation(async (_id: string, scopes: string[]) =>
-			scopes.length === 1 && scopes[0] === "user:email" ? makeSession("email-gh") : undefined,
+			scopes.length === 1 && scopes[0] === "baseline" ? makeSession("baseline-token") : undefined,
 		);
 		const backend = makeBackend();
 
-		expect(await backend.getCredentials("copilot")).toMatchObject({ apiKey: "email-gh" });
-		// Walked all three scope sets: primary → aligned → user:email.
+		expect(await backend.getCredentials("scoped-provider")).toMatchObject({
+			apiKey: "baseline-token",
+		});
+		// Walked all three scope sets: primary → wide → baseline.
 		expect(mockGetSession).toHaveBeenCalledTimes(3);
-		expect(mockGetSession).toHaveBeenNthCalledWith(3, "github", ["user:email"], { silent: true });
+		expect(mockGetSession).toHaveBeenNthCalledWith(3, "scoped-auth", ["baseline"], {
+			silent: true,
+		});
 	});
 
-	it("returns null for copilot when no GitHub session exists for any scope set", async () => {
+	it("returns null when no session exists for any scope set", async () => {
 		mockGetSession.mockResolvedValue(undefined);
 		const backend = makeBackend();
 
-		expect(await backend.getCredentials("copilot")).toBeNull();
+		expect(await backend.getCredentials("scoped-provider")).toBeNull();
 		expect(mockGetSession).toHaveBeenCalledTimes(3);
 	});
 

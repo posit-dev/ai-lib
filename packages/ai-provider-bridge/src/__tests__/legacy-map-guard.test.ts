@@ -38,17 +38,22 @@ function deriveConnectionRows(): Array<{ configKey: string; providerId: string }
 }
 
 describe("legacy connection rows ↔ bridge derivation", () => {
-	it("the map's only non-derived connection row is googleVertex → google-vertex", () => {
-		// google-vertex is declared extra: its PROVIDER_MAP credentialType is
-		// `google-cloud`, so it is not derivable from the apikey rule, but its
-		// legacy `authentication.googleVertex.{baseUrl,customHeaders}` settings
-		// are real and must translate.
+	it("the map's only non-derived connection rows are the declared extras", () => {
+		// Declared extras, not derivable from the apikey rule but real legacy
+		// settings that must still translate:
+		// - google-vertex: its PROVIDER_MAP credentialType is `google-cloud`,
+		//   but `authentication.googleVertex.{baseUrl,customHeaders}` exist.
+		// - copilot: it has no PROVIDER_MAP entry (vscode.lm only), but legacy
+		//   `authentication.github.{baseUrl,customHeaders}` remain migration data.
 		const derived = new Set(
 			deriveConnectionRows().map((row) => `${row.configKey} → ${row.providerId}`),
 		);
 		const extras = LEGACY_CONNECTION_ROWS.filter(
 			(row) => !derived.has(`${row.configKey} → ${row.providerId}`),
 		);
-		expect(extras).toEqual([{ configKey: "googleVertex", providerId: "google-vertex" }]);
+		expect(extras).toEqual([
+			{ configKey: "github", providerId: "copilot" },
+			{ configKey: "googleVertex", providerId: "google-vertex" },
+		]);
 	});
 });

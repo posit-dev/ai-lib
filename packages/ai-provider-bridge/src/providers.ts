@@ -23,7 +23,6 @@ export type {
 	ConnectIntegration,
 	ConnectProviderCallbacks,
 } from "./providers/connect-provider";
-export { registerCopilotProvider } from "./providers/copilot-provider";
 export { registerDatabricksProvider } from "./providers/databricks-provider";
 export {
 	registerCustomDeepSeekProvider,
@@ -122,7 +121,6 @@ export {
 export { AnthropicClient } from "./model-clients/AnthropicClient";
 export type { AnthropicClientAuth } from "./model-clients/AnthropicClient";
 export { DeepSeekClient } from "./model-clients/DeepSeekClient";
-export { CopilotSdkClient } from "./model-clients/CopilotSdkClient";
 export { BedrockClient, isAnthropicModel } from "./model-clients/BedrockClient";
 export type { BedrockClientConfig } from "./model-clients/BedrockClient";
 export { GeminiClient } from "./model-clients/GeminiClient";

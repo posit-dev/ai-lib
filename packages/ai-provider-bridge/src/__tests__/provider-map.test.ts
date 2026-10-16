@@ -12,8 +12,7 @@ describe("PROVIDER_MAP auth provider ids", () => {
 		expect(PROVIDER_MAP.anthropic?.authProviderId).toBe("anthropic");
 	});
 
-	it("avoids auth provider ids another extension owns", () => {
-		expect(PROVIDER_MAP.copilot?.authProviderId).toBe("github");
+	it("avoids an auth provider id another extension owns", () => {
 		expect(PROVIDER_MAP["posit-connect"]?.authProviderId).toBe("posit-connect-llm");
 	});
 

@@ -218,7 +218,7 @@ Add an export for the new `register*Provider()` function. Also export the client
 
 ## Step 7: Auth Session Mapping
 
-Every provider has an auth session mapping except local ones, which have no credentials:
+Every provider has an auth session mapping except local ones, which have no credentials, and `copilot`, which is reached only through vscode.lm:
 
 1. Add an entry to `PROVIDER_MAP` in `src/provider-map.ts`. The auth provider id defaults to the provider ID; set `authProviderId` only when another extension already registers that id
 2. Make sure an auth provider is registered under that id. Unless Positron's auth extension already registers it, declare the id under `contributes.authentication` in Assistant's `packages/positron/package.json`
