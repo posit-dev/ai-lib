@@ -303,7 +303,7 @@ describe("loadResolvedProviderCatalog", () => {
 			);
 		});
 
-		it("keeps an invalid env fragment all-or-nothing and reports its source", async () => {
+		it("drops an unknown provider id from an env fragment and keeps its other rules", async () => {
 			await fixture.writeTypedConfig({
 				providers: { anthropic: { baseUrl: "https://user.example.com" } },
 			});
@@ -321,18 +321,19 @@ describe("loadResolvedProviderCatalog", () => {
 			});
 
 			expect(findProvider(report.catalog, "anthropic")?.connection.baseUrl).toBe(
-				"https://user.example.com",
+				"https://admin.example.com",
 			);
 			expect(report.issues).toEqual([
 				expect.objectContaining({
-					severity: "error",
+					severity: "warning",
 					source: { kind: "enforced", label: "TEST_ENFORCED" },
+					path: ["providers", "mystery-provider"],
 					message: expect.stringContaining("mystery-provider"),
 				}),
 			]);
 		});
 
-		it("ignores an env fragment containing an unsafe custom provider name", async () => {
+		it("drops an unsafe custom provider name from an env fragment and keeps its siblings", async () => {
 			await fixture.writeTypedConfig({
 				providers: { anthropic: { baseUrl: "https://user.example.com" } },
 			});
@@ -346,16 +347,15 @@ describe("loadResolvedProviderCatalog", () => {
 			});
 
 			expect(findProvider(report.catalog, "anthropic")?.connection.baseUrl).toBe(
-				"https://user.example.com",
+				"https://admin.example.com",
 			);
-			// The fragment is ignored whole, so the issue is source-wide (empty
-			// path); the offending key path stays in the message prose.
+			// Only the unsafe entry is dropped, so the issue is a warning at its path.
 			expect(report.issues).toEqual([
 				expect.objectContaining({
-					severity: "error",
+					severity: "warning",
 					source: { kind: "enforced", label: "TEST_ENFORCED" },
-					path: [],
-					message: expect.stringContaining('Custom provider name "__proto__" is unsafe.'),
+					path: ["providers", "custom", "__proto__"],
+					message: 'Custom provider name "__proto__" is unsafe.',
 				}),
 			]);
 		});

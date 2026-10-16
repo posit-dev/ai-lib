@@ -9,7 +9,8 @@ import { promises as fs } from "fs";
 import { formatConfigIssue, sourceConfigIssue, sourcedWholeSourceIssue } from "../config-issue.js";
 import type { ProviderConfigSourceReadReport } from "../config-source.js";
 import type { ProviderConfigSource } from "../resolve-catalog.js";
-import { providersConfigFragmentSchema } from "../schema.js";
+import { salvageProvidersConfigFragment } from "../salvage-config.js";
+import type { SalvageFailureReason } from "../salvage-config.js";
 import type { LoggerLike } from "../types.js";
 import { parseProvidersConfigTolerant } from "./parse-providers-config.js";
 import { DEFAULT_ENV_VAR, ENFORCED_ENV_VAR, PROVIDERS_CONFIG_PATH } from "./paths.js";
@@ -96,7 +97,13 @@ export async function readFileConfig(configPath: string): Promise<ProviderConfig
 	}
 }
 
-/** Read an admin fragment strictly and all-or-nothing. */
+/**
+ * Read an admin fragment tolerantly. Unrecognized keys are removed and a
+ * provider block with an invalid value is dropped, each as a warning with a
+ * path, so the payload's remaining rules still apply. Only an unusable payload
+ * (bad JSON, non-object root or `providers`, unsupported version) is ignored
+ * whole, as an error naming the env var.
+ */
 export function readEnvFragment(
 	kind: "enforced" | "default",
 	envVarName: string,
@@ -122,21 +129,32 @@ export function readEnvFragment(
 		};
 	}
 
-	const result = providersConfigFragmentSchema.safeParse(parsed);
-	if (!result.success) {
-		// The fragment is ignored whole, so the issue is source-wide; the
-		// offending key path stays in the message prose.
+	const result = salvageProvidersConfigFragment(parsed);
+	if (!result.ok) {
 		return {
-			issues: [
-				sourcedWholeSourceIssue(
-					identity,
-					`Validation errors in ${envVarName}: ${formatZodErrors(result.error)}. Ignoring.`,
-				),
-			],
+			issues: [sourcedWholeSourceIssue(identity, envFailureMessage(envVarName, result.reason))],
 		};
 	}
 
-	return { source: { ...identity, config: result.data }, issues: [] };
+	return {
+		source: { ...identity, config: result.config },
+		issues: result.issues.map((issue) => sourceConfigIssue(issue, identity)),
+	};
+}
+
+function envFailureMessage(envVarName: string, reason: SalvageFailureReason): string {
+	switch (reason.kind) {
+		case "not-object":
+			return `${envVarName} must contain a JSON object. Ignoring.`;
+		case "unsupported-version":
+			return `Unsupported ${envVarName} version; expected 1. Ignoring.`;
+		case "providers-not-object":
+			return `"providers" in ${envVarName} must be an object of provider blocks. Ignoring.`;
+		case "seal-failed": {
+			const at = reason.path.length > 0 ? ` at ${reason.path.join(".")}` : "";
+			return `Internal validation of ${envVarName} failed${at}: ${reason.message}. Ignoring.`;
+		}
+	}
 }
 
 function errorMessage(error: unknown): string {
@@ -145,10 +163,4 @@ function errorMessage(error: unknown): string {
 
 function isErrnoCode(error: unknown, code: string): boolean {
 	return error instanceof Error && "code" in error && error.code === code;
-}
-
-function formatZodErrors(error: {
-	issues: readonly { message: string; path?: readonly PropertyKey[] }[];
-}): string {
-	return error.issues.map((issue) => `${issue.path?.join(".") ?? ""}: ${issue.message}`).join("; ");
 }

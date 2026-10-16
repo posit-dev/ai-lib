@@ -2,39 +2,156 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
+import * as z from "zod/v4";
+
 import { configIssuePath, wholeSourceIssue } from "./config-issue.js";
 import type { ConfigIssue } from "./config-issue.js";
 import { customProviderNameIssues } from "./custom-provider-name.js";
 import { isPlainObject } from "./is-plain-object.js";
+import { pruneUnknownKeys } from "./prune-unknown-keys.js";
 import {
+	builtinProviderBlockSchema,
 	builtinProviderBlockSchemas,
+	customProviderEntryFragmentSchema,
 	customProviderEntrySchema,
 	defaultBlockSchema,
+	providersConfigFragmentSchema,
 	providersConfigSchema,
 } from "./schema.js";
-import type { ProvidersConfig } from "./types.js";
+import type { ProvidersConfig, ProvidersConfigFragment } from "./types.js";
 import { unsafeObjectKeyPaths } from "./unsafe-object-key.js";
 import { isBuiltinProviderId } from "./vocabulary.js";
+import type { BuiltinProviderId } from "./vocabulary.js";
 
 export interface SalvagedProvidersConfig {
 	readonly config: ProvidersConfig;
 	readonly issues: ConfigIssue[];
 }
 
+/**
+ * Why a whole source could not be salvaged. Internal: each reader turns a
+ * reason into a message naming its own source (file or env var).
+ */
+export type SalvageFailureReason =
+	| { readonly kind: "not-object" }
+	| { readonly kind: "unsupported-version" }
+	| { readonly kind: "providers-not-object" }
+	| {
+			readonly kind: "seal-failed";
+			readonly path: readonly (string | number)[];
+			readonly message: string;
+	  };
+
+/**
+ * Internal walker result. `issues` holds only per-key/per-block warnings
+ * found before the walk finished (or stopped); whole-source failures are
+ * reported as a `reason`, never as a finished message.
+ */
+export type SalvageResult<T> =
+	| { readonly ok: true; readonly config: T; readonly issues: ConfigIssue[] }
+	| { readonly ok: false; readonly reason: SalvageFailureReason; readonly issues: ConfigIssue[] };
+
+/** The slice of a Zod schema's `safeParse` the walker's seal relies on. */
+interface Sealer<T> {
+	safeParse(input: unknown):
+		| { success: true; data: T }
+		| {
+				success: false;
+				error: { issues: readonly { message: string; path: readonly PropertyKey[] }[] };
+		  };
+}
+
+/**
+ * What differs between the user file and an admin env fragment: the block
+ * schemas, whether unrecognized keys are pruned before validation, and the
+ * root schema that seals the reconstructed object (which fixes the result
+ * type `T`).
+ */
+interface SalvageProfile<T> {
+	readonly builtinBlockSchema: (id: BuiltinProviderId) => z.core.$ZodType;
+	readonly defaultBlockSchema: z.core.$ZodType;
+	readonly customEntrySchema: z.core.$ZodType;
+	readonly pruneUnknownKeys: boolean;
+	readonly seal: Sealer<T>;
+}
+
+/** User providers.json: tailored strict blocks, whole blocks kept or dropped. */
+const FULL_PROFILE: SalvageProfile<ProvidersConfig> = {
+	builtinBlockSchema: (id) => builtinProviderBlockSchemas[id],
+	defaultBlockSchema,
+	customEntrySchema: customProviderEntrySchema,
+	pruneUnknownKeys: false,
+	seal: providersConfigSchema,
+};
+
+/** Admin env fragments: superset blocks, unrecognized keys pruned first. */
+const FRAGMENT_PROFILE: SalvageProfile<ProvidersConfigFragment> = {
+	builtinBlockSchema: () => builtinProviderBlockSchema,
+	defaultBlockSchema,
+	customEntrySchema: customProviderEntryFragmentSchema,
+	pruneUnknownKeys: true,
+	seal: providersConfigFragmentSchema,
+};
+
 const ROOT_KEYS = new Set(["$schema", "version", "providers"]);
+
+type ConfigPath = readonly (string | number)[];
 
 /**
  * Recover independently-valid provider blocks from parsed providers.json.
  * Whole blocks are retained or dropped; individual fields are never pruned.
  */
 export function salvageProvidersConfig(parsed: unknown): SalvagedProvidersConfig {
-	const strict = providersConfigSchema.safeParse(parsed);
+	const result = salvageWithProfile(parsed, FULL_PROFILE);
+	if (result.ok) {
+		return { config: result.config, issues: result.issues };
+	}
+	const { reason } = result;
+	if (reason.kind === "not-object") {
+		// Nothing was walked, so there are no earlier warnings to keep.
+		return {
+			config: {},
+			issues: [wholeSourceIssue("Expected providers.json to contain a JSON object.")],
+		};
+	}
+	return { config: {}, issues: [...result.issues, wholeSourceIssue(fileFailureMessage(reason))] };
+}
+
+/**
+ * Internal (not exported from the package entry): salvage a parsed admin
+ * config fragment. Unrecognized keys are removed at any depth, a block whose
+ * values are invalid is dropped, and every such drop is a warning with a
+ * path. Only an unusable payload fails whole, as a reason.
+ */
+export function salvageProvidersConfigFragment(
+	parsed: unknown,
+): SalvageResult<ProvidersConfigFragment> {
+	return salvageWithProfile(parsed, FRAGMENT_PROFILE);
+}
+
+function fileFailureMessage(reason: Exclude<SalvageFailureReason, { kind: "not-object" }>): string {
+	switch (reason.kind) {
+		case "unsupported-version":
+			return "Unsupported providers.json version; expected 1.";
+		case "providers-not-object":
+			return '"providers" must be an object of provider blocks.';
+		case "seal-failed": {
+			// A salvage bug discarded the whole file: source-wide issue, with the
+			// failing path kept in the message prose for debugging.
+			const at = reason.path.length > 0 ? ` at ${reason.path.join(".")}` : "";
+			return `Internal salvage validation failed${at}: ${reason.message}`;
+		}
+	}
+}
+
+function salvageWithProfile<T>(parsed: unknown, profile: SalvageProfile<T>): SalvageResult<T> {
+	const strict = profile.seal.safeParse(parsed);
 	if (strict.success) {
-		return { config: strict.data, issues: [] };
+		return { ok: true, config: strict.data, issues: [] };
 	}
 
 	if (!isPlainObject(parsed)) {
-		return degradedIssue("Expected providers.json to contain a JSON object.");
+		return { ok: false, reason: { kind: "not-object" }, issues: [] };
 	}
 
 	const issues: ConfigIssue[] = [];
@@ -58,72 +175,66 @@ export function salvageProvidersConfig(parsed: unknown): SalvagedProvidersConfig
 
 	if (parsed.version !== undefined) {
 		if (parsed.version !== 1) {
-			issues.push(wholeSourceIssue("Unsupported providers.json version; expected 1."));
-			return { config: {}, issues };
+			return { ok: false, reason: { kind: "unsupported-version" }, issues };
 		}
 		reconstructed.version = 1;
 	}
 
 	if (parsed.providers !== undefined) {
 		if (!isPlainObject(parsed.providers)) {
-			issues.push(wholeSourceIssue('"providers" must be an object of provider blocks.'));
-			return { config: {}, issues };
+			return { ok: false, reason: { kind: "providers-not-object" }, issues };
 		}
-		reconstructed.providers = salvageProvidersMap(parsed.providers, issues);
+		reconstructed.providers = salvageProvidersMap(parsed.providers, profile, issues);
 	}
 
-	const sealed = providersConfigSchema.safeParse(reconstructed);
+	const sealed = profile.seal.safeParse(reconstructed);
 	if (!sealed.success) {
-		// A salvage bug discarded the whole file: source-wide issue, with the
-		// failing path kept in the message prose for debugging.
 		const first = sealed.error.issues[0];
-		const firstPath = configIssuePath(first?.path ?? []);
-		const at = firstPath.length > 0 ? ` at ${firstPath.join(".")}` : "";
 		return {
-			config: {},
-			issues: [
-				...issues,
-				wholeSourceIssue(
-					`Internal salvage validation failed${at}: ${first?.message ?? "unknown validation error"}`,
-				),
-			],
+			ok: false,
+			reason: {
+				kind: "seal-failed",
+				path: configIssuePath(first?.path ?? []),
+				message: first?.message ?? "unknown validation error",
+			},
+			issues,
 		};
 	}
 
-	return { config: sealed.data, issues };
+	return { ok: true, config: sealed.data, issues };
 }
 
-function salvageProvidersMap(
+function salvageProvidersMap<T>(
 	providers: Record<string, unknown>,
+	profile: SalvageProfile<T>,
 	issues: ConfigIssue[],
 ): Record<string, unknown> {
 	const result: Record<string, unknown> = {};
 	for (const [key, value] of Object.entries(providers)) {
+		const path = ["providers", key];
 		if (isBuiltinProviderId(key)) {
-			keepParsed(result, key, value, builtinProviderBlockSchemas[key], ["providers", key], issues);
+			keepBlock(result, key, value, profile.builtinBlockSchema(key), profile, path, issues);
 			continue;
 		}
 		if (key === "default") {
-			keepParsed(result, key, value, defaultBlockSchema, ["providers", key], issues);
+			keepBlock(result, key, value, profile.defaultBlockSchema, profile, path, issues);
 			continue;
 		}
 		if (key === "custom") {
-			salvageCustomProviders(result, value, issues);
+			salvageCustomProviders(result, value, profile, issues);
 			continue;
 		}
 		issues.push(
-			warning(
-				["providers", key],
-				`"${key}" is not a known provider id; did you mean providers.custom.${key}?`,
-			),
+			warning(path, `"${key}" is not a known provider id; did you mean providers.custom.${key}?`),
 		);
 	}
 	return result;
 }
 
-function salvageCustomProviders(
+function salvageCustomProviders<T>(
 	providers: Record<string, unknown>,
 	value: unknown,
+	profile: SalvageProfile<T>,
 	issues: ConfigIssue[],
 ): void {
 	if (!isPlainObject(value)) {
@@ -134,28 +245,31 @@ function salvageCustomProviders(
 	const custom: Record<string, unknown> = {};
 	for (const [name, entry] of Object.entries(value)) {
 		const path = ["providers", "custom", name];
+		// Checked before anything is copied: rejects `__proto__` and
+		// reserved/built-in names.
 		const nameIssue = customProviderNameIssues(name)[0];
 		if (nameIssue) {
 			issues.push(warning(path, nameIssue));
 			continue;
 		}
-		keepParsed(custom, name, entry, customProviderEntrySchema, path, issues);
+		keepBlock(custom, name, entry, profile.customEntrySchema, profile, path, issues);
 	}
 	providers.custom = custom;
 }
 
-function keepParsed<T>(
+/**
+ * Keep one provider block if it survives, in order: the unsafe-key scan on
+ * the raw block (pruning could otherwise remove the unknown field holding a
+ * `__proto__` key), pruning (fragment profile only), and validation. A block
+ * failing the scan or validation is dropped with a warning.
+ */
+function keepBlock<T>(
 	target: Record<string, unknown>,
 	key: string,
 	value: unknown,
-	schema: {
-		safeParse(
-			input: unknown,
-		):
-			| { success: true; data: T }
-			| { success: false; error: { issues: readonly { message: string }[] } };
-	},
-	path: readonly (string | number)[],
+	schema: z.core.$ZodType,
+	profile: SalvageProfile<T>,
+	path: ConfigPath,
 	issues: ConfigIssue[],
 ): void {
 	const unsafePath = unsafeObjectKeyPaths(value)[0];
@@ -165,7 +279,13 @@ function keepParsed<T>(
 		);
 		return;
 	}
-	const parsed = schema.safeParse(value);
+	let candidate = value;
+	if (profile.pruneUnknownKeys) {
+		const pruned = pruneUnknownKeys(value, schema, path);
+		issues.push(...pruned.issues);
+		candidate = pruned.value;
+	}
+	const parsed = z.safeParse(schema, candidate);
 	if (parsed.success) {
 		target[key] = parsed.data;
 		return;
@@ -177,10 +297,6 @@ function formatRelativePath(path: ConfigIssue["path"]): string {
 	return path.length === 0 ? "the provider block" : path.map(String).join(".");
 }
 
-function warning(path: readonly (string | number)[], message: string): ConfigIssue {
+function warning(path: ConfigPath, message: string): ConfigIssue {
 	return { severity: "warning", path, message };
-}
-
-function degradedIssue(message: string): SalvagedProvidersConfig {
-	return { config: {}, issues: [wholeSourceIssue(message)] };
 }
