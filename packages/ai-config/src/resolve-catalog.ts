@@ -18,11 +18,12 @@
  */
 
 import { buildCatalog } from "./build-catalog.js";
-import { formatConfigIssue, sourcedWholeSourceIssue } from "./config-issue.js";
-import type { SourcedConfigIssue } from "./config-issue.js";
+import { configIssueSource, formatConfigIssue, sourcedWholeSourceIssue } from "./config-issue.js";
+import type { ConfigIssue, SourcedConfigIssue } from "./config-issue.js";
 import { readEnvConnectionConfig } from "./connection-env.js";
 import { mergeConfigFragments } from "./enforce.js";
 import type { EnablementLayer } from "./resolve-enabled.js";
+import { salvageProvidersConfigFragment } from "./salvage-config.js";
 import { providersConfigSchema } from "./schema.js";
 import type {
 	AgentEnginesConfig,
@@ -220,10 +221,11 @@ export function resolveProviderCatalogReport(
 		.map<EnablementLayer>((s) => s.config.providers);
 	const connectionProvenance = resolveConnectionProvenance(kept, config);
 	const authPolicies = resolveAuthPolicies(kept, config);
+	const engines = resolveAgentEngines(highestFirst);
 	return {
 		catalog: buildCatalog(config, enabledLayers, connectionProvenance, authPolicies),
-		agentEngines: resolveAgentEngines(highestFirst),
-		issues,
+		agentEngines: engines.agentEngines,
+		issues: [...issues, ...engines.issues],
 	};
 }
 
@@ -232,19 +234,35 @@ export function resolveProviderCatalogReport(
  * with the same `deepMerge` rules as providers: a field set by a higher layer
  * wins, other fields merge per leaf, and an ACP agent is replaced whole.
  *
- * Folded over every source read, not just the ones provider recovery kept:
- * each source's block is already valid on its own (salvage drops bad fields
- * and command-less agents), so the merge is always valid, and an admin's
- * master switch never disappears because of an unrelated provider problem
- * in the same overlay.
+ * Independent of provider recovery in both directions: every source's block
+ * is folded (so an admin's master switch survives an unrelated provider
+ * problem in the same overlay), and recovery never looks at `agentEngines`.
+ * Each block is salvaged here, so the merge is valid even for a source no
+ * reader salvaged; for one that was, salvage is a single strict parse.
  */
-function resolveAgentEngines(highestFirst: readonly RankedConfigSource[]): AgentEnginesConfig {
+function resolveAgentEngines(highestFirst: readonly RankedConfigSource[]): {
+	agentEngines: AgentEnginesConfig;
+	issues: SourcedConfigIssue[];
+} {
 	let merged: ProvidersConfigFragment = {};
+	const issues: SourcedConfigIssue[] = [];
 	for (let i = highestFirst.length - 1; i >= 0; i--) {
-		const { agentEngines } = highestFirst[i].config;
-		if (agentEngines) merged = mergeConfigFragments(merged, { agentEngines });
+		const source = highestFirst[i];
+		const { agentEngines } = source.config;
+		if (!agentEngines) continue;
+		const salvaged = salvageProvidersConfigFragment({ agentEngines });
+		const blockIssues: ConfigIssue[] = salvaged.ok
+			? salvaged.issues
+			: [
+					...salvaged.issues,
+					{ severity: "warning", path: ["agentEngines"], message: "Ignoring the block." },
+				];
+		issues.push(...blockIssues.map((issue) => ({ ...issue, source: configIssueSource(source) })));
+		if (salvaged.ok && salvaged.config.agentEngines) {
+			merged = mergeConfigFragments(merged, { agentEngines: salvaged.config.agentEngines });
+		}
 	}
-	return merged.agentEngines ?? {};
+	return { agentEngines: merged.agentEngines ?? {}, issues };
 }
 
 /**
@@ -540,14 +558,17 @@ function chooseDroppedSource(
 
 /**
  * Fold a highest-first source list from lowest → highest precedence into a
- * single config and validate it with the full schema.
+ * single config and validate it with the full schema. `agentEngines` is left
+ * out: {@link resolveAgentEngines} owns it, so an engine problem never drops
+ * an overlay's provider policy.
  */
 function mergeAndValidate(
 	highestFirst: readonly RankedConfigSource[],
 ): ReturnType<typeof providersConfigSchema.safeParse> {
 	let merged: ProvidersConfigFragment = {};
 	for (let i = highestFirst.length - 1; i >= 0; i--) {
-		merged = mergeConfigFragments(merged, highestFirst[i].config);
+		const { agentEngines: _owned, ...config } = highestFirst[i].config;
+		merged = mergeConfigFragments(merged, config);
 	}
 	return providersConfigSchema.safeParse(merged);
 }

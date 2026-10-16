@@ -8,6 +8,7 @@ import { createConfigFileFixture } from "../../tests/helpers/config-file-fixture
 import type { ConfigFileFixture } from "../../tests/helpers/config-file-fixture.js";
 import { loadProviderCatalogReport } from "../node/load-catalog.js";
 import { mutateProvidersConfig } from "../node/mutate-config.js";
+import { resolveProviderCatalogReport } from "../resolve-catalog.js";
 
 const ENFORCED = "TEST_AGENT_ENGINES_ENFORCED";
 const DEFAULT = "TEST_AGENT_ENGINES_DEFAULT";
@@ -121,6 +122,33 @@ describe("agentEngines resolution", () => {
 
 		expect(report.issues.some((issue) => issue.severity === "error")).toBe(true);
 		expect(report.agentEngines).toEqual({ enabled: false });
+	});
+
+	it("salvages an unread source's engines without dropping its provider policy", () => {
+		// A caller of the pure resolver may pass a source no reader salvaged.
+		const report = resolveProviderCatalogReport({
+			sources: [
+				{
+					kind: "enforced",
+					label: "admin",
+					config: {
+						providers: { anthropic: { enabled: false } },
+						agentEngines: { enabled: false, maxLiveSessions: 0, acp: { bad: { command: "" } } },
+					},
+				},
+			],
+		});
+
+		expect(report.catalog.find((p) => p.id === "anthropic")?.enabled).toBe(false);
+		expect(report.agentEngines).toEqual({ enabled: false, acp: {} });
+		expect(report.issues).toEqual([
+			expect.objectContaining({
+				severity: "warning",
+				path: ["agentEngines", "maxLiveSessions"],
+				source: { kind: "enforced", label: "admin" },
+			}),
+			expect.objectContaining({ severity: "warning", path: ["agentEngines", "acp", "bad"] }),
+		]);
 	});
 
 	it("salvages the user file field by field, keeping the siblings of a bad entry", async () => {

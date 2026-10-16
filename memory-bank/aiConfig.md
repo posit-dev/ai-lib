@@ -214,11 +214,15 @@ and engines-off, the gate, path resolution, engine ids) belongs to the host
 - **Salvaged field by field.** `salvageAgentEngines` keeps or drops each
   scalar, each engine block and each ACP agent on its own, with a warning; an
   unknown key under `agentEngines` drops just that key.
-- **Resolved outside provider recovery.** `resolveAgentEngines` folds every
-  read source's block (not just the sources `recoverValidStack` kept): each
-  source's block is valid alone, so the merge always is, and an enforced
-  master switch survives an unrelated provider problem in the same overlay.
-  The result is `agentEngines` on the report (`{}` when no layer sets one).
+- **Resolved outside provider recovery, in both directions.**
+  `resolveAgentEngines` folds every read source's block (not just the sources
+  `recoverValidStack` kept), so an enforced master switch survives an
+  unrelated provider problem in the same overlay; `mergeAndValidate` leaves
+  `agentEngines` out, so an engine problem never drops an overlay's provider
+  policy. The fold salvages each block itself, so a source a caller of the
+  pure resolver built without salvage still merges validly (a single strict
+  parse for an already-salvaged one). The result is `agentEngines` on the
+  report (`{}` when no layer sets one).
 - **Watcher.** A rebuild whose resolved `agentEngines` differs emits a change
   with `agentEnginesChanged: true`, even when no provider changed.
 - **Published as a preview** in `providers.schema.json`. A writer whose
