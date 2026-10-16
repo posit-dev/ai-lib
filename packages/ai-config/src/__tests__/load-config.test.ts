@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createConfigFileFixture } from "../../tests/helpers/config-file-fixture.js";
 import type { ConfigFileFixture } from "../../tests/helpers/config-file-fixture.js";
 import { loadProviderCatalogReport, loadResolvedProviderCatalog } from "../node/load-catalog.js";
+import { readEnvFragment } from "../node/load-config.js";
 import type { ResolvedProvider } from "../types.js";
 import { BUILTIN_PROVIDER_IDS } from "../vocabulary.js";
 
@@ -486,6 +487,190 @@ describe("loadResolvedProviderCatalog", () => {
 			});
 
 			expect(findProvider(catalog, "anthropic")?.enabled).toBe(false);
+		});
+	});
+
+	// ========================================================================
+	// Env fragments keep recognized rules
+	// ========================================================================
+
+	describe("env fragments keep recognized rules", () => {
+		const enforcedSource = { kind: "enforced", label: "TEST_ENFORCED" } as const;
+
+		async function loadWithEnforced(payload: unknown) {
+			await fixture.writeTypedConfig({ providers: { anthropic: { enabled: true } } });
+			return loadProviderCatalogReport({
+				configPath,
+				enforcedEnvVar: "TEST_ENFORCED",
+				envVars: { TEST_ENFORCED: JSON.stringify(payload) },
+			});
+		}
+
+		function enforcedBlock(payload: unknown, providerId: "anthropic" | "openai") {
+			const report = readEnvFragment("enforced", "TEST_ENFORCED", {
+				TEST_ENFORCED: JSON.stringify(payload),
+			});
+			return report.source?.config.providers?.[providerId];
+		}
+
+		it("enforced: unknown root key keeps the provider rules", async () => {
+			const payload = {
+				providers: { anthropic: { enabled: false } },
+				agents: { claude: { enabled: false } },
+			};
+			const report = await loadWithEnforced(payload);
+
+			expect(findProvider(report.catalog, "anthropic")?.enabled).toBe(false);
+			expect(enforcedBlock(payload, "anthropic")).toEqual({ enabled: false });
+			expect(report.issues).toEqual([
+				expect.objectContaining({ severity: "warning", source: enforcedSource, path: ["agents"] }),
+			]);
+		});
+
+		it("enforced: unknown provider id keeps sibling providers' rules", async () => {
+			const payload = {
+				providers: { anthropic: { enabled: false }, "future-provider": {} },
+			};
+			const report = await loadWithEnforced(payload);
+
+			expect(findProvider(report.catalog, "anthropic")?.enabled).toBe(false);
+			expect(enforcedBlock(payload, "anthropic")).toEqual({ enabled: false });
+			expect(report.issues).toEqual([
+				expect.objectContaining({
+					severity: "warning",
+					source: enforcedSource,
+					path: ["providers", "future-provider"],
+				}),
+			]);
+		});
+
+		it("enforced: unknown field in a provider block keeps the block", async () => {
+			const payload = { providers: { anthropic: { enabled: false, futureField: 1 } } };
+			const report = await loadWithEnforced(payload);
+
+			expect(findProvider(report.catalog, "anthropic")?.enabled).toBe(false);
+			expect(enforcedBlock(payload, "anthropic")).toEqual({ enabled: false });
+			expect(report.issues).toEqual([
+				expect.objectContaining({
+					severity: "warning",
+					source: enforcedSource,
+					path: ["providers", "anthropic", "futureField"],
+				}),
+			]);
+		});
+
+		it("enforced: unknown field in a models.overrides value keeps the block", async () => {
+			const payload = {
+				providers: {
+					anthropic: {
+						models: { deny: ["blocked-model"], overrides: { m: { name: "N", futureField: 1 } } },
+					},
+				},
+			};
+			const report = await loadWithEnforced(payload);
+
+			const models = findProvider(report.catalog, "anthropic")?.models;
+			expect(models?.deny).toEqual(["blocked-model"]);
+			expect(models?.overrides?.["m"]?.name).toBe("N");
+			expect(report.issues).toEqual([
+				expect.objectContaining({
+					severity: "warning",
+					source: enforcedSource,
+					path: ["providers", "anthropic", "models", "overrides", "m", "futureField"],
+				}),
+			]);
+		});
+
+		it("enforced: unknown field in a models.custom element keeps the block", async () => {
+			const payload = {
+				providers: {
+					anthropic: {
+						models: {
+							deny: ["blocked-model"],
+							custom: [
+								{
+									id: "my-model",
+									name: "My Model",
+									maxContextLength: 1000,
+									supportsTools: true,
+									supportsImages: false,
+									supportsToolResultImages: false,
+									supportsWebSearch: false,
+									futureField: 1,
+								},
+							],
+						},
+					},
+				},
+			};
+			const report = await loadWithEnforced(payload);
+
+			const models = findProvider(report.catalog, "anthropic")?.models;
+			expect(models?.deny).toEqual(["blocked-model"]);
+			expect(models?.custom?.map((m) => m.id)).toEqual(["my-model"]);
+			expect(report.issues).toEqual([
+				expect.objectContaining({
+					severity: "warning",
+					source: enforcedSource,
+					path: ["providers", "anthropic", "models", "custom", 0, "futureField"],
+				}),
+			]);
+		});
+
+		it("enforced: unknown field in a sub-section keeps the block", async () => {
+			const payload = {
+				providers: { bedrock: { aws: { region: "us-east-1", futureField: 1 } } },
+			};
+			const report = await loadWithEnforced(payload);
+
+			expect(findProvider(report.catalog, "bedrock")?.connection.aws?.region).toBe("us-east-1");
+			expect(report.issues).toEqual([
+				expect.objectContaining({
+					severity: "warning",
+					source: enforcedSource,
+					path: ["providers", "bedrock", "aws", "futureField"],
+				}),
+			]);
+		});
+
+		it("enforced: one invalid block is dropped and keeps the others", async () => {
+			const payload = {
+				providers: { anthropic: { enabled: false }, openai: { enabled: "no" } },
+			};
+			const report = await loadWithEnforced(payload);
+
+			expect(findProvider(report.catalog, "anthropic")?.enabled).toBe(false);
+			expect(enforcedBlock(payload, "openai")).toBeUndefined();
+			expect(report.issues).toEqual([
+				expect.objectContaining({
+					severity: "warning",
+					source: enforcedSource,
+					path: ["providers", "openai"],
+				}),
+			]);
+		});
+
+		it("default env var: unknown root key keeps its provider defaults", async () => {
+			await fixture.writeTypedConfig({});
+			const report = await loadProviderCatalogReport({
+				configPath,
+				defaultEnvVar: "TEST_DEFAULT",
+				envVars: {
+					TEST_DEFAULT: JSON.stringify({
+						providers: { default: { enabled: false } },
+						agents: { claude: { enabled: false } },
+					}),
+				},
+			});
+
+			expect(findProvider(report.catalog, "anthropic")?.enabled).toBe(false);
+			expect(report.issues).toEqual([
+				expect.objectContaining({
+					severity: "warning",
+					source: { kind: "default", label: "TEST_DEFAULT" },
+					path: ["agents"],
+				}),
+			]);
 		});
 	});
 
