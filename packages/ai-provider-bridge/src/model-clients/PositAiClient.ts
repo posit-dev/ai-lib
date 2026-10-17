@@ -36,6 +36,8 @@ import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
 	createStepLogger,
+	experimentalStructuredOutput,
+	rejectUnenforceableResponseFormat,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 import { mergeProviderTools } from "./provider-tools";
@@ -239,11 +241,13 @@ export class PositAiClient implements ModelClient {
 					abortSignal: abortController.signal,
 					providerOptions,
 					headers: requestHeaders,
+					experimental_output: experimentalStructuredOutput(params.responseSchema),
 					// Capture raw JSON on each step finish
 					onStepFinish: createStepLogger(params.stepLoggers || [], "positai", params.model),
 				},
 				this.logger,
 			);
+			await rejectUnenforceableResponseFormat(result, params.responseSchema, cleanup);
 
 			return convertAiSdkStreamToPlatform(result.fullStream, cleanup);
 		} else if (normalizedProtocol === "openai-chat") {
@@ -258,6 +262,10 @@ export class PositAiClient implements ModelClient {
 				name: "positai",
 				baseURL: joinPath(effectiveBaseUrl, "/openai/v1"),
 				fetch: authenticatedFetch,
+				// Send json_schema (strict) rather than plain json_object mode when a
+				// response schema is requested; if a model on this route rejects it,
+				// the request 400s and the caller fails closed.
+				supportsStructuredOutputs: true,
 				...(thinkingFields && {
 					transformRequestBody: (body: Record<string, unknown>) => ({
 						...body,
@@ -286,9 +294,11 @@ export class PositAiClient implements ModelClient {
 				tools: params.tools,
 				toolChoice: params.tools ? "auto" : undefined,
 				abortSignal: abortController.signal,
+				experimental_output: experimentalStructuredOutput(params.responseSchema),
 				// Capture raw JSON on each step finish
 				onStepFinish: createStepLogger(params.stepLoggers || [], "positai", params.model),
 			});
+			await rejectUnenforceableResponseFormat(result, params.responseSchema, cleanup);
 
 			return convertAiSdkStreamToPlatform(result.fullStream, cleanup);
 		} else {

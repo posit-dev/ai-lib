@@ -24,6 +24,8 @@ import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
 	createStepLogger,
+	experimentalStructuredOutput,
+	rejectUnenforceableResponseFormat,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 import { withRawHttpLogging } from "./raw-http-logging";
@@ -137,9 +139,11 @@ export class OllamaClient implements ModelClient {
 			tools: params.tools,
 			toolChoice: params.tools ? "auto" : undefined,
 			abortSignal: abortController.signal,
+			experimental_output: experimentalStructuredOutput(params.responseSchema),
 			// Capture raw JSON on each step finish
 			onStepFinish: createStepLogger(params.stepLoggers || [], "ollama", params.model),
 		});
+		await rejectUnenforceableResponseFormat(result, params.responseSchema, cleanup);
 
 		// Convert to platform-agnostic format with cleanup on completion
 		return convertAiSdkStreamToPlatform(result.fullStream, cleanup);

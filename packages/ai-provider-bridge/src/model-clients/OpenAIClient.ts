@@ -23,6 +23,8 @@ import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
 	createStepLogger,
+	experimentalStructuredOutput,
+	rejectUnenforceableResponseFormat,
 	suppressAiSdkDefaultErrorLogging,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
@@ -210,10 +212,12 @@ export class OpenAIClient implements ModelClient {
 			toolChoice: tools ? "auto" : undefined,
 			abortSignal: abortController.signal,
 			providerOptions,
+			experimental_output: experimentalStructuredOutput(params.responseSchema),
 			onError: suppressAiSdkDefaultErrorLogging,
 			// Capture raw JSON on each step finish
 			onStepFinish: createStepLogger(params.stepLoggers || [], "openai", params.model),
 		});
+		await rejectUnenforceableResponseFormat(result, params.responseSchema, cleanup);
 
 		// Convert to platform-agnostic format with cleanup on completion
 		return convertAiSdkStreamToPlatform(result.fullStream, cleanup);

@@ -11,11 +11,12 @@
 
 import { randomUUID } from "crypto";
 
-import type { LanguageModelUsage, TextStreamPart } from "ai";
-import { APICallError, RetryError } from "ai";
+import type { CallWarning, LanguageModelUsage, TextStreamPart } from "ai";
+import { APICallError, jsonSchema, Output, RetryError } from "ai";
 
 import type { StepLogger } from "../StepLogger";
 import type { AiToolWithJsonSchema, CancellationToken, LMStreamPart } from "../types";
+import type { ResponseSchemaSpec } from "./ModelClient";
 
 /** Cap the response body excerpt included in synthesized error messages. */
 const MAX_ERROR_BODY_CHARS = 500;
@@ -91,6 +92,59 @@ export async function* convertAiSdkStreamToPlatform(
 	} finally {
 		cleanup();
 	}
+}
+
+/**
+ * Build the `experimental_output` value for `streamText` from a response
+ * schema. The AI SDK maps it to each route's enforcement mechanism (native
+ * response format, or a schema-forced tool where the route lacks one) and
+ * converts the response back to ordinary text deltas, so consumers see no
+ * stream-shape difference. Returns undefined when no schema was requested.
+ */
+export function experimentalStructuredOutput(
+	responseSchema: ResponseSchemaSpec | undefined,
+): ReturnType<typeof Output.object> | undefined {
+	if (!responseSchema) return undefined;
+	return Output.object({
+		schema: jsonSchema(responseSchema.schema),
+		name: responseSchema.name,
+	});
+}
+
+/**
+ * Fail closed when a route cannot enforce a requested response schema.
+ *
+ * Providers that can't constrain output degrade instead of erroring: they
+ * emit a `responseFormat` warning (e.g. DeepSeek injects the schema into the
+ * system message; openai-compatible without `supportsStructuredOutputs`
+ * falls back to plain JSON mode). Awaiting the stream's warnings and throwing
+ * on any `responseFormat` entry turns that silent degradation into a request
+ * error. No-op when no schema was requested. On throw, runs `cleanup` so the
+ * caller's abort subscription doesn't leak.
+ */
+export async function rejectUnenforceableResponseFormat(
+	result: { warnings: PromiseLike<CallWarning[] | undefined> },
+	responseSchema: ResponseSchemaSpec | undefined,
+	cleanup: () => void,
+): Promise<void> {
+	// `warnings` is a lazy getter: accessing it creates a promise whose
+	// rejection must be consumed. Touch it only when a schema was requested —
+	// an unawaited access would surface as an unhandled rejection when the
+	// stream ends abnormally.
+	if (!responseSchema) return;
+	const resolved = await result.warnings;
+	const hasFeature = (warning: CallWarning): warning is Extract<CallWarning, { feature: string }> =>
+		"feature" in warning;
+	const hit = resolved
+		?.filter(hasFeature)
+		.find((warning) => warning.feature.startsWith("responseFormat"));
+	if (!hit) return;
+	cleanup();
+	const detail = hit.details ? `: ${hit.details}` : "";
+	throw new Error(
+		`This route cannot enforce the requested JSON response schema "${responseSchema.name}" ` +
+			`(provider warning: ${hit.feature}${detail})`,
+	);
 }
 
 /**

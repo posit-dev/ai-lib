@@ -31,6 +31,8 @@ import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
 	createStepLogger,
+	experimentalStructuredOutput,
+	rejectUnenforceableResponseFormat,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 import { prepareExplicitOpenAIRequest } from "./openai-prompt-caching";
@@ -239,6 +241,7 @@ export class BedrockClient implements ModelClient {
 			abortSignal: abortController.signal,
 			providerOptions,
 			headers: anthropicOptions.headers,
+			experimental_output: experimentalStructuredOutput(params.responseSchema),
 			// Capture raw JSON on each step finish
 			onStepFinish: createStepLogger(
 				params.stepLoggers || [],
@@ -246,6 +249,7 @@ export class BedrockClient implements ModelClient {
 				params.model,
 			),
 		});
+		await rejectUnenforceableResponseFormat(result, params.responseSchema, cleanup);
 
 		// Convert to platform-agnostic format with cleanup on completion
 		return convertAiSdkStreamToPlatform(result.fullStream, cleanup);

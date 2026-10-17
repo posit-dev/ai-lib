@@ -36,6 +36,8 @@ vi.mock("../ai-sdk-helpers", () => ({
 		cleanup: vi.fn(),
 	})),
 	createStepLogger: vi.fn(() => undefined),
+	experimentalStructuredOutput: vi.fn(() => undefined),
+	rejectUnenforceableResponseFormat: vi.fn(async () => {}),
 }));
 
 import type { CancellationToken } from "../../types";

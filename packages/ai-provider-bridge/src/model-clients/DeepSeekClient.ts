@@ -66,6 +66,16 @@ export class DeepSeekClient implements ModelClient {
 	}
 
 	async chat(params: ModelClientChatParams): Promise<AsyncIterable<LMStreamPart>> {
+		// DeepSeek cannot enforce a response schema: its API lacks strict
+		// json_schema, and the SDK package only injects the schema into the
+		// system message. Reject before any request rather than send an
+		// unconstrained one (fail closed; see ModelClientChatParams.responseSchema).
+		if (params.responseSchema) {
+			throw new Error(
+				`DeepSeek cannot enforce the requested JSON response schema "${params.responseSchema.name}"`,
+			);
+		}
+
 		const effectiveBaseUrl = params.baseUrl ?? this.baseURL;
 		const thinkingOn = isThinkingEnabled(params.thinkingEffort);
 
