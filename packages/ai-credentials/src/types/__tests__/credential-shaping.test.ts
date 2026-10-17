@@ -6,11 +6,10 @@
  * Credential-side tests for the pure Snowflake URL preference.
  *
  * `shapeCredentials` builds the Snowflake Cortex base URL from `host` when
- * present, falling back to `account`. This preference is what makes the
- * Phase 6 host-layer merge observable as a URL flip: when a user `providers.json`
- * supplies `account` and the `authentication.*` host layer supplies `host`, the
- * resolver deep-merges them to `{ host, account }` and the URL is built from
- * `host` (see the resolver-side merge test in ai-config's resolve-catalog test).
+ * present, falling back to `account`. The resolver keeps both only when one
+ * layer sets both: across layers, the highest layer that sets any endpoint
+ * field decides (see "Snowflake endpoint is one setting" in ai-config's
+ * resolve-catalog test).
  */
 
 import { describe, expect, it } from "vitest";
