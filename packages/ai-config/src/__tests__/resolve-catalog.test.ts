@@ -442,27 +442,6 @@ describe("resolveProviderCatalog — legacy-positron layer merge semantics", () 
 		});
 	});
 
-	it("snowflake host/account merge across user + host (both keys resolve)", () => {
-		// user sets only account; legacy-positron sets only host → the merged connection
-		// carries both. `host` wins over `account` when the URL is built downstream
-		// (that preference is in ai-credentials' shapeCredentials — see its tests).
-		const catalog = resolveProviderCatalog({
-			sources: [
-				source("user", {
-					providers: { "snowflake-cortex": { snowflake: { account: "user-acct" } } },
-				}),
-				source("legacy-positron", {
-					providers: { "snowflake-cortex": { snowflake: { host: "host.snowflakecomputing.com" } } },
-				}),
-			],
-			envVars: {},
-		});
-		expect(find(catalog, "snowflake-cortex")?.connection.snowflake).toEqual({
-			host: "host.snowflakecomputing.com",
-			account: "user-acct",
-		});
-	});
-
 	it("snowflake home merges across user + host like the other snowflake keys", () => {
 		// legacy-positron (the transitional authentication.* layer) supplies home; user
 		// supplies account → the merged connection carries both.
@@ -810,6 +789,84 @@ describe("resolveProviderCatalog — snowflake + legacy vertex env vars", () => 
 			project: "primary-proj",
 			location: "us-west1",
 		});
+	});
+});
+
+describe("resolveProviderCatalog — Snowflake endpoint is one setting", () => {
+	const userUrl = source("user", {
+		providers: { "snowflake-cortex": { baseUrl: "https://user.example.com" } },
+	});
+	const snowflake = (conn: ResolvedProvider["connection"]["snowflake"]) => ({
+		providers: { "snowflake-cortex": { snowflake: conn } },
+	});
+
+	it("an env account/host beats a user URL", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [userUrl],
+			envVars: { SNOWFLAKE_ACCOUNT: "env-acct", SNOWFLAKE_HOST: "env.snowflakecomputing.com" },
+		});
+		const connection = find(catalog, "snowflake-cortex")?.connection;
+		expect(connection?.baseUrl).toBeUndefined();
+		expect(connection?.snowflake).toEqual({
+			account: "env-acct",
+			host: "env.snowflakecomputing.com",
+		});
+	});
+
+	it.each(["enforced", "legacy-positron-enforced"] as const)(
+		"a pinned (%s) account beats a user URL",
+		(kind) => {
+			const catalog = resolveProviderCatalog({
+				sources: [userUrl, source(kind, snowflake({ account: "pinned-acct" }))],
+				envVars: {},
+			});
+			const connection = find(catalog, "snowflake-cortex")?.connection;
+			expect(connection?.baseUrl).toBeUndefined();
+			expect(connection?.snowflake).toEqual({ account: "pinned-acct" });
+		},
+	);
+
+	it("a user URL beats a default account and keeps the default's other Snowflake keys", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [userUrl, source("default", snowflake({ account: "default-acct", home: "/sf" }))],
+			envVars: {},
+		});
+		const connection = find(catalog, "snowflake-cortex")?.connection;
+		expect(connection?.baseUrl).toBe("https://user.example.com");
+		expect(connection?.snowflake).toEqual({ home: "/sf" });
+	});
+
+	it("a higher account drops a lower host instead of merging with it", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("user", snowflake({ account: "user-acct" })),
+				source("legacy-positron", snowflake({ host: "legacy.snowflakecomputing.com" })),
+			],
+			envVars: {},
+		});
+		expect(find(catalog, "snowflake-cortex")?.connection.snowflake).toEqual({
+			account: "user-acct",
+		});
+	});
+
+	it("keeps both when the same layer sets a URL and an account", () => {
+		const catalog = resolveProviderCatalog({
+			sources: [
+				source("enforced", {
+					providers: {
+						"snowflake-cortex": {
+							baseUrl: "https://pinned.example.com",
+							snowflake: { account: "pinned-acct" },
+						},
+					},
+				}),
+				userUrl,
+			],
+			envVars: {},
+		});
+		const connection = find(catalog, "snowflake-cortex")?.connection;
+		expect(connection?.baseUrl).toBe("https://pinned.example.com");
+		expect(connection?.snowflake).toEqual({ account: "pinned-acct" });
 	});
 });
 
