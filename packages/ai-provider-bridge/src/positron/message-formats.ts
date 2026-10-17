@@ -199,9 +199,12 @@ function aiUserContentToLmParts(
 					continue;
 				} else if (part.image instanceof Uint8Array) {
 					imageData = part.image;
-				} else {
-					// ArrayBuffer - convert to Uint8Array
+				} else if (part.image instanceof ArrayBuffer) {
 					imageData = new Uint8Array(part.image);
+				} else {
+					// Provider file reference (AI SDK 7): no inline bytes to send, so
+					// skip it like other unsupported part types.
+					continue;
 				}
 
 				parts.push(new vscode.LanguageModelDataPart(imageData, mediaType));
@@ -330,8 +333,7 @@ function aiToolResultPartToLmToolResult2Part(
 		newContent = output.value.map((item) => {
 			if (item.type === "text") {
 				return new vscode.LanguageModelTextPart(item.text);
-			} else if (item.type === "media" || item.type === "image-data") {
-				// Handle both "media" (deprecated in AI SDK v6) and "image-data" (AI SDK v6+)
+			} else if (item.type === "image-data") {
 				if (!supportsToolResultImages) {
 					return new vscode.LanguageModelTextPart("[This is a placeholder for an image]");
 				}

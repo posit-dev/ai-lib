@@ -11,7 +11,7 @@ import { isThinkingEnabled } from "../utils";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
-	createStepLogger,
+	stepLoggingOptions,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 import { withRawHttpLogging } from "./raw-http-logging";
@@ -95,7 +95,7 @@ export class DeepSeekClient implements ModelClient {
 			allowSystemInMessages: params.allowSystemInMessages,
 			model,
 			messages: params.messages,
-			system: params.systemPrompt,
+			instructions: params.systemPrompt,
 			maxOutputTokens: params.maxOutputTokens,
 			tools: params.tools,
 			toolChoice: params.tools ? "auto" : undefined,
@@ -105,9 +105,9 @@ export class DeepSeekClient implements ModelClient {
 					thinking: { type: thinkingOn ? ("enabled" as const) : ("disabled" as const) },
 				},
 			},
-			onStepFinish: createStepLogger(params.stepLoggers || [], "deepseek", params.model),
+			...stepLoggingOptions(params.stepLoggers || [], "deepseek", params.model),
 		});
 
-		return convertAiSdkStreamToPlatform(result.fullStream, cleanup);
+		return convertAiSdkStreamToPlatform(result.stream, cleanup);
 	}
 }

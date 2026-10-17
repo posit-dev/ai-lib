@@ -17,7 +17,7 @@
  * - search + local function tool: both entries present, `tool_choice` kept
  */
 
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createGoogle } from "@ai-sdk/google";
 import { jsonSchema, streamText, tool } from "ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -46,7 +46,7 @@ async function captureRequestBody(
 	);
 	vi.stubGlobal("fetch", rawFetch.mock);
 
-	const provider = createGoogleGenerativeAI({ apiKey: "test-key" });
+	const provider = createGoogle({ apiKey: "test-key" });
 
 	try {
 		const result = streamText({
@@ -56,7 +56,7 @@ async function captureRequestBody(
 			// GeminiClient sends toolChoice: "auto" whenever tools are present.
 			...(toolChoice !== undefined && { toolChoice }),
 		});
-		for await (const _part of result.fullStream) {
+		for await (const _part of result.stream) {
 			// Drain the (empty) mocked event stream.
 		}
 	} catch {
@@ -77,7 +77,7 @@ afterEach(() => {
 
 describe("Google Search grounding wire serialization (Interactions API)", () => {
 	it("serializes a search-only request as tools: [{ type: 'google_search' }] with no tool_choice", async () => {
-		const provider = createGoogleGenerativeAI({ apiKey: "test-key" });
+		const provider = createGoogle({ apiKey: "test-key" });
 		const { url, body } = await captureRequestBody({
 			google_search: provider.tools.googleSearch({}),
 		});
@@ -90,7 +90,7 @@ describe("Google Search grounding wire serialization (Interactions API)", () => 
 	});
 
 	it("keeps tool_choice and both tool entries when a local function tool accompanies search", async () => {
-		const provider = createGoogleGenerativeAI({ apiKey: "test-key" });
+		const provider = createGoogle({ apiKey: "test-key" });
 		const localTool = tool({
 			description: "Get the current weather in a city",
 			inputSchema: jsonSchema({

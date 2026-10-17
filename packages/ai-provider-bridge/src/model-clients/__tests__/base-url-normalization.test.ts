@@ -6,16 +6,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Capture the options passed to each SDK factory so we can assert on baseURL.
 // `vi.hoisted` lets these mock fns exist before the hoisted `vi.mock` factories run.
-const { createAnthropic, createOpenAI, createGoogleGenerativeAI } = vi.hoisted(() => ({
+const { createAnthropic, createOpenAI, createGoogle } = vi.hoisted(() => ({
 	createAnthropic: vi.fn(() => vi.fn(() => ({}))),
 	createOpenAI: vi.fn(() => ({ responses: vi.fn(() => ({})), chat: vi.fn(() => ({})) })),
-	createGoogleGenerativeAI: vi.fn(() => ({ interactions: vi.fn(() => ({})) })),
+	createGoogle: vi.fn(() => ({ interactions: vi.fn(() => ({})) })),
 }));
 
 vi.mock("@ai-sdk/anthropic", () => ({ createAnthropic }));
 vi.mock("@ai-sdk/openai", () => ({ createOpenAI }));
-vi.mock("@ai-sdk/google", () => ({ createGoogleGenerativeAI }));
-vi.mock("ai", () => ({ streamText: vi.fn(() => ({ fullStream: {} })) }));
+vi.mock("@ai-sdk/google", () => ({ createGoogle }));
+vi.mock("ai", () => ({ streamText: vi.fn(() => ({ stream: {} })) }));
 // Bypass the stream-conversion + abort plumbing; we only care about baseURL.
 vi.mock("../ai-sdk-helpers", () => ({
 	convertAiSdkStreamToPlatform: vi.fn(() => (async function* () {})()),
@@ -23,7 +23,7 @@ vi.mock("../ai-sdk-helpers", () => ({
 		abortController: new AbortController(),
 		cleanup: vi.fn(),
 	})),
-	createStepLogger: vi.fn(() => undefined),
+	stepLoggingOptions: vi.fn(() => ({})),
 	suppressAiSdkDefaultErrorLogging: vi.fn(),
 }));
 
@@ -85,7 +85,7 @@ const CLIENT_CASES: readonly (ClientCase & { name: string })[] = [
 		versioned: "https://generativelanguage.googleapis.com/v1beta",
 		construct: (baseUrl) => new GeminiClient("sk-test", baseUrl),
 		model: "gemini-2.5-pro",
-		factory: createGoogleGenerativeAI,
+		factory: createGoogle,
 	},
 ];
 

@@ -8,7 +8,7 @@ const { createOpenRouter, streamText } = vi.hoisted(() => {
 	const chat = vi.fn(() => ({}));
 	return {
 		createOpenRouter: vi.fn(() => ({ chat })),
-		streamText: vi.fn(() => ({ fullStream: {} })),
+		streamText: vi.fn(() => ({ stream: {} })),
 	};
 });
 
@@ -20,7 +20,7 @@ vi.mock("../ai-sdk-helpers", () => ({
 		abortController: new AbortController(),
 		cleanup: vi.fn(),
 	})),
-	createStepLogger: vi.fn(() => undefined),
+	stepLoggingOptions: vi.fn(() => ({})),
 	suppressAiSdkDefaultErrorLogging: vi.fn(),
 }));
 

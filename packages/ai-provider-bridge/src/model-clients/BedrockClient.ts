@@ -13,7 +13,7 @@
 import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { createBedrockAnthropic } from "@ai-sdk/amazon-bedrock/anthropic";
 import { createBedrockMantle } from "@ai-sdk/amazon-bedrock/mantle";
-import type { LanguageModelV3 } from "@ai-sdk/provider";
+import type { LanguageModelV4 } from "@ai-sdk/provider";
 import { streamText } from "ai";
 
 import { createAwsCredentialProvider } from "../aws-credentials";
@@ -30,7 +30,7 @@ import { anthropicRequestOptions, isThinkingEnabled, rejectsEagerInputStreaming 
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
-	createStepLogger,
+	stepLoggingOptions,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 import { prepareExplicitOpenAIRequest } from "./openai-prompt-caching";
@@ -229,7 +229,7 @@ export class BedrockClient implements ModelClient {
 			allowSystemInMessages: params.allowSystemInMessages,
 			model,
 			messages: messagesToSend,
-			system: params.systemPrompt,
+			instructions: params.systemPrompt,
 			// GPT-5.x has no published family-wide ceiling. Do not impose the
 			// historic Bedrock fallback on Mantle Responses; all existing routes
 			// retain it, and gpt-oss discovery supplies 16,384 explicitly.
@@ -240,7 +240,7 @@ export class BedrockClient implements ModelClient {
 			providerOptions,
 			headers: anthropicOptions.headers,
 			// Capture raw JSON on each step finish
-			onStepFinish: createStepLogger(
+			...stepLoggingOptions(
 				params.stepLoggers || [],
 				isMantleChat || isMantleResponses ? "bedrock-mantle" : "bedrock",
 				params.model,
@@ -248,7 +248,7 @@ export class BedrockClient implements ModelClient {
 		});
 
 		// Convert to platform-agnostic format with cleanup on completion
-		return convertAiSdkStreamToPlatform(result.fullStream, cleanup);
+		return convertAiSdkStreamToPlatform(result.stream, cleanup);
 	}
 
 	/**
@@ -277,7 +277,7 @@ export class BedrockClient implements ModelClient {
 		protocol: Protocol | undefined,
 		baseUrl: string | undefined,
 		session: string | undefined,
-	): LanguageModelV3 {
+	): LanguageModelV4 {
 		const credentialProvider = createAwsCredentialProvider(this.config);
 		const headers = safeSdkCustomHeaders(this.config.customHeaders);
 		const loggedFetch = withRawHttpLogging(undefined, {
