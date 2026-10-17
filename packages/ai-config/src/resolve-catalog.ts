@@ -236,9 +236,6 @@ export function resolveProviderCatalogReport(
 	};
 }
 
-/** The `agentEngines` engine blocks whose `enabled` flag carries provenance. */
-const ENGINE_FLAG_BLOCKS = ["claude", "copilot", "codex"] as const;
-
 /**
  * Merge every source's `agentEngines` block, lowest → highest precedence,
  * with the same `deepMerge` rules as providers: a field set by a higher layer
@@ -250,8 +247,9 @@ const ENGINE_FLAG_BLOCKS = ["claude", "copilot", "codex"] as const;
  * Each block is salvaged here, so the merge is valid even for a source no
  * reader salvaged; for one that was, salvage is a single strict parse.
  *
- * The same fold records which source last set (so decided) the master switch
- * and each engine's `enabled`.
+ * The same fold keeps each source's salvaged block, so provenance names the
+ * highest-precedence source that sets the master switch or an engine's
+ * `enabled`.
  */
 function resolveAgentEngines(highestFirst: readonly RankedConfigSource[]): {
 	agentEngines: AgentEnginesConfig;
@@ -259,12 +257,8 @@ function resolveAgentEngines(highestFirst: readonly RankedConfigSource[]): {
 	issues: SourcedConfigIssue[];
 } {
 	let merged: ProvidersConfigFragment = {};
-	let master: ResolvedAgentEngineFlagSource = "unset";
-	const engines: Record<(typeof ENGINE_FLAG_BLOCKS)[number], ResolvedAgentEngineFlagSource> = {
-		claude: "unset",
-		copilot: "unset",
-		codex: "unset",
-	};
+	// Highest precedence first.
+	const blocks: { role: ResolvedAgentEngineFlagSource; block: AgentEnginesConfig }[] = [];
 	const issues: SourcedConfigIssue[] = [];
 	for (let i = highestFirst.length - 1; i >= 0; i--) {
 		const source = highestFirst[i];
@@ -283,20 +277,18 @@ function resolveAgentEngines(highestFirst: readonly RankedConfigSource[]): {
 		const block = salvaged.ok ? salvaged.config.agentEngines : undefined;
 		if (block) {
 			merged = mergeConfigFragments(merged, { agentEngines: block });
-			const role = sourceRole(source.kind);
-			if (block.enabled !== undefined) master = role;
-			for (const key of ENGINE_FLAG_BLOCKS) {
-				if (block[key]?.enabled !== undefined) engines[key] = role;
-			}
+			blocks.unshift({ role: sourceRole(source.kind), block });
 		}
 	}
+	const decidedBy = (flag: (block: AgentEnginesConfig) => boolean | undefined) =>
+		blocks.find(({ block }) => flag(block) !== undefined)?.role ?? "unset";
 	return {
 		agentEngines: merged.agentEngines ?? {},
 		provenance: {
-			enabled: master,
-			claude: { enabled: engines.claude },
-			copilot: { enabled: engines.copilot },
-			codex: { enabled: engines.codex },
+			enabled: decidedBy((block) => block.enabled),
+			claude: { enabled: decidedBy((block) => block.claude?.enabled) },
+			copilot: { enabled: decidedBy((block) => block.copilot?.enabled) },
+			codex: { enabled: decidedBy((block) => block.codex?.enabled) },
 		},
 		issues,
 	};

@@ -81,15 +81,27 @@ export type AgentEnginesConfig = z.infer<typeof agentEnginesSchema>;
 export type ResolvedAgentEngineFlagSource = "enforced" | "user" | "default" | "unset";
 
 /**
+ * The `agentEngines` engine blocks with an `enabled` flag: every key whose
+ * value is an object with `enabled` (so not the scalars, and not the `acp`
+ * record). Derived from the schema so a new built-in engine gets provenance.
+ */
+export type AgentEngineFlagBlock = {
+	[K in keyof AgentEnginesConfig]-?: string extends keyof NonNullable<AgentEnginesConfig[K]>
+		? never
+		: "enabled" extends keyof NonNullable<AgentEnginesConfig[K]>
+			? K
+			: never;
+}[keyof AgentEnginesConfig];
+
+/**
  * Provenance of the resolved `agentEngines` enablement flags only: the master
  * switch and each built-in engine's `enabled`. ACP agents have no flag (an
  * entry is enabled when it exists).
  */
-export interface ResolvedAgentEnginesProvenance {
+export interface ResolvedAgentEnginesProvenance extends Readonly<
+	Record<AgentEngineFlagBlock, { readonly enabled: ResolvedAgentEngineFlagSource }>
+> {
 	readonly enabled: ResolvedAgentEngineFlagSource;
-	readonly claude: { readonly enabled: ResolvedAgentEngineFlagSource };
-	readonly copilot: { readonly enabled: ResolvedAgentEngineFlagSource };
-	readonly codex: { readonly enabled: ResolvedAgentEngineFlagSource };
 }
 
 /**

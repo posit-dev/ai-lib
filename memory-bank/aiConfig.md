@@ -224,15 +224,17 @@ and engines-off, the gate, path resolution, engine ids) belongs to the host
   parse for an already-salvaged one). The result is `agentEngines` on the
   report (`{}` when no layer sets one).
 - **Enablement provenance.** The same fold records which source decided the
-  master switch and each built-in engine's `enabled`
-  (`ResolvedAgentEngineFlagSource`: `enforced` / `user` / `default` /
-  `unset`), reported as `agentEnginesProvenance` on the report, the loaded
+  master switch and each built-in engine's `enabled` (engine blocks derived
+  from the schema as `AgentEngineFlagBlock`; `ResolvedAgentEngineFlagSource`:
+  `enforced` / `user` / `default` / `unset`), reported as `agentEnginesProvenance` on the report, the loaded
   report and each watch event. Only these flags carry provenance; ACP agents
   have no flag. Hosts read it to decide whether a user write can change a
   flag, since an enforced `true` and a user `true` look the same as values.
 - **Watcher.** A rebuild whose resolved `agentEngines` or its provenance
   differs emits a change with `agentEnginesChanged: true`, even when no
-  provider changed (an enforced `true` added over a user `true` emits).
+  provider changed, as per-provider provenance does. With env layers fixed
+  for a process, the reachable provenance-only change is user ↔ default
+  (deleting a user `true` that a defaults layer also sets).
 - **Published as a preview** in `providers.schema.json`. A writer whose
   ai-config predates the key refuses every edit to a file containing it
   (the root schema is strict).

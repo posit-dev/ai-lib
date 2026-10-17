@@ -386,8 +386,7 @@ function diffSnapshots(
 	const diffs = diffProviderCatalogs(previous.catalog, current.catalog);
 	const issuesChanged = !issueSetsEqual(previous.issues, current.issues);
 	// Same sources yield the same key order, so serialized equality is exact.
-	// A provenance-only change counts: an enforced `true` replacing a user
-	// `true` changes what a user write can do.
+	// A provenance-only change counts, as per-provider provenance does above.
 	const agentEnginesChanged =
 		JSON.stringify(previous.agentEngines) !== JSON.stringify(current.agentEngines) ||
 		JSON.stringify(previous.agentEnginesProvenance) !==
