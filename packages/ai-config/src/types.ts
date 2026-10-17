@@ -20,6 +20,7 @@ import type { OpencodeProduct } from "./base-url.js";
 import { customProviderNameIssues } from "./custom-provider-name.js";
 import type { PortkeyKeyType } from "./portkey-connection.js";
 import type {
+	agentEnginesSchema,
 	builtinProviderBlockSchema,
 	customModelSchema,
 	customProviderEntrySchema,
@@ -60,6 +61,13 @@ export type CustomModel = z.infer<typeof customModelSchema>;
 
 /** Per-provider model selection block. */
 export type ModelsBlock = z.infer<typeof modelsBlockSchema>;
+
+/**
+ * The `agentEngines` block (preview). Also the resolved value: the layers'
+ * blocks merged by precedence, with unset fields left unset for the host's
+ * own defaults.
+ */
+export type AgentEnginesConfig = z.infer<typeof agentEnginesSchema>;
 
 /**
  * A partial config fragment — the shape every catalog config source carries.

@@ -10,6 +10,10 @@ import { customProviderNameIssues } from "./custom-provider-name.js";
 import { isPlainObject } from "./is-plain-object.js";
 import { pruneUnknownKeys } from "./prune-unknown-keys.js";
 import {
+	ACP_AGENT_ID_MESSAGE,
+	ACP_AGENT_ID_PATTERN,
+	acpAgentEngineSchema,
+	agentEnginesSchema,
 	builtinProviderBlockSchema,
 	builtinProviderBlockSchemas,
 	customProviderEntryFragmentSchema,
@@ -93,7 +97,11 @@ const FRAGMENT_PROFILE: SalvageProfile<ProvidersConfigFragment> = {
 	seal: providersConfigFragmentSchema,
 };
 
-const ROOT_KEYS = new Set(["$schema", "version", "providers"]);
+const ROOT_KEYS = new Set(["$schema", "version", "providers", "agentEngines"]);
+
+/** Schemas of the `agentEngines` fields salvaged one by one (`acp` is per agent). */
+const AGENT_ENGINE_FIELD_SCHEMAS: Readonly<Record<string, z.core.$ZodType>> =
+	agentEnginesSchema.shape;
 
 type ConfigPath = readonly (string | number)[];
 
@@ -187,6 +195,14 @@ function salvageWithProfile<T>(parsed: unknown, profile: SalvageProfile<T>): Sal
 		reconstructed.providers = salvageProvidersMap(parsed.providers, profile, issues);
 	}
 
+	if (parsed.agentEngines !== undefined) {
+		if (isPlainObject(parsed.agentEngines)) {
+			reconstructed.agentEngines = salvageAgentEngines(parsed.agentEngines, profile, issues);
+		} else {
+			issues.push(warning(["agentEngines"], "Invalid input: expected an object."));
+		}
+	}
+
 	const sealed = profile.seal.safeParse(reconstructed);
 	if (!sealed.success) {
 		const first = sealed.error.issues[0];
@@ -255,6 +271,55 @@ function salvageCustomProviders<T>(
 		keepBlock(custom, name, entry, profile.customEntrySchema, profile, path, issues);
 	}
 	providers.custom = custom;
+}
+
+/**
+ * Recover the `agentEngines` block field by field: each engine block, each
+ * pool setting and each ACP agent is kept or dropped on its own, so one bad
+ * entry never takes down its siblings (an admin's master switch included).
+ */
+function salvageAgentEngines<T>(
+	agentEngines: Record<string, unknown>,
+	profile: SalvageProfile<T>,
+	issues: ConfigIssue[],
+): Record<string, unknown> {
+	const result: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(agentEngines)) {
+		const path = ["agentEngines", key];
+		if (key === "acp") {
+			salvageAcpAgents(result, value, profile, issues);
+			continue;
+		}
+		if (!Object.hasOwn(AGENT_ENGINE_FIELD_SCHEMAS, key)) {
+			issues.push(warning(path, `Unrecognized key: "${key}".`));
+			continue;
+		}
+		keepBlock(result, key, value, AGENT_ENGINE_FIELD_SCHEMAS[key], profile, path, issues);
+	}
+	return result;
+}
+
+function salvageAcpAgents<T>(
+	agentEngines: Record<string, unknown>,
+	value: unknown,
+	profile: SalvageProfile<T>,
+	issues: ConfigIssue[],
+): void {
+	if (!isPlainObject(value)) {
+		issues.push(warning(["agentEngines", "acp"], "Invalid input: expected an object."));
+		return;
+	}
+	const agents: Record<string, unknown> = {};
+	for (const [agentId, entry] of Object.entries(value)) {
+		const path = ["agentEngines", "acp", agentId];
+		// Checked before anything is copied; the pattern also rejects `__proto__`.
+		if (!ACP_AGENT_ID_PATTERN.test(agentId)) {
+			issues.push(warning(path, ACP_AGENT_ID_MESSAGE));
+			continue;
+		}
+		keepBlock(agents, agentId, entry, acpAgentEngineSchema, profile, path, issues);
+	}
+	agentEngines.acp = agents;
 }
 
 /**

@@ -192,6 +192,43 @@ present) — a discriminated union requires its discriminator, so full validatio
 runs on the **merged** result, and `recoverValidStack()` drops any relaxed
 overlay that becomes invalid after merge.
 
+### `agentEngines` (preview)
+
+A root key next to `providers` configuring Posit Assistant's external agent
+engines: a master `enabled` switch, `idleSessionMinutes`, `maxLiveSessions`,
+`downloadBinaries`, the `claude` / `copilot` / `codex` blocks, and
+`acp.<agent-id>` entries (agent id `^[a-z][a-z0-9-]{0,31}$`). ai-config owns
+only the shape and the layer merge; the meaning (defaults such as master-on
+and engines-off, the gate, path resolution, engine ids) belongs to the host
+(`resolveEngineSettings` in `@assistant/node`).
+
+- **No defaults in the schema.** Every field is optional and unset stays
+  unset through the merge, so the host can apply its own defaults.
+- **One schema for every layer.** The user file and the env fragments use
+  the same `agentEnginesSchema`; nothing needs relaxing because every field is
+  already optional — except an ACP entry's `command`.
+- **An ACP agent is a unit.** `deepMerge` replaces `agentEngines.acp.<id>`
+  wholesale (a path check next to `apiKeyHelper`), so an admin's command never
+  runs with a user's `args`/`env`. Hence `command` is required in every layer;
+  a command-less entry is dropped by salvage at read time.
+- **Salvaged field by field.** `salvageAgentEngines` keeps or drops each
+  scalar, each engine block and each ACP agent on its own, with a warning; an
+  unknown key under `agentEngines` drops just that key.
+- **Resolved outside provider recovery, in both directions.**
+  `resolveAgentEngines` folds every read source's block (not just the sources
+  `recoverValidStack` kept), so an enforced master switch survives an
+  unrelated provider problem in the same overlay; `mergeAndValidate` leaves
+  `agentEngines` out, so an engine problem never drops an overlay's provider
+  policy. The fold salvages each block itself, so a source a caller of the
+  pure resolver built without salvage still merges validly (a single strict
+  parse for an already-salvaged one). The result is `agentEngines` on the
+  report (`{}` when no layer sets one).
+- **Watcher.** A rebuild whose resolved `agentEngines` differs emits a change
+  with `agentEnginesChanged: true`, even when no provider changed.
+- **Published as a preview** in `providers.schema.json`. A writer whose
+  ai-config predates the key refuses every edit to a file containing it
+  (the root schema is strict).
+
 ## Resolution Pipeline
 
 Config flows through three stages: **assemble sources → resolve → watch**. Precedence lives entirely inside the pure `resolveProviderCatalog({ sources })` seam (`src/resolve-catalog.ts`); the node entry only assembles sources.
@@ -221,7 +258,7 @@ Config flows through three stages: **assemble sources → resolve → watch**. P
    a post-resolution overlay. The resolver also retains narrow semantic
    provenance for connection values whose source changes consumer behavior.
    `loadProviderCatalogReport()` (`src/node/load-catalog.ts`) is the canonical
-   public read seam and returns `{ catalog, issues }`; `loadResolvedProviderCatalog()`
+   public read seam and returns `{ catalog, agentEngines, issues }`; `loadResolvedProviderCatalog()`
    is its bare-catalog compatibility wrapper. (`mergeEnforced` — the
    two-layer merge — remains exported as a low-level primitive, but the layered
    resolver is the seam consumers should use.)
@@ -229,7 +266,8 @@ Config flows through three stages: **assemble sources → resolve → watch**. P
    source-aware — watches the file via `fs.watch` and subscribes to the legacy
    reader's change signal; **any** source change re-resolves the catalog and
    emits a typed `ProviderCatalogChange` when a resolved value, retained
-   connection provenance, or complete issue snapshot changes. Issue snapshots
+   connection provenance, the resolved `agentEngines` block, or complete issue
+   snapshot changes. Issue snapshots
    compare order-insensitively by source/path/severity/message, so issue-only
    additions and empty clears emit while identical rebuilds remain quiet.
 
