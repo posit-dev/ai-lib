@@ -14,6 +14,7 @@ import type * as ai from "ai";
 import * as vscode from "vscode";
 
 import type { ChatRequestMetadata, ModelClient } from "../model-clients/ModelClient";
+import { UNMEASURED_STEP_PERFORMANCE } from "../model-clients/unmeasured-step-performance";
 import {
 	hasImagesInToolResults,
 	transformToolResultImagesForCompletions,
@@ -150,7 +151,7 @@ export class VscodeLmClient implements ModelClient {
 		if (params.tools && Object.keys(params.tools).length > 0) {
 			options.tools = Object.entries(params.tools).map(([name, tool]) => ({
 				name: name,
-				description: tool.description || "",
+				description: typeof tool.description === "string" ? tool.description : "",
 				inputSchema: tool.inputSchema.jsonSchema,
 			}));
 
@@ -298,6 +299,7 @@ export class VscodeLmClient implements ModelClient {
 								finishReason,
 								rawFinishReason: finishReason,
 								usage: usageData,
+								performance: UNMEASURED_STEP_PERFORMANCE,
 								response: {
 									id: "0",
 									modelId: "",
@@ -345,6 +347,7 @@ export class VscodeLmClient implements ModelClient {
 					},
 					totalTokens: inputTokens + outputTokens,
 				},
+				performance: UNMEASURED_STEP_PERFORMANCE,
 				response: {
 					id: "0",
 					modelId: "",

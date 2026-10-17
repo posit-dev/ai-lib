@@ -12,7 +12,7 @@
 
 import { createVertex } from "@ai-sdk/google-vertex";
 import { createVertexAnthropic } from "@ai-sdk/google-vertex/anthropic";
-import type { LanguageModelV3 } from "@ai-sdk/provider";
+import type { LanguageModelV4 } from "@ai-sdk/provider";
 import { streamText } from "ai";
 
 import { safeSdkCustomHeaders } from "../custom-headers";
@@ -27,7 +27,7 @@ import { anthropicRequestOptions } from "../utils";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
-	createStepLogger,
+	stepLoggingOptions,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 import { withRawHttpLogging } from "./raw-http-logging";
@@ -114,7 +114,7 @@ export class GoogleVertexClient implements ModelClient {
 			allowSystemInMessages: params.allowSystemInMessages,
 			model,
 			messages: messagesToSend,
-			system: params.systemPrompt,
+			instructions: params.systemPrompt,
 			maxOutputTokens: params.maxOutputTokens || 4096,
 			tools: params.tools,
 			toolChoice: params.tools ? "auto" : undefined,
@@ -122,11 +122,11 @@ export class GoogleVertexClient implements ModelClient {
 			providerOptions,
 			headers: requestHeaders,
 			// Capture raw JSON on each step finish
-			onStepFinish: createStepLogger(params.stepLoggers || [], "google-vertex", params.model),
+			...stepLoggingOptions(params.stepLoggers || [], "google-vertex", params.model),
 		});
 
 		// Convert to platform-agnostic format with cleanup on completion
-		return convertAiSdkStreamToPlatform(result.fullStream, cleanup);
+		return convertAiSdkStreamToPlatform(result.stream, cleanup);
 	}
 
 	/**
@@ -144,7 +144,7 @@ export class GoogleVertexClient implements ModelClient {
 		modelId: string,
 		protocol: Protocol | undefined,
 		session: string | undefined,
-	): LanguageModelV3 {
+	): LanguageModelV4 {
 		const googleAuthOptions = googleVertexAuthOptions(this.config.credentialSource);
 
 		const useAnthropicApi = protocol

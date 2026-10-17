@@ -545,7 +545,8 @@ describe("Bedrock Mantle wire requests", () => {
 		// An omitted policy must serialize `false`: AWS defaults an absent
 		// `external_web_access` to `true`, which would widen the egress boundary.
 		expect(requestBody?.tools).toEqual([{ type: "web_search", external_web_access: false }]);
-		expect(requestBody?.include).toContain("web_search_call.action.sources");
+		// Mantle does not support this include value; the SDK must not send it.
+		expect(requestBody?.include ?? []).not.toContain("web_search_call.action.sources");
 		expect(requestBody?.tool_choice).toBe("auto");
 	});
 
@@ -616,7 +617,7 @@ describe("Bedrock Mantle wire requests", () => {
 				name: "lookup",
 				description: "Look up a value",
 				parameters: { type: "object", properties: { query: { type: "string" } } },
-				strict: undefined,
+				strict: false,
 			},
 			{ type: "web_search", external_web_access: false },
 		]);

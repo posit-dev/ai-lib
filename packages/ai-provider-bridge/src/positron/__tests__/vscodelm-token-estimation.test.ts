@@ -176,7 +176,7 @@ describe("VscodeLmClient estimated usage synthesis", () => {
 	});
 
 	it("counts the system parameter separately for non-copilot vendors", async () => {
-		const { model, countTokensCalls } = makeFakeModel({
+		const { model, countTokensCalls, sendRequest } = makeFakeModel({
 			vendor: "some-other-vendor",
 			streamParts: [new vscodeMock.LanguageModelTextPart("ok")],
 		});
@@ -184,6 +184,15 @@ describe("VscodeLmClient estimated usage synthesis", () => {
 		await runChat(model, { systemPrompt: "UNIQUE_SYSTEM_MARKER" });
 
 		expect(countTokensCalls).toContain("UNIQUE_SYSTEM_MARKER");
+		// The system prompt reaches vscode.lm via `modelOptions.system` (a
+		// VS Code API field, not the AI SDK's renamed `instructions`).
+		expect(sendRequest).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				modelOptions: expect.objectContaining({ system: "UNIQUE_SYSTEM_MARKER" }),
+			}),
+			expect.anything(),
+		);
 	});
 
 	it("does not estimate when a real usage data part arrives", async () => {

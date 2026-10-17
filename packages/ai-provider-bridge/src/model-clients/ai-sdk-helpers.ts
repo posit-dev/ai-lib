@@ -64,7 +64,7 @@ function clarifyBlankRequestError(error: unknown): void {
 
 /**
  * Disable AI SDK's default `console.error` side channel for stream failures.
- * Errors still flow through `fullStream`, where callers handle and report them.
+ * Errors still flow through `stream`, where callers handle and report them.
  */
 export function suppressAiSdkDefaultErrorLogging(): void {}
 
@@ -114,11 +114,21 @@ export function createAbortControllerFromToken(cancellationToken: CancellationTo
 	};
 }
 
+type StepLoggerCallback = (stepResult: {
+	request: { body?: unknown };
+	response: { body?: unknown; headers?: Record<string, string>; messages: unknown[] };
+	finishReason: string;
+	usage: LanguageModelUsage;
+	providerMetadata?: Record<string, unknown>;
+}) => Promise<void>;
+
 /**
- * Create step logger callback with call ID and step index tracking
+ * `streamText` options that wire up step logging, to be spread into the call.
  *
- * Returns a closure that maintains callId and stepIndex state across multiple
- * onStepFinish invocations within a single streamText call.
+ * With no loggers this is empty, so `streamText` keeps its defaults. With
+ * loggers it adds an `onStepEnd` callback (which maintains callId and
+ * stepIndex state across steps of a single streamText call) and opts in to
+ * request bodies, which AI SDK 7 excludes from step results by default.
  *
  * Calls all loggers in parallel and handles errors gracefully (one logger
  * failure won't stop others).
@@ -126,24 +136,26 @@ export function createAbortControllerFromToken(cancellationToken: CancellationTo
  * @param stepLoggers - Array of logger instances to call
  * @param provider - Provider name (e.g., "anthropic", "openai")
  * @param model - Model identifier
- * @returns Async callback function for streamText's onStepFinish parameter
  */
-export function createStepLogger(
+export function stepLoggingOptions(
 	stepLoggers: StepLogger[],
 	provider: string,
 	model: string,
-): (stepResult: {
-	request: { body?: unknown };
-	response: { body?: unknown; headers?: Record<string, string>; messages: unknown[] };
-	finishReason: string;
-	usage: LanguageModelUsage;
-	providerMetadata?: Record<string, unknown>;
-}) => Promise<void> {
-	// Return no-op if no loggers
+): { onStepEnd?: StepLoggerCallback; include?: { requestBody: true } } {
 	if (stepLoggers.length === 0) {
-		return async () => {};
+		return {};
 	}
+	return {
+		onStepEnd: createStepLogger(stepLoggers, provider, model),
+		include: { requestBody: true },
+	};
+}
 
+function createStepLogger(
+	stepLoggers: StepLogger[],
+	provider: string,
+	model: string,
+): StepLoggerCallback {
 	// Generate unique call ID for this streamText invocation
 	const callId = randomUUID();
 	let stepIndex = 0;

@@ -14,7 +14,7 @@ const { createAnthropic, createOpenAI } = vi.hoisted(() => ({
 
 vi.mock("@ai-sdk/anthropic", () => ({ createAnthropic }));
 vi.mock("@ai-sdk/openai", () => ({ createOpenAI }));
-vi.mock("ai", () => ({ streamText: vi.fn(() => ({ fullStream: {} })) }));
+vi.mock("ai", () => ({ streamText: vi.fn(() => ({ stream: {} })) }));
 // Bypass the stream-conversion + abort plumbing; we only care about the auth
 // headers the client's fetch wrapper produces.
 vi.mock("../ai-sdk-helpers", () => ({
@@ -23,7 +23,7 @@ vi.mock("../ai-sdk-helpers", () => ({
 		abortController: new AbortController(),
 		cleanup: vi.fn(),
 	})),
-	createStepLogger: vi.fn(() => undefined),
+	stepLoggingOptions: vi.fn(() => ({})),
 }));
 
 import { ProviderRegistry } from "../../providers/ProviderRegistry";

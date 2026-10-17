@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
 	createVertex: vi.fn(() => vi.fn(() => ({}))),
 	createVertexAnthropic: vi.fn(() => vi.fn(() => ({}))),
 	streamText: vi.fn(() => ({
-		fullStream: (async function* () {})(),
+		stream: (async function* () {})(),
 	})),
 }));
 

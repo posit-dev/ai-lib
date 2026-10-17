@@ -284,7 +284,7 @@ The provider SDKs are regular **dependencies** of this package, so they install 
 {
   "dependencies": {
     "ai-provider-bridge": "*",
-    "ai": "^6.0.68", // Only if you reference ModelMessage or other `ai` types directly
+    "ai": "^7.0.137", // Only if you reference ModelMessage or other `ai` types directly
   },
 }
 ```
