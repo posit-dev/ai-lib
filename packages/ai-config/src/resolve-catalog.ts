@@ -176,6 +176,8 @@ export interface ProviderCatalogReport {
  *   highest precedence, so higher sources win per key. The sealed `enforced`
  *   source is merged **last**, so its keys can never be overridden.
  *   `customHeaders` merge per leaf-key; `allow`/`deny` arrays replace wholesale.
+ *   Snowflake's endpoint fields resolve as one setting
+ *   (see {@link yieldSnowflakeEndpoint}).
  * - **Enablement:** resolved from the kept per-source `providers` maps ordered
  *   highest → lowest, preserving "id beats default" within each layer (see
  *   {@link resolveEnabled}). The enforced layer is on top.
@@ -567,10 +569,43 @@ function mergeAndValidate(
 ): ReturnType<typeof providersConfigSchema.safeParse> {
 	let merged: ProvidersConfigFragment = {};
 	for (let i = highestFirst.length - 1; i >= 0; i--) {
-		const { agentEngines: _owned, ...config } = highestFirst[i].config;
-		merged = mergeConfigFragments(merged, config);
+		const { agentEngines: _owned, ...layer } = highestFirst[i].config;
+		merged = mergeConfigFragments(yieldSnowflakeEndpoint(merged, layer), layer);
 	}
 	return providersConfigSchema.safeParse(merged);
+}
+
+/**
+ * Snowflake's endpoint is one setting written three ways: `baseUrl`,
+ * `snowflake.account` or `snowflake.host`. When `layer` sets any of them, drop
+ * all three from the lower layers' merge, so the highest layer that sets the
+ * endpoint decides it. A per-key merge would let a lower `baseUrl` (or `host`),
+ * which downstream URL derivation prefers, beat a higher, pinned `account`.
+ * Within one layer the fields coexist and downstream prefers `baseUrl`.
+ */
+function yieldSnowflakeEndpoint(
+	merged: ProvidersConfigFragment,
+	layer: ProvidersConfigFragment,
+): ProvidersConfigFragment {
+	const higher = layer.providers?.["snowflake-cortex"];
+	const lower = merged.providers?.["snowflake-cortex"];
+	const setsEndpoint =
+		higher?.baseUrl !== undefined ||
+		higher?.snowflake?.account !== undefined ||
+		higher?.snowflake?.host !== undefined;
+	if (!setsEndpoint || !lower) {
+		return merged;
+	}
+	const { baseUrl: _baseUrl, snowflake, ...rest } = lower;
+	const { account: _account, host: _host, ...otherSnowflake } = snowflake ?? {};
+	const keepSnowflake = Object.keys(otherSnowflake).length > 0;
+	return {
+		...merged,
+		providers: {
+			...merged.providers,
+			"snowflake-cortex": { ...rest, ...(keepSnowflake ? { snowflake: otherSnowflake } : {}) },
+		},
+	};
 }
 
 function without(

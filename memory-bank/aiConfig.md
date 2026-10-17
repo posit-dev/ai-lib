@@ -384,7 +384,16 @@ the effective administrator limits rather than the original discovery facts.
   layer replaces wholesale like an array (`isApiKeyHelperPath` in `enforce.ts`,
   matched by position so a custom provider or model id named `apiKeyHelper` is
   unaffected). An enforced `{ command }` therefore never inherits a user
-  layer's `args` or `timeoutMs`.
+  layer's `args` or `timeoutMs`. Snowflake's endpoint is the other exception:
+  `snowflake-cortex`'s `baseUrl`, `snowflake.account` and `snowflake.host`
+  resolve as one setting, decided by the highest layer (any kind, legacy
+  included) that sets any of them; lower layers' values for all three are
+  dropped (`yieldSnowflakeEndpoint` in `resolve-catalog.ts`). A per-key merge
+  would let a lower `baseUrl` or `host`, which downstream URL derivation
+  prefers, beat an env- or admin-pinned `account`. Within one layer the fields
+  coexist and downstream prefers `baseUrl`. Other `snowflake` keys (`home`,
+  `connectionName`) still merge per key; custom `snowflake` entries are not
+  covered.
 - **Model protocol**: user config (override/custom) > provider protocol >
   inferred routing (OpenCode: recomputed per model from the effective routing
   URL) > discovered model inference.
