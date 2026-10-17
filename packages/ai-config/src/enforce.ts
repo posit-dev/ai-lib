@@ -66,14 +66,20 @@ function isApiKeyHelperPath(path: readonly string[]): boolean {
 	return path.length === 3 && path[2] === "apiKeyHelper";
 }
 
+/** Whether `path` addresses one ACP agent: `agentEngines.acp.<id>`. */
+function isAcpAgentPath(path: readonly string[]): boolean {
+	return path.length === 3 && path[0] === "agentEngines" && path[1] === "acp";
+}
+
 /**
  * Recursive deep-merge. `override` values take precedence over `base`.
  *
  * Rules:
  * - Plain objects: recurse per key.
  * - Arrays: replace (override wins wholesale).
- * - A provider block's `apiKeyHelper`: replace wholesale, like arrays, so an
- *   enforced `{ command }` never inherits a lower layer's `args`/`timeoutMs`.
+ * - A provider block's `apiKeyHelper` and an `agentEngines.acp.<id>` agent:
+ *   replace wholesale, like arrays, so a higher layer's command never
+ *   inherits a lower layer's `args`/`env`/`timeoutMs`.
  * - Primitives / null / undefined: override wins if present.
  */
 function deepMerge(base: unknown, override: unknown, path: readonly string[] = []): unknown {
@@ -83,7 +89,12 @@ function deepMerge(base: unknown, override: unknown, path: readonly string[] = [
 	}
 
 	// Both are plain objects — recurse
-	if (isPlainObject(base) && isPlainObject(override) && !isApiKeyHelperPath(path)) {
+	if (
+		isPlainObject(base) &&
+		isPlainObject(override) &&
+		!isApiKeyHelperPath(path) &&
+		!isAcpAgentPath(path)
+	) {
 		const result: Record<string, unknown> = { ...base };
 		for (const key of Object.keys(override)) {
 			result[key] = deepMerge(base[key], override[key], [...path, key]);

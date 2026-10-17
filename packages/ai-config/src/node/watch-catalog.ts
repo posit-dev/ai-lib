@@ -11,8 +11,9 @@
  * `legacyPositronSettings` reader and/or the `legacyPositronEnforcedSettings`
  * flag). Any source change — file edit, legacy settings change, etc. —
  * triggers a debounced rebuild of the whole catalog and complete issue
- * snapshot. Consumers receive both snapshots and typed change categories
- * (`enabled`/`connection`/`models`/`issues`) on each emitted event.
+ * snapshot. Consumers receive the snapshots (catalog, `agentEngines`, issues)
+ * and typed change categories (`enabled`/`connection`/`models`/`issues`/
+ * `agentEngines`) on each emitted event.
  */
 
 import * as fs from "fs";
@@ -27,7 +28,7 @@ import type {
 } from "../config-source.js";
 import { createLegacyPositronSourceProviders } from "../legacy-positron-settings/sources.js";
 import { resolveProviderCatalogReport } from "../resolve-catalog.js";
-import type { LoggerLike, ResolvedProvider } from "../types.js";
+import type { AgentEnginesConfig, LoggerLike, ResolvedProvider } from "../types.js";
 import { readEnvFragment, readFileConfig } from "./load-config.js";
 import { DEFAULT_ENV_VAR, ENFORCED_ENV_VAR, PROVIDERS_CONFIG_PATH } from "./paths.js";
 import type {
@@ -74,8 +75,7 @@ export function watchResolvedProviderCatalog(
 
 	let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 	let disposed = false;
-	let previousCatalog: readonly ResolvedProvider[] | undefined;
-	let previousIssues: readonly SourcedConfigIssue[] | undefined;
+	let previous: CatalogSnapshot | undefined;
 	const subscriptions: Disposable[] = [];
 
 	// ----- Load and diff -----
@@ -92,16 +92,18 @@ export function watchResolvedProviderCatalog(
 				// the pure resolver stays free of Node globals.
 				envVars: env,
 			});
-			const newCatalog = resolver.catalog;
-			const newIssues = [...reports.flatMap((report) => report.issues), ...resolver.issues];
+			const current: CatalogSnapshot = {
+				catalog: resolver.catalog,
+				agentEngines: resolver.agentEngines,
+				issues: [...reports.flatMap((report) => report.issues), ...resolver.issues],
+			};
 
-			for (const issue of addedIssues(previousIssues, newIssues)) {
+			for (const issue of addedIssues(previous?.issues, current.issues)) {
 				logger?.warn(formatConfigIssue(issue));
 			}
 
-			const change = diffCatalogs(previousCatalog, newCatalog, previousIssues, newIssues);
-			previousCatalog = newCatalog;
-			previousIssues = newIssues;
+			const change = diffSnapshots(previous, current);
+			previous = current;
 
 			// Only fire on actual changes (skip initial load).
 			if (change) {
@@ -352,38 +354,46 @@ export function diffProviderCatalogs(
 	return diffs;
 }
 
+/** One rebuild's resolved state, diffed against the previous rebuild's. */
+interface CatalogSnapshot {
+	readonly catalog: readonly ResolvedProvider[];
+	readonly agentEngines: AgentEnginesConfig;
+	readonly issues: readonly SourcedConfigIssue[];
+}
+
 /**
- * Diff two catalogs and return change flags. Returns `undefined` if the
- * previous catalog is unknown (initial load — no diff possible).
+ * Diff two snapshots and return change flags. Returns `undefined` if the
+ * previous snapshot is unknown (initial load — no diff possible) or nothing
+ * changed.
  */
-function diffCatalogs(
-	previous: readonly ResolvedProvider[] | undefined,
-	current: readonly ResolvedProvider[],
-	previousIssues: readonly SourcedConfigIssue[] | undefined,
-	currentIssues: readonly SourcedConfigIssue[],
+function diffSnapshots(
+	previous: CatalogSnapshot | undefined,
+	current: CatalogSnapshot,
 ): ProviderCatalogChange | undefined {
 	if (!previous) {
 		// Initial load — no previous to diff against
 		return undefined;
 	}
 
-	const diffs = diffProviderCatalogs(previous, current);
-	const enabledChanged = diffs.some((d) => d.enabled);
-	const connectionChanged = diffs.some((d) => d.connection);
-	const modelsChanged = diffs.some((d) => d.models);
-	const issuesChanged = !issueSetsEqual(previousIssues ?? [], currentIssues);
+	const diffs = diffProviderCatalogs(previous.catalog, current.catalog);
+	const issuesChanged = !issueSetsEqual(previous.issues, current.issues);
+	// Same sources yield the same key order, so serialized equality is exact.
+	const agentEnginesChanged =
+		JSON.stringify(previous.agentEngines) !== JSON.stringify(current.agentEngines);
 
 	// If nothing changed, don't fire
-	if (diffs.length === 0 && !issuesChanged) {
+	if (diffs.length === 0 && !issuesChanged && !agentEnginesChanged) {
 		return undefined;
 	}
 
 	return {
-		catalog: current,
-		issues: currentIssues,
-		enabledChanged,
-		connectionChanged,
-		modelsChanged,
+		catalog: current.catalog,
+		issues: current.issues,
+		agentEngines: current.agentEngines,
+		agentEnginesChanged,
+		enabledChanged: diffs.some((d) => d.enabled),
+		connectionChanged: diffs.some((d) => d.connection),
+		modelsChanged: diffs.some((d) => d.models),
 		issuesChanged,
 	};
 }

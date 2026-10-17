@@ -18,13 +18,15 @@
  */
 
 import { buildCatalog } from "./build-catalog.js";
-import { formatConfigIssue, sourcedWholeSourceIssue } from "./config-issue.js";
-import type { SourcedConfigIssue } from "./config-issue.js";
+import { configIssueSource, formatConfigIssue, sourcedWholeSourceIssue } from "./config-issue.js";
+import type { ConfigIssue, SourcedConfigIssue } from "./config-issue.js";
 import { readEnvConnectionConfig } from "./connection-env.js";
 import { mergeConfigFragments } from "./enforce.js";
 import type { EnablementLayer } from "./resolve-enabled.js";
+import { salvageProvidersConfigFragment } from "./salvage-config.js";
 import { providersConfigSchema } from "./schema.js";
 import type {
+	AgentEnginesConfig,
 	ProvidersConfigFragment,
 	BuiltinProviderBlock,
 	LoggerLike,
@@ -155,6 +157,8 @@ export interface ResolveProviderCatalogOptions {
 /** Canonical resolver result, including every overlay dropped during recovery. */
 export interface ProviderCatalogReport {
 	readonly catalog: readonly ResolvedProvider[];
+	/** The layers' `agentEngines` blocks merged by precedence; `{}` when none sets one. */
+	readonly agentEngines: AgentEnginesConfig;
 	readonly issues: readonly SourcedConfigIssue[];
 }
 
@@ -219,10 +223,48 @@ export function resolveProviderCatalogReport(
 		.map<EnablementLayer>((s) => s.config.providers);
 	const connectionProvenance = resolveConnectionProvenance(kept, config);
 	const authPolicies = resolveAuthPolicies(kept, config);
+	const engines = resolveAgentEngines(highestFirst);
 	return {
 		catalog: buildCatalog(config, enabledLayers, connectionProvenance, authPolicies),
-		issues,
+		agentEngines: engines.agentEngines,
+		issues: [...issues, ...engines.issues],
 	};
+}
+
+/**
+ * Merge every source's `agentEngines` block, lowest → highest precedence,
+ * with the same `deepMerge` rules as providers: a field set by a higher layer
+ * wins, other fields merge per leaf, and an ACP agent is replaced whole.
+ *
+ * Independent of provider recovery in both directions: every source's block
+ * is folded (so an admin's master switch survives an unrelated provider
+ * problem in the same overlay), and recovery never looks at `agentEngines`.
+ * Each block is salvaged here, so the merge is valid even for a source no
+ * reader salvaged; for one that was, salvage is a single strict parse.
+ */
+function resolveAgentEngines(highestFirst: readonly RankedConfigSource[]): {
+	agentEngines: AgentEnginesConfig;
+	issues: SourcedConfigIssue[];
+} {
+	let merged: ProvidersConfigFragment = {};
+	const issues: SourcedConfigIssue[] = [];
+	for (let i = highestFirst.length - 1; i >= 0; i--) {
+		const source = highestFirst[i];
+		const { agentEngines } = source.config;
+		if (!agentEngines) continue;
+		const salvaged = salvageProvidersConfigFragment({ agentEngines });
+		const blockIssues: ConfigIssue[] = salvaged.ok
+			? salvaged.issues
+			: [
+					...salvaged.issues,
+					{ severity: "warning", path: ["agentEngines"], message: "Ignoring the block." },
+				];
+		issues.push(...blockIssues.map((issue) => ({ ...issue, source: configIssueSource(source) })));
+		if (salvaged.ok && salvaged.config.agentEngines) {
+			merged = mergeConfigFragments(merged, { agentEngines: salvaged.config.agentEngines });
+		}
+	}
+	return { agentEngines: merged.agentEngines ?? {}, issues };
 }
 
 /**
@@ -518,14 +560,16 @@ function chooseDroppedSource(
 
 /**
  * Fold a highest-first source list from lowest → highest precedence into a
- * single config and validate it with the full schema.
+ * single config and validate it with the full schema. `agentEngines` is left
+ * out: {@link resolveAgentEngines} owns it, so an engine problem never drops
+ * an overlay's provider policy.
  */
 function mergeAndValidate(
 	highestFirst: readonly RankedConfigSource[],
 ): ReturnType<typeof providersConfigSchema.safeParse> {
 	let merged: ProvidersConfigFragment = {};
 	for (let i = highestFirst.length - 1; i >= 0; i--) {
-		const layer = highestFirst[i].config;
+		const { agentEngines: _owned, ...layer } = highestFirst[i].config;
 		merged = mergeConfigFragments(yieldSnowflakeEndpoint(merged, layer), layer);
 	}
 	return providersConfigSchema.safeParse(merged);

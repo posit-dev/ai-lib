@@ -895,6 +895,211 @@ export const providersMapFragmentSchema = z
 	.strict();
 
 // ---------------------------------------------------------------------------
+// Agent engines (preview)
+// ---------------------------------------------------------------------------
+
+/*
+ * External agent engines (Claude Agent, GitHub Copilot, Codex, ACP agents)
+ * that can run a Posit Assistant conversation in place of its own agent loop.
+ * Every field is optional and carries no default here: unset stays unset
+ * through the layer merge, and the host applies its own defaults. User file
+ * and env fragments share these schemas; an ACP entry needs its `command` in
+ * every layer because a higher layer's entry replaces a lower one wholesale
+ * (see `deepMerge` in enforce.ts).
+ */
+
+const PATH_RESOLUTION_NOTE =
+	"Paths starting with ~ are expanded; relative paths resolve against the Posit Assistant storage directory.";
+
+const allowNamedPrincipalsField = (detail: string) =>
+	z
+		.boolean()
+		.describe(
+			`Offer the engine to named principals on a multi-user server. Default false. ${detail}`,
+		)
+		.optional();
+
+export const claudeAgentEngineSchema = z
+	.object({
+		enabled: z
+			.boolean()
+			.describe(
+				"Offer the Claude Agent engine. Default false. It signs in with credentials from the environment Posit Assistant starts with, such as ANTHROPIC_API_KEY or CLAUDE_CODE_USE_BEDROCK.",
+			)
+			.optional(),
+		executablePath: z
+			.string()
+			.describe(
+				`Claude Agent executable to run. Empty or unset uses the SDK's platform package, else a download. ${PATH_RESOLUTION_NOTE}`,
+			)
+			.optional(),
+		configDir: z
+			.string()
+			.describe(
+				`CLAUDE_CONFIG_DIR for engine sessions, where engine transcripts are stored. Empty or unset uses a directory under Posit Assistant storage. ${PATH_RESOLUTION_NOTE}`,
+			)
+			.optional(),
+	})
+	.strict()
+	.describe("The Claude Agent engine.");
+
+export const copilotAgentEngineSchema = z
+	.object({
+		enabled: z
+			.boolean()
+			.describe(
+				"Offer the GitHub Copilot engine. Default false. It signs in as the GitHub user of the account running Posit Assistant, for example through `gh auth login`.",
+			)
+			.optional(),
+		runtimePath: z
+			.string()
+			.describe(
+				`Copilot runtime executable to run. Empty or unset uses the SDK's platform package, else a download. ${PATH_RESOLUTION_NOTE}`,
+			)
+			.optional(),
+		baseDirectory: z
+			.string()
+			.describe(
+				`Copilot's data directory for engine sessions. Empty or unset uses a directory under Posit Assistant storage. Never the Copilot CLI's own ~/.copilot, so engine sessions stay out of its resume list. ${PATH_RESOLUTION_NOTE}`,
+			)
+			.optional(),
+		defaultModel: z
+			.string()
+			.describe(
+				"The Copilot model a conversation runs on when none is chosen. Empty or unset uses Copilot's default.",
+			)
+			.optional(),
+		allowNamedPrincipals: allowNamedPrincipalsField(
+			"Each then runs its own Copilot runtime with its own HOME and data directory under its storage, never the operator's GitHub sign-in.",
+		),
+	})
+	.strict()
+	.describe("The GitHub Copilot engine.");
+
+export const codexAgentEngineSchema = z
+	.object({
+		enabled: z
+			.boolean()
+			.describe(
+				"Offer the Codex engine, which runs OpenAI's Codex CLI (`codex app-server`). Default false. It signs in with OPENAI_API_KEY or CODEX_API_KEY, or a login stored in its home directory.",
+			)
+			.optional(),
+		executablePath: z
+			.string()
+			.describe(
+				`Codex CLI executable to run. Empty or unset uses Posit Assistant's download, else \`codex\` on PATH when its version is supported, else a download. ${PATH_RESOLUTION_NOTE}`,
+			)
+			.optional(),
+		homeDirectory: z
+			.string()
+			.describe(
+				`CODEX_HOME for engine sessions: configuration, threads and login. Empty or unset uses a directory under Posit Assistant storage. Never the Codex CLI's own ~/.codex. ${PATH_RESOLUTION_NOTE}`,
+			)
+			.optional(),
+		defaultModel: z
+			.string()
+			.describe(
+				"The Codex model a conversation runs on when none is chosen. Empty or unset uses Codex's default.",
+			)
+			.optional(),
+		allowNamedPrincipals: allowNamedPrincipalsField(
+			"Each then runs Codex with its own CODEX_HOME, HOME and temp directory under its storage, never the operator's credentials.",
+		),
+	})
+	.strict()
+	.describe("The Codex engine.");
+
+/** An ACP agent id: a lowercase letter, then up to 31 of `a-z`, `0-9`, `-`. */
+export const ACP_AGENT_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
+
+export const ACP_AGENT_ID_MESSAGE =
+	"ACP agent ids are 1-32 characters: a lowercase letter, then a-z, 0-9 or '-'.";
+
+/**
+ * One Agent Client Protocol agent. A unit across layers: a higher layer's
+ * entry with the same id replaces it whole, so `command` is required in every
+ * layer and an admin's command never runs with a user's `args` or `env`.
+ */
+export const acpAgentEngineSchema = z
+	.object({
+		displayName: z
+			.string()
+			.describe("The agent's name in messages to the user. Defaults to the agent id.")
+			.optional(),
+		command: z
+			.string()
+			.min(1)
+			.describe(
+				`Executable that runs the agent: a name resolved on PATH, or a path. ${PATH_RESOLUTION_NOTE}`,
+			),
+		args: z
+			.array(z.string())
+			.describe('Arguments that start the agent in ACP mode, for example `["--acp"]`.')
+			.optional(),
+		env: z
+			.record(z.string().describe("Variable name."), z.string().describe("Variable value."))
+			.describe(
+				"Extra environment variables for the agent, on top of a minimal ambient set (PATH, HOME, locale, temp dir, terminal). Posit Assistant's own secrets are never passed.",
+			)
+			.optional(),
+		allowNamedPrincipals: allowNamedPrincipalsField(
+			"Each then runs the agent with its own HOME under its storage, never the operator's login.",
+		),
+	})
+	.strict()
+	.describe("An Agent Client Protocol agent. A higher layer's entry replaces this one whole.");
+
+export const agentEnginesSchema = z
+	.object({
+		enabled: z
+			.boolean()
+			.describe(
+				"Master switch for every agent engine, including ACP agents. Default true; set to false to turn all engines off.",
+			)
+			.optional(),
+		idleSessionMinutes: z
+			.number()
+			.positive()
+			.describe(
+				"Stop an engine session's process after this many minutes without a turn; its next turn resumes the session. Default 15.",
+			)
+			.optional(),
+		maxLiveSessions: z
+			.number()
+			.int()
+			.positive()
+			.describe(
+				"Engine session processes each user may keep running; beyond it the least recently used idle one is stopped. Default 4.",
+			)
+			.optional(),
+		downloadBinaries: z
+			.boolean()
+			.describe(
+				"Let Posit Assistant download an engine's executable from registry.npmjs.org when it is not installed. Default true.",
+			)
+			.optional(),
+		claude: claudeAgentEngineSchema.optional(),
+		copilot: copilotAgentEngineSchema.optional(),
+		codex: codexAgentEngineSchema.optional(),
+		acp: z
+			.record(
+				z
+					.string()
+					.regex(ACP_AGENT_ID_PATTERN, { message: ACP_AGENT_ID_MESSAGE })
+					.describe("Agent id: a lowercase letter, then up to 31 of a-z, 0-9 or '-'."),
+				acpAgentEngineSchema,
+			)
+			.describe(
+				"Agent Client Protocol agents to offer as engines, keyed by agent id. An entry is enabled when it exists.",
+			)
+			.optional(),
+	})
+	.strict()
+	.describe(
+		"Preview: external agent engines that can run a Posit Assistant conversation in place of its own agent loop. Requires Posit Assistant's experimental features. Changes take effect after a restart.",
+	);
+
+// ---------------------------------------------------------------------------
 // Root schema
 // ---------------------------------------------------------------------------
 
@@ -914,6 +1119,7 @@ export const providersConfigSchema = z.preprocess(
 					"Provider configuration, keyed by built-in provider id, plus the reserved `default` and `custom` keys.",
 				)
 				.optional(),
+			agentEngines: agentEnginesSchema.optional(),
 		})
 		.strict(),
 );
@@ -932,6 +1138,9 @@ export const providersConfigFragmentSchema = z.preprocess(
 			$schema: z.string().optional(),
 			version: z.literal(1).optional(),
 			providers: providersMapFragmentSchema.optional(),
+			// Same schema as the user file: every field is already optional, and
+			// an ACP entry is a unit that needs its `command` in every layer.
+			agentEngines: agentEnginesSchema.optional(),
 		})
 		.strict(),
 );
