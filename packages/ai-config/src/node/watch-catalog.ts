@@ -11,9 +11,10 @@
  * `legacyPositronSettings` reader and/or the `legacyPositronEnforcedSettings`
  * flag). Any source change — file edit, legacy settings change, etc. —
  * triggers a debounced rebuild of the whole catalog and complete issue
- * snapshot. Consumers receive the snapshots (catalog, `agentEngines`, issues)
- * and typed change categories (`enabled`/`connection`/`models`/`issues`/
- * `agentEngines`) on each emitted event.
+ * snapshot. Consumers receive the snapshots (catalog, `agentEngines` and its
+ * enablement provenance, issues) and typed change categories
+ * (`enabled`/`connection`/`models`/`issues`/`agentEngines`) on each emitted
+ * event.
  */
 
 import * as fs from "fs";
@@ -28,7 +29,12 @@ import type {
 } from "../config-source.js";
 import { createLegacyPositronSourceProviders } from "../legacy-positron-settings/sources.js";
 import { resolveProviderCatalogReport } from "../resolve-catalog.js";
-import type { AgentEnginesConfig, LoggerLike, ResolvedProvider } from "../types.js";
+import type {
+	AgentEnginesConfig,
+	LoggerLike,
+	ResolvedAgentEnginesProvenance,
+	ResolvedProvider,
+} from "../types.js";
 import { readEnvFragment, readFileConfig } from "./load-config.js";
 import { DEFAULT_ENV_VAR, ENFORCED_ENV_VAR, PROVIDERS_CONFIG_PATH } from "./paths.js";
 import type {
@@ -95,6 +101,7 @@ export function watchResolvedProviderCatalog(
 			const current: CatalogSnapshot = {
 				catalog: resolver.catalog,
 				agentEngines: resolver.agentEngines,
+				agentEnginesProvenance: resolver.agentEnginesProvenance,
 				issues: [...reports.flatMap((report) => report.issues), ...resolver.issues],
 			};
 
@@ -358,6 +365,7 @@ export function diffProviderCatalogs(
 interface CatalogSnapshot {
 	readonly catalog: readonly ResolvedProvider[];
 	readonly agentEngines: AgentEnginesConfig;
+	readonly agentEnginesProvenance: ResolvedAgentEnginesProvenance;
 	readonly issues: readonly SourcedConfigIssue[];
 }
 
@@ -378,8 +386,12 @@ function diffSnapshots(
 	const diffs = diffProviderCatalogs(previous.catalog, current.catalog);
 	const issuesChanged = !issueSetsEqual(previous.issues, current.issues);
 	// Same sources yield the same key order, so serialized equality is exact.
+	// A provenance-only change counts: an enforced `true` replacing a user
+	// `true` changes what a user write can do.
 	const agentEnginesChanged =
-		JSON.stringify(previous.agentEngines) !== JSON.stringify(current.agentEngines);
+		JSON.stringify(previous.agentEngines) !== JSON.stringify(current.agentEngines) ||
+		JSON.stringify(previous.agentEnginesProvenance) !==
+			JSON.stringify(current.agentEnginesProvenance);
 
 	// If nothing changed, don't fire
 	if (diffs.length === 0 && !issuesChanged && !agentEnginesChanged) {
@@ -390,6 +402,7 @@ function diffSnapshots(
 		catalog: current.catalog,
 		issues: current.issues,
 		agentEngines: current.agentEngines,
+		agentEnginesProvenance: current.agentEnginesProvenance,
 		agentEnginesChanged,
 		enabledChanged: diffs.some((d) => d.enabled),
 		connectionChanged: diffs.some((d) => d.connection),

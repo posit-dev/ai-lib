@@ -14,6 +14,7 @@ import type {
 	AgentEnginesConfig,
 	LoggerLike,
 	ProvidersConfigFragment,
+	ResolvedAgentEnginesProvenance,
 	ResolvedProvider,
 	ResolvedProviderId,
 } from "../types.js";
@@ -170,7 +171,10 @@ export interface ProviderCatalogChange {
 	/** The current resolved `agentEngines` block. */
 	readonly agentEngines: AgentEnginesConfig;
 
-	/** Whether the resolved `agentEngines` block changed. */
+	/** Which layer currently decides the master switch and each engine's `enabled`. */
+	readonly agentEnginesProvenance: ResolvedAgentEnginesProvenance;
+
+	/** Whether the resolved `agentEngines` block or its provenance changed. */
 	readonly agentEnginesChanged: boolean;
 
 	/** Whether any provider's `enabled` state changed. */

@@ -31,6 +31,8 @@ import type {
 	BuiltinProviderBlock,
 	LoggerLike,
 	ProvidersConfig,
+	ResolvedAgentEngineFlagSource,
+	ResolvedAgentEnginesProvenance,
 	ResolvedAuthPolicySource,
 	ResolvedConnectionFieldSource,
 	ResolvedConnectionProvenance,
@@ -159,6 +161,8 @@ export interface ProviderCatalogReport {
 	readonly catalog: readonly ResolvedProvider[];
 	/** The layers' `agentEngines` blocks merged by precedence; `{}` when none sets one. */
 	readonly agentEngines: AgentEnginesConfig;
+	/** Which layer decided the master switch and each engine's `enabled`. */
+	readonly agentEnginesProvenance: ResolvedAgentEnginesProvenance;
 	readonly issues: readonly SourcedConfigIssue[];
 }
 
@@ -227,9 +231,13 @@ export function resolveProviderCatalogReport(
 	return {
 		catalog: buildCatalog(config, enabledLayers, connectionProvenance, authPolicies),
 		agentEngines: engines.agentEngines,
+		agentEnginesProvenance: engines.provenance,
 		issues: [...issues, ...engines.issues],
 	};
 }
+
+/** The `agentEngines` engine blocks whose `enabled` flag carries provenance. */
+const ENGINE_FLAG_BLOCKS = ["claude", "copilot", "codex"] as const;
 
 /**
  * Merge every source's `agentEngines` block, lowest → highest precedence,
@@ -241,15 +249,27 @@ export function resolveProviderCatalogReport(
  * problem in the same overlay), and recovery never looks at `agentEngines`.
  * Each block is salvaged here, so the merge is valid even for a source no
  * reader salvaged; for one that was, salvage is a single strict parse.
+ *
+ * The same fold records which source last set (so decided) the master switch
+ * and each engine's `enabled`.
  */
 function resolveAgentEngines(highestFirst: readonly RankedConfigSource[]): {
 	agentEngines: AgentEnginesConfig;
+	provenance: ResolvedAgentEnginesProvenance;
 	issues: SourcedConfigIssue[];
 } {
 	let merged: ProvidersConfigFragment = {};
+	let master: ResolvedAgentEngineFlagSource = "unset";
+	const engines: Record<(typeof ENGINE_FLAG_BLOCKS)[number], ResolvedAgentEngineFlagSource> = {
+		claude: "unset",
+		copilot: "unset",
+		codex: "unset",
+	};
 	const issues: SourcedConfigIssue[] = [];
 	for (let i = highestFirst.length - 1; i >= 0; i--) {
 		const source = highestFirst[i];
+		// The env source carries connection fields only.
+		if (source.kind === "env") continue;
 		const { agentEngines } = source.config;
 		if (!agentEngines) continue;
 		const salvaged = salvageProvidersConfigFragment({ agentEngines });
@@ -260,11 +280,26 @@ function resolveAgentEngines(highestFirst: readonly RankedConfigSource[]): {
 					{ severity: "warning", path: ["agentEngines"], message: "Ignoring the block." },
 				];
 		issues.push(...blockIssues.map((issue) => ({ ...issue, source: configIssueSource(source) })));
-		if (salvaged.ok && salvaged.config.agentEngines) {
-			merged = mergeConfigFragments(merged, { agentEngines: salvaged.config.agentEngines });
+		const block = salvaged.ok ? salvaged.config.agentEngines : undefined;
+		if (block) {
+			merged = mergeConfigFragments(merged, { agentEngines: block });
+			const role = sourceRole(source.kind);
+			if (block.enabled !== undefined) master = role;
+			for (const key of ENGINE_FLAG_BLOCKS) {
+				if (block[key]?.enabled !== undefined) engines[key] = role;
+			}
 		}
 	}
-	return { agentEngines: merged.agentEngines ?? {}, issues };
+	return {
+		agentEngines: merged.agentEngines ?? {},
+		provenance: {
+			enabled: master,
+			claude: { enabled: engines.claude },
+			copilot: { enabled: engines.copilot },
+			codex: { enabled: engines.codex },
+		},
+		issues,
+	};
 }
 
 /**
@@ -311,10 +346,15 @@ function resolveAuthPolicies(
 
 /** Map a retained source's kind onto the narrow auth-policy provenance. */
 function authPolicySource(source: ProviderConfigSource | undefined): ResolvedAuthPolicySource {
-	if (!source) {
-		return "kind-default";
-	}
-	switch (source.kind) {
+	return source ? sourceRole(source.kind) : "kind-default";
+}
+
+/**
+ * The role a source kind plays for a user write: an enforced overlay can't
+ * be overridden, a user or default layer can.
+ */
+function sourceRole(kind: ProviderConfigSourceKind): "enforced" | "user" | "default" {
+	switch (kind) {
 		case "enforced":
 		case "legacy-positron-enforced": // PROVIDER-SETTINGS-MIGRATION(legacy-positron)
 			return "enforced";

@@ -70,6 +70,29 @@ export type ModelsBlock = z.infer<typeof modelsBlockSchema>;
 export type AgentEnginesConfig = z.infer<typeof agentEnginesSchema>;
 
 /**
+ * Which layer decided a resolved `agentEngines` flag: the highest-precedence
+ * source whose block sets it. `"enforced"` (an admin-enforced overlay) can't
+ * be overridden by a user write; `"user"` (the user file or non-enforced
+ * legacy settings) and `"default"` (an admin or host defaults layer) can.
+ * `"unset"` means no layer sets it and the host's default applies. Resolved
+ * from the source stack because equal values can't tell an enforced flag
+ * from an editable one.
+ */
+export type ResolvedAgentEngineFlagSource = "enforced" | "user" | "default" | "unset";
+
+/**
+ * Provenance of the resolved `agentEngines` enablement flags only: the master
+ * switch and each built-in engine's `enabled`. ACP agents have no flag (an
+ * entry is enabled when it exists).
+ */
+export interface ResolvedAgentEnginesProvenance {
+	readonly enabled: ResolvedAgentEngineFlagSource;
+	readonly claude: { readonly enabled: ResolvedAgentEngineFlagSource };
+	readonly copilot: { readonly enabled: ResolvedAgentEngineFlagSource };
+	readonly codex: { readonly enabled: ResolvedAgentEngineFlagSource };
+}
+
+/**
  * A partial config fragment — the shape every catalog config source carries.
  * Identical to `ProvidersConfig` except custom provider entries have `type`
  * optional, so a fragment (e.g. an admin-enforced overlay) can set a single
