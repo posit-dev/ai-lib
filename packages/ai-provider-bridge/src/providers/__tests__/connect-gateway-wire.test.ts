@@ -77,13 +77,13 @@ describe("Connect Bedrock gateway attribution", () => {
 					},
 				}),
 			},
-			{ PWB_CONNECT_GATEWAY_METADATA: "workbench-session-id=s1" },
+			{ PWB_GATEWAY_METADATA_HEADER: "workbench-session-id=s1" },
 		);
 		const client = registry.getClientForProvider("posit-connect", {
 			type: "apikey",
 			apiKey: "federated-token",
 			baseUrl: "https://connect.example.com",
-			customHeaders: { "Posit-Connect-Gateway-Metadata": "team=research" },
+			customHeaders: { "Gateway-Metadata": "team=research" },
 		});
 		if (!client) throw new Error("Connect client was not registered");
 
@@ -102,9 +102,7 @@ describe("Connect Bedrock gateway attribution", () => {
 		const [url, init] = capture.single();
 		expect(String(url)).toContain(gatewayUrl);
 		const headers = new Headers(init?.headers);
-		expect(headers.get("Posit-Connect-Gateway-Metadata")).toBe(
-			"workbench-session-id=s1,team=research",
-		);
+		expect(headers.get("Gateway-Metadata")).toBe("workbench-session-id=s1,team=research");
 		expect(headers.get("authorization")).toContain("/us-east-1/bedrock/aws4_request");
 	});
 });
