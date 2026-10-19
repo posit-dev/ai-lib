@@ -35,7 +35,7 @@ import {
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
-	createStepLogger,
+	stepLoggingOptions,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 import { mergeProviderTools } from "./provider-tools";
@@ -232,7 +232,7 @@ export class PositAiClient implements ModelClient {
 					allowSystemInMessages: params.allowSystemInMessages,
 					model,
 					messages: params.messages,
-					system: params.systemPrompt,
+					instructions: params.systemPrompt,
 					maxOutputTokens: params.maxOutputTokens,
 					tools,
 					toolChoice: tools ? "auto" : undefined,
@@ -240,12 +240,12 @@ export class PositAiClient implements ModelClient {
 					providerOptions,
 					headers: requestHeaders,
 					// Capture raw JSON on each step finish
-					onStepFinish: createStepLogger(params.stepLoggers || [], "positai", params.model),
+					...stepLoggingOptions(params.stepLoggers || [], "positai", params.model),
 				},
 				this.logger,
 			);
 
-			return convertAiSdkStreamToPlatform(result.fullStream, cleanup);
+			return convertAiSdkStreamToPlatform(result.stream, cleanup);
 		} else if (normalizedProtocol === "openai-chat") {
 			const thinkingFields = positAiThinkingRequestFields(
 				params.model,
@@ -281,16 +281,16 @@ export class PositAiClient implements ModelClient {
 				allowSystemInMessages: params.allowSystemInMessages,
 				model,
 				messages: messagesToSend,
-				system: params.systemPrompt,
+				instructions: params.systemPrompt,
 				maxOutputTokens: params.maxOutputTokens,
 				tools: params.tools,
 				toolChoice: params.tools ? "auto" : undefined,
 				abortSignal: abortController.signal,
 				// Capture raw JSON on each step finish
-				onStepFinish: createStepLogger(params.stepLoggers || [], "positai", params.model),
+				...stepLoggingOptions(params.stepLoggers || [], "positai", params.model),
 			});
 
-			return convertAiSdkStreamToPlatform(result.fullStream, cleanup);
+			return convertAiSdkStreamToPlatform(result.stream, cleanup);
 		} else {
 			cleanup();
 			throw new Error(`Unsupported protocol for Posit AI Pass: ${normalizedProtocol}`);

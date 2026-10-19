@@ -28,7 +28,7 @@ import {
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
-	createStepLogger,
+	stepLoggingOptions,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 import { createOpenAICompatibleFetchMiddleware } from "./openai-compat-fetch";
@@ -278,19 +278,19 @@ export class SnowflakeClient implements ModelClient {
 				allowSystemInMessages: params.allowSystemInMessages,
 				model,
 				messages: params.messages,
-				system: params.systemPrompt,
+				instructions: params.systemPrompt,
 				maxOutputTokens: params.maxOutputTokens,
 				tools: params.tools,
 				toolChoice: params.tools ? "auto" : undefined,
 				abortSignal: abortController.signal,
 				providerOptions,
 				headers: requestHeaders,
-				onStepFinish: createStepLogger(params.stepLoggers || [], "snowflake-cortex", params.model),
+				...stepLoggingOptions(params.stepLoggers || [], "snowflake-cortex", params.model),
 			},
 			this.logger,
 		);
 
-		return convertAiSdkStreamToPlatform(result.fullStream, cleanup);
+		return convertAiSdkStreamToPlatform(result.stream, cleanup);
 	}
 
 	/**
@@ -335,7 +335,7 @@ export class SnowflakeClient implements ModelClient {
 			allowSystemInMessages: params.allowSystemInMessages,
 			model,
 			messages: params.messages,
-			system: params.systemPrompt,
+			instructions: params.systemPrompt,
 			maxOutputTokens: params.maxOutputTokens,
 			tools: params.tools,
 			toolChoice: params.tools ? "auto" : undefined,
@@ -349,9 +349,9 @@ export class SnowflakeClient implements ModelClient {
 					},
 				},
 			}),
-			onStepFinish: createStepLogger(params.stepLoggers || [], "snowflake-cortex", params.model),
+			...stepLoggingOptions(params.stepLoggers || [], "snowflake-cortex", params.model),
 		});
 
-		return convertAiSdkStreamToPlatform(result.fullStream, cleanup);
+		return convertAiSdkStreamToPlatform(result.stream, cleanup);
 	}
 }

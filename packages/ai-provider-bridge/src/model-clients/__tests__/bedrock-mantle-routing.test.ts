@@ -11,7 +11,7 @@ const {
 	createBedrockMantle,
 	resolveBedrockTransport,
 } = vi.hoisted(() => ({
-	streamText: vi.fn(() => ({ fullStream: {} })),
+	streamText: vi.fn(() => ({ stream: {} })),
 	createAmazonBedrock: vi.fn(() => vi.fn(() => ({ route: "converse" }))),
 	createBedrockAnthropic: vi.fn(() => vi.fn(() => ({ route: "anthropic" }))),
 	createBedrockMantle: vi.fn(() => ({
@@ -35,7 +35,7 @@ vi.mock("../ai-sdk-helpers", () => ({
 		abortController: new AbortController(),
 		cleanup: vi.fn(),
 	})),
-	createStepLogger: vi.fn(() => undefined),
+	stepLoggingOptions: vi.fn(() => ({})),
 }));
 
 import type { CancellationToken } from "../../types";

@@ -28,7 +28,7 @@
  *   the stamp and the wire choice cannot disagree.
  */
 
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createGoogle } from "@ai-sdk/google";
 import type { FetchFunction } from "@ai-sdk/provider-utils";
 import type { ModelMessage } from "ai";
 import { streamText } from "ai";
@@ -40,7 +40,7 @@ import type { LMStreamPart, Logger } from "../types";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
-	createStepLogger,
+	stepLoggingOptions,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 import { withRawHttpLogging } from "./raw-http-logging";
@@ -50,7 +50,7 @@ import { withRawHttpLogging } from "./raw-http-logging";
  *
  * `apiKey` is the SDK's native scheme (`x-goog-api-key`). `authToken` is for
  * gateways that authenticate with `Authorization: Bearer` instead;
- * `GoogleGenerativeAIProviderSettings` has no `authToken` option, so that
+ * `GoogleProviderSettings` has no `authToken` option, so that
  * scheme is implemented by a fetch middleware this client owns (see
  * {@link createBearerAuthFetch}).
  */
@@ -59,7 +59,7 @@ export type GeminiGenerateContentAuth = { apiKey: string } | { authToken: string
 /**
  * Non-secret filler for the SDK's required `apiKey` setting in Bearer mode.
  *
- * `createGoogleGenerativeAI` resolves `apiKey` eagerly (throwing when neither
+ * `createGoogle` resolves `apiKey` eagerly (throwing when neither
  * the option nor `GOOGLE_GENERATIVE_AI_API_KEY` is set) and emits it as
  * `x-goog-api-key`. In Bearer mode the middleware deletes that header before
  * the request leaves, so this value never reaches a server — but it must be a
@@ -289,7 +289,7 @@ export class GeminiGenerateContentClient implements ModelClient {
 						fetch: createBearerAuthFetch(this.auth.authToken, loggedFetch ?? globalThis.fetch),
 					}
 				: { apiKey: this.auth.apiKey, ...(loggedFetch && { fetch: loggedFetch }) };
-		const provider = createGoogleGenerativeAI({
+		const provider = createGoogle({
 			...authSettings,
 			...(effectiveBaseUrl && { baseURL: effectiveBaseUrl }),
 			// Custom headers ride on `settings.headers` in both auth modes; the
@@ -325,15 +325,15 @@ export class GeminiGenerateContentClient implements ModelClient {
 				allowSystemInMessages: params.allowSystemInMessages,
 				model,
 				messages,
-				system: params.systemPrompt,
+				instructions: params.systemPrompt,
 				maxOutputTokens: params.maxOutputTokens,
 				tools: params.tools,
 				toolChoice: params.tools ? ("auto" as const) : undefined,
 				abortSignal: abortController.signal,
 				providerOptions,
-				onStepFinish: createStepLogger(params.stepLoggers || [], "gemini", params.model),
+				...stepLoggingOptions(params.stepLoggers || [], "gemini", params.model),
 			});
-			return convertAiSdkStreamToPlatform(result.fullStream, cleanup);
+			return convertAiSdkStreamToPlatform(result.stream, cleanup);
 		} catch (error) {
 			cleanup();
 			throw error;

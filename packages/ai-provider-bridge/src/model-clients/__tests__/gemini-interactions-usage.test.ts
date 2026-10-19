@@ -15,7 +15,7 @@ vi.mock("ai", async (importOriginal) => ({
 	streamText,
 }));
 vi.mock("@ai-sdk/google", () => ({
-	createGoogleGenerativeAI: vi.fn(() => ({ interactions: vi.fn(() => ({})) })),
+	createGoogle: vi.fn(() => ({ interactions: vi.fn(() => ({})) })),
 }));
 
 import type { CancellationToken, LMStreamPart } from "../../types";
@@ -122,7 +122,7 @@ describe("GeminiClient.chat raw-usage hoist wiring", () => {
 	// tests above cannot catch that.
 	it("emits finish-step parts with usage.raw hoisted into google.usageMetadata", async () => {
 		streamText.mockReturnValueOnce({
-			fullStream: (async function* () {
+			stream: (async function* () {
 				yield finishStepPart();
 			})(),
 		});

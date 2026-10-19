@@ -101,6 +101,7 @@ function createOpenAIWebSearchTool(options: OpenAIWebSearchToolOptions): ai.Tool
 		type: "provider",
 		id: sdkTool.id,
 		args: sdkTool.args,
+		isProviderExecuted: sdkTool.isProviderExecuted,
 		// The SDK factory's own input schema is an empty object schema
 		// (`z.object({})`); provider tools take no model-generated input.
 		inputSchema: jsonSchema({ type: "object", properties: {} }),

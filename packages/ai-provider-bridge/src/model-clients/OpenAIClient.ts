@@ -22,7 +22,7 @@ import { isThinkingEnabled } from "../utils";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
-	createStepLogger,
+	stepLoggingOptions,
 	suppressAiSdkDefaultErrorLogging,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
@@ -204,7 +204,7 @@ export class OpenAIClient implements ModelClient {
 			allowSystemInMessages: params.allowSystemInMessages,
 			model,
 			messages: messagesToSend,
-			system: params.systemPrompt,
+			instructions: params.systemPrompt,
 			maxOutputTokens: params.maxOutputTokens, // Respect caller's value!
 			tools,
 			toolChoice: tools ? "auto" : undefined,
@@ -212,10 +212,10 @@ export class OpenAIClient implements ModelClient {
 			providerOptions,
 			onError: suppressAiSdkDefaultErrorLogging,
 			// Capture raw JSON on each step finish
-			onStepFinish: createStepLogger(params.stepLoggers || [], "openai", params.model),
+			...stepLoggingOptions(params.stepLoggers || [], "openai", params.model),
 		});
 
 		// Convert to platform-agnostic format with cleanup on completion
-		return convertAiSdkStreamToPlatform(result.fullStream, cleanup);
+		return convertAiSdkStreamToPlatform(result.stream, cleanup);
 	}
 }

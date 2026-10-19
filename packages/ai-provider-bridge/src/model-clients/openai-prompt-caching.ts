@@ -20,7 +20,7 @@ function hasExplicitBreakpoint(providerOptions: ModelMessage["providerOptions"])
 	return (
 		breakpoint !== null &&
 		typeof breakpoint === "object" &&
-		!Array.isArray(breakpoint) &&
+		"mode" in breakpoint &&
 		breakpoint.mode === "explicit"
 	);
 }
@@ -116,9 +116,7 @@ function stripMessageBreakpoint(message: ModelMessage): ModelMessage {
  * Whether the part can carry a breakpoint on a non-empty Responses block. Mantle
  * rejects a breakpoint on an exactly empty `input_text` (whitespace is fine).
  */
-function canAnchorBreakpoint(
-	part: ContentToolResultPart,
-): part is Exclude<ContentToolResultPart, { type: "media" | "custom" }> {
+function canAnchorBreakpoint(part: ContentToolResultPart): boolean {
 	switch (part.type) {
 		case "text":
 			return part.text !== "";
@@ -129,7 +127,10 @@ function canAnchorBreakpoint(
 		case "file-url":
 		case "file-id":
 			return true;
-		case "media":
+		// Variants new in AI SDK 7 that the host does not produce.
+		case "file":
+		case "file-reference":
+		case "image-file-reference":
 		case "custom":
 			return false;
 	}

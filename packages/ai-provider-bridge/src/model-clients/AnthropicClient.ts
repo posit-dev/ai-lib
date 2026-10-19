@@ -18,7 +18,7 @@ import { anthropicRequestOptions } from "../utils";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
-	createStepLogger,
+	stepLoggingOptions,
 	suppressAiSdkDefaultErrorLogging,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
@@ -135,7 +135,7 @@ export class AnthropicClient implements ModelClient {
 				allowSystemInMessages: params.allowSystemInMessages,
 				model,
 				messages: params.messages,
-				system: params.systemPrompt,
+				instructions: params.systemPrompt,
 				maxOutputTokens: params.maxOutputTokens, // Respect caller's value
 				tools,
 				toolChoice: tools ? "auto" : undefined,
@@ -144,12 +144,12 @@ export class AnthropicClient implements ModelClient {
 				headers: requestHeaders,
 				onError: suppressAiSdkDefaultErrorLogging,
 				// Capture raw JSON on each step finish
-				onStepFinish: createStepLogger(params.stepLoggers || [], "anthropic", params.model),
+				...stepLoggingOptions(params.stepLoggers || [], "anthropic", params.model),
 			},
 			this.logger,
 		);
 
 		// Convert to platform-agnostic format with cleanup on completion
-		return convertAiSdkStreamToPlatform(result.fullStream, cleanup);
+		return convertAiSdkStreamToPlatform(result.stream, cleanup);
 	}
 }

@@ -23,7 +23,7 @@ import { isThinkingEnabled } from "../utils";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
-	createStepLogger,
+	stepLoggingOptions,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 import { withRawHttpLogging } from "./raw-http-logging";
@@ -132,16 +132,16 @@ export class OllamaClient implements ModelClient {
 			allowSystemInMessages: params.allowSystemInMessages,
 			model,
 			messages: messagesToSend,
-			system: params.systemPrompt,
+			instructions: params.systemPrompt,
 			maxOutputTokens: params.maxOutputTokens,
 			tools: params.tools,
 			toolChoice: params.tools ? "auto" : undefined,
 			abortSignal: abortController.signal,
 			// Capture raw JSON on each step finish
-			onStepFinish: createStepLogger(params.stepLoggers || [], "ollama", params.model),
+			...stepLoggingOptions(params.stepLoggers || [], "ollama", params.model),
 		});
 
 		// Convert to platform-agnostic format with cleanup on completion
-		return convertAiSdkStreamToPlatform(result.fullStream, cleanup);
+		return convertAiSdkStreamToPlatform(result.stream, cleanup);
 	}
 }

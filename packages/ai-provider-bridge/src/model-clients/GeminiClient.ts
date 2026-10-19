@@ -12,7 +12,7 @@
  * `previousInteractionId`.
  */
 
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createGoogle } from "@ai-sdk/google";
 import { APICallError } from "@ai-sdk/provider";
 import type * as ai from "ai";
 import type { ModelMessage } from "ai";
@@ -24,7 +24,7 @@ import type { LMStreamPart, Logger } from "../types";
 import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
-	createStepLogger,
+	stepLoggingOptions,
 	suppressAiSdkDefaultErrorLogging,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
@@ -352,7 +352,7 @@ export class GeminiClient implements ModelClient {
 			model: params.model,
 			session: params.metadata?.sessionId,
 		});
-		const provider = createGoogleGenerativeAI({
+		const provider = createGoogle({
 			apiKey: this.apiKey,
 			...(effectiveBaseUrl && { baseURL: effectiveBaseUrl }),
 			...(loggedFetch && { fetch: loggedFetch }),
@@ -420,14 +420,14 @@ export class GeminiClient implements ModelClient {
 			allowSystemInMessages: params.allowSystemInMessages,
 			model,
 			messages: requestMessages,
-			system: params.systemPrompt,
+			instructions: params.systemPrompt,
 			maxOutputTokens: params.maxOutputTokens,
 			tools,
 			toolChoice: tools ? ("auto" as const) : undefined,
 			abortSignal: abortController.signal,
 			providerOptions,
 			onError: suppressAiSdkDefaultErrorLogging,
-			onStepFinish: createStepLogger(params.stepLoggers || [], "gemini", params.model),
+			...stepLoggingOptions(params.stepLoggers || [], "gemini", params.model),
 		};
 
 		// Same request as a fresh interaction: full filtered history, no
@@ -441,7 +441,7 @@ export class GeminiClient implements ModelClient {
 					modelId: params.model,
 					previousInteractionId: null,
 				}),
-			}).fullStream;
+			}).stream;
 
 		// Attempt to stream. If a chained request is rejected as an expired
 		// interaction before any content, retry once with a fresh interaction.
@@ -449,7 +449,7 @@ export class GeminiClient implements ModelClient {
 			const result = streamText(streamArgs);
 			return convertAiSdkStreamToPlatform(
 				this.withRawUsageMetadata(
-					this.withExpiredIdRetry(result.fullStream, previousInteractionId, startFreshInteraction),
+					this.withExpiredIdRetry(result.stream, previousInteractionId, startFreshInteraction),
 				),
 				cleanup,
 			);
