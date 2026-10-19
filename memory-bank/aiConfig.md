@@ -75,7 +75,8 @@ Re-exports the pure entry, plus:
   `NonCustomProviderIdError`; a present invalid or unreadable file rejects under strict mutation
   discipline rather than being salvaged. It stays on the Node entry because the full raw entry
   may include advanced fields that must be preserved server-side and never projected to a browser.
-- **Write seam**: `mutateProvidersConfig(mutator, opts)` — cross-process-safe mutation.
+- **Write seam**: `mutateProvidersConfig(mutator, opts)` — cross-process-safe mutation;
+  resolves `true` iff it wrote (value-identical results write nothing and resolve `false`).
   Invalid content rejects with `ProvidersConfigInvalidError` (see File I/O Seams).
 - **Watch seam**: `watchResolvedProviderCatalog(handler, opts)` — emits typed `ProviderCatalogChange` events.
 - **Catalog diff**: `diffProviderCatalogs(previous, current)` — the watcher's per-provider classifier (added/removed/updated + enabled/connection/models flags); the watcher's aggregate flags are its OR. Exported for hosts that install catalogs themselves.

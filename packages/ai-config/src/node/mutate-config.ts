@@ -55,9 +55,9 @@ const LOCK_OPTIONS = {
  * Per-path in-process write queue to serialize concurrent mutations from
  * the same process. The cross-process lockfile handles inter-process safety.
  */
-const writeQueues = new Map<string, Promise<void>>();
+const writeQueues = new Map<string, Promise<unknown>>();
 
-function enqueue(configPath: string, fn: () => Promise<void>): Promise<void> {
+function enqueue<T>(configPath: string, fn: () => Promise<T>): Promise<T> {
 	const current = writeQueues.get(configPath) ?? Promise.resolve();
 	const next = current.then(fn, fn); // always chain, even on error
 	writeQueues.set(configPath, next);
@@ -77,15 +77,18 @@ function enqueue(configPath: string, fn: () => Promise<void>): Promise<void> {
  *
  * @param mutator - A function that transforms the current config.
  * @param opts - Optional path override and logger.
+ * @returns `true` if the mutation wrote new content to the file, `false` if
+ * the result was unchanged and nothing was written. (Creating a missing file
+ * whose only content is the seed metadata reports `false`.)
  */
 export async function mutateProvidersConfig(
 	mutator: (current: ProvidersConfig) => ProvidersConfig | Promise<ProvidersConfig>,
 	opts?: MutateConfigOptions,
-): Promise<void> {
+): Promise<boolean> {
 	const configPath = opts?.configPath ?? PROVIDERS_CONFIG_PATH;
 	const logger = opts?.logger;
 
-	await enqueue(configPath, () => performLockedMutation(configPath, mutator, logger));
+	return enqueue(configPath, () => performLockedMutation(configPath, mutator, logger));
 }
 
 /**
@@ -209,7 +212,7 @@ async function performLockedMutation(
 	configPath: string,
 	mutator: (current: ProvidersConfig) => ProvidersConfig | Promise<ProvidersConfig>,
 	logger: LoggerLike | undefined,
-): Promise<void> {
+): Promise<boolean> {
 	const dir = path.dirname(configPath);
 
 	// Ensure directory exists
@@ -265,7 +268,7 @@ async function performLockedMutation(
 
 		if (output === raw) {
 			logger?.debug("[ai-config] Config mutation made no changes");
-			return;
+			return false;
 		}
 
 		// Reparse and revalidate the exact bytes that will be persisted. Compare
@@ -279,6 +282,7 @@ async function performLockedMutation(
 		await atomicWrite(configPath, output);
 
 		logger?.debug("[ai-config] Config mutation written successfully");
+		return true;
 	} finally {
 		if (release) {
 			await release();
