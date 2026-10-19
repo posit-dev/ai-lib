@@ -42,6 +42,7 @@ export type {
 	ChatRequestMetadata,
 	ModelClient,
 	ModelClientChatParams,
+	ResponseSchemaSpec,
 } from "./model-clients/ModelClient";
 
 // AI SDK types surfaced through the bridge so consumers can use the public API

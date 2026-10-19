@@ -29,6 +29,8 @@ import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
 	createStepLogger,
+	experimentalStructuredOutput,
+	rejectUnenforceableResponseFormat,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 import { createOpenAICompatibleFetchMiddleware } from "./openai-compat-fetch";
@@ -285,10 +287,12 @@ export class SnowflakeClient implements ModelClient {
 				abortSignal: abortController.signal,
 				providerOptions,
 				headers: requestHeaders,
+				experimental_output: experimentalStructuredOutput(params.responseSchema),
 				onStepFinish: createStepLogger(params.stepLoggers || [], "snowflake-cortex", params.model),
 			},
 			this.logger,
 		);
+		await rejectUnenforceableResponseFormat(result, params.responseSchema, cleanup);
 
 		return convertAiSdkStreamToPlatform(result.fullStream, cleanup);
 	}
@@ -349,8 +353,10 @@ export class SnowflakeClient implements ModelClient {
 					},
 				},
 			}),
+			experimental_output: experimentalStructuredOutput(params.responseSchema),
 			onStepFinish: createStepLogger(params.stepLoggers || [], "snowflake-cortex", params.model),
 		});
+		await rejectUnenforceableResponseFormat(result, params.responseSchema, cleanup);
 
 		return convertAiSdkStreamToPlatform(result.fullStream, cleanup);
 	}

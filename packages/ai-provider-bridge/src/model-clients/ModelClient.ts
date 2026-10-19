@@ -34,6 +34,17 @@ export interface ChatRequestMetadata {
 }
 
 /**
+ * A named JSON Schema constraining a response. See
+ * {@link ModelClientChatParams.responseSchema}.
+ */
+export interface ResponseSchemaSpec {
+	/** Schema name; some providers use it for guidance (e.g. the json_schema name). */
+	name: string;
+	/** JSON Schema object the response must conform to. */
+	schema: Record<string, unknown>;
+}
+
+/**
  * Parameters for a chat request. Shared across all ModelClient implementations
  * so the contract is defined in one place.
  */
@@ -63,6 +74,16 @@ export interface ModelClientChatParams {
 	contextLength?: number;
 	/** Whether provider-side web search should be enabled for this request. */
 	webSearchEnabled?: boolean;
+	/**
+	 * Provider-enforced structured output: the response text is constrained to
+	 * this JSON schema. Clients map it to the route's native mechanism
+	 * (Anthropic `output_config`, OpenAI `json_schema`, Gemini
+	 * `responseSchema`, or the SDK's schema-forced tool fallback). When the
+	 * route cannot constrain output, the client must throw rather than send an
+	 * unconstrained request — callers use this for safety-relevant decisions
+	 * and must never get silently free-form text.
+	 */
+	responseSchema?: ResponseSchemaSpec;
 	/**
 	 * Whether Bedrock Mantle's hosted web search may fetch live external pages
 	 * on a cache miss (`external_web_access` on the wire). Consumed only by

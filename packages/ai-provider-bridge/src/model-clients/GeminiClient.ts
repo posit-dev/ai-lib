@@ -25,6 +25,8 @@ import {
 	convertAiSdkStreamToPlatform,
 	createAbortControllerFromToken,
 	createStepLogger,
+	experimentalStructuredOutput,
+	rejectUnenforceableResponseFormat,
 	suppressAiSdkDefaultErrorLogging,
 } from "./ai-sdk-helpers";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
@@ -426,6 +428,7 @@ export class GeminiClient implements ModelClient {
 			toolChoice: tools ? ("auto" as const) : undefined,
 			abortSignal: abortController.signal,
 			providerOptions,
+			experimental_output: experimentalStructuredOutput(params.responseSchema),
 			onError: suppressAiSdkDefaultErrorLogging,
 			onStepFinish: createStepLogger(params.stepLoggers || [], "gemini", params.model),
 		};
@@ -447,6 +450,7 @@ export class GeminiClient implements ModelClient {
 		// interaction before any content, retry once with a fresh interaction.
 		try {
 			const result = streamText(streamArgs);
+			await rejectUnenforceableResponseFormat(result, params.responseSchema, cleanup);
 			return convertAiSdkStreamToPlatform(
 				this.withRawUsageMetadata(
 					this.withExpiredIdRetry(result.fullStream, previousInteractionId, startFreshInteraction),
