@@ -35,6 +35,11 @@
       "types": "./dist/credential-shaping.d.ts",
       "import": "./dist/credential-shaping.js",
       "default": "./dist/credential-shaping.js"
+    },
+    "./headless": {
+      "types": "./dist/headless.d.ts",
+      "import": "./dist/headless.js",
+      "default": "./dist/headless.js"
     }
   },
   "files": [
