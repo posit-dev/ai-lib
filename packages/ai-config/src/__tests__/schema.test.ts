@@ -254,7 +254,7 @@ describe("providersConfigSchema", () => {
 		const result = providersConfigSchema.safeParse({
 			providers: {
 				"posit-connect": {
-					customHeaders: { "Posit-Connect-Gateway-Metadata": "team=analytics" },
+					customHeaders: { "Gateway-Metadata": "team=analytics" },
 				},
 			},
 		});

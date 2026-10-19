@@ -13,7 +13,7 @@ describe("combineGatewayMetadataHeaders", () => {
 	it("passes configured and Workbench values through without inspecting keys", () => {
 		expect(
 			combineGatewayMetadataHeaders("workbench-session-id=s1", {
-				"Posit-Connect-Gateway-Metadata": "team=analytics",
+				"Gateway-Metadata": "team=analytics",
 			}),
 		).toBe("workbench-session-id=s1,team=analytics");
 	});
