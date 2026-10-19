@@ -237,8 +237,8 @@ export type AiToolWithJsonSchema = ai.Tool & {
 /**
  * Stream parts returned by language model requests
  *
- * Just use the AI SDK v6 type directly. Note that not all platforms (ahem, vscode/positron) emit
- * all the types of stream parts that the AI SDK v6 defines.
+ * Just use the AI SDK type directly. Note that not all platforms (ahem, vscode/positron) emit
+ * all the types of stream parts that the AI SDK defines.
  */
 export type LMStreamPart = ai.TextStreamPart<Record<string, ai.Tool>>;
 

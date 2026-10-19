@@ -61,7 +61,7 @@ async function toolCallParts(sseChunks: string[]) {
 		},
 	});
 	const collected = [];
-	for await (const part of result.fullStream) {
+	for await (const part of result.stream) {
 		collected.push(part);
 	}
 	return collected;

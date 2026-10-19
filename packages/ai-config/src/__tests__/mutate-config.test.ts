@@ -64,7 +64,7 @@ describe("mutateProvidersConfig", () => {
 			},
 		});
 
-		await mutateProvidersConfig(
+		const wrote = await mutateProvidersConfig(
 			(current) => ({
 				...current,
 				providers: {
@@ -74,6 +74,8 @@ describe("mutateProvidersConfig", () => {
 			}),
 			{ configPath, logger: mockLogger },
 		);
+
+		expect(wrote).toBe(true);
 
 		const raw = JSON.parse(await fixture.readRaw());
 		expect(raw.providers.anthropic.baseUrl).toBe("https://existing.example.com");
@@ -159,8 +161,12 @@ describe("mutateProvidersConfig", () => {
 		await fixture.writeRawJsonc(original);
 		const rename = vi.spyOn(fs, "rename");
 
-		await mutateProvidersConfig((current) => ({ ...current }), { configPath, logger: mockLogger });
+		const wrote = await mutateProvidersConfig((current) => ({ ...current }), {
+			configPath,
+			logger: mockLogger,
+		});
 
+		expect(wrote).toBe(false);
 		expect(rename).not.toHaveBeenCalled();
 		expect(await fixture.readRaw()).toBe(original);
 	});

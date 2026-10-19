@@ -85,7 +85,7 @@ function run(sseChunks: string[]) {
 async function parts(sseChunks: string[]) {
 	const result = run(sseChunks);
 	const collected = [];
-	for await (const part of result.fullStream) {
+	for await (const part of result.stream) {
 		collected.push(part);
 	}
 	return collected;

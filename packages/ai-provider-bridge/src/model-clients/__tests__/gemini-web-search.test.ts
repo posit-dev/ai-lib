@@ -29,14 +29,14 @@ vi.mock("ai", async (importOriginal) => ({
 	streamText,
 }));
 vi.mock("@ai-sdk/google", () => ({
-	createGoogleGenerativeAI: vi.fn(() => ({
+	createGoogle: vi.fn(() => ({
 		interactions: vi.fn(() => interactionsModel.current),
 		tools: { googleSearch },
 	})),
 }));
 
-import type { LanguageModelV3StreamPart } from "@ai-sdk/provider";
-import { MockLanguageModelV3 } from "ai/test";
+import type { LanguageModelV4StreamPart } from "@ai-sdk/provider";
+import { MockLanguageModelV4 } from "ai/test";
 
 import type { AiToolWithJsonSchema, CancellationToken, LMStreamPart } from "../../types";
 import { GeminiClient } from "../GeminiClient";
@@ -52,7 +52,7 @@ function localTool(): AiToolWithJsonSchema {
 
 function emptyStream() {
 	return {
-		fullStream: (async function* () {
+		stream: (async function* () {
 			// No parts.
 		})(),
 	};
@@ -83,7 +83,7 @@ function expiredInteractionError() {
 
 /** Model stream parts for a short text answer, optionally ending in an error. */
 function textStream(text: string, error?: unknown) {
-	const parts: LanguageModelV3StreamPart[] = [
+	const parts: LanguageModelV4StreamPart[] = [
 		{ type: "stream-start", warnings: [] },
 		{ type: "text-start", id: "t1" },
 		{ type: "text-delta", id: "t1", delta: text },
@@ -104,7 +104,7 @@ function textStream(text: string, error?: unknown) {
 		);
 	}
 	return {
-		stream: new ReadableStream<LanguageModelV3StreamPart>({
+		stream: new ReadableStream<LanguageModelV4StreamPart>({
 			start(controller) {
 				for (const part of parts) controller.enqueue(part);
 				controller.close();
@@ -114,13 +114,13 @@ function textStream(text: string, error?: unknown) {
 }
 
 /** Route `streamText` to the real SDK over a mock Interactions model. */
-async function useRealSdk(doStream: MockLanguageModelV3["doStream"]) {
+async function useRealSdk(doStream: MockLanguageModelV4["doStream"]) {
 	const { streamText: realStreamText } = await vi.importActual<typeof import("ai")>("ai");
 	// The hoisted mock is typed narrowly for the arg-inspection tests above.
 	streamText.mockImplementation((args) =>
 		realStreamText(args as Parameters<typeof realStreamText>[0]),
 	);
-	const model = new MockLanguageModelV3({ provider: "google.interactions", doStream });
+	const model = new MockLanguageModelV4({ provider: "google.interactions", doStream });
 	interactionsModel.current = model;
 	googleSearch.mockReturnValueOnce({ type: "provider", id: "google.google_search", args: {} });
 	return model;
@@ -285,7 +285,7 @@ describe("GeminiClient expired-interaction retry", () => {
 
 	it("retries when the chained stream throws before any content", async () => {
 		streamText.mockReturnValueOnce({
-			fullStream: (async function* () {
+			stream: (async function* () {
 				throw expiredInteractionError();
 			})(),
 		});

@@ -104,7 +104,7 @@ describe("OpenAI web search wire requests", () => {
 				name: "lookup",
 				description: "Look up a value",
 				parameters: { type: "object", properties: { query: { type: "string" } } },
-				strict: undefined,
+				strict: false,
 			},
 			{ type: "web_search" },
 		]);

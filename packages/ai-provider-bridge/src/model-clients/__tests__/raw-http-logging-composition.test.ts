@@ -11,25 +11,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // SDK factories are mocked so we can grab the fetch each client installs and
 // drive it the way the SDK would. `vi.hoisted` lets these mocks exist before
 // the hoisted `vi.mock` factories run.
-const {
-	createDeepSeek,
-	createAnthropic,
-	createOpenAI,
-	createOpenAICompatible,
-	createGoogleGenerativeAI,
-} = vi.hoisted(() => ({
-	createDeepSeek: vi.fn(() => ({ chat: vi.fn(() => ({})) })),
-	createAnthropic: vi.fn(() => vi.fn(() => ({}))),
-	createOpenAI: vi.fn(() => ({ chat: vi.fn(() => ({})) })),
-	createOpenAICompatible: vi.fn(() => ({ chatModel: vi.fn(() => ({})) })),
-	createGoogleGenerativeAI: vi.fn(() => vi.fn(() => ({}))),
-}));
+const { createDeepSeek, createAnthropic, createOpenAI, createOpenAICompatible, createGoogle } =
+	vi.hoisted(() => ({
+		createDeepSeek: vi.fn(() => ({ chat: vi.fn(() => ({})) })),
+		createAnthropic: vi.fn(() => vi.fn(() => ({}))),
+		createOpenAI: vi.fn(() => ({ chat: vi.fn(() => ({})) })),
+		createOpenAICompatible: vi.fn(() => ({ chatModel: vi.fn(() => ({})) })),
+		createGoogle: vi.fn(() => vi.fn(() => ({}))),
+	}));
 
 vi.mock("@ai-sdk/deepseek", () => ({ createDeepSeek }));
 vi.mock("@ai-sdk/anthropic", () => ({ createAnthropic }));
 vi.mock("@ai-sdk/openai", () => ({ createOpenAI }));
 vi.mock("@ai-sdk/openai-compatible", () => ({ createOpenAICompatible }));
-vi.mock("@ai-sdk/google", () => ({ createGoogleGenerativeAI }));
+vi.mock("@ai-sdk/google", () => ({ createGoogle }));
 // The variant profile gate needs a known model; stub the lookup.
 vi.mock("ai-config", async (importOriginal) => ({
 	...(await importOriginal<Record<string, unknown>>()),
@@ -43,7 +38,7 @@ vi.mock("ai-config", async (importOriginal) => ({
 		thinkingEffortLevels: ["low", "medium", "high"],
 	})),
 }));
-vi.mock("ai", () => ({ streamText: vi.fn(() => ({ fullStream: {} })) }));
+vi.mock("ai", () => ({ streamText: vi.fn(() => ({ stream: {} })) }));
 // Bypass the stream-conversion + abort plumbing; we only care about the fetch
 // wrapper each client installs.
 vi.mock("../ai-sdk-helpers", () => ({
@@ -52,11 +47,11 @@ vi.mock("../ai-sdk-helpers", () => ({
 		abortController: new AbortController(),
 		cleanup: vi.fn(),
 	})),
-	createStepLogger: vi.fn(() => undefined),
+	stepLoggingOptions: vi.fn(() => ({})),
 	suppressAiSdkDefaultErrorLogging: vi.fn(),
 }));
 vi.mock("../tool-call-ids", () => ({
-	streamTextAnthropicWire: vi.fn(() => ({ fullStream: {} })),
+	streamTextAnthropicWire: vi.fn(() => ({ stream: {} })),
 }));
 
 import type { CancellationToken, Logger } from "../../types";
@@ -88,7 +83,7 @@ beforeEach(() => {
 	createAnthropic.mockClear();
 	createOpenAI.mockClear();
 	createOpenAICompatible.mockClear();
-	createGoogleGenerativeAI.mockClear();
+	createGoogle.mockClear();
 });
 
 afterEach(() => {
@@ -361,7 +356,7 @@ describe("raw HTTP logging composition", () => {
 		vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse(["data: [DONE]\n\n"]));
 
 		await new GeminiGenerateContentClient({ authToken: "tok-123" }).chat(params("gemini-2.5-pro"));
-		const sdkFetch = (createGoogleGenerativeAI.mock.calls[0]?.[0] as SdkOptions | undefined)?.fetch;
+		const sdkFetch = (createGoogle.mock.calls[0]?.[0] as SdkOptions | undefined)?.fetch;
 		expect(sdkFetch).toBeDefined();
 
 		// Drive the installed fetch as the SDK would (SDK sets x-goog-api-key).
@@ -443,7 +438,7 @@ describe("raw HTTP logging composition", () => {
 		vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse(["data: [DONE]\n\n"]));
 
 		await new GeminiGenerateContentClient({ apiKey: "real-key" }).chat(params("gemini-2.5-pro"));
-		const sdkFetch = (createGoogleGenerativeAI.mock.calls[0]?.[0] as SdkOptions | undefined)?.fetch;
+		const sdkFetch = (createGoogle.mock.calls[0]?.[0] as SdkOptions | undefined)?.fetch;
 		expect(sdkFetch).toBeDefined();
 
 		const response = await sdkFetch!(

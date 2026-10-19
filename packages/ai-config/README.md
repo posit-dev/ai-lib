@@ -222,9 +222,9 @@ const { catalog, issues } = await loadProviderCatalogReport({});
 | `legacyPositronEnforcedSettings?` | `true` enables the `legacy-positron-enforced` layer (the `POSITRON_ENFORCED_SETTINGS` admin channel) in both the load and watch paths. Independent of `legacyPositronSettings`.                    |
 | `logger?`                         | `LoggerLike` for diagnostics/validation warnings.                                                                                                                                                  |
 
-#### `mutateProvidersConfig(mutator, opts?): Promise<void>`
+#### `mutateProvidersConfig(mutator, opts?): Promise<boolean>`
 
-Cross-process-safe read-modify-write. Unlike tolerant reads, mutation parses the entire file strictly: unknown or invalid keys abort with the offending path named, and the original bytes remain untouched. The `mutator` receives the current validated config and returns the new one. Existing comments and formatting outside changed paths are preserved. A same-object or value-identical result performs no write, avoiding spurious watch events. A mutation that touches an ambiguously duplicated JSON key is rejected without a whole-file fallback. The seam owns locking, serialization, race-safe creation, atomic writes, and seed metadata.
+Cross-process-safe read-modify-write. Unlike tolerant reads, mutation parses the entire file strictly: unknown or invalid keys abort with the offending path named, and the original bytes remain untouched. The `mutator` receives the current validated config and returns the new one. Existing comments and formatting outside changed paths are preserved. A same-object or value-identical result performs no write, avoiding spurious watch events. Resolves `true` when it wrote new content and `false` when nothing changed. A mutation that touches an ambiguously duplicated JSON key is rejected without a whole-file fallback. The seam owns locking, serialization, race-safe creation, atomic writes, and seed metadata.
 
 ```ts
 await mutateProvidersConfig((current) => ({

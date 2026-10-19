@@ -380,7 +380,7 @@ describe("default direct-provider User-Agent (wire)", () => {
 
 		await driveChat(client, capture, { model: "model-1", protocol: "openai-chat" });
 
-		expectProductIdentity(capture.single(), { libraryToken: "ai-sdk/" });
+		expectProductIdentity(capture.single(), { libraryToken: "ai-sdk-provider-utils/" });
 	});
 
 	it("reaches a custom OpenAI-compatible request through fetch middleware", async () => {
@@ -402,7 +402,7 @@ describe("default direct-provider User-Agent (wire)", () => {
 
 		await driveChat(client, capture, { model: "model-1", protocol: "openai-chat" });
 
-		expectProductIdentity(capture.single(), { libraryToken: "ai-sdk/" });
+		expectProductIdentity(capture.single(), { libraryToken: "ai-sdk-provider-utils/" });
 	});
 
 	describe("Bedrock", () => {
@@ -417,7 +417,7 @@ describe("default direct-provider User-Agent (wire)", () => {
 
 			for (const call of requestsTo(capture, `${BEDROCK_RUNTIME_MODEL}amazon.nova-pro-v1`)) {
 				expect(requestUrl(call[0])).toContain("/converse-stream");
-				expectProductIdentity(call, { libraryToken: "ai-sdk/", ...SIGV4 });
+				expectProductIdentity(call, { libraryToken: "ai-sdk-provider-utils/", ...SIGV4 });
 			}
 		});
 
@@ -437,7 +437,7 @@ describe("default direct-provider User-Agent (wire)", () => {
 				`${BEDROCK_RUNTIME_MODEL}us.anthropic.claude-sonnet-4-5`,
 			)) {
 				expect(requestUrl(call[0])).toContain("/invoke-with-response-stream");
-				expectProductIdentity(call, { libraryToken: "ai-sdk/", ...SIGV4 });
+				expectProductIdentity(call, { libraryToken: "ai-sdk-provider-utils/", ...SIGV4 });
 			}
 		});
 
@@ -452,7 +452,7 @@ describe("default direct-provider User-Agent (wire)", () => {
 			});
 
 			for (const call of requestsTo(capture, `${MANTLE_HOST}/v1/chat/completions`)) {
-				expectProductIdentity(call, { libraryToken: "ai-sdk/", ...SIGV4 });
+				expectProductIdentity(call, { libraryToken: "ai-sdk-provider-utils/", ...SIGV4 });
 			}
 		});
 
@@ -467,7 +467,7 @@ describe("default direct-provider User-Agent (wire)", () => {
 			});
 
 			for (const call of requestsTo(capture, `${MANTLE_HOST}/openai/v1/responses`)) {
-				expectProductIdentity(call, { libraryToken: "ai-sdk/", ...SIGV4 });
+				expectProductIdentity(call, { libraryToken: "ai-sdk-provider-utils/", ...SIGV4 });
 			}
 		});
 
@@ -510,7 +510,7 @@ describe("default direct-provider User-Agent (wire)", () => {
 				capture,
 				"https://us-central1-aiplatform.googleapis.com/v1beta1/projects/test-project/locations/us-central1/publishers/google/models/gemini-2.5-pro:streamGenerateContent",
 			)) {
-				expectProductIdentity(call, { libraryToken: "ai-sdk/", ...VERTEX_BEARER });
+				expectProductIdentity(call, { libraryToken: "ai-sdk-provider-utils/", ...VERTEX_BEARER });
 			}
 		});
 
@@ -530,7 +530,7 @@ describe("default direct-provider User-Agent (wire)", () => {
 				expect(requestUrl(call[0])).toContain(
 					"/projects/test-project/locations/global/publishers/anthropic/models/claude-sonnet-4-5:streamRawPredict",
 				);
-				expectProductIdentity(call, { libraryToken: "ai-sdk/", ...VERTEX_BEARER });
+				expectProductIdentity(call, { libraryToken: "ai-sdk-provider-utils/", ...VERTEX_BEARER });
 			}
 		});
 
@@ -584,7 +584,7 @@ describe("default direct-provider User-Agent (wire)", () => {
 			await driveChat(client, capture, { model: "qwen2.5-7b" });
 
 			for (const call of requestsTo(capture, "http://localhost:1234/v1/chat/completions")) {
-				expectProductIdentity(call, { libraryToken: "ai-sdk/" });
+				expectProductIdentity(call, { libraryToken: "ai-sdk-provider-utils/" });
 			}
 		});
 

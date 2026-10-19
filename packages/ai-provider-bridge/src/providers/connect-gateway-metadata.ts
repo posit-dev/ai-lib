@@ -3,10 +3,10 @@
  *--------------------------------------------------------------------------------------------*/
 
 /** Header Posit Connect's LLM gateway reads (and strips before the provider). */
-export const GATEWAY_METADATA_HEADER = "Posit-Connect-Gateway-Metadata";
+export const GATEWAY_METADATA_HEADER = "Gateway-Metadata";
 
 /** Workbench provides the finished header value through this environment variable. */
-export const WORKBENCH_GATEWAY_METADATA_ENV = "PWB_CONNECT_GATEWAY_METADATA";
+export const WORKBENCH_GATEWAY_METADATA_ENV = "PWB_GATEWAY_METADATA_HEADER";
 
 /** Keep unsafe header values from failing a chat before Connect can parse them. */
 export function isSafeGatewayMetadataHeader(value: string): boolean {
