@@ -20,6 +20,7 @@ These rules keep the dependency graph clean:
 | `ai-provider-bridge/providers-external` | Minimal provider set (external/OSS builds -- Posit AI Pass only)                                                                                                                                                                          | Minimal               |
 | `ai-provider-bridge/positron`           | `VscodeLmClient`, `listVscodeLmModels()`, `fromAiMessages2()`, LM helpers, `CONFIG_KEY_OVERRIDES` (**no** `PositronCredentialProvider` — removed; the VS Code auth backend is now `createPositronBackend` from `ai-credentials/positron`) | Yes (`vscode`)        |
 | `ai-provider-bridge/credential-shaping` | Compat re-export of `ai-credentials/types` — `shapeCredentials()` + `CredentialConfig` + `CONFIG_KEY_OVERRIDES` (implementation now lives in `ai-credentials`)                                                                            | No                    |
+| `ai-provider-bridge/headless`           | `createHeadlessProviders()` -- catalog as plain data, auth mappings, model listing from a raw session token, chat streaming (credential shaping is internal)                                                                              | Yes (AI SDK packages) |
 
 `./types` and `./local-providers` are also exposed as granular subpath exports (for consumers that want just those modules without pulling the root entrypoint).
 
