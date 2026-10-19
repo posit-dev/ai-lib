@@ -270,7 +270,7 @@ describe("connect model fetcher", () => {
 		const models = await registryWithProvider().getModelsForProvider("posit-connect", {
 			...credentials,
 			customHeaders: {
-				"pOSIT-cONNECT-gATEWAY-mETADATA": "workbench-session-id=fake",
+				"gATEWAY-mETADATA": "workbench-session-id=fake",
 				"x-proxy-token": "proxy",
 			},
 		});
@@ -398,7 +398,7 @@ describe("connect chat routing", () => {
 	});
 
 	describe("gateway metadata header", () => {
-		const HEADER = "Posit-Connect-Gateway-Metadata";
+		const HEADER = "Gateway-Metadata";
 		const gatewayValue = "workbench-session-id=s1";
 		const clientWithMetadata = (callbacks?: ConnectProviderCallbacks, creds = credentials) =>
 			clientAfterDiscovery(callbacks, creds, { [WORKBENCH_GATEWAY_METADATA_ENV]: gatewayValue });
@@ -448,7 +448,7 @@ describe("connect chat routing", () => {
 				undefined,
 				{
 					...credentials,
-					customHeaders: { "posit-connect-gateway-metadata": "team=analytics%20group" },
+					customHeaders: { "gateway-metadata": "team=analytics%20group" },
 				},
 				{
 					[WORKBENCH_GATEWAY_METADATA_ENV]:
@@ -465,7 +465,7 @@ describe("connect chat routing", () => {
 		it("sends configured metadata when Workbench provides none", async () => {
 			const client = await clientAfterDiscovery(undefined, {
 				...credentials,
-				customHeaders: { "pOSIT-cONNECT-gATEWAY-mETADATA": "team=analytics" },
+				customHeaders: { "gATEWAY-mETADATA": "team=analytics" },
 			});
 			await client.chat(chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`));
 			expect(vi.mocked(AnthropicClient).mock.calls.at(-1)![2]).toEqual({
@@ -538,8 +538,8 @@ describe("connect chat routing", () => {
 			const client = await clientAfterDiscovery(undefined, {
 				...credentials,
 				customHeaders: {
-					"Posit-Connect-Gateway-Metadata": "region=east",
-					"pOSIT-cONNECT-gATEWAY-mETADATA": "team=analytics",
+					"Gateway-Metadata": "region=east",
+					"gATEWAY-mETADATA": "team=analytics",
 				},
 			});
 			await client.chat(
@@ -554,7 +554,7 @@ describe("connect chat routing", () => {
 			const client = await clientAfterDiscovery(undefined, {
 				...credentials,
 				customHeaders: {
-					"posit-connect-gateway-metadata": "team=fake",
+					"gateway-metadata": "team=fake",
 					"x-proxy-token": "t",
 				},
 			});
@@ -572,7 +572,7 @@ describe("connect chat routing", () => {
 				undefined,
 				{
 					...credentials,
-					customHeaders: { "POSIT-CONNECT-GATEWAY-METADATA": "team=fake" },
+					customHeaders: { "GATEWAY-METADATA": "team=fake" },
 				},
 				{ [WORKBENCH_GATEWAY_METADATA_ENV]: "team=raw\nnewline" },
 			);
@@ -593,7 +593,7 @@ describe("connect chat routing", () => {
 		it("uses safe configured metadata when Workbench metadata is unsafe", async () => {
 			const client = await clientAfterDiscovery(
 				undefined,
-				{ ...credentials, customHeaders: { "Posit-Connect-Gateway-Metadata": "team=forged" } },
+				{ ...credentials, customHeaders: { "Gateway-Metadata": "team=forged" } },
 				{ [WORKBENCH_GATEWAY_METADATA_ENV]: "team=raw\rreturn" },
 			);
 			await client.chat(chatParams(`${ANTHROPIC_PREFIX}/claude-sonnet-4-5-20250929`));
@@ -605,7 +605,7 @@ describe("connect chat routing", () => {
 				{ getAwsCredentials: mintSuccess() },
 				{
 					...credentials,
-					customHeaders: { "POSIT-CONNECT-GATEWAY-METADATA": "team=fake" },
+					customHeaders: { "GATEWAY-METADATA": "team=fake" },
 				},
 			);
 			await client.chat(
