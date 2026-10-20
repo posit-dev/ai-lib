@@ -31,20 +31,16 @@ async function captureRequest(options: {
 		customFetch: () => fetchCapture.mock,
 	});
 
-	try {
-		const stream = await client.chat({
-			model: options.model,
-			systemPrompt: "System instruction",
-			messages: [{ role: "user", content: "Think about this" }],
-			thinkingEffort: options.thinkingEffort,
-			maxOutputTokens: 1024,
-			cancellationToken,
-		});
-		for await (const _part of stream) {
-			// Drain the minimal mocked event stream.
-		}
-	} catch {
-		// The wire body is captured before the intentionally incomplete stream ends.
+	const stream = await client.chat({
+		model: options.model,
+		systemPrompt: "System instruction",
+		messages: [{ role: "user", content: "Think about this" }],
+		thinkingEffort: options.thinkingEffort,
+		maxOutputTokens: 1024,
+		cancellationToken,
+	});
+	for await (const _part of stream) {
+		// Drain the minimal mocked event stream.
 	}
 
 	const [, init] = fetchCapture.single();
@@ -66,6 +62,8 @@ describe("OpenAI reasoning serialization for unrecognized model IDs", () => {
 			model: "qwen3-235b",
 			store: false,
 			reasoning: { effort: "high", summary: "detailed" },
+			// Forcing reasoning also switches the system prompt to the developer role.
+			input: [{ role: "developer", content: "System instruction" }, { role: "user" }],
 		});
 		expect(requestBody.include).toEqual(expect.arrayContaining(["reasoning.encrypted_content"]));
 	});
