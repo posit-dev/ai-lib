@@ -108,7 +108,7 @@ const messages: ModelMessage[] = [{ role: "user", content: "Hello" }];
  * the supplied Google auth, `AWS_BEARER_TOKEN_BEDROCK` swaps SigV4 for Bearer,
  * FIPS config disables Mantle and changes hosts, endpoint-URL and dualstack
  * settings change the AWS SDK listing host, and an AWS profile could supply
- * any of them. Raw HTTP logging would interpose its own fetch.
+ * any of them.
  */
 const ISOLATED_ENV_KEYS = [
 	"GOOGLE_VERTEX_API_KEY",
@@ -123,7 +123,6 @@ const ISOLATED_ENV_KEYS = [
 	"AWS_REGION",
 	"AWS_DEFAULT_REGION",
 	"AWS_SDK_UA_APP_ID",
-	"PA_RAW_HTTP_LOG_DIR",
 ] as const;
 
 let fixtureDir: string;

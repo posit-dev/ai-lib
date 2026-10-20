@@ -205,22 +205,22 @@ import { AI_CONFIG_DIR, PROVIDERS_CONFIG_PATH } from "ai-config/node";
 The canonical read seam. Assembles source-read reports (each shaped as `{ source?, issues }`), delegates precedence to `resolveProviderCatalogReport`, and returns one complete issue snapshot beside the catalog. Source readers never log; this one-shot orchestrator renders the completed report once. The JSONC user-file reader salvages valid siblings at whole-provider-block granularity. Admin env fragments (parsed as strict JSON) are salvaged too: unrecognized keys are removed and invalid blocks dropped, each with a warning; only an unusable payload is ignored whole. Legacy Positron readers reconstruct their current issues on every read, so a fixed-then-rebroken setting can recur correctly.
 
 ```ts
-const { catalog, issues } = await loadProviderCatalogReport({});
+const { catalog, issues } = await loadProviderCatalogReport({ envVars: process.env });
 ```
 
 `loadResolvedProviderCatalog(opts)` remains a compatibility wrapper returning `.catalog`.
 
 `LoadCatalogOptions`:
 
-| Field                             | Description                                                                                                                                                                                        |
-| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `configPath?`                     | Override the file path (testing).                                                                                                                                                                  |
-| `enforcedEnvVar?`                 | Override the enforced env-var name (defaults to `POSIT_AI_PROVIDERS_ENFORCED`; testing).                                                                                                           |
-| `defaultEnvVar?`                  | Override the defaults env-var name (defaults to `POSIT_AI_PROVIDERS_DEFAULT`; testing).                                                                                                            |
-| `envVars?`                        | Source for non-secret connection env vars (converted into a resolver-owned source ranked below `enforced`) **and** for reading the enforced/default fragment env vars (defaults to `process.env`). |
-| `legacyPositronSettings?`         | A `LegacySettingsReader` (`get`/`watch`) over the legacy Positron settings. Its presence enables the `legacy-positron` layer (user-set channel) in both the load and watch paths.                  |
-| `legacyPositronEnforcedSettings?` | `true` enables the `legacy-positron-enforced` layer (the `POSITRON_ENFORCED_SETTINGS` admin channel) in both the load and watch paths. Independent of `legacyPositronSettings`.                    |
-| `logger?`                         | `LoggerLike` for diagnostics/validation warnings.                                                                                                                                                  |
+| Field                             | Description                                                                                                                                                                                                                                                                                  |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `configPath?`                     | Override the file path (testing).                                                                                                                                                                                                                                                            |
+| `enforcedEnvVar?`                 | Override the enforced env-var name (defaults to `POSIT_AI_PROVIDERS_ENFORCED`; testing).                                                                                                                                                                                                     |
+| `defaultEnvVar?`                  | Override the defaults env-var name (defaults to `POSIT_AI_PROVIDERS_DEFAULT`; testing).                                                                                                                                                                                                      |
+| `envVars`                         | Required environment for non-secret connection fields (ranked below `enforced`) and enforced/default fragments. Hosts that delete fragment variables from `process.env` must pass an environment that retains their values. There is no ambient fallback. Pass `process.env` for live reads. |
+| `legacyPositronSettings?`         | A `LegacySettingsReader` (`get`/`watch`) over the legacy Positron settings. Its presence enables the `legacy-positron` layer (user-set channel) in both the load and watch paths.                                                                                                            |
+| `legacyPositronEnforcedSettings?` | `true` enables the `legacy-positron-enforced` layer (the `POSITRON_ENFORCED_SETTINGS` admin channel) in both the load and watch paths. Independent of `legacyPositronSettings`.                                                                                                              |
+| `logger?`                         | `LoggerLike` for diagnostics/validation warnings.                                                                                                                                                                                                                                            |
 
 #### `mutateProvidersConfig(mutator, opts?): Promise<boolean>`
 
@@ -243,12 +243,15 @@ await mutateProvidersConfig((current) => ({
 The single watch seam. Debounced (~300ms), ancestor-aware `fs.watch` that reloads and compares both the catalog and the complete issue snapshot. Issue comparison is order-insensitive and structural. The watcher emits issue-only add and clear transitions, and logs only newly added/changed issues; a persistent identical issue is quiet until it clears and recurs. Returns a `Disposable` — call `.dispose()` to stop.
 
 ```ts
-const sub = watchResolvedProviderCatalog((change) => {
-  if (change.enabledChanged) reregisterProviders(change.catalog);
-  if (change.connectionChanged) invalidateModelCaches(change.catalog);
-  if (change.modelsChanged) refreshModelLists(change.catalog);
-  if (change.issuesChanged) replaceConfigIssues(change.issues);
-}, {});
+const sub = watchResolvedProviderCatalog(
+  (change) => {
+    if (change.enabledChanged) reregisterProviders(change.catalog);
+    if (change.connectionChanged) invalidateModelCaches(change.catalog);
+    if (change.modelsChanged) refreshModelLists(change.catalog);
+    if (change.issuesChanged) replaceConfigIssues(change.issues);
+  },
+  { envVars: process.env },
+);
 // later:
 sub.dispose();
 ```

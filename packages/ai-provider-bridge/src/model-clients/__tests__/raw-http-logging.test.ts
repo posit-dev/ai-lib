@@ -24,8 +24,6 @@ import {
 	withRawHttpLogging,
 } from "../raw-http-logging";
 
-const ENV_VAR = "PA_RAW_HTTP_LOG_DIR";
-
 let workDir: string;
 
 beforeEach(() => {
@@ -34,9 +32,13 @@ beforeEach(() => {
 
 afterEach(() => {
 	resetRawHttpLoggingForTests();
-	delete process.env[ENV_VAR];
 	rmSync(workDir, { recursive: true, force: true });
 });
+
+/** Keep the fallback directory absent so only the override can enable logging. */
+function useOverrideDir(dir: string): void {
+	configureRawHttpLogging({ outputDir: join(workDir, "late-binding-unused"), overrideDir: dir });
+}
 
 function listFiles(dir: string): string[] {
 	return readdirSync(dir).sort();
@@ -115,58 +117,63 @@ async function waitForPair(): Promise<void> {
 }
 
 describe("withRawHttpLogging", () => {
-	it("returns undefined when disabled (no env var, no configured dir)", () => {
+	it("returns undefined when disabled (no override, no configured dir)", () => {
 		expect(withRawHttpLogging(undefined, { provider: "test", model: "m" })).toBeUndefined();
 	});
 
 	it("returns undefined when the configured dir does not exist", () => {
-		configureRawHttpLogging({ outputDir: join(workDir, "does-not-exist") });
+		configureRawHttpLogging({ outputDir: join(workDir, "does-not-exist"), overrideDir: undefined });
 		expect(withRawHttpLogging(undefined, { provider: "test", model: "m" })).toBeUndefined();
 	});
 
 	it("enables when the configured dir exists (late binding)", () => {
 		const logDir = join(workDir, "raw-http");
-		configureRawHttpLogging({ outputDir: logDir });
+		configureRawHttpLogging({ outputDir: logDir, overrideDir: undefined });
 		expect(withRawHttpLogging(undefined, { provider: "test", model: "m" })).toBeUndefined();
 		mkdirSync(logDir);
 		expect(withRawHttpLogging(undefined, { provider: "test", model: "m" })).toBeDefined();
 	});
 
-	it("env var enables logging and auto-creates the directory", () => {
+	it("the override enables logging and auto-creates the directory", () => {
 		const logDir = join(workDir, "env-logs");
-		process.env[ENV_VAR] = logDir;
+		useOverrideDir(logDir);
 		const wrapped = withRawHttpLogging(undefined, { provider: "test", model: "m" });
 		expect(wrapped).toBeDefined();
 	});
 
-	it("env var wins over a missing configured dir", () => {
-		configureRawHttpLogging({ outputDir: join(workDir, "nope") });
-		process.env[ENV_VAR] = join(workDir, "env-logs");
+	it("the override wins over a missing configured dir", () => {
+		configureRawHttpLogging({
+			outputDir: join(workDir, "nope"),
+			overrideDir: join(workDir, "env-logs"),
+		});
 		expect(withRawHttpLogging(undefined, { provider: "test", model: "m" })).toBeDefined();
 	});
 
-	it("recreates a deleted env dir and follows env var changes between calls", () => {
+	it("ignores PA_RAW_HTTP_LOG_DIR in process.env", () => {
+		configureRawHttpLogging({ outputDir: join(workDir, "nope"), overrideDir: undefined });
+		process.env.PA_RAW_HTTP_LOG_DIR = join(workDir, "env-logs");
+		try {
+			expect(withRawHttpLogging(undefined, { provider: "test", model: "m" })).toBeUndefined();
+		} finally {
+			delete process.env.PA_RAW_HTTP_LOG_DIR;
+		}
+	});
+
+	it("recreates a deleted override dir between calls", () => {
 		const first = join(workDir, "env-logs");
-		process.env[ENV_VAR] = first;
+		useOverrideDir(first);
 		expect(withRawHttpLogging(undefined, { provider: "test", model: "m" })).toBeDefined();
 		expect(existsSync(first)).toBe(true);
 
-		// Deleted after first use: the next call recreates it.
 		rmSync(first, { recursive: true, force: true });
 		expect(withRawHttpLogging(undefined, { provider: "test", model: "m" })).toBeDefined();
 		expect(existsSync(first)).toBe(true);
-
-		// Changed after first use: the new directory is created.
-		const second = join(workDir, "env-logs-2");
-		process.env[ENV_VAR] = second;
-		expect(withRawHttpLogging(undefined, { provider: "test", model: "m" })).toBeDefined();
-		expect(existsSync(second)).toBe(true);
 	});
 
-	it("creates the env directory and log files owner-only", async () => {
+	it("creates the override directory and log files owner-only", async () => {
 		if (process.platform === "win32") return; // POSIX permission bits don't apply
 		const logDir = join(workDir, "env-logs-perms");
-		process.env[ENV_VAR] = logDir;
+		useOverrideDir(logDir);
 		const wrapped = withRawHttpLogging(fakeSseFetch(["data: [DONE]\n\n"]), {
 			provider: "test",
 			model: "m",
@@ -196,11 +203,11 @@ describe("withRawHttpLogging", () => {
 		}
 	});
 
-	it("tightens a pre-existing permissive env directory to owner-only", () => {
+	it("tightens a pre-existing permissive override directory to owner-only", () => {
 		if (process.platform === "win32") return; // POSIX permission bits don't apply
 		const logDir = join(workDir, "env-logs");
 		mkdirSync(logDir, { mode: 0o755 });
-		process.env[ENV_VAR] = logDir;
+		useOverrideDir(logDir);
 
 		expect(withRawHttpLogging(undefined, { provider: "test", model: "m" })).toBeDefined();
 		// mkdir's mode only applies to directories it creates; an existing
@@ -208,13 +215,13 @@ describe("withRawHttpLogging", () => {
 		expect(statSync(logDir).mode & 0o777).toBe(0o700);
 	});
 
-	it("refuses a symlinked env directory", () => {
+	it("refuses a symlinked override directory", () => {
 		if (process.platform === "win32") return; // symlink rules differ on Windows
 		const target = join(workDir, "real");
 		mkdirSync(target);
 		const link = join(workDir, "link");
 		symlinkSync(target, link);
-		process.env[ENV_VAR] = link;
+		useOverrideDir(link);
 
 		// The path resolves to a real directory but its final entry is a
 		// symlink: logging stays disabled rather than following it.
@@ -225,7 +232,7 @@ describe("withRawHttpLogging", () => {
 		if (process.platform === "win32") return; // POSIX permission bits don't apply
 		const logDir = join(workDir, "raw-http");
 		mkdirSync(logDir, { mode: 0o755 });
-		configureRawHttpLogging({ outputDir: logDir });
+		configureRawHttpLogging({ outputDir: logDir, overrideDir: undefined });
 
 		expect(withRawHttpLogging(undefined, { provider: "test", model: "m" })).toBeDefined();
 		expect(statSync(logDir).mode & 0o777).toBe(0o700);
@@ -233,12 +240,12 @@ describe("withRawHttpLogging", () => {
 		// A regular file at the configured path is not a log directory.
 		const file = join(workDir, "not-a-dir");
 		writeFileSync(file, "x");
-		configureRawHttpLogging({ outputDir: file });
+		configureRawHttpLogging({ outputDir: file, overrideDir: undefined });
 		expect(withRawHttpLogging(undefined, { provider: "test", model: "m" })).toBeUndefined();
 	});
 
 	it("writes request and response files with byte-identical bodies", async () => {
-		process.env[ENV_VAR] = workDir;
+		useOverrideDir(workDir);
 		const requestBody = JSON.stringify({ prompt: "héllo wörld ✨", n: 1 });
 		const sseChunks = [
 			'data: {"delta":"héllo"}\n\n',
@@ -283,7 +290,7 @@ describe("withRawHttpLogging", () => {
 	});
 
 	it("redacts credential-bearing headers but not other headers or the body", async () => {
-		process.env[ENV_VAR] = workDir;
+		useOverrideDir(workDir);
 		const wrapped = withRawHttpLogging(fakeSseFetch(["data: [DONE]\n\n"]), {
 			provider: "test",
 			model: "m",
@@ -325,7 +332,7 @@ describe("withRawHttpLogging", () => {
 	});
 
 	it("sanitizes provider/model for file names", async () => {
-		process.env[ENV_VAR] = workDir;
+		useOverrideDir(workDir);
 		const wrapped = withRawHttpLogging(fakeSseFetch(["data: [DONE]\n\n"]), {
 			provider: "my provider",
 			model: "a/b:c",
@@ -339,7 +346,7 @@ describe("withRawHttpLogging", () => {
 	});
 
 	it("names files with the request session so interleaved requests can be grouped", async () => {
-		process.env[ENV_VAR] = workDir;
+		useOverrideDir(workDir);
 		const session = "10000000-0000-4000-8000-000000000001:20000000-0000-4000-8000-000000000002";
 		const wrapped = withRawHttpLogging(fakeSseFetch(["data: [DONE]\n\n"]), {
 			provider: "anthropic",
@@ -362,7 +369,7 @@ describe("withRawHttpLogging", () => {
 	});
 
 	it("bounds long model IDs in file names with a stable hash suffix", async () => {
-		process.env[ENV_VAR] = workDir;
+		useOverrideDir(workDir);
 		const longModel = `arn:aws:bedrock:us-east-1:123456789012:inference-profile/${"x".repeat(300)}`;
 		const wrapped = withRawHttpLogging(fakeSseFetch(["data: [DONE]\n\n"]), {
 			provider: "test",
@@ -384,7 +391,7 @@ describe("withRawHttpLogging", () => {
 	});
 
 	it("logs GET by default, honoring Request and init method overrides", async () => {
-		process.env[ENV_VAR] = workDir;
+		useOverrideDir(workDir);
 		const wrapped = withRawHttpLogging(fakeSseFetch(["data: [DONE]\n\n"]), {
 			provider: "test",
 			model: "m",
@@ -407,7 +414,7 @@ describe("withRawHttpLogging", () => {
 	});
 
 	it("writes a response file with an error marker when fetch throws", async () => {
-		process.env[ENV_VAR] = workDir;
+		useOverrideDir(workDir);
 		const failing: typeof globalThis.fetch = async () => {
 			throw new Error("connection refused");
 		};
@@ -426,7 +433,7 @@ describe("withRawHttpLogging", () => {
 	});
 
 	it("forwards consumer cancellation to the source and logs partial bytes with a marker", async () => {
-		process.env[ENV_VAR] = workDir;
+		useOverrideDir(workDir);
 		const encoder = new TextEncoder();
 		let sourceCancelled = false;
 		const source = new ReadableStream<Uint8Array>({
@@ -462,7 +469,7 @@ describe("withRawHttpLogging", () => {
 	});
 
 	it("preserves a source cancellation rejection while logging partial bytes", async () => {
-		process.env[ENV_VAR] = workDir;
+		useOverrideDir(workDir);
 		const encoder = new TextEncoder();
 		const source = new ReadableStream<Uint8Array>({
 			start(controller) {
@@ -492,7 +499,7 @@ describe("withRawHttpLogging", () => {
 	});
 
 	it("does not buffer ahead of a slow consumer", async () => {
-		process.env[ENV_VAR] = workDir;
+		useOverrideDir(workDir);
 		const encoder = new TextEncoder();
 		let produced = 0;
 		const source = new ReadableStream<Uint8Array>({
@@ -527,7 +534,7 @@ describe("withRawHttpLogging", () => {
 	});
 
 	it("logs partial bytes plus an error marker when the stream fails mid-body", async () => {
-		process.env[ENV_VAR] = workDir;
+		useOverrideDir(workDir);
 		const encoder = new TextEncoder();
 		// Error from pull (a pending read) — erroring in start with no pending
 		// read surfaces as an unhandled rejection in Node.
@@ -563,7 +570,7 @@ describe("withRawHttpLogging", () => {
 	});
 
 	it("logs an error marker when the response stream fails with undefined", async () => {
-		process.env[ENV_VAR] = workDir;
+		useOverrideDir(workDir);
 		const encoder = new TextEncoder();
 		let pulls = 0;
 		const source = new ReadableStream<Uint8Array>({
@@ -600,7 +607,7 @@ describe("withRawHttpLogging", () => {
 	});
 
 	it("does not mutate or break a frozen RequestInit with a stream body", async () => {
-		process.env[ENV_VAR] = workDir;
+		useOverrideDir(workDir);
 		let received: string | undefined;
 		const underlying: typeof globalThis.fetch = async (_input, init) => {
 			received =
@@ -623,7 +630,7 @@ describe("withRawHttpLogging", () => {
 	});
 
 	it("logs the bytes sent on the wire, not a live view of the caller's buffer", async () => {
-		process.env[ENV_VAR] = workDir;
+		useOverrideDir(workDir);
 		const backing = new Uint8Array([0xaa, 1, 2, 0xbb]);
 		const body = backing.subarray(1, 3);
 		let wireBytes: number[] | undefined;
@@ -654,7 +661,7 @@ describe("withRawHttpLogging", () => {
 	});
 
 	it("passes through a bodyful keepalive Request when stream capture is incompatible", async () => {
-		process.env[ENV_VAR] = workDir;
+		useOverrideDir(workDir);
 		let received: string | undefined;
 		const underlying: typeof globalThis.fetch = async (input) => {
 			received = await (input as Request).text();
@@ -692,7 +699,7 @@ describe("withRawHttpLogging", () => {
 			},
 		],
 	])("marks an uncaptured %s body instead of logging it as empty", async (_name, createBody) => {
-		process.env[ENV_VAR] = workDir;
+		useOverrideDir(workDir);
 		const body = createBody();
 		let received: BodyInit | null | undefined;
 		const underlying: typeof globalThis.fetch = async (_input, init) => {
@@ -711,7 +718,7 @@ describe("withRawHttpLogging", () => {
 	});
 
 	it("logs partial request bytes plus an error marker when the upload stream fails", async () => {
-		process.env[ENV_VAR] = workDir;
+		useOverrideDir(workDir);
 		const encoder = new TextEncoder();
 		let pulls = 0;
 		const source = new ReadableStream<Uint8Array>({
@@ -748,7 +755,7 @@ describe("withRawHttpLogging", () => {
 	});
 
 	it("logs an error marker when the upload stream fails with undefined", async () => {
-		process.env[ENV_VAR] = workDir;
+		useOverrideDir(workDir);
 		const encoder = new TextEncoder();
 		let pulls = 0;
 		const source = new ReadableStream<Uint8Array>({
@@ -789,7 +796,7 @@ describe("withRawHttpLogging", () => {
 	});
 
 	it("publishes a request marker when fetch rejects without consuming a stream body", async () => {
-		process.env[ENV_VAR] = workDir;
+		useOverrideDir(workDir);
 		const underlying: typeof globalThis.fetch = async () => {
 			throw new Error("connection refused before upload");
 		};
@@ -808,7 +815,7 @@ describe("withRawHttpLogging", () => {
 	});
 
 	it("captures a bodyful Request via pass-through: cancellation propagates, no runahead", async () => {
-		process.env[ENV_VAR] = workDir;
+		useOverrideDir(workDir);
 		const encoder = new TextEncoder();
 		let sourceCancelled = false;
 		let produced = 0;
@@ -854,7 +861,7 @@ describe("withRawHttpLogging", () => {
 	});
 
 	it("preserves response url, redirected, and type metadata", async () => {
-		process.env[ENV_VAR] = workDir;
+		useOverrideDir(workDir);
 		const network = new Response(sseStream(["data: [DONE]\n\n"]), { status: 200 });
 		// Simulate the metadata a real fetch response carries.
 		Object.defineProperty(network, "url", { value: "https://api.example.com/v1/chat" });
@@ -875,10 +882,9 @@ describe("withRawHttpLogging", () => {
 	});
 
 	it("survives logging failures without breaking the response", async () => {
-		// Point the env var at a path that cannot be created (a file blocks it).
 		const blocker = join(workDir, "blocker");
 		writeFileSync(blocker, "x");
-		process.env[ENV_VAR] = join(blocker, "impossible");
+		useOverrideDir(join(blocker, "impossible"));
 		// mkdirSync fails → wrapper disabled entirely.
 		expect(withRawHttpLogging(undefined, { provider: "test", model: "m" })).toBeUndefined();
 	});

@@ -13,14 +13,16 @@ import type * as NodeFs from "node:fs";
  * the AI SDK's structured request/response view (JsonRequestLogger) hides
  * the actual wire format.
  *
- * Opt-in, two mechanisms:
+ * The host registers both opt-in directories at startup with
+ * `configureRawHttpLogging()`.
  *
- * 1. Late-binding directory: `configureRawHttpLogging({ outputDir })` is called
- *    once at startup by @assistant/node with the platform log dir. Logging is
+ * 1. `outputDir` is the platform log directory. Logging is
  *    active only while that directory exists on disk — a developer enables it
  *    mid-session with `mkdir -p <dir>` and disables it by removing the dir.
- * 2. Explicit override: the `PA_RAW_HTTP_LOG_DIR` environment variable. When
- *    set, the directory is created automatically and logging is always on.
+ * 2. Explicit override (`overrideDir`). When set, the directory is created
+ *    automatically and logging is always on. Posit Assistant hosts pass the
+ *    `PA_RAW_HTTP_LOG_DIR` value they read at startup. This module never reads
+ *    `process.env`, because most hosts remove their control variables from it.
  *
  * Output: two files per HTTP call sharing a
  * `{timestamp}-{provider}-{model}[-session.{session}]-{nonce}-{seq}` base name
@@ -54,8 +56,6 @@ import type * as NodeFs from "node:fs";
  * logging reasons and never alters the bytes seen by the SDK.
  */
 
-const ENV_VAR = "PA_RAW_HTTP_LOG_DIR";
-
 /**
  * Node builtins are looked up lazily (never imported statically) so this
  * module stays bundleable for browser targets like the Positron webview
@@ -76,6 +76,7 @@ const SENSITIVE_HEADER_PATTERN =
 	/authorization|api[-_]?key|secret|x-amz-security-token|(?:^|[-_])token$|cookie/i;
 
 let configuredOutputDir: string | undefined;
+let configuredOverrideDir: string | undefined;
 let sequence = 0;
 
 /**
@@ -89,25 +90,25 @@ const processNonce =
 		: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
 /**
- * Register the late-binding output directory. Called once at startup by
- * @assistant/node. Logging via this directory is active only while it exists
- * on disk (checked per chat() call).
+ * Register the output directories. Called once at startup by the host.
+ * Logging via `outputDir` is active only while it exists on disk (checked per
+ * chat() call). A non-empty `overrideDir` wins and is always on.
  */
-export function configureRawHttpLogging(config: { outputDir: string }): void {
+export function configureRawHttpLogging(config: {
+	outputDir: string;
+	overrideDir: string | undefined;
+}): void {
 	configuredOutputDir = config.outputDir;
+	configuredOverrideDir = config.overrideDir;
 }
 
 /** Test hook: reset module state between tests. */
 export function resetRawHttpLoggingForTests(): void {
 	configuredOutputDir = undefined;
+	configuredOverrideDir = undefined;
 	sequence = 0;
 }
 
-/**
- * Resolve the active output directory for this call, or undefined if logging
- * is disabled. Env var wins and is always-on; the configured dir is
- * late-binding (must exist on disk).
- */
 /**
  * Validate and harden a log directory. Log bodies are unredacted (prompts,
  * tool output), so the directory must be a real directory — not a symlink —
@@ -143,20 +144,24 @@ function secureOutputDir(dir: string): boolean {
 	}
 }
 
+/**
+ * A non-empty override takes precedence and is created on demand. Otherwise,
+ * `outputDir` must already exist. Return `undefined` if the chosen directory
+ * cannot be created or fails ownership, mode or real-directory checks.
+ */
 function resolveOutputDir(): string | undefined {
 	if (!nodeFs || typeof process === "undefined") {
 		return undefined;
 	}
-	const envDir = process.env[ENV_VAR];
-	if (envDir) {
-		// Idempotent: recreates the directory if it was deleted mid-session
-		// and picks up env-var changes between calls.
+	const overrideDir = configuredOverrideDir;
+	if (overrideDir) {
+		// Recreate the override directory if it was deleted mid-session.
 		try {
-			nodeFs.mkdirSync(envDir, { recursive: true, mode: 0o700 });
+			nodeFs.mkdirSync(overrideDir, { recursive: true, mode: 0o700 });
 		} catch {
 			return undefined;
 		}
-		return secureOutputDir(envDir) ? envDir : undefined;
+		return secureOutputDir(overrideDir) ? overrideDir : undefined;
 	}
 	// Late binding: logging is active only while the configured directory
 	// exists on disk and passes the same ownership/mode hardening.
