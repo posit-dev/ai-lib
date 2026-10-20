@@ -62,7 +62,7 @@ import type { ModelClientChatParams } from "../ModelClient";
 import { createOpenAICompatibleFetchMiddleware } from "../openai-compat-fetch";
 import { OpenAIClient } from "../OpenAIClient";
 import { PositAiClient } from "../PositAiClient";
-import { resetRawHttpLoggingForTests } from "../raw-http-logging";
+import { configureRawHttpLogging, resetRawHttpLoggingForTests } from "../raw-http-logging";
 import { SnowflakeClient, type SnowflakeSessionRefresh } from "../SnowflakeClient";
 
 /**
@@ -72,13 +72,14 @@ import { SnowflakeClient, type SnowflakeSessionRefresh } from "../SnowflakeClien
  * pre-rewrite responses, and one pair per physical call including retries.
  */
 
-const ENV_VAR = "PA_RAW_HTTP_LOG_DIR";
-
 let workDir: string;
 
 beforeEach(() => {
 	workDir = mkdtempSync(join(tmpdir(), "raw-http-composition-test-"));
-	process.env[ENV_VAR] = workDir;
+	configureRawHttpLogging({
+		outputDir: join(workDir, "late-binding-unused"),
+		overrideDir: workDir,
+	});
 	createDeepSeek.mockClear();
 	createAnthropic.mockClear();
 	createOpenAI.mockClear();
@@ -88,7 +89,6 @@ beforeEach(() => {
 
 afterEach(() => {
 	resetRawHttpLoggingForTests();
-	delete process.env[ENV_VAR];
 	rmSync(workDir, { recursive: true, force: true });
 	vi.restoreAllMocks();
 });
