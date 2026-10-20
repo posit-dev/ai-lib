@@ -54,6 +54,22 @@ describe("agentEngines resolution", () => {
 		});
 	});
 
+	it("reports which layer decided each enablement flag, even when values agree", async () => {
+		await fixture.writeTypedConfig({ agentEngines: { enabled: true, claude: { enabled: true } } });
+
+		const report = await load({
+			enforced: { agentEngines: { enabled: true, claude: { configDir: "/x" } } },
+			default: { agentEngines: { claude: { enabled: false }, codex: { enabled: true } } },
+		});
+
+		expect(report.agentEnginesProvenance).toEqual({
+			enabled: "enforced",
+			claude: { enabled: "user" },
+			copilot: { enabled: "unset" },
+			codex: { enabled: "default" },
+		});
+	});
+
 	it("takes an engine enabled by the default layer, with user fields merged per leaf", async () => {
 		await fixture.writeTypedConfig({
 			agentEngines: { copilot: { defaultModel: "gpt-5" } },

@@ -9,7 +9,11 @@ import type { SourcedConfigIssue } from "../config-issue.js";
 import { createHostDefaultsSourceProviders } from "../config-source.js";
 import { createLegacyPositronSourceProviders } from "../legacy-positron-settings/sources.js";
 import { resolveProviderCatalogReport } from "../resolve-catalog.js";
-import type { AgentEnginesConfig, ResolvedProvider } from "../types.js";
+import type {
+	AgentEnginesConfig,
+	ResolvedAgentEnginesProvenance,
+	ResolvedProvider,
+} from "../types.js";
 import { loadConfigSourceReports } from "./load-config.js";
 import type { LoadCatalogOptions } from "./types.js";
 
@@ -17,6 +21,8 @@ export interface LoadedProviderCatalogReport {
 	readonly catalog: readonly ResolvedProvider[];
 	/** The layers' `agentEngines` blocks merged by precedence; `{}` when none sets one. */
 	readonly agentEngines: AgentEnginesConfig;
+	/** Which layer decided the master switch and each engine's `enabled`. */
+	readonly agentEnginesProvenance: ResolvedAgentEnginesProvenance;
 	readonly issues: readonly SourcedConfigIssue[];
 }
 
@@ -49,7 +55,12 @@ export async function loadProviderCatalogReport(
 		opts.logger?.warn(formatConfigIssue(issue));
 	}
 
-	return { catalog: resolver.catalog, agentEngines: resolver.agentEngines, issues };
+	return {
+		catalog: resolver.catalog,
+		agentEngines: resolver.agentEngines,
+		agentEnginesProvenance: resolver.agentEnginesProvenance,
+		issues,
+	};
 }
 
 /** Compatibility wrapper retaining the historical bare-catalog return type. */

@@ -69,6 +69,8 @@ export type {
 	ModelsBlock,
 	ProvidersConfig,
 	ProvidersMap,
+	ResolvedAgentEngineFlagSource,
+	ResolvedAgentEnginesProvenance,
 	ResolvedAuthPolicySource,
 	ResolvedConnection,
 	ResolvedConnectionFieldSource,

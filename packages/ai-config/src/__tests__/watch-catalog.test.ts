@@ -121,6 +121,30 @@ describe("watchResolvedProviderCatalog", () => {
 		});
 	});
 
+	it("should fire when an engine flag's provenance changes but its value doesn't", async () => {
+		await fixture.writeTypedConfig({ agentEngines: { claude: { enabled: true } } });
+		const probe = createChangeProbe();
+		const watcher = watchResolvedProviderCatalog(probe.handler, {
+			configPath,
+			envVars: {
+				POSIT_AI_PROVIDERS_DEFAULT: JSON.stringify({
+					agentEngines: { claude: { enabled: true } },
+				}),
+			},
+			logger: mockLogger,
+		});
+		await awaitReady(watcher);
+
+		// Removing the user's `true` leaves the default layer's `true` deciding.
+		const changed = probe.next((change) => change.agentEnginesChanged, "provenance change");
+		await fixture.writeTypedConfigAtomic({});
+		const change = await changed;
+		watcher.dispose();
+
+		expect(change.agentEngines).toEqual({ claude: { enabled: true } });
+		expect(change.agentEnginesProvenance.claude.enabled).toBe("default");
+	});
+
 	it("should fire on connection change", async () => {
 		await fixture.writeTypedConfig({
 			providers: { anthropic: { baseUrl: "https://a.example.com" } },

@@ -224,8 +224,18 @@ and engines-off, the gate, path resolution, engine ids) belongs to the host
   pure resolver built without salvage still merges validly (a single strict
   parse for an already-salvaged one). The result is `agentEngines` on the
   report (`{}` when no layer sets one).
-- **Watcher.** A rebuild whose resolved `agentEngines` differs emits a change
-  with `agentEnginesChanged: true`, even when no provider changed.
+- **Enablement provenance.** The same fold records which source decided the
+  master switch and each built-in engine's `enabled` (engine blocks derived
+  from the schema as `AgentEngineFlagBlock`; `ResolvedAgentEngineFlagSource`:
+  `enforced` / `user` / `default` / `unset`), reported as `agentEnginesProvenance` on the report, the loaded
+  report and each watch event. Only these flags carry provenance; ACP agents
+  have no flag. Hosts read it to decide whether a user write can change a
+  flag, since an enforced `true` and a user `true` look the same as values.
+- **Watcher.** A rebuild whose resolved `agentEngines` or its provenance
+  differs emits a change with `agentEnginesChanged: true`, even when no
+  provider changed, as per-provider provenance does. With env layers fixed
+  for a process, the reachable provenance-only change is user ↔ default
+  (deleting a user `true` that a defaults layer also sets).
 - **Published as a preview** in `providers.schema.json`. A writer whose
   ai-config predates the key refuses every edit to a file containing it
   (the root schema is strict).
@@ -259,16 +269,16 @@ Config flows through three stages: **assemble sources → resolve → watch**. P
    a post-resolution overlay. The resolver also retains narrow semantic
    provenance for connection values whose source changes consumer behavior.
    `loadProviderCatalogReport()` (`src/node/load-catalog.ts`) is the canonical
-   public read seam and returns `{ catalog, agentEngines, issues }`; `loadResolvedProviderCatalog()`
-   is its bare-catalog compatibility wrapper. (`mergeEnforced` — the
+   public read seam and returns `{ catalog, agentEngines, agentEnginesProvenance, issues }`;
+   `loadResolvedProviderCatalog()` is its bare-catalog compatibility wrapper. (`mergeEnforced` — the
    two-layer merge — remains exported as a low-level primitive, but the layered
    resolver is the seam consumers should use.)
 3. **Watch** (`src/node/watch-catalog.ts`, `watchResolvedProviderCatalog()`):
    source-aware — watches the file via `fs.watch` and subscribes to the legacy
    reader's change signal; **any** source change re-resolves the catalog and
    emits a typed `ProviderCatalogChange` when a resolved value, retained
-   connection provenance, the resolved `agentEngines` block, or complete issue
-   snapshot changes. Issue snapshots
+   connection provenance, the resolved `agentEngines` block or its enablement
+   provenance, or complete issue snapshot changes. Issue snapshots
    compare order-insensitively by source/path/severity/message, so issue-only
    additions and empty clears emit while identical rebuilds remain quiet.
 

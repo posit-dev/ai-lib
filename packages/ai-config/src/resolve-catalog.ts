@@ -31,6 +31,8 @@ import type {
 	BuiltinProviderBlock,
 	LoggerLike,
 	ProvidersConfig,
+	ResolvedAgentEngineFlagSource,
+	ResolvedAgentEnginesProvenance,
 	ResolvedAuthPolicySource,
 	ResolvedConnectionFieldSource,
 	ResolvedConnectionProvenance,
@@ -159,6 +161,8 @@ export interface ProviderCatalogReport {
 	readonly catalog: readonly ResolvedProvider[];
 	/** The layers' `agentEngines` blocks merged by precedence; `{}` when none sets one. */
 	readonly agentEngines: AgentEnginesConfig;
+	/** Which layer decided the master switch and each engine's `enabled`. */
+	readonly agentEnginesProvenance: ResolvedAgentEnginesProvenance;
 	readonly issues: readonly SourcedConfigIssue[];
 }
 
@@ -227,6 +231,7 @@ export function resolveProviderCatalogReport(
 	return {
 		catalog: buildCatalog(config, enabledLayers, connectionProvenance, authPolicies),
 		agentEngines: engines.agentEngines,
+		agentEnginesProvenance: engines.provenance,
 		issues: [...issues, ...engines.issues],
 	};
 }
@@ -241,15 +246,24 @@ export function resolveProviderCatalogReport(
  * problem in the same overlay), and recovery never looks at `agentEngines`.
  * Each block is salvaged here, so the merge is valid even for a source no
  * reader salvaged; for one that was, salvage is a single strict parse.
+ *
+ * The same fold keeps each source's salvaged block, so provenance names the
+ * highest-precedence source that sets the master switch or an engine's
+ * `enabled`.
  */
 function resolveAgentEngines(highestFirst: readonly RankedConfigSource[]): {
 	agentEngines: AgentEnginesConfig;
+	provenance: ResolvedAgentEnginesProvenance;
 	issues: SourcedConfigIssue[];
 } {
 	let merged: ProvidersConfigFragment = {};
+	// Highest precedence first.
+	const blocks: { role: ResolvedAgentEngineFlagSource; block: AgentEnginesConfig }[] = [];
 	const issues: SourcedConfigIssue[] = [];
 	for (let i = highestFirst.length - 1; i >= 0; i--) {
 		const source = highestFirst[i];
+		// The env source carries connection fields only.
+		if (source.kind === "env") continue;
 		const { agentEngines } = source.config;
 		if (!agentEngines) continue;
 		const salvaged = salvageProvidersConfigFragment({ agentEngines });
@@ -260,11 +274,24 @@ function resolveAgentEngines(highestFirst: readonly RankedConfigSource[]): {
 					{ severity: "warning", path: ["agentEngines"], message: "Ignoring the block." },
 				];
 		issues.push(...blockIssues.map((issue) => ({ ...issue, source: configIssueSource(source) })));
-		if (salvaged.ok && salvaged.config.agentEngines) {
-			merged = mergeConfigFragments(merged, { agentEngines: salvaged.config.agentEngines });
+		const block = salvaged.ok ? salvaged.config.agentEngines : undefined;
+		if (block) {
+			merged = mergeConfigFragments(merged, { agentEngines: block });
+			blocks.unshift({ role: sourceRole(source.kind), block });
 		}
 	}
-	return { agentEngines: merged.agentEngines ?? {}, issues };
+	const decidedBy = (flag: (block: AgentEnginesConfig) => boolean | undefined) =>
+		blocks.find(({ block }) => flag(block) !== undefined)?.role ?? "unset";
+	return {
+		agentEngines: merged.agentEngines ?? {},
+		provenance: {
+			enabled: decidedBy((block) => block.enabled),
+			claude: { enabled: decidedBy((block) => block.claude?.enabled) },
+			copilot: { enabled: decidedBy((block) => block.copilot?.enabled) },
+			codex: { enabled: decidedBy((block) => block.codex?.enabled) },
+		},
+		issues,
+	};
 }
 
 /**
@@ -311,10 +338,15 @@ function resolveAuthPolicies(
 
 /** Map a retained source's kind onto the narrow auth-policy provenance. */
 function authPolicySource(source: ProviderConfigSource | undefined): ResolvedAuthPolicySource {
-	if (!source) {
-		return "kind-default";
-	}
-	switch (source.kind) {
+	return source ? sourceRole(source.kind) : "kind-default";
+}
+
+/**
+ * The role a source kind plays for a user write: an enforced overlay can't
+ * be overridden, a user or default layer can.
+ */
+function sourceRole(kind: ProviderConfigSourceKind): "enforced" | "user" | "default" {
+	switch (kind) {
 		case "enforced":
 		case "legacy-positron-enforced": // PROVIDER-SETTINGS-MIGRATION(legacy-positron)
 			return "enforced";
