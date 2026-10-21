@@ -223,6 +223,14 @@ async function respond(...[input]: RawFetchCall): Promise<Response> {
 	if (url.startsWith("https://bedrock-mantle.") && url.endsWith("/v1/models")) {
 		return jsonResponse({ data: [{ id: "openai.gpt-oss-120b" }] });
 	}
+	if (url.endsWith("/api/v2/statements")) {
+		return jsonResponse({
+			resultSetMetaData: {
+				rowType: [{ name: "name" }, { name: "lifecycle_status" }],
+			},
+			data: [["CLAUDE-OPUS-5", "GA"]],
+		});
+	}
 	if (url.includes("/v1beta1/publishers/")) {
 		return jsonResponse({ publisherModels: [{ name: "publishers/google/models/gemini-2.5-pro" }] });
 	}
@@ -234,7 +242,14 @@ function createRegistry(): ProviderRegistry {
 	registerAllProviders(registry, logger, {
 		positAiBaseUrl: "https://api.posit.cloud",
 		userAgent: PRODUCT_USER_AGENT,
-		allowedProviders: ["bedrock", "google-vertex", "ollama", "lmstudio", "opencode"],
+		allowedProviders: [
+			"bedrock",
+			"google-vertex",
+			"ollama",
+			"lmstudio",
+			"opencode",
+			"snowflake-cortex",
+		],
 	});
 	return registry;
 }
@@ -596,6 +611,26 @@ describe("default direct-provider User-Agent (wire)", () => {
 			for (const call of requestsTo(capture, "http://localhost:1234/v1/models")) {
 				expectProductIdentity(call);
 			}
+		});
+	});
+
+	describe("Snowflake", () => {
+		it("reaches SQL API model discovery with the token-type header kept", async () => {
+			const capture = stubFetch();
+
+			const models = await createRegistry().getModelsForProvider("snowflake-cortex", {
+				type: "apikey",
+				apiKey: "pat-token",
+				baseUrl: "https://acct.snowflakecomputing.com",
+				customHeaders: { "X-Snowflake-Authorization-Token-Type": "PROGRAMMATIC_ACCESS_TOKEN" },
+			});
+
+			expect(models.map((model) => model.id)).toEqual(["claude-opus-5"]);
+			const [call] = requestsTo(capture, "https://acct.snowflakecomputing.com/api/v2/statements");
+			expectProductIdentity(call, { authScheme: "Bearer" });
+			expect(requestHeaders(call).get("x-snowflake-authorization-token-type")).toBe(
+				"PROGRAMMATIC_ACCESS_TOKEN",
+			);
 		});
 	});
 });

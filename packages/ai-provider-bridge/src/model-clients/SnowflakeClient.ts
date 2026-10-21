@@ -131,7 +131,7 @@ async function peekSessionExpiry(
  * *this client's* connection. Without `refresh` it behaves as a plain auth
  * rewrite (there is nothing to retry with).
  */
-function createSnowflakeSessionFetch(
+export function createSnowflakeSessionFetch(
 	sessionToken: string,
 	delegate: FetchFn,
 	refresh?: SnowflakeSessionRefresh,
