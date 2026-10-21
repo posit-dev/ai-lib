@@ -73,11 +73,10 @@ function accessibleModelNames(body: unknown): Set<string> {
 	const names = new Set<string>();
 	for (const row of rows) {
 		const name: unknown = Array.isArray(row) ? row[nameIndex] : undefined;
-		const status: unknown = Array.isArray(row) ? row[statusIndex] : undefined;
 		if (typeof name !== "string") {
 			throw new Error("Snowflake SQL API result has a malformed row");
 		}
-		if (status !== "EOL") names.add(name.toLowerCase());
+		if (row[statusIndex] !== "EOL") names.add(name.toLowerCase());
 	}
 	return names;
 }
