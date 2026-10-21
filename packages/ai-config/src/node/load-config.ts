@@ -118,13 +118,12 @@ export function readEnvFragment(
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(envValue);
-	} catch (error) {
+	} catch {
+		// Never include the parser's message: it quotes part of the payload,
+		// which can hold secrets.
 		return {
 			issues: [
-				sourcedWholeSourceIssue(
-					identity,
-					`Failed to parse ${envVarName} as JSON: ${errorMessage(error)}. Ignoring.`,
-				),
+				sourcedWholeSourceIssue(identity, `Failed to parse ${envVarName} as JSON. Ignoring.`),
 			],
 		};
 	}
