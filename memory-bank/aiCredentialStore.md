@@ -159,7 +159,9 @@ the PID suffix prevents concurrent writers from colliding on the temp path. A
 ### Secure permissions (Unix only)
 
 Files are written `0o600` and directories created `0o700` (owner-only).
-Permissions are applied on write and re-asserted on read if they drift. The
+Permissions are applied on write and re-asserted on read if they drift
+(`peek()` is the exception: a read with no side effects, for passive
+inspection such as `describeCredentialSource`). The
 whole permission step is skipped on Windows.
 
 ### Concurrency: two layers

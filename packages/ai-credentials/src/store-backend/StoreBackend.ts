@@ -59,7 +59,13 @@ import {
  * every writer of the same keys.
  */
 export interface StoreBackendStorage {
+	/** Read a value. A backing may repair its storage here (e.g. file permissions). */
 	get<T>(key: string): Promise<T | undefined>;
+	/**
+	 * Read a value with no side effects at all, for passive inspection
+	 * (`describeCredentialSource`). Backings whose `get` has none may omit it.
+	 */
+	peek?<T>(key: string): Promise<T | undefined>;
 	set<T>(key: string, value: T): Promise<void>;
 	withLock<T>(fn: () => Promise<T>): Promise<T>;
 	/** Invoke `handler` whenever any stored value may have changed. */
@@ -69,15 +75,22 @@ export interface StoreBackendStorage {
 }
 
 /**
- * Secret-free account of the store backend's credential lookup for one
- * provider: the stored step, then the environment step, in the order
- * `getCredentials` checks them. Built from the same decision, passively: no
- * token refresh, grant setup, or write.
+ * Account of the store backend's credential lookup for one provider: the
+ * stored step, then the environment step, in the order `getCredentials`
+ * checks them. Built from the same decision, passively: no token refresh,
+ * grant setup, or write of any kind (not even a permission repair).
  */
 export interface StoreCredentialSourceDescription {
+	/** Secret-free. */
 	readonly steps: readonly [StoredCredentialStep, EnvironmentCredentialStep];
 	/** Whether the lookup would supply a credential (a stored sign-in counts when ready). */
 	readonly supplies: boolean;
+	/**
+	 * `getCredentialStatus`'s answer from the same passive read, for host
+	 * policy checks on the source (its workspace host or server). Not for
+	 * display: its error and metadata are free-form.
+	 */
+	readonly status: CredentialStatus;
 }
 
 /** The store-backed `MutableBackend`, plus a passive description of its lookup. */
@@ -143,6 +156,9 @@ interface NormalizedStored {
 
 const NOOP_DISPOSABLE: Disposable = { dispose() {} };
 
+/** An ordinary read, or a passive one with no side effects (see {@link StoreBackendStorage.peek}). */
+type StoreRead = "ordinary" | "passive";
+
 /**
  * Which part of the store backend answers a credential read, decided from the
  * stored record. Shared by `getCredentials` and `describeCredentialSource`.
@@ -177,10 +193,20 @@ export function createStoreBackend(options: CreateStoreBackendOptions): StoreBac
 		return descriptor ? storageKeyFor(providerId, descriptor.authMethodId) : undefined;
 	}
 
-	async function readRecord(providerId: string): Promise<StoredProviderCredentials | undefined> {
+	/**
+	 * Read a provider's stored record. A `passive` read has no side effects;
+	 * an ordinary one lets the backing repair its storage.
+	 */
+	async function readRecord(
+		providerId: string,
+		read: StoreRead = "ordinary",
+	): Promise<StoredProviderCredentials | undefined> {
 		const key = keyFor(providerId);
 		if (!key) return undefined;
-		const raw = await store.get<unknown>(key);
+		const raw =
+			read === "passive" && store.peek
+				? await store.peek<unknown>(key)
+				: await store.get<unknown>(key);
 		if (raw === undefined) return undefined;
 		const parsed = storedProviderCredentialsSchema.safeParse(raw);
 		if (!parsed.success) {
@@ -295,8 +321,11 @@ export function createStoreBackend(options: CreateStoreBackendOptions): StoreBac
 		return { readiness: "unauthenticated", generation: record.generation, error: record.error };
 	}
 
-	async function storedSource(providerId: string): Promise<NormalizedStored | null> {
-		return normalize(providerId, await readRecord(providerId));
+	async function storedSource(
+		providerId: string,
+		read: StoreRead = "ordinary",
+	): Promise<NormalizedStored | null> {
+		return normalize(providerId, await readRecord(providerId, read));
 	}
 
 	type EnvironmentResolution =
@@ -468,7 +497,8 @@ export function createStoreBackend(options: CreateStoreBackendOptions): StoreBac
 			name,
 			set: Boolean(env[name]),
 		}));
-		const normalized = await storedSource(providerId);
+		const normalized = await storedSource(providerId, "passive");
+		const status = statusFor(providerId, normalized);
 		const storedFacts = {
 			kind: "stored" as const,
 			location: store.location ?? null,
@@ -500,6 +530,7 @@ export function createStoreBackend(options: CreateStoreBackendOptions): StoreBac
 						},
 					],
 					supplies,
+					status,
 				};
 			}
 			case "ignored-key":
@@ -514,6 +545,7 @@ export function createStoreBackend(options: CreateStoreBackendOptions): StoreBac
 						},
 					],
 					supplies: false,
+					status,
 				};
 			case "environment": {
 				const storedReason =
@@ -543,6 +575,7 @@ export function createStoreBackend(options: CreateStoreBackendOptions): StoreBac
 						},
 					],
 					supplies,
+					status,
 				};
 			}
 		}
@@ -655,7 +688,10 @@ export function createStoreBackend(options: CreateStoreBackendOptions): StoreBac
 	}
 
 	async function getCredentialStatus(providerId: string): Promise<CredentialStatus> {
-		const normalized = await storedSource(providerId);
+		return statusFor(providerId, await storedSource(providerId));
+	}
+
+	function statusFor(providerId: string, normalized: NormalizedStored | null): CredentialStatus {
 		if (normalized?.source) {
 			const metadata = sourceMetadata(normalized.source);
 			return {

@@ -8,6 +8,8 @@
  * `getCredentials` on whether a credential is supplied.
  */
 
+import { chmod, stat } from "node:fs/promises";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -57,6 +59,7 @@ describe("describeCredentialSource", () => {
 		const description = await backend.describeCredentialSource("anthropic");
 
 		expect(description).toEqual({
+			status: await backend.getCredentialStatus("anthropic"),
 			supplies: true,
 			steps: [
 				{
@@ -76,9 +79,31 @@ describe("describeCredentialSource", () => {
 				},
 			],
 		});
-		expect(JSON.stringify(description)).not.toContain(STORED_SECRET);
-		expect(JSON.stringify(description)).not.toContain(ENV_SECRET);
+		expect(JSON.stringify(description.steps)).not.toContain(STORED_SECRET);
+		expect(JSON.stringify(description.steps)).not.toContain(ENV_SECRET);
 	});
+
+	it.skipIf(process.platform === "win32")(
+		"reads passively, leaving drifted file permissions that ordinary reads repair",
+		async () => {
+			await fixture.store.set<StoredProviderCredentials>(storageKeyFor("anthropic", "apikey"), {
+				apiKeyAuth: { apiKey: STORED_SECRET },
+			});
+			await chmod(fixture.filePath, 0o644);
+			const before = fixture.readBytes();
+			const backend = createStoreBackend({ store: fixture.store, resolveAuthMethod, env: {} });
+
+			const description = await backend.describeCredentialSource("anthropic");
+
+			expect(description.supplies).toBe(true);
+			expect(description.status).toMatchObject({ readiness: "ready", origin: "stored" });
+			expect((await stat(fixture.filePath)).mode & 0o777).toBe(0o644);
+			expect(fixture.readBytes().equals(before)).toBe(true);
+
+			await backend.getCredentialStatus("anthropic");
+			expect((await stat(fixture.filePath)).mode & 0o777).toBe(0o600);
+		},
+	);
 
 	it("reads presence from the captured environment, not process.env", async () => {
 		vi.stubEnv("ANTHROPIC_API_KEY", "");

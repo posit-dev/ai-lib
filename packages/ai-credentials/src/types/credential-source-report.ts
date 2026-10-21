@@ -56,6 +56,7 @@ export const CREDENTIAL_STEP_REASON_TEXT = {
 	"nothing-stored": "nothing stored",
 	"stored-unusable": "the stored record has no usable credential (cleared or incomplete)",
 	"stored-signed-out": "the stored sign-in is not ready",
+	"stored-other-server": "the stored sign-in is not for the configured server",
 	"stored-key-ignored": "a stored API key is not accepted for this provider",
 	"stored-key-empty": "the stored API key is empty",
 	"no-environment-variables": "no environment variables apply to this provider",
