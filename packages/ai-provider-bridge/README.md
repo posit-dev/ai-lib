@@ -36,7 +36,7 @@ These rules keep the dependency graph clean:
 | OpenRouter        | OpenRouterClient   | Cached via API  |
 | Ollama (local)    | OllamaClient       | Cached via API  |
 | LM Studio (local) | LMStudioClient     | Cached via API  |
-| Snowflake Cortex  | SnowflakeClient    | Static          |
+| Snowflake Cortex  | SnowflakeClient    | Cached via SQL  |
 | Posit AI Pass     | PositAiClient      | Cached via API  |
 | OpenAI-Compatible | OpenAIClient       | User-configured |
 | Foundry           | OpenAIClient       | User-configured |

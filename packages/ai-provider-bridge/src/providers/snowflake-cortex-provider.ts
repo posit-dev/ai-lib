@@ -3,7 +3,12 @@
  *--------------------------------------------------------------------------------------------*/
 
 import type { ResolvedProviderId } from "ai-config";
-import { getSnowflakeCortexModelCapabilities, SNOWFLAKE_CORTEX_CATALOG } from "ai-config";
+import {
+	getSnowflakeCortexModelCapabilities,
+	isRecognizedSnowflakeCortexModel,
+	SNOWFLAKE_CORTEX_CATALOG,
+	snowflakeCortexModelName,
+} from "ai-config";
 
 import { additiveHeaderRecord } from "../custom-headers";
 import { createSnowflakeSessionFetch, SnowflakeClient } from "../model-clients/SnowflakeClient";
@@ -26,37 +31,35 @@ export interface SnowflakeProviderCallbacks {
 	reauthenticateSession: SnowflakeSessionReauth;
 }
 
-/**
- * The Snowflake Cortex model catalog, derived from `ai-config`'s Cortex table.
- *
- * Which models are offered, their display names, their token windows, and every
- * capability flag live in that one table — the same one capability inference
- * reads — so adding a model is a single edit there and a catalog entry can never
- * disagree with a user's `models.custom` override of the same id.
- */
-function snowflakeModels(providerId: ResolvedProviderId): ModelInfo[] {
-	return SNOWFLAKE_CORTEX_CATALOG.map((entry) => ({
-		id: entry.id,
-		name: entry.name,
+/** A Cortex model, described entirely by `ai-config` from its id. */
+function snowflakeModel(providerId: ResolvedProviderId, id: string): ModelInfo {
+	return {
+		id,
+		name: snowflakeCortexModelName(id),
 		providerId,
 		vendor: "snowflake-cortex",
-		...getSnowflakeCortexModelCapabilities(entry.id),
-	}));
+		...getSnowflakeCortexModelCapabilities(id),
+	};
 }
 
 /** Lists the models the user's default role can use, with their lifecycle stage. */
 const SHOW_MODELS_STATEMENT = "SHOW CORTEX BASE MODELS IN SCHEMA SNOWFLAKE.MODELS";
+
+/** Lifecycle stages never offered: retired, deprecated, or Snowflake-internal. */
+const UNLISTED_LIFECYCLE_STATUSES: ReadonlySet<unknown> = new Set(["EOL", "LEGACY", "INTERNAL"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
 }
 
 /**
- * Lowercased names of the non-`EOL` models in a SQL API v2 result for
- * {@link SHOW_MODELS_STATEMENT}. Throws on any other shape, including a 202
- * async-execution response (which carries no result set).
+ * Lowercased ids of the listable models in a SQL API v2 result for
+ * {@link SHOW_MODELS_STATEMENT}, newest `created_on` first: recognized by
+ * `ai-config` and not in an unlisted lifecycle stage. Throws on any other
+ * shape, including a 202 async-execution response (which carries no result
+ * set). A missing or unparseable `created_on` sorts last.
  */
-function accessibleModelNames(body: unknown): Set<string> {
+function listedModelIds(body: unknown): string[] {
 	const meta = isRecord(body) ? body.resultSetMetaData : undefined;
 	const rows = isRecord(body) ? body.data : undefined;
 	if (!isRecord(meta) || !Array.isArray(meta.rowType) || !Array.isArray(rows)) {
@@ -67,31 +70,40 @@ function accessibleModelNames(body: unknown): Set<string> {
 	);
 	const nameIndex = columns.indexOf("name");
 	const statusIndex = columns.indexOf("lifecycle_status");
+	const createdOnIndex = columns.indexOf("created_on");
 	if (nameIndex < 0 || statusIndex < 0) {
 		throw new Error("Snowflake SQL API result lacks name/lifecycle_status columns");
 	}
-	const names = new Set<string>();
+	const listed: Array<{ id: string; createdOn: number }> = [];
 	for (const row of rows) {
 		const name: unknown = Array.isArray(row) ? row[nameIndex] : undefined;
 		if (typeof name !== "string") {
 			throw new Error("Snowflake SQL API result has a malformed row");
 		}
-		if (row[statusIndex] !== "EOL") names.add(name.toLowerCase());
+		const id = name.toLowerCase();
+		if (
+			UNLISTED_LIFECYCLE_STATUSES.has(row[statusIndex]) ||
+			!isRecognizedSnowflakeCortexModel(id)
+		) {
+			continue;
+		}
+		// TIMESTAMP_LTZ arrives as a string of epoch seconds, e.g. "1729512345.123000000".
+		const createdOn = Number.parseFloat(String(row[createdOnIndex]));
+		listed.push({ id, createdOn: Number.isFinite(createdOn) ? createdOn : 0 });
 	}
-	return names;
+	return listed.sort((a, b) => b.createdOn - a.createdOn).map((model) => model.id);
 }
 
 /**
- * Model discovery: the static catalog, narrowed to the models the account's
- * default role can access (via `SHOW CORTEX BASE MODELS` through the SQL API).
- * Any failure — or a result matching no catalog id — falls back to the stale
- * cache, then the full catalog.
+ * Model discovery: the recognized models the account's default role can access
+ * (via `SHOW CORTEX BASE MODELS` through the SQL API), newest first. Any
+ * failure — or a result with nothing listable — falls back to the stale cache,
+ * then the static fallback list.
  */
 function createSnowflakeModelFetcher(
 	providerId: ResolvedProviderId,
 	logger: Logger,
 ): ClearableModelFetcher {
-	const catalog = snowflakeModels(providerId);
 	const cached = createCachedModelFetcher<ApiKeyCredentials>({
 		providerId,
 		// The outer guard below has already required apikey credentials and a baseUrl.
@@ -121,14 +133,13 @@ function createSnowflakeModelFetcher(
 			if (!response.ok) {
 				throw new Error(`Snowflake SQL API returned ${response.status}`);
 			}
-			const names = accessibleModelNames(await response.json());
-			const models = catalog.filter((model) => names.has(model.id));
-			if (models.length === 0) {
-				throw new Error("No accessible Snowflake Cortex catalog models");
+			const ids = listedModelIds(await response.json());
+			if (ids.length === 0) {
+				throw new Error("No listable Snowflake Cortex models");
 			}
-			return models;
+			return ids.map((id) => snowflakeModel(providerId, id));
 		},
-		fallbackModels: catalog,
+		fallbackModels: SNOWFLAKE_CORTEX_CATALOG.map((id) => snowflakeModel(providerId, id)),
 		logger,
 	});
 

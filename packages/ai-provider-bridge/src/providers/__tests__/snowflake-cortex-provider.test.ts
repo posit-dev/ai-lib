@@ -46,8 +46,7 @@ describe("registerSnowflakeCortexProvider", () => {
 });
 
 const BASE_URL = "https://acct.snowflakecomputing.com";
-const CATALOG_IDS = SNOWFLAKE_CORTEX_CATALOG.map((entry) => entry.id);
-const [ACCESSIBLE_A, ACCESSIBLE_B, INACCESSIBLE] = CATALOG_IDS;
+const FALLBACK_IDS = [...SNOWFLAKE_CORTEX_CATALOG];
 
 const apiKeyCredentials: ApiKeyCredentials = {
 	type: "apikey",
@@ -55,14 +54,23 @@ const apiKeyCredentials: ApiKeyCredentials = {
 	baseUrl: BASE_URL,
 };
 
-/** A SQL API v2 result for `SHOW CORTEX BASE MODELS`: uppercase names, one status each. */
-function showModelsResponse(rows: Array<[name: string, status: string | null]>): Response {
+type ShowModelsRow = [name: string, status: string | null, createdOn?: string];
+
+/**
+ * A SQL API v2 result for `SHOW CORTEX BASE MODELS`: uppercase names, a status,
+ * and `created_on` as epoch seconds (the API's TIMESTAMP_LTZ encoding).
+ */
+function showModelsResponse(rows: ShowModelsRow[]): Response {
 	return new Response(
 		JSON.stringify({
 			resultSetMetaData: {
 				rowType: [{ name: "created_on" }, { name: "name" }, { name: "lifecycle_status" }],
 			},
-			data: rows.map(([name, status]) => ["1", name, status]),
+			data: rows.map(([name, status, createdOn = "1700000000.000000000"]) => [
+				createdOn,
+				name,
+				status,
+			]),
 		}),
 		{ status: 200, headers: { "content-type": "application/json" } },
 	);
@@ -93,42 +101,61 @@ describe("Snowflake model discovery via the SQL API", () => {
 		vi.unstubAllGlobals();
 	});
 
-	it("narrows the catalog to the models the account can access", async () => {
+	it("lists recognized models newest first, with display names, under the provider id", async () => {
 		respondWith(() =>
 			showModelsResponse([
-				[ACCESSIBLE_A.toUpperCase(), "GA"],
-				["SOME-NON-CATALOG-MODEL", "GA"],
-				[ACCESSIBLE_B.toUpperCase(), null],
+				["OPENAI-GPT-5.4", "GA", "1760000000.000000000"],
+				["CLAUDE-OPUS-5", "GA", "1790000000.500000000"],
+				["LLAMA4-MAVERICK", "GA", "1795000000.000000000"],
+				["OPENAI-1P-GPT-5.6-SOL", "GA", "1795000000.000000000"],
+				["OPENAI-GPT-6.1-SOL", "PUPR", "1792000000.000000000"],
+				["CLAUDE-OPUS-4-8", null, "1780000000.000000000"],
 			]),
 		);
 
 		const models = await registry.getModelsForProvider("snowflake-cortex", apiKeyCredentials);
 
-		expect(models.map((model) => model.id)).toEqual(
-			CATALOG_IDS.filter((id) => id === ACCESSIBLE_A || id === ACCESSIBLE_B),
-		);
-		expect(models.every((model) => model.providerId === "snowflake-cortex")).toBe(true);
+		expect(models.map(({ id, name, providerId }) => ({ id, name, providerId }))).toEqual([
+			{ id: "openai-gpt-6.1-sol", name: "GPT-6.1 Sol", providerId: "snowflake-cortex" },
+			{ id: "claude-opus-5", name: "Claude Opus 5", providerId: "snowflake-cortex" },
+			{ id: "claude-opus-4-8", name: "Claude Opus 4.8", providerId: "snowflake-cortex" },
+			{ id: "openai-gpt-5.4", name: "GPT-5.4", providerId: "snowflake-cortex" },
+		]);
 	});
 
-	it("excludes models whose lifecycle status is EOL", async () => {
+	it("sorts rows without a parseable created_on last", async () => {
 		respondWith(() =>
 			showModelsResponse([
-				[ACCESSIBLE_A.toUpperCase(), "GA"],
-				[ACCESSIBLE_B.toUpperCase(), "EOL"],
+				["CLAUDE-OPUS-5", "GA", "not-a-timestamp"],
+				["CLAUDE-OPUS-4-8", "GA", "1780000000.000000000"],
 			]),
 		);
 
-		expect(await discoveredIds()).toEqual([ACCESSIBLE_A]);
+		expect(await discoveredIds()).toEqual(["claude-opus-4-8", "claude-opus-5"]);
 	});
 
-	it("falls back to the full catalog when no catalog model is accessible (cold cache)", async () => {
-		respondWith(() => showModelsResponse([["SOME-NON-CATALOG-MODEL", "GA"]]));
-		expect(await discoveredIds()).toEqual(CATALOG_IDS);
-	});
+	it.each(["EOL", "LEGACY", "INTERNAL"])(
+		"excludes models whose lifecycle status is %s",
+		async (status) => {
+			respondWith(() =>
+				showModelsResponse([
+					["CLAUDE-OPUS-5", "GA"],
+					["CLAUDE-OPUS-4-8", status],
+				]),
+			);
 
-	it("falls back to the full catalog when every catalog match is EOL", async () => {
-		respondWith(() => showModelsResponse([[ACCESSIBLE_A.toUpperCase(), "EOL"]]));
-		expect(await discoveredIds()).toEqual(CATALOG_IDS);
+			expect(await discoveredIds()).toEqual(["claude-opus-5"]);
+		},
+	);
+
+	it("falls back to the static list when nothing is listable (cold cache)", async () => {
+		respondWith(() =>
+			showModelsResponse([
+				["MISTRAL-LARGE2", "GA"],
+				["CLAUDE-OPUS-5", "EOL"],
+			]),
+		);
+		expect(await discoveredIds()).toEqual(FALLBACK_IDS);
 	});
 
 	it.each([
@@ -156,15 +183,15 @@ describe("Snowflake model discovery via the SQL API", () => {
 					{ status: 200 },
 				),
 		],
-	])("falls back to the full catalog on %s", async (_label, response) => {
+	])("falls back to the static list on %s", async (_label, response) => {
 		respondWith(response);
 
-		expect(await discoveredIds()).toEqual(CATALOG_IDS);
+		expect(await discoveredIds()).toEqual(FALLBACK_IDS);
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 	});
 
 	it("posts the qualified SHOW statement to /api/v2/statements on the base URL origin", async () => {
-		respondWith(() => showModelsResponse([[ACCESSIBLE_A.toUpperCase(), "GA"]]));
+		respondWith(() => showModelsResponse([["CLAUDE-OPUS-5", "GA"]]));
 
 		await discoveredIds({ ...apiKeyCredentials, baseUrl: `${BASE_URL}/api/v2/cortex/v1` });
 
@@ -177,7 +204,7 @@ describe("Snowflake model discovery via the SQL API", () => {
 	});
 
 	it("sends Bearer auth for token credentials", async () => {
-		respondWith(() => showModelsResponse([[ACCESSIBLE_A.toUpperCase(), "GA"]]));
+		respondWith(() => showModelsResponse([["CLAUDE-OPUS-5", "GA"]]));
 
 		await discoveredIds();
 
@@ -187,7 +214,7 @@ describe("Snowflake model discovery via the SQL API", () => {
 	});
 
 	it("sends `Snowflake Token=` auth for session credentials and keeps custom headers", async () => {
-		respondWith(() => showModelsResponse([[ACCESSIBLE_A.toUpperCase(), "GA"]]));
+		respondWith(() => showModelsResponse([["CLAUDE-OPUS-5", "GA"]]));
 
 		await discoveredIds({
 			...apiKeyCredentials,

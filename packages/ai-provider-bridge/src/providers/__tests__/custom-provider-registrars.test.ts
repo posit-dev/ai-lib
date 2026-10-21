@@ -299,10 +299,12 @@ describe("custom provider registrars", () => {
 				async () =>
 					new Response(
 						JSON.stringify({
-							resultSetMetaData: { rowType: [{ name: "name" }, { name: "lifecycle_status" }] },
+							resultSetMetaData: {
+								rowType: [{ name: "created_on" }, { name: "name" }, { name: "lifecycle_status" }],
+							},
 							data: [
-								["CLAUDE-OPUS-5", "GA"],
-								["NOT-IN-CATALOG", "GA"],
+								["1790000000.000000000", "CLAUDE-OPUS-5", "GA"],
+								["1790000000.000000000", "MISTRAL-LARGE2", "GA"],
 							],
 						}),
 						{ status: 200 },
