@@ -7,6 +7,9 @@
 import { formatConfigIssue } from "../config-issue.js";
 import type { SourcedConfigIssue } from "../config-issue.js";
 import { createHostDefaultsSourceProviders } from "../config-source.js";
+import type { ProviderCatalogExplanation } from "../config-trace.js";
+import { explainProviderSources } from "../explain-catalog.js";
+import type { ExplainLayerInput } from "../explain-catalog.js";
 import { createLegacyPositronSourceProviders } from "../legacy-positron-settings/sources.js";
 import { resolveProviderCatalogReport } from "../resolve-catalog.js";
 import type {
@@ -31,6 +34,52 @@ export async function loadProviderCatalogReport(
 	opts: LoadCatalogOptions,
 ): Promise<LoadedProviderCatalogReport> {
 	const env = opts.envVars ?? process.env;
+	const read = await readCatalogLayers(opts, env);
+	const sources = read.layers.flatMap(({ source }) => (source ? [source] : []));
+	const resolver = resolveProviderCatalogReport({
+		sources,
+		envVars: env,
+	});
+	const issues = [...read.issues, ...resolver.issues];
+	for (const issue of issues) {
+		opts.logger?.warn(formatConfigIssue(issue));
+	}
+
+	return {
+		catalog: resolver.catalog,
+		agentEngines: resolver.agentEngines,
+		agentEnginesProvenance: resolver.agentEnginesProvenance,
+		issues,
+	};
+}
+
+/** Options for {@link explainProviderCatalog}: the load options, without a logger. */
+export type ExplainProviderCatalogOptions = Omit<LoadCatalogOptions, "logger">;
+
+/**
+ * Explain the catalog the same options would load: every layer read (with
+ * missing / empty / invalid / not set states), and for each key some layer
+ * sets, the layer whose value is used and what the others said. Values are
+ * masked. Read-only and silent: never writes, never logs; issues are
+ * returned in fixed wording.
+ */
+export async function explainProviderCatalog(
+	opts: ExplainProviderCatalogOptions,
+): Promise<ProviderCatalogExplanation> {
+	const env = opts.envVars ?? process.env;
+	const read = await readCatalogLayers(opts, env);
+	return explainProviderSources({ layers: read.layers, envVars: env, readIssues: read.issues });
+}
+
+/**
+ * Read every layer the options enable, in read order, applying
+ * `transformSource`. The one source assembly behind both the load and the
+ * explanation, so they see the same sources.
+ */
+async function readCatalogLayers(
+	opts: ExplainProviderCatalogOptions,
+	env: Record<string, string | undefined>,
+): Promise<{ layers: ExplainLayerInput[]; issues: SourcedConfigIssue[] }> {
 	const reports = await loadConfigSourceReports({
 		configPath: opts.configPath,
 		enforcedEnvVar: opts.enforcedEnvVar,
@@ -44,22 +93,13 @@ export async function loadProviderCatalogReport(
 	];
 	reports.push(...(await Promise.all(extraProviders.map((provider) => provider.read()))));
 
-	const loaded = reports.flatMap((report) => (report.source ? [report.source] : []));
-	const sources = opts.transformSource ? loaded.map(opts.transformSource) : loaded;
-	const resolver = resolveProviderCatalogReport({
-		sources,
-		envVars: env,
-	});
-	const issues = [...reports.flatMap((report) => report.issues), ...resolver.issues];
-	for (const issue of issues) {
-		opts.logger?.warn(formatConfigIssue(issue));
-	}
-
+	const transform = opts.transformSource;
 	return {
-		catalog: resolver.catalog,
-		agentEngines: resolver.agentEngines,
-		agentEnginesProvenance: resolver.agentEnginesProvenance,
-		issues,
+		layers: reports.map(({ layer, source }) => ({
+			layer,
+			...(source ? { source: transform ? transform(source) : source } : {}),
+		})),
+		issues: reports.flatMap((report) => report.issues),
 	};
 }
 

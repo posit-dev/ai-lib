@@ -1119,7 +1119,7 @@ describe("loadResolvedProviderCatalog", () => {
 					severity: "error",
 					path: [],
 					source: { kind: "user", label: configPath },
-					message: expect.stringContaining("Could not read the file: permission denied"),
+					message: "Could not read the file (EACCES). Using empty config.",
 				}),
 			]);
 		});

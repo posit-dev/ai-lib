@@ -55,8 +55,12 @@ export * from "../index.js";
 export { AI_CONFIG_DIR, PROVIDERS_CONFIG_PATH, PROVIDERS_SCHEMA_URL } from "./paths.js";
 
 // --- Read seam (canonical report + bare-catalog compatibility wrapper) -----
-export { loadProviderCatalogReport, loadResolvedProviderCatalog } from "./load-catalog.js";
-export type { LoadedProviderCatalogReport } from "./load-catalog.js";
+export {
+	explainProviderCatalog,
+	loadProviderCatalogReport,
+	loadResolvedProviderCatalog,
+} from "./load-catalog.js";
+export type { ExplainProviderCatalogOptions, LoadedProviderCatalogReport } from "./load-catalog.js";
 export {
 	NonCustomProviderIdError,
 	readUserCustomProviderEntry,

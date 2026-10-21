@@ -72,6 +72,14 @@ function isAcpAgentPath(path: readonly string[]): boolean {
 }
 
 /**
+ * Whether the object at `path` is replaced whole by a higher layer instead of
+ * merged per key: a provider block's `apiKeyHelper` or one ACP agent.
+ */
+export function isReplacedWholePath(path: readonly string[]): boolean {
+	return isApiKeyHelperPath(path) || isAcpAgentPath(path);
+}
+
+/**
  * Recursive deep-merge. `override` values take precedence over `base`.
  *
  * Rules:
@@ -89,12 +97,7 @@ function deepMerge(base: unknown, override: unknown, path: readonly string[] = [
 	}
 
 	// Both are plain objects — recurse
-	if (
-		isPlainObject(base) &&
-		isPlainObject(override) &&
-		!isApiKeyHelperPath(path) &&
-		!isAcpAgentPath(path)
-	) {
+	if (isPlainObject(base) && isPlainObject(override) && !isReplacedWholePath(path)) {
 		const result: Record<string, unknown> = { ...base };
 		for (const key of Object.keys(override)) {
 			result[key] = deepMerge(base[key], override[key], [...path, key]);

@@ -234,6 +234,13 @@ export type {
 } from "./resolve-catalog.js";
 export type { ConfigIssue, SourcedConfigIssue } from "./config-issue.js";
 export type {
+	ConfigLayerRef,
+	ConfigLayerState,
+	ConfigLayerValue,
+	ConfigValueTrace,
+	ProviderCatalogExplanation,
+} from "./config-trace.js";
+export type {
 	ProvidersConfigInvalidDetail,
 	ProvidersConfigInvalidPhase,
 	ProvidersConfigSchemaIssue,
@@ -243,7 +250,11 @@ export type {
 export { salvageProvidersConfig } from "./salvage-config.js";
 
 // --- Disposable (returned by LegacySettingsReader.watch) --------------------
-export type { Disposable, ProviderConfigSourceReadReport } from "./config-source.js";
+export type {
+	Disposable,
+	ProviderConfigLayer,
+	ProviderConfigSourceReadReport,
+} from "./config-source.js";
 
 // --- Enforcement merge -----------------------------------------------------
 export { mergeConfigFragments, mergeEnforced } from "./enforce.js";

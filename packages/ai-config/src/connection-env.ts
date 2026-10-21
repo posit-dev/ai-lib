@@ -13,7 +13,7 @@
 
 import type { PortkeyKeyType } from "./portkey-connection.js";
 import type { BuiltinProviderBlock, ProvidersConfigFragment } from "./types.js";
-import { BUILTIN_PROVIDER_IDS } from "./vocabulary.js";
+import { BUILTIN_PROVIDER_IDS, isBuiltinProviderId } from "./vocabulary.js";
 import type { BuiltinProviderId } from "./vocabulary.js";
 
 // ---------------------------------------------------------------------------
@@ -172,12 +172,47 @@ export function readEnvConnectionConfig(
  * fallback names stay subordinate to the primary name.
  */
 function readEnv(names: EnvNames, envVars: Record<string, string | undefined>): string | undefined {
+	const name = firstSetName(names, envVars);
+	return name === undefined ? undefined : envVars[name];
+}
+
+function firstSetName(
+	names: EnvNames,
+	envVars: Record<string, string | undefined>,
+): string | undefined {
 	const candidates = typeof names === "string" ? [names] : names;
-	for (const name of candidates) {
-		const val = envVars[name];
-		if (val) return val;
+	return candidates.find((name) => !!envVars[name]);
+}
+
+/**
+ * The env var that supplies the connection field at `path`
+ * (`["providers", id, field]` or `["providers", id, section, field]`) in
+ * {@link readEnvConnectionConfig}'s fragment; undefined when none does.
+ */
+export function connectionEnvVarFor(
+	path: readonly string[],
+	envVars: Record<string, string | undefined>,
+): string | undefined {
+	const [root, providerId, ...fieldPath] = path;
+	if (root !== "providers" || providerId === undefined) return undefined;
+	let node: unknown = isBuiltinProviderId(providerId)
+		? CONNECTION_ENV_MAPPINGS[providerId]
+		: undefined;
+	for (const key of fieldPath) {
+		node = isMappingNode(node) ? node[key] : undefined;
 	}
-	return undefined;
+	return isEnvNames(node) ? firstSetName(node, envVars) : undefined;
+}
+
+function isMappingNode(node: unknown): node is Readonly<Record<string, unknown>> {
+	return typeof node === "object" && node !== null && !Array.isArray(node);
+}
+
+function isEnvNames(node: unknown): node is EnvNames {
+	return (
+		typeof node === "string" ||
+		(Array.isArray(node) && node.every((name) => typeof name === "string"))
+	);
 }
 
 /**
