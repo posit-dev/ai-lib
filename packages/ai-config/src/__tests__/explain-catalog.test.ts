@@ -71,6 +71,8 @@ describe("explainProviderCatalog", () => {
 			{ tag: "default", label: "admin default", detail: DEFAULT, state: "not set" },
 		]);
 		expect(explanation.issues.length > 0).toBe(state === "invalid");
+		// An unreadable file is discarded whole, engine settings included.
+		expect(explanation.issues.every((issue) => issue.scope === "source")).toBe(true);
 	});
 
 	it("names, for a full stack, the layer whose value the resolver used", async () => {
@@ -200,9 +202,16 @@ describe("explainProviderCatalog", () => {
 			layers: [{ layer: "default", value: false, status: "effective" }],
 		});
 		expect(report.agentEngines).toEqual({ enabled: false });
-		expect(explanation.issues).toEqual(report.issues);
+		// Recovery dropped only the provider configuration; engine settings survive.
+		expect(explanation.issues).toEqual(
+			report.issues.map((issue) => ({ ...issue, scope: "providers" })),
+		);
 		expect(explanation.issues).toEqual([
-			expect.objectContaining({ severity: "error", source: { kind: "default", label: DEFAULT } }),
+			expect.objectContaining({
+				severity: "error",
+				scope: "providers",
+				source: { kind: "default", label: DEFAULT },
+			}),
 		]);
 	});
 
@@ -305,6 +314,9 @@ describe("providers.json masking", () => {
 		["host.example:8080/v1", "host.example:8080/v1"],
 		["https://host.example", "https://host.example"],
 		["not a url@all", "all"],
+		["  https://user:SEEDED@host.example/v1  ", "https://host.example/v1"],
+		["//user:SEEDED@host.example/v1?k=v", "//host.example/v1"],
+		[" //user:SEEDED@host.example ", "//host.example"],
 	])("strips userinfo, query and fragment from %s", (url, expected) => {
 		expect(stripUrlSecrets(url)).toBe(expected);
 	});

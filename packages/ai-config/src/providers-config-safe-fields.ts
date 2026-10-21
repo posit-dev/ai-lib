@@ -188,8 +188,9 @@ export function isScalarOrScalarList(value: unknown): boolean {
  * parsing (a bare host or a malformed URL is handled the same way).
  */
 export function stripUrlSecrets(url: string): string {
-	const withoutQuery = url.split(/[?#]/, 1)[0];
-	const scheme = /^[a-z][a-z0-9+.-]*:\/\//i.exec(withoutQuery)?.[0] ?? "";
+	const withoutQuery = url.trim().split(/[?#]/, 1)[0];
+	// A scheme, or the empty scheme of a protocol-relative `//host` URL.
+	const scheme = /^(?:[a-z][a-z0-9+.-]*:)?\/\//i.exec(withoutQuery)?.[0] ?? "";
 	const rest = withoutQuery.slice(scheme.length);
 	const slash = rest.indexOf("/");
 	const authority = slash < 0 ? rest : rest.slice(0, slash);

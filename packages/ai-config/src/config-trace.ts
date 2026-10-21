@@ -58,11 +58,22 @@ export interface ConfigValueTrace {
 }
 
 /** The provider config explained from its current sources. */
+/**
+ * An issue with what an error discarded: `"source"` (the whole file was
+ * unusable, engine settings included) or `"providers"` (recovery dropped only
+ * the overlay's provider configuration; its `agentEngines` block survives).
+ * Meaningful for errors; a warning drops one value. Explanation-only: live
+ * `ConfigIssue`s are unchanged.
+ */
+export type ExplainedConfigIssue = SourcedConfigIssue & {
+	readonly scope: "source" | "providers";
+};
+
 export interface ProviderCatalogExplanation {
 	/** Every layer read, highest precedence first, including the connection env vars. */
 	readonly layers: readonly ConfigLayerRef[];
 	/** One trace per key some layer sets. */
 	readonly entries: readonly ConfigValueTrace[];
-	/** Read and resolve issues, in fixed wording. */
-	readonly issues: readonly SourcedConfigIssue[];
+	/** Read and resolve issues. */
+	readonly issues: readonly ExplainedConfigIssue[];
 }

@@ -233,7 +233,7 @@ export type {
 	ResolveProviderCatalogOptions,
 } from "./resolve-catalog.js";
 export type { ConfigIssue, SourcedConfigIssue } from "./config-issue.js";
-export type { ProviderCatalogExplanation } from "./config-trace.js";
+export type { ExplainedConfigIssue, ProviderCatalogExplanation } from "./config-trace.js";
 export type {
 	ProvidersConfigInvalidDetail,
 	ProvidersConfigInvalidPhase,

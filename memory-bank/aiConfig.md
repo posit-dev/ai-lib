@@ -68,7 +68,7 @@ Re-exports the pure entry, plus:
 
 - **Paths**: `AI_CONFIG_DIR` (`~/.posit/ai`) and `PROVIDERS_CONFIG_PATH`.
 - **Read seams**: `loadProviderCatalogReport(opts)` is the canonical report-first entry point
-  (it also returns the exact `sources` it resolved, after `transformSource`);
+  (it returns the catalog, `agentEngines` with provenance, and the complete `issues` snapshot);
   `loadResolvedProviderCatalog(opts)` is its bare-catalog compatibility wrapper.
   `explainProviderCatalog(opts)` explains the same sources on request (see Explaining the
   catalog).
@@ -330,8 +330,11 @@ returns a `ProviderCatalogExplanation` for a settings report: `layers` (every la
 precedence first, including the connection env vars, each a `ConfigLayerRef` `{ tag, label,
 detail, state }`), `entries` (one `ConfigValueTrace` `{ path, effective, rule: "highest-wins",
 note?, layers: { layer, value, status }[] }` per key some layer sets) and `issues` (read +
-resolve issues). It is read-only and silent, and shares the loader's one source assembly
-(`readCatalogLayers` in `load-catalog.ts`), so it sees exactly the sources a load resolves.
+resolve issues, each an `ExplainedConfigIssue` whose `scope` is `"source"` for read-stage issues
+and `"providers"` for resolve-stage recovery drops that discarded only an overlay's provider
+configuration). It is read-only and silent, and shares the loader's one source assembly
+(`readCatalogLayers` in `load-catalog.ts`, which both `loadProviderCatalogReport` and
+`explainProviderCatalog` call), so it sees exactly the sources a load resolves.
 
 - **Read state.** Each reader's report carries a `layer` (`ProviderConfigLayer`, the ref plus its
   source `kind`). The user file is `missing` (ENOENT), `invalid` (unreadable, bad JSONC, or a
