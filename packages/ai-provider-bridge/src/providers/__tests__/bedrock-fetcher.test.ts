@@ -2,7 +2,11 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
 	createAwsCredentialProvider,
@@ -43,7 +47,11 @@ vi.mock("@aws-sdk/client-bedrock", () => ({
 import { mintCustomProviderId } from "ai-config";
 
 import type { Logger } from "../../types";
-import { registerBedrockProvider, registerCustomBedrockProvider } from "../bedrock-provider";
+import {
+	checkAwsSignIn,
+	registerBedrockProvider,
+	registerCustomBedrockProvider,
+} from "../bedrock-provider";
 import { ProviderRegistry } from "../ProviderRegistry";
 
 function logger(): Logger {
@@ -369,5 +377,90 @@ describe("Bedrock inference profile discovery", () => {
 		const models = await registry.getModelsForProvider("bedrock", credentialsFor("us-east-1"));
 
 		expect(models.some((model) => model.id.includes(CLAUDE_MODEL_ID))).toBe(false);
+	});
+});
+
+const SSO_TOKEN_EXPIRED =
+	"Token is expired. To refresh this SSO session run 'aws sso login' with the corresponding profile.";
+const SSO_PROFILE = { type: "aws-credentials" as const, region: "us-east-1", profile: "sso" };
+
+function chainFailsWith(message: string): void {
+	createAwsCredentialProvider.mockReturnValue(() => Promise.reject(new Error(message)));
+}
+
+describe("Bedrock credential resolution failures", () => {
+	// A configured SSO profile: before classification, any resolution failure on one was
+	// reported as sso_expired.
+	let configDir: string;
+	beforeEach(() => {
+		configDir = mkdtempSync(join(tmpdir(), "bedrock-sso-"));
+		const configFile = join(configDir, "config");
+		writeFileSync(configFile, "[profile sso]\nsso_session = corp\nregion = us-east-1\n");
+		vi.stubEnv("AWS_CONFIG_FILE", configFile);
+	});
+	afterEach(() => {
+		vi.unstubAllEnvs();
+		rmSync(configDir, { recursive: true, force: true });
+	});
+
+	it.each([
+		["SDK sign-in wording", SSO_TOKEN_EXPIRED, "sso_expired"],
+		["an offline SSO profile", "getaddrinfo ENOTFOUND oidc.us-east-1.amazonaws.com", "auth_error"],
+		[
+			"helper output mentioning an expired token",
+			"Command failed: corp-aws-helper\nerror: OAuth token is expired",
+			"auth_error",
+		],
+	])("model list classifies %s", async (_case, message, code) => {
+		chainFailsWith(message);
+		const registry = new ProviderRegistry(logger());
+		const onProviderStatusChange = vi.fn(async () => {});
+		registerBedrockProvider(registry, logger(), { onProviderStatusChange });
+
+		await registry.getModelsForProvider("bedrock", SSO_PROFILE);
+
+		expect(onProviderStatusChange).toHaveBeenCalledWith(
+			expect.objectContaining({
+				status: "auth_error",
+				error: expect.objectContaining({ code }),
+			}),
+		);
+		expect(onProviderStatusChange).not.toHaveBeenCalledWith(
+			expect.objectContaining({ userInitiated: true }),
+		);
+	});
+});
+
+describe("checkAwsSignIn", () => {
+	it("is ok when the credentials resolve", async () => {
+		await expect(checkAwsSignIn("bedrock", SSO_PROFILE, logger())).resolves.toEqual({
+			status: "ok",
+		});
+		expect(createAwsCredentialProvider).toHaveBeenCalledWith(SSO_PROFILE);
+	});
+
+	it("requires sign-in on SDK sign-in wording, returning a userInitiated sso_expired update", async () => {
+		chainFailsWith(SSO_TOKEN_EXPIRED);
+
+		const result = await checkAwsSignIn("custom-aws", SSO_PROFILE, logger());
+
+		expect(result).toEqual({
+			status: "sign-in-required",
+			update: expect.objectContaining({
+				providerId: "custom-aws",
+				authMethodId: "aws-credentials",
+				status: "auth_error",
+				error: expect.objectContaining({ code: "sso_expired" }),
+				userInitiated: true,
+			}),
+		});
+	});
+
+	it("is unknown for an unclassified failure", async () => {
+		chainFailsWith("Could not load credentials from any providers");
+
+		await expect(checkAwsSignIn("bedrock", SSO_PROFILE, logger())).resolves.toEqual({
+			status: "unknown",
+		});
 	});
 });

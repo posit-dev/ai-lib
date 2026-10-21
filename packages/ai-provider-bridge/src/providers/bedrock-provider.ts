@@ -13,6 +13,7 @@ import {
 	getBedrockMantleModelCapabilities,
 } from "ai-config";
 
+import { classifyAwsCredentialFailure } from "../aws-credential-failure";
 import { createAwsCredentialProvider } from "../aws-credentials";
 import { userAgentHeaderValue } from "../custom-headers";
 import { BedrockClient } from "../model-clients/BedrockClient";
@@ -20,7 +21,6 @@ import type { AwsCredentials, Logger, ModelInfo, ProviderCredentials } from "../
 import { NOTIFICATION_ACTIONS } from "../types";
 import { listInferenceProfileIds } from "./bedrock-inference-profiles";
 import { listMantleModels } from "./bedrock-mantle-models";
-import { isAwsSsoProfileConfigured } from "./bedrock-sso";
 import { resolveBedrockTransport, type BedrockTransport } from "./bedrock-transport";
 import { getOpenAIModelName } from "./openai-model-names";
 import type { ClientFactory, ProviderRegistry } from "./ProviderRegistry";
@@ -28,36 +28,40 @@ import type { ClientFactory, ProviderRegistry } from "./ProviderRegistry";
 const BEDROCK_PROVIDER_ID = "bedrock";
 const BEDROCK_AUTH_METHOD_ID = "aws-credentials";
 
+/** A Bedrock provider status update, with full provider context. */
+export interface BedrockProviderStatusUpdate {
+	/** Provider ID (e.g., "bedrock") */
+	providerId: string;
+	/** Auth method ID (e.g., "aws-credentials") */
+	authMethodId: string;
+	status: "ok" | "auth_error" | "network_error";
+	/** Error details (only present when status is not 'ok') */
+	error?: {
+		/** Machine-readable error code (e.g., "sso_expired") */
+		code: string;
+		/** User-facing error message */
+		message: string;
+		/** Optional action button (label + command ID) */
+		action?: {
+			label: string;
+			commandId: string;
+		};
+	};
+	/**
+	 * Set when a user action (a send-time sign-in check) produced the update rather than model
+	 * discovery. Hosts re-show the prompt even if it was already shown or dismissed, and must not
+	 * count the update as discovery evidence (e.g. as a reconnect verification verdict).
+	 */
+	userInitiated?: true;
+}
+
 /**
  * Optional callback for platform-specific Bedrock provider status updates
  * Platforms receive full context from the provider to avoid hardcoding constants
  */
 export interface BedrockProviderCallbacks {
-	/**
-	 * Called when provider status changes (success, auth error, network error)
-	 *
-	 * @param update - Full status update with provider context
-	 * @param update.providerId - Provider ID (e.g., "bedrock")
-	 * @param update.authMethodId - Auth method ID (e.g., "aws-credentials")
-	 * @param update.status - Current status: 'ok', 'auth_error', or 'network_error'
-	 * @param update.error - Error details (only present when status is not 'ok')
-	 * @param update.error.code - Machine-readable error code (e.g., "sso_expired")
-	 * @param update.error.message - User-facing error message
-	 * @param update.error.action - Optional action button (label + command ID)
-	 */
-	onProviderStatusChange?: (update: {
-		providerId: string;
-		authMethodId: string;
-		status: "ok" | "auth_error" | "network_error";
-		error?: {
-			code: string;
-			message: string;
-			action?: {
-				label: string;
-				commandId: string;
-			};
-		};
-	}) => Promise<void>;
+	/** Called when provider status changes (success, auth error, network error) */
+	onProviderStatusChange?: (update: BedrockProviderStatusUpdate) => Promise<void>;
 }
 
 // Cache TTL for models (1 hour) in milliseconds
@@ -144,13 +148,15 @@ function isAuthError(error: unknown): boolean {
 	return false;
 }
 
-async function notifyBedrockAuthError(
-	providerId: ResolvedProviderId,
-	callbacks: BedrockProviderCallbacks | undefined,
+const SSO_EXPIRED_MESSAGE =
+	"AWS Bedrock credentials expired. Please run 'aws sso login' to refresh your session, then click Reload model list. You may need additional options, like 'aws sso login --profile <profile-name>'.";
+
+function bedrockAuthErrorUpdate(
+	providerId: string,
 	code: "sso_expired" | "auth_error",
 	message: string,
-): Promise<void> {
-	await callbacks?.onProviderStatusChange?.({
+): BedrockProviderStatusUpdate {
+	return {
 		providerId,
 		authMethodId: BEDROCK_AUTH_METHOD_ID,
 		status: "auth_error",
@@ -162,29 +168,39 @@ async function notifyBedrockAuthError(
 				commandId: NOTIFICATION_ACTIONS.REFRESH_MODELS,
 			},
 		},
-	});
+	};
 }
 
+async function notifyBedrockAuthError(
+	providerId: ResolvedProviderId,
+	callbacks: BedrockProviderCallbacks | undefined,
+	code: "sso_expired" | "auth_error",
+	message: string,
+): Promise<void> {
+	await callbacks?.onProviderStatusChange?.(bedrockAuthErrorUpdate(providerId, code, message));
+}
+
+function errorText(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Report a credential-resolution failure. Only known SDK sign-in wording is `sso_expired`; any
+ * other failure (including network errors on an SSO profile) is `auth_error`.
+ */
 async function reportCredentialResolutionFailure(
 	providerId: ResolvedProviderId,
-	credentials: AwsCredentials,
 	callbacks: BedrockProviderCallbacks | undefined,
 	logger: Logger,
 	credError: unknown,
 ): Promise<void> {
-	const ssoProfileConfigured = await isAwsSsoProfileConfigured(credentials.profile);
-	const errorMsg = credError instanceof Error ? credError.message : String(credError);
+	const errorMsg = errorText(credError);
 
-	if (ssoProfileConfigured) {
+	if (classifyAwsCredentialFailure(errorMsg) !== undefined) {
 		logger.info(
-			`[Bedrock] AWS credentials could not be resolved (SSO profile detected). Run 'aws sso login' to authenticate. Error: ${errorMsg}`,
+			`[Bedrock] AWS SSO sign-in expired or missing. Run 'aws sso login' to authenticate. Error: ${errorMsg}`,
 		);
-		await notifyBedrockAuthError(
-			providerId,
-			callbacks,
-			"sso_expired",
-			"AWS Bedrock credentials expired. Please run 'aws sso login' to refresh your session, then click Reload model list. You may need additional options, like 'aws sso login --profile <profile-name>'.",
-		);
+		await notifyBedrockAuthError(providerId, callbacks, "sso_expired", SSO_EXPIRED_MESSAGE);
 		return;
 	}
 
@@ -195,6 +211,44 @@ async function reportCredentialResolutionFailure(
 		"auth_error",
 		"AWS Bedrock credentials are invalid or unavailable. Update your AWS credentials, then click Reload model list.",
 	);
+}
+
+/** Result of {@link checkAwsSignIn}. */
+export type AwsSignInCheck =
+	| { status: "ok" }
+	| { status: "unknown" }
+	| { status: "sign-in-required"; update: BedrockProviderStatusUpdate };
+
+/**
+ * Resolve AWS credentials and report whether the user must sign in again. Publishes nothing: on
+ * `sign-in-required` the result carries the `sso_expired` status update (the model list's copy,
+ * flagged `userInitiated`) for the caller to deliver to its status callbacks. A failure that isn't
+ * known SDK sign-in wording is `unknown`.
+ */
+export async function checkAwsSignIn(
+	providerId: string,
+	credentials: AwsCredentials,
+	logger: Logger,
+): Promise<AwsSignInCheck> {
+	try {
+		await createAwsCredentialProvider(credentials)();
+		return { status: "ok" };
+	} catch (error) {
+		const errorMsg = errorText(error);
+		if (classifyAwsCredentialFailure(errorMsg) === undefined) {
+			logger.warn(
+				`[Bedrock] Sign-in check for ${providerId} could not resolve AWS credentials: ${errorMsg}`,
+			);
+			return { status: "unknown" };
+		}
+		return {
+			status: "sign-in-required",
+			update: {
+				...bedrockAuthErrorUpdate(providerId, "sso_expired", SSO_EXPIRED_MESSAGE),
+				userInitiated: true,
+			},
+		};
+	}
 }
 
 async function createBedrockListClient(
@@ -216,7 +270,7 @@ async function createBedrockListClient(
 			...(customUserAgent !== undefined ? { customUserAgent } : {}),
 		});
 	} catch (credError) {
-		await reportCredentialResolutionFailure(providerId, credentials, callbacks, logger, credError);
+		await reportCredentialResolutionFailure(providerId, callbacks, logger, credError);
 		return null;
 	}
 }
