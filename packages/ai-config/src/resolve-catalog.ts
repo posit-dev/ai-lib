@@ -22,7 +22,6 @@ import { configIssueSource, formatConfigIssue, sourcedWholeSourceIssue } from ".
 import type { ConfigIssue, SourcedConfigIssue } from "./config-issue.js";
 import { readEnvConnectionConfig } from "./connection-env.js";
 import { mergeConfigFragments } from "./enforce.js";
-import type { EnablementLayer } from "./resolve-enabled.js";
 import { salvageProvidersConfigFragment } from "./salvage-config.js";
 import { providersConfigSchema } from "./schema.js";
 import type {
@@ -210,7 +209,7 @@ export function resolveProviderCatalogReport(
 	return {
 		catalog: buildCatalog(
 			fold.config,
-			fold.enablement.map(({ layer }) => layer),
+			fold.enablement.map((source) => source.config.providers),
 			connectionProvenance,
 			authPolicies,
 		),
@@ -233,10 +232,7 @@ export interface ProviderCatalogFold {
 	/** The validated merge of the kept sources (no `agentEngines`). */
 	readonly config: ProvidersConfig;
 	/** Enablement layers: the kept non-env sources' `providers` maps, highest first. */
-	readonly enablement: readonly {
-		readonly source: ProviderConfigSource;
-		readonly layer: EnablementLayer;
-	}[];
+	readonly enablement: readonly ProviderConfigSource[];
 	readonly engines: AgentEnginesFold;
 	/** Recovery drops, then `agentEngines` salvage issues. */
 	readonly issues: readonly SourcedConfigIssue[];
@@ -264,9 +260,7 @@ export function foldProviderCatalog(
 
 	// Derive enablement layers excluding the env source — it carries only
 	// connection fields, so it must never influence enablement resolution.
-	const enablement = kept
-		.filter((s): s is ProviderConfigSource => s.kind !== "env")
-		.map((source) => ({ source, layer: source.config.providers }));
+	const enablement = kept.filter((s): s is ProviderConfigSource => s.kind !== "env");
 	const engines = resolveAgentEngines(highestFirst);
 	return {
 		highestFirst,

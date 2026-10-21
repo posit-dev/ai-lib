@@ -65,7 +65,6 @@ export const CREDENTIAL_STEP_REASON_TEXT = {
 	"selection-authoritative": "a selected connection is authoritative, even when it is missing",
 	"connection-selected": "a connection is selected",
 	"no-connection-selected": "no connection is selected",
-	"manual-token-checked-first": "the manual token is checked first",
 	"no-manual-token": "no token is saved or set in the environment",
 	"connection-not-found": "the connection is not in connections.toml",
 	"no-default-connection": "connections.toml names no default connection",

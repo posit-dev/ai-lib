@@ -27,7 +27,6 @@ export type {
 	CreateStoreBackendOptions,
 	StoreBackend,
 	StoreBackendStorage,
-	StoreCredentialSourceDescription,
 } from "./StoreBackend.js";
 
 // StoredProviderCredentials — on-disk format + Zod schema

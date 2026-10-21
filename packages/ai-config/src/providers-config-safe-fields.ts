@@ -177,7 +177,7 @@ function maskWith(rule: RuleNode | undefined, value: unknown): unknown {
 	return MASKED_VALUE;
 }
 
-function isScalarOrScalarList(value: unknown): boolean {
+export function isScalarOrScalarList(value: unknown): boolean {
 	const isScalar = (v: unknown) =>
 		v === null || typeof v === "string" || typeof v === "number" || typeof v === "boolean";
 	return isScalar(value) || (Array.isArray(value) && value.every(isScalar));

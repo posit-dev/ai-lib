@@ -14,8 +14,7 @@
  * `providers-config-safe-fields.ts`. Pure and silent: no logger, no I/O.
  */
 
-import type { SourcedConfigIssue } from "./config-issue.js";
-import type { ProviderConfigLayer } from "./config-source.js";
+import type { ProviderConfigLayer, ProviderConfigSourceReadReport } from "./config-source.js";
 import type {
 	ConfigLayerRef,
 	ConfigLayerValue,
@@ -42,19 +41,11 @@ import type {
 import { layerEnablement, resolveEnabledDecision } from "./resolve-enabled.js";
 import type { ProvidersConfigFragment } from "./types.js";
 
-/** One layer as read, with the (transformed) source it contributes, if any. */
-export interface ExplainLayerInput {
-	readonly layer: ProviderConfigLayer;
-	readonly source?: ProviderConfigSource;
-}
-
 export interface ExplainProviderSourcesOptions {
-	/** Every layer the host read, in read order. */
-	readonly layers: readonly ExplainLayerInput[];
+	/** Every layer the host read, in read order, with sources already transformed. */
+	readonly reports: readonly ProviderConfigSourceReadReport[];
 	/** The env the connection env source is read from. */
 	readonly envVars: Record<string, string | undefined>;
-	/** Issues found while reading the layers. */
-	readonly readIssues: readonly SourcedConfigIssue[];
 }
 
 const NOTE_LIST = "lists replace, never merge";
@@ -63,16 +54,16 @@ const NOTE_SNOWFLAKE_ENDPOINT =
 	"baseUrl, snowflake.account and snowflake.host are one setting: the highest layer that sets any of them decides";
 const NOTE_DEFAULT_ENABLED = "applies to providers a layer does not set enabled for";
 
-/** Explain the stack `layers` resolve to. */
+/** Explain the stack `reports` resolve to. */
 export function explainProviderSources(
 	opts: ExplainProviderSourcesOptions,
 ): ProviderCatalogExplanation {
-	const { layers, envVars } = opts;
-	const sources = layers.flatMap(({ source }) => (source ? [source] : []));
+	const { reports, envVars } = opts;
+	const sources = reports.flatMap(({ source }) => (source ? [source] : []));
 	const fold = foldProviderCatalog({ sources, envVars });
 
 	const tags = new Map<RankedConfigSource, string>();
-	for (const { layer, source } of layers) {
+	for (const { layer, source } of reports) {
 		if (source) tags.set(source, layer.tag);
 	}
 	const tagOf = (source: RankedConfigSource, path: readonly string[]): string =>
@@ -80,15 +71,12 @@ export function explainProviderSources(
 			? `$${connectionEnvVarFor(path, envVars) ?? "env"}`
 			: (tags.get(source) ?? source.kind);
 
-	const kept = new Set(fold.kept);
 	const providerTraces = foldTraces({
 		candidates: fold.highestFirst,
 		folded: fold.kept,
 		fragmentOf: providerFragmentOf,
 		sourceOf: (source) => source,
-		isKept: (source) => kept.has(source),
 		root: "providers",
-		exclude: isEnablementPath,
 		tagOf,
 	});
 	const engineTraces = foldTraces({
@@ -96,18 +84,16 @@ export function explainProviderSources(
 		folded: fold.engines.layers,
 		fragmentOf: engineFragmentOf,
 		sourceOf: (layer) => layer.source,
-		isKept: () => true,
 		root: "agentEngines",
-		exclude: () => false,
 		tagOf,
 	});
 
 	return {
-		layers: layerRefs(layers, fold, envVars),
+		layers: layerRefs(reports, fold, envVars),
 		entries: [...providerTraces, ...enablementTraces(fold, tagOf), ...engineTraces].sort((a, b) =>
 			comparePaths(a.path, b.path),
 		),
-		issues: [...opts.readIssues, ...fold.issues],
+		issues: [...reports.flatMap((report) => report.issues), ...fold.issues],
 	};
 }
 
@@ -116,7 +102,7 @@ export function explainProviderSources(
 // ---------------------------------------------------------------------------
 
 function layerRefs(
-	layers: readonly ExplainLayerInput[],
+	reports: readonly ProviderConfigSourceReadReport[],
 	fold: ProviderCatalogFold,
 	envVars: Record<string, string | undefined>,
 ): ConfigLayerRef[] {
@@ -127,7 +113,7 @@ function layerRefs(
 		if (name) envNames.add(name);
 	}
 	const ranked = [
-		...layers.map(({ layer }) => ({ rank: RANK[layer.kind], ref: layerRef(layer) })),
+		...reports.map(({ layer }) => ({ rank: RANK[layer.kind], ref: layerRef(layer) })),
 		{
 			rank: RANK.env,
 			ref: {
@@ -157,10 +143,7 @@ interface FoldTraceOptions<L> {
 	readonly folded: readonly L[];
 	readonly fragmentOf: (layer: L) => ProvidersConfigFragment;
 	readonly sourceOf: (layer: L) => RankedConfigSource;
-	/** False for a layer recovery dropped. */
-	readonly isKept: (layer: L) => boolean;
 	readonly root: "providers" | "agentEngines";
-	readonly exclude: (path: readonly string[]) => boolean;
 	readonly tagOf: (source: RankedConfigSource, path: readonly string[]) => string;
 }
 
@@ -170,10 +153,11 @@ interface FoldTraceOptions<L> {
  */
 function foldTraces<L>(opts: FoldTraceOptions<L>): ConfigValueTrace[] {
 	const { candidates, fragmentOf, root } = opts;
+	const folded = new Set(opts.folded);
 	const paths = new Map<string, readonly string[]>();
 	for (const candidate of candidates) {
 		for (const path of leafPaths(fragmentOf(candidate)[root], [root])) {
-			if (!opts.exclude(path)) paths.set(pathKey(path), path);
+			if (!isEnablementPath(path)) paths.set(pathKey(path), path);
 		}
 	}
 
@@ -202,7 +186,7 @@ function foldTraces<L>(opts: FoldTraceOptions<L>): ConfigValueTrace[] {
 				{
 					layer: opts.tagOf(source, path),
 					value: maskProvidersConfigValue(path, value),
-					status: !opts.isKept(candidate)
+					status: !folded.has(candidate)
 						? "dropped"
 						: candidate === holder
 							? "effective"
@@ -251,7 +235,7 @@ function enablementTraces(
 	const candidates = fold.highestFirst.filter(
 		(source): source is ProviderConfigSource => source.kind !== "env",
 	);
-	const keptLayers = fold.enablement.map(({ layer }) => layer);
+	const keptLayers = fold.enablement.map((source) => source.config.providers);
 	const kept = new Set<RankedConfigSource>(fold.kept);
 
 	const subjects = new Map<string, { id: string; custom: boolean }>();
@@ -271,14 +255,13 @@ function enablementTraces(
 		path: readonly string[],
 		id: string | undefined,
 		exists: boolean,
-		values: (source: ProviderConfigSource) => { enabled: boolean; via: string } | undefined,
 	): ConfigValueTrace => {
 		const decision = resolveEnabledDecision(id, keptLayers);
 		const winner =
-			decision.decidedBy === undefined ? undefined : fold.enablement[decision.decidedBy].source;
+			decision.decidedBy === undefined ? undefined : fold.enablement[decision.decidedBy];
 		const viaDefault: string[] = [];
 		const layerValues = candidates.flatMap((source): ConfigLayerValue[] => {
-			const said = values(source);
+			const said = layerEnablement(source.config.providers, id);
 			if (!said) return [];
 			const layer = tagOf(source, path);
 			if (said.via === "default") viaDefault.push(`[${layer}]`);
@@ -308,18 +291,12 @@ function enablementTraces(
 			custom ? ["providers", "custom", id, "enabled"] : ["providers", id, "enabled"],
 			id,
 			!custom || fold.config.providers?.custom?.[id] !== undefined,
-			(source) => layerEnablement(source.config.providers, id),
 		),
 	);
 	if (candidates.some(({ config }) => config.providers?.default?.enabled !== undefined)) {
 		const defaultWinner = resolveEnabledDecision(undefined, keptLayers).decidedBy;
 		traces.push(
-			traceFor(
-				["providers", "default", "enabled"],
-				undefined,
-				defaultWinner !== undefined,
-				(source) => layerEnablement(source.config.providers, undefined),
-			),
+			traceFor(["providers", "default", "enabled"], undefined, defaultWinner !== undefined),
 		);
 	}
 	return traces;

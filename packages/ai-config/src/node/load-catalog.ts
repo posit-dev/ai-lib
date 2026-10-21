@@ -7,9 +7,9 @@
 import { formatConfigIssue } from "../config-issue.js";
 import type { SourcedConfigIssue } from "../config-issue.js";
 import { createHostDefaultsSourceProviders } from "../config-source.js";
+import type { ProviderConfigSourceReadReport } from "../config-source.js";
 import type { ProviderCatalogExplanation } from "../config-trace.js";
 import { explainProviderSources } from "../explain-catalog.js";
-import type { ExplainLayerInput } from "../explain-catalog.js";
 import { createLegacyPositronSourceProviders } from "../legacy-positron-settings/sources.js";
 import { resolveProviderCatalogReport } from "../resolve-catalog.js";
 import type {
@@ -34,13 +34,13 @@ export async function loadProviderCatalogReport(
 	opts: LoadCatalogOptions,
 ): Promise<LoadedProviderCatalogReport> {
 	const env = opts.envVars ?? process.env;
-	const read = await readCatalogLayers(opts, env);
-	const sources = read.layers.flatMap(({ source }) => (source ? [source] : []));
+	const reports = await readCatalogLayers(opts, env);
+	const sources = reports.flatMap(({ source }) => (source ? [source] : []));
 	const resolver = resolveProviderCatalogReport({
 		sources,
 		envVars: env,
 	});
-	const issues = [...read.issues, ...resolver.issues];
+	const issues = [...reports.flatMap((report) => report.issues), ...resolver.issues];
 	for (const issue of issues) {
 		opts.logger?.warn(formatConfigIssue(issue));
 	}
@@ -67,8 +67,7 @@ export async function explainProviderCatalog(
 	opts: ExplainProviderCatalogOptions,
 ): Promise<ProviderCatalogExplanation> {
 	const env = opts.envVars ?? process.env;
-	const read = await readCatalogLayers(opts, env);
-	return explainProviderSources({ layers: read.layers, envVars: env, readIssues: read.issues });
+	return explainProviderSources({ reports: await readCatalogLayers(opts, env), envVars: env });
 }
 
 /**
@@ -79,7 +78,7 @@ export async function explainProviderCatalog(
 async function readCatalogLayers(
 	opts: ExplainProviderCatalogOptions,
 	env: Record<string, string | undefined>,
-): Promise<{ layers: ExplainLayerInput[]; issues: SourcedConfigIssue[] }> {
+): Promise<ProviderConfigSourceReadReport[]> {
 	const reports = await loadConfigSourceReports({
 		configPath: opts.configPath,
 		enforcedEnvVar: opts.enforcedEnvVar,
@@ -94,13 +93,10 @@ async function readCatalogLayers(
 	reports.push(...(await Promise.all(extraProviders.map((provider) => provider.read()))));
 
 	const transform = opts.transformSource;
-	return {
-		layers: reports.map(({ layer, source }) => ({
-			layer,
-			...(source ? { source: transform ? transform(source) : source } : {}),
-		})),
-		issues: reports.flatMap((report) => report.issues),
-	};
+	return reports.map((report) => ({
+		...report,
+		...(report.source && transform ? { source: transform(report.source) } : {}),
+	}));
 }
 
 /** Compatibility wrapper retaining the historical bare-catalog return type. */
