@@ -54,23 +54,18 @@ const apiKeyCredentials: ApiKeyCredentials = {
 	baseUrl: BASE_URL,
 };
 
-type ShowModelsRow = [name: string, status: string | null, createdOn?: string];
+type ShowModelsRow = [name: string, status: string | null];
 
 /**
- * A SQL API v2 result for `SHOW CORTEX BASE MODELS`: uppercase names, a status,
- * and `created_on` as epoch seconds (the API's TIMESTAMP_LTZ encoding).
+ * A SQL API v2 result for `SHOW CORTEX BASE MODELS`: uppercase names and a status.
  */
 function showModelsResponse(rows: ShowModelsRow[]): Response {
 	return new Response(
 		JSON.stringify({
 			resultSetMetaData: {
-				rowType: [{ name: "created_on" }, { name: "name" }, { name: "lifecycle_status" }],
+				rowType: [{ name: "name" }, { name: "lifecycle_status" }],
 			},
-			data: rows.map(([name, status, createdOn = "1700000000.000000000"]) => [
-				createdOn,
-				name,
-				status,
-			]),
+			data: rows,
 		}),
 		{ status: 200, headers: { "content-type": "application/json" } },
 	);
@@ -101,37 +96,26 @@ describe("Snowflake model discovery via the SQL API", () => {
 		vi.unstubAllGlobals();
 	});
 
-	it("lists recognized models newest first, with display names, under the provider id", async () => {
+	it("lists recognized models in SQL result order, with display names, under the provider id", async () => {
 		respondWith(() =>
 			showModelsResponse([
-				["OPENAI-GPT-5.4", "GA", "1760000000.000000000"],
-				["CLAUDE-OPUS-5", "GA", "1790000000.500000000"],
-				["LLAMA4-MAVERICK", "GA", "1795000000.000000000"],
-				["OPENAI-1P-GPT-5.6-SOL", "GA", "1795000000.000000000"],
-				["OPENAI-GPT-6.1-SOL", "PUPR", "1792000000.000000000"],
-				["CLAUDE-OPUS-4-8", null, "1780000000.000000000"],
+				["OPENAI-GPT-5.4", "GA"],
+				["CLAUDE-OPUS-5", "GA"],
+				["LLAMA4-MAVERICK", "GA"],
+				["OPENAI-1P-GPT-5.6-SOL", "GA"],
+				["OPENAI-GPT-6.1-SOL", "PUPR"],
+				["CLAUDE-OPUS-4-8", null],
 			]),
 		);
 
 		const models = await registry.getModelsForProvider("snowflake-cortex", apiKeyCredentials);
 
 		expect(models.map(({ id, name, providerId }) => ({ id, name, providerId }))).toEqual([
-			{ id: "openai-gpt-6.1-sol", name: "GPT-6.1 Sol", providerId: "snowflake-cortex" },
-			{ id: "claude-opus-5", name: "Claude Opus 5", providerId: "snowflake-cortex" },
-			{ id: "claude-opus-4-8", name: "Claude Opus 4.8", providerId: "snowflake-cortex" },
 			{ id: "openai-gpt-5.4", name: "GPT-5.4", providerId: "snowflake-cortex" },
+			{ id: "claude-opus-5", name: "Claude Opus 5", providerId: "snowflake-cortex" },
+			{ id: "openai-gpt-6.1-sol", name: "GPT-6.1 Sol", providerId: "snowflake-cortex" },
+			{ id: "claude-opus-4-8", name: "Claude Opus 4.8", providerId: "snowflake-cortex" },
 		]);
-	});
-
-	it("sorts rows without a parseable created_on last", async () => {
-		respondWith(() =>
-			showModelsResponse([
-				["CLAUDE-OPUS-5", "GA", "not-a-timestamp"],
-				["CLAUDE-OPUS-4-8", "GA", "1780000000.000000000"],
-			]),
-		);
-
-		expect(await discoveredIds()).toEqual(["claude-opus-4-8", "claude-opus-5"]);
 	});
 
 	it.each(["EOL", "LEGACY", "INTERNAL"])(

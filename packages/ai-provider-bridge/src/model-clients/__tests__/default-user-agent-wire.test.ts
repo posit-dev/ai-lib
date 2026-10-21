@@ -226,9 +226,9 @@ async function respond(...[input]: RawFetchCall): Promise<Response> {
 	if (url.endsWith("/api/v2/statements")) {
 		return jsonResponse({
 			resultSetMetaData: {
-				rowType: [{ name: "created_on" }, { name: "name" }, { name: "lifecycle_status" }],
+				rowType: [{ name: "name" }, { name: "lifecycle_status" }],
 			},
-			data: [["1790000000.000000000", "CLAUDE-OPUS-5", "GA"]],
+			data: [["CLAUDE-OPUS-5", "GA"]],
 		});
 	}
 	if (url.includes("/v1beta1/publishers/")) {

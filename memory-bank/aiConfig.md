@@ -645,8 +645,8 @@ Per-provider cases:
   Gemini table's 1M/65k values).
 - `snowflake-cortex` → membership is not decided here. The bridge lists the
   rows of `SHOW CORTEX BASE MODELS` that `isRecognizedSnowflakeCortexModel`
-  accepts and whose lifecycle is not `EOL`/`LEGACY`/`INTERNAL`, newest
-  `created_on` first; `SNOWFLAKE_CORTEX_CATALOG` (13 ids) is only the static
+  accepts and whose lifecycle is not `EOL`/`LEGACY`/`INTERNAL`, in the
+  API's row order; `SNOWFLAKE_CORTEX_CATALOG` (13 ids) is only the static
   fallback list for when that query can't run or lists nothing, and the set
   the Cortex rate card must price. "Recognized" is defined by the upstream
   tables: a Claude id an explicit Anthropic rule matches (`family` set), or an

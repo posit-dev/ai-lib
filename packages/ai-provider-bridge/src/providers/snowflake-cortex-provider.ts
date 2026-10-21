@@ -54,10 +54,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /**
  * Lowercased ids of the listable models in a SQL API v2 result for
- * {@link SHOW_MODELS_STATEMENT}, newest `created_on` first: recognized by
- * `ai-config` and not in an unlisted lifecycle stage. Throws on any other
- * shape, including a 202 async-execution response (which carries no result
- * set). A missing or unparseable `created_on` sorts last.
+ * {@link SHOW_MODELS_STATEMENT}, in row order: recognized by `ai-config` and
+ * not in an unlisted lifecycle stage. Throws on any other shape, including a
+ * 202 async-execution response (which carries no result set).
  */
 function listedModelIds(body: unknown): string[] {
 	const meta = isRecord(body) ? body.resultSetMetaData : undefined;
@@ -70,11 +69,10 @@ function listedModelIds(body: unknown): string[] {
 	);
 	const nameIndex = columns.indexOf("name");
 	const statusIndex = columns.indexOf("lifecycle_status");
-	const createdOnIndex = columns.indexOf("created_on");
 	if (nameIndex < 0 || statusIndex < 0) {
 		throw new Error("Snowflake SQL API result lacks name/lifecycle_status columns");
 	}
-	const listed: Array<{ id: string; createdOn: number }> = [];
+	const ids: string[] = [];
 	for (const row of rows) {
 		const name: unknown = Array.isArray(row) ? row[nameIndex] : undefined;
 		if (typeof name !== "string") {
@@ -87,18 +85,16 @@ function listedModelIds(body: unknown): string[] {
 		) {
 			continue;
 		}
-		// TIMESTAMP_LTZ arrives as a string of epoch seconds, e.g. "1729512345.123000000".
-		const createdOn = Number.parseFloat(String(row[createdOnIndex]));
-		listed.push({ id, createdOn: Number.isFinite(createdOn) ? createdOn : 0 });
+		ids.push(id);
 	}
-	return listed.sort((a, b) => b.createdOn - a.createdOn).map((model) => model.id);
+	return ids;
 }
 
 /**
  * Model discovery: the recognized models the account's default role can access
- * (via `SHOW CORTEX BASE MODELS` through the SQL API), newest first. Any
- * failure — or a result with nothing listable — falls back to the stale cache,
- * then the static fallback list.
+ * (via `SHOW CORTEX BASE MODELS` through the SQL API), in the order the API
+ * returns them. Any failure — or a result with nothing listable — falls back to
+ * the stale cache, then the static fallback list.
  */
 function createSnowflakeModelFetcher(
 	providerId: ResolvedProviderId,
