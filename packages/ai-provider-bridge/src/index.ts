@@ -28,6 +28,9 @@ export type {
 	ResolvedProviderId,
 } from "./types";
 
+// AWS credential-provider failure classification (pure; no AWS SDK)
+export { classifyAwsCredentialFailure } from "./aws-credential-failure";
+
 // Core provider infrastructure
 export { NON_IDENTITY_MAPPING, ProviderRegistry } from "./providers/ProviderRegistry";
 export type {
