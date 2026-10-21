@@ -292,6 +292,11 @@ describe("custom provider registrars", () => {
 	});
 
 	it("discovers static custom Foundry and Snowflake models under the custom ID", async () => {
+		// Snowflake discovery queries the SQL API; a failure falls back to the catalog.
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response(null, { status: 503 })),
+		);
 		const registry = new ProviderRegistry(logger);
 		const foundry = mintCustomProviderId("custom-foundry");
 		const snowflake = mintCustomProviderId("custom-snowflake");
