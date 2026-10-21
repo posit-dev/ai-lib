@@ -57,7 +57,6 @@ export interface ConfigValueTrace {
 	readonly layers: readonly ConfigLayerValue[];
 }
 
-/** The provider config explained from its current sources. */
 /**
  * An issue with what an error discarded: `"source"` (the whole file was
  * unusable, engine settings included) or `"providers"` (recovery dropped only
@@ -69,6 +68,7 @@ export type ExplainedConfigIssue = SourcedConfigIssue & {
 	readonly scope: "source" | "providers";
 };
 
+/** The provider config explained from its current sources. */
 export interface ProviderCatalogExplanation {
 	/** Every layer read, highest precedence first, including the connection env vars. */
 	readonly layers: readonly ConfigLayerRef[];
