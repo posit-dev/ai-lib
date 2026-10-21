@@ -154,12 +154,17 @@ export function thinkingRequestFields(
 		: undefined;
 }
 
+const DEEPSEEK_MODEL_APIS_IDS = new Set([
+	"deepseek-ai/DeepSeek-V4-Flash-0731",
+	"deepseek-ai/DeepSeek-V4.1-Flash-1017",
+]);
+
 export function positAiThinkingRequestFields(
 	modelId: string,
 	effort: string | undefined,
 	requiresChatTemplateKwargs: boolean,
 ): Record<string, unknown> | undefined {
-	if (modelId === "deepseek-ai/DeepSeek-V4-Flash-0731" && effort === "off") {
+	if (DEEPSEEK_MODEL_APIS_IDS.has(modelId) && effort === "off") {
 		return { reasoning_effort: "none" };
 	}
 	return thinkingRequestFields(effort, requiresChatTemplateKwargs);

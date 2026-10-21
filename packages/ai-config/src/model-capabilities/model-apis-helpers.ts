@@ -79,6 +79,17 @@ const MODEL_APIS_CAPABILITIES: Record<string, Partial<ModelInfo>> = {
 		maxContextLength: 250_000,
 		maxInputTokens: 250_000,
 	},
+	"deepseek-ai/DeepSeek-V4.1-Flash-1017": {
+		family: "deepseek-v4",
+		thinkingEffortLevels: ["off", "low", "high", "max"],
+		supportsImages: true,
+		supportsToolResultImages: true,
+		supportedInputMediaTypes: ["image/png", "image/jpeg", "image/gif", "image/webp"],
+		// Artificially limited to stay within per-minute token rate limits.
+		maxOutputTokens: 250_000,
+		maxContextLength: 250_000,
+		maxInputTokens: 250_000,
+	},
 };
 
 /**
