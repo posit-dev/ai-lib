@@ -67,18 +67,6 @@ const MODEL_APIS_CAPABILITIES: Record<string, Partial<ModelInfo>> = {
 		maxContextLength: 250_000,
 		maxInputTokens: 250_000,
 	},
-	"deepseek-ai/DeepSeek-V4-Flash-0731": {
-		family: "deepseek-v4",
-		thinkingEffortLevels: ["off", "low", "high", "max"],
-		supportsImages: false,
-		supportsToolResultImages: false,
-		supportedInputMediaTypes: [],
-		// Baseten Model APIs rejects max_tokens above 262,144 for this model,
-		// lower than DeepSeek's native API limit of 384K.
-		maxOutputTokens: 262_144,
-		maxContextLength: 250_000,
-		maxInputTokens: 250_000,
-	},
 	"deepseek-ai/DeepSeek-V4.1-Flash-1017": {
 		family: "deepseek-v4",
 		thinkingEffortLevels: ["off", "low", "high", "max"],
