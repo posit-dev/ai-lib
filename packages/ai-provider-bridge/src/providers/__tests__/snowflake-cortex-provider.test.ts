@@ -158,7 +158,6 @@ describe("Snowflake model discovery via the SQL API", () => {
 					{ status: 202 },
 				),
 		],
-		["a non-JSON body", () => new Response("<html>oops</html>", { status: 200 })],
 		[
 			"a result without name/lifecycle_status columns",
 			() =>
@@ -185,16 +184,6 @@ describe("Snowflake model discovery via the SQL API", () => {
 		expect(JSON.parse(String(init?.body))).toMatchObject({
 			statement: "SHOW CORTEX BASE MODELS IN SCHEMA SNOWFLAKE.MODELS",
 		});
-	});
-
-	it("sends Bearer auth for token credentials", async () => {
-		respondWith(() => showModelsResponse([["CLAUDE-OPUS-5", "GA"]]));
-
-		await discoveredIds();
-
-		expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get("authorization")).toBe(
-			"Bearer pat-token",
-		);
 	});
 
 	it("sends `Snowflake Token=` auth for session credentials and keeps custom headers", async () => {

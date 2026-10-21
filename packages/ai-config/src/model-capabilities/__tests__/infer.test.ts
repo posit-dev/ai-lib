@@ -250,7 +250,7 @@ describe("inferModelCapabilities", () => {
 		expect(openai.protocol).toBe("openai-chat");
 		expect(openai.maxContextLength).toBe(upstreamOpenai?.maxContextLength);
 		expect(openai.maxOutputTokens).toBe(upstreamOpenai?.maxOutputTokens);
-		expect(openai.maxInputTokens).toBeGreaterThan(0);
+		expect(openai.maxInputTokens).toBe(openai.maxContextLength - openai.maxOutputTokens);
 		expect(openai.supportsImages).toBe(true); // gpt-5.x accepts images
 		expect(openai.supportsToolResultImages).toBe(false);
 	});
