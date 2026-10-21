@@ -686,13 +686,28 @@ Per-provider cases:
   table and Anthropic partner ids to the Anthropic table (mirroring
   `google-vertex-provider.ts`; the builder's live-API token limits match the
   Gemini table's 1M/65k values).
-- `snowflake-cortex` → context windows come from the Cortex catalog table
-  (200k/128k fallbacks for unknown Claude/other ids), while output limits are
-  borrowed from the upstream Anthropic/OpenAI tables when an explicit rule
-  recognizes the id (e.g. 128k for Opus 4.7 and GPT-5.2); unrecognized ids get
-  a conservative 16,384 output fallback, and the Anthropic helper's own 64k
-  default for unknown Claude ids is deliberately rejected. Claude ids get the
-  Anthropic Messages API shape (tool-result images on); anything else strips a
+- `snowflake-cortex` → membership is not decided here. The bridge lists the
+  rows of `SHOW CORTEX BASE MODELS` that `isRecognizedSnowflakeCortexModel`
+  accepts and whose lifecycle is not `EOL`/`LEGACY`/`INTERNAL`, in the
+  API's row order; `SNOWFLAKE_CORTEX_CATALOG` (13 ids) is only the static
+  fallback list for when that query can't run or lists nothing, and the set
+  the Cortex rate card must price. "Recognized" is defined by the upstream
+  tables: a Claude id an explicit Anthropic rule matches (`family` set), or an
+  `openai-` id the OpenAI table knows once stripped, so widening those tables
+  widens discovery. Display names come from `snowflakeCortexModelName(id)`
+  (`claude-opus-4-8` → "Claude Opus 4.8", `openai-gpt-6.1-sol` → "GPT-6.1
+  Sol"). Context windows and output limits always come from the upstream
+  Anthropic/OpenAI tables, for listed ids and `models.custom` ids alike.
+  Unrecognized ids get conservative fallbacks: 200k window (Claude) / 128k
+  (OpenAI), and a 16,384 output limit
+  (the Anthropic helper's own optimistic 64k default for unknown Claude ids is
+  deliberately rejected; output is adopted only for a recognized id). No
+  output-vs-window guard exists: every upstream rule leaves a positive input
+  budget (output limits are <= 128k against windows >= 200k,
+  or 128k for the generic OpenAI fallback). Accepted cost: if Cortex caps a
+  window below upstream (as it once did for GPT-5: 272k vs 400k), a long
+  conversation hits a request error instead of being trimmed earlier. Claude
+  ids get the Anthropic Messages API shape (tool-result images on); anything else strips a
   leading `openai-` prefix, consults the OpenAI table, and gets the Chat
   Completions shape (tool-result images off, image support only when the
   upstream table lists image media types). `family` and

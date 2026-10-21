@@ -149,12 +149,11 @@ export type {
 export { getPositAiModelCapabilities } from "./model-capabilities/positai-helpers.js";
 export {
 	getSnowflakeCortexModelCapabilities,
+	isRecognizedSnowflakeCortexModel,
 	SNOWFLAKE_CORTEX_CATALOG,
+	snowflakeCortexModelName,
 } from "./model-capabilities/snowflake-cortex-helpers.js";
-export type {
-	SnowflakeCortexCatalogEntry,
-	SnowflakeCortexModelCapabilities,
-} from "./model-capabilities/snowflake-cortex-helpers.js";
+export type { SnowflakeCortexModelCapabilities } from "./model-capabilities/snowflake-cortex-helpers.js";
 export { inferLitellmModelProfile, inferModelCapabilities } from "./model-capabilities/infer.js";
 export { completeCapabilities } from "./model-capabilities/infer.js";
 export type { LitellmModelProfile, LitellmModelProfileInput } from "./model-capabilities/infer.js";
