@@ -292,10 +292,22 @@ describe("custom provider registrars", () => {
 	});
 
 	it("discovers static custom Foundry and Snowflake models under the custom ID", async () => {
-		// Snowflake discovery queries the SQL API; a failure falls back to the catalog.
+		// Snowflake discovery queries the SQL API for the accessible models.
 		vi.stubGlobal(
 			"fetch",
-			vi.fn(async () => new Response(null, { status: 503 })),
+			vi.fn(
+				async () =>
+					new Response(
+						JSON.stringify({
+							resultSetMetaData: { rowType: [{ name: "name" }, { name: "lifecycle_status" }] },
+							data: [
+								["CLAUDE-OPUS-5", "GA"],
+								["NOT-IN-CATALOG", "GA"],
+							],
+						}),
+						{ status: 200 },
+					),
+			),
 		);
 		const registry = new ProviderRegistry(logger);
 		const foundry = mintCustomProviderId("custom-foundry");
@@ -316,6 +328,6 @@ describe("custom provider registrars", () => {
 				apiKey: "token",
 				baseUrl: "https://account.snowflakecomputing.com",
 			}),
-		).toEqual(expect.arrayContaining([expect.objectContaining({ providerId: snowflake })]));
+		).toEqual([expect.objectContaining({ id: "claude-opus-5", providerId: snowflake })]);
 	});
 });
