@@ -643,20 +643,19 @@ Per-provider cases:
   table and Anthropic partner ids to the Anthropic table (mirroring
   `google-vertex-provider.ts`; the builder's live-API token limits match the
   Gemini table's 1M/65k values).
-- `snowflake-cortex` → context windows come from the Cortex catalog table
-  (13 ids: Claude Opus/Sonnet/Haiku 5.5, Opus/Sonnet 5 and Opus 4.8 at 1M;
-  GPT-5.6 Sol/Terra/Luna at 272k, the GPT-5 family's Cortex figure; GPT-6 /
-  6.1 ids at the 128k fallback because Cortex publishes no GPT-6 window).
-  Windows come from the AISQL "Model restrictions" table
-  (https://docs.snowflake.com/en/user-guide/snowflake-cortex/aisql-regional-availability)
-  for the same ids; an id it omits takes its family's Cortex figure, else the
-  200k (Claude) / 128k fallbacks — never the upstream provider's window. Output
-  limits are borrowed from the upstream Anthropic/OpenAI tables when an
-  explicit rule recognizes the id (e.g. 128k for GPT-5.x); unrecognized ids get
-  a conservative 16,384 output fallback, and the Anthropic helper's own 64k
-  default for unknown Claude ids is deliberately rejected. An output limit
-  that is >= the resolved window (off-catalog GPT-5.x ids, the GPT-6 ids) also
-  drops to the 16,384 fallback, leaving a positive input budget. The bridge
+- `snowflake-cortex` → the Cortex catalog (13 ids) decides membership only.
+  Context windows and output limits always come from the upstream
+  Anthropic/OpenAI tables, for catalog ids and off-catalog ids
+  (`models.custom`, removed ids) alike. Unrecognized ids get conservative
+  fallbacks: 200k window (Claude) / 128k (OpenAI), and a 16,384 output limit
+  (the Anthropic helper's own optimistic 64k default for unknown Claude ids is
+  deliberately rejected; output is adopted only when an explicit rule sets
+  `family`). No output-vs-window guard exists: every upstream rule leaves a
+  positive input budget (output limits are <= 128k against windows >= 200k,
+  or 128k for the generic OpenAI fallback). Accepted cost: if Cortex caps a
+  window below upstream (as it once did for GPT-5: 272k vs 400k), a long
+  conversation hits a request error instead of being trimmed earlier. The
+  bridge
   narrows this catalog per account via `SHOW CORTEX BASE MODELS` (filter only;
   it carries no limits). Claude ids get the
   Anthropic Messages API shape (tool-result images on); anything else strips a
