@@ -67,6 +67,11 @@ export class SingleFileStore {
 		this.logger = logger;
 	}
 
+	/** The store's file path, for diagnostics. */
+	get location(): string {
+		return this.filePath;
+	}
+
 	// ========================================================================
 	// Read operations
 	// ========================================================================

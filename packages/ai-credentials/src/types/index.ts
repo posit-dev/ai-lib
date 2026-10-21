@@ -37,6 +37,24 @@ export type {
 	StructuredBaseUrlSource,
 } from "./credential-shaping.js";
 
+export { CREDENTIAL_STEP_REASON_TEXT } from "./credential-source-report.js";
+export type {
+	CatalogFallbackStep,
+	CredentialReportStatus,
+	CredentialSourceReport,
+	CredentialSourceStep,
+	CredentialStepOutcome,
+	CredentialStepReason,
+	EntraCredentialStep,
+	EnvironmentCredentialStep,
+	HostOwnershipStep,
+	LocalEndpointStep,
+	ManagedCredentialStep,
+	ManualTokenStep,
+	SnowflakeConnectionStep,
+	StoredCredentialStep,
+} from "./credential-source-report.js";
+
 export type { Logger } from "./logger.js";
 
 export {

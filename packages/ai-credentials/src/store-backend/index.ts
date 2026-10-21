@@ -25,7 +25,9 @@ export { createStoreBackend } from "./StoreBackend.js";
 export type {
 	AuthMethodDescriptor,
 	CreateStoreBackendOptions,
+	StoreBackend,
 	StoreBackendStorage,
+	StoreCredentialSourceDescription,
 } from "./StoreBackend.js";
 
 // StoredProviderCredentials — on-disk format + Zod schema
