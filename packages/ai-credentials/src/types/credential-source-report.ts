@@ -163,7 +163,7 @@ export interface CatalogFallbackStep extends CredentialStepBase {
 /** Who owns the credential on a host that reports ownership only. */
 export interface HostOwnershipStep extends CredentialStepBase {
 	readonly kind: "host-ownership";
-	readonly owner: "vscode-authentication" | "secret-storage" | "local" | "unsupported" | "host";
+	readonly owner: "vscode-authentication" | "unsupported" | "host";
 }
 
 export type CredentialSourceStep =

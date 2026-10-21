@@ -86,7 +86,8 @@ const PROVIDER_BLOCK_FIELDS = {
 	aws: { region: "safe", profile: "safe" },
 	azure: { authMode: "safe", scope: "safe", tenantId: "safe" },
 	googleCloud: { project: "safe", location: "safe" },
-	snowflake: { account: "safe", host: "url", home: "safe", connectionName: "safe" },
+	// `account` becomes a URL authority (`https://<account>.snowflakecomputing.com`).
+	snowflake: { account: "url", host: "url", home: "safe", connectionName: "safe" },
 	databricks: { host: "url" },
 	positaiLogin: { host: "url", clientId: "safe", scope: "safe" },
 	apiKeyHelper: "configured",
@@ -184,28 +185,32 @@ export function isScalarOrScalarList(value: unknown): boolean {
 }
 
 /**
- * Remove userinfo, query string and fragment from a URL-like string. A URL
- * with a host is read the way a client would connect to it (`new URL`), so
- * a lenient spelling such as `https:/user:pw@host` loses its userinfo too.
- * Anything else (a bare host, a protocol-relative or malformed URL) keeps
- * only the text after its last `@`, so nothing that could be a password
- * survives.
+ * Remove userinfo, query string and fragment from a URL-like string.
+ *
+ * Only the text after the last `@` is certainly not userinfo: a password may
+ * itself contain `/`, `\`, `?` or `#`, which a parser reads as the end of the
+ * authority. So everything before the last `@` goes first (except a leading
+ * `scheme:/` or `//`), even when that over-strips an `@` in a path or query.
+ * What remains is read the way a client would (`new URL`), so a lenient
+ * spelling such as `https:/host` is normalized; a bare host or anything
+ * unparseable just loses its query and fragment.
  */
 export function stripUrlSecrets(url: string): string {
 	const trimmed = url.trim();
-	const parsed = parseUrlWithHost(trimmed);
+	const at = trimmed.lastIndexOf("@");
+	const rest =
+		at < 0
+			? trimmed
+			: (/^(?:[a-z][a-z0-9+.-]*:)?[/\\]+/i.exec(trimmed.slice(0, at))?.[0] ?? "") +
+				trimmed.slice(at + 1);
+	const parsed = parseUrlWithHost(rest);
 	if (parsed) {
 		// Keep a bare origin bare: `URL` would add a `/` path.
-		const explicitRoot = /^[^?#]*\/(?:[?#]|$)/.test(trimmed);
+		const explicitRoot = /^[^?#]*\/(?:[?#]|$)/.test(rest);
 		const path = parsed.pathname === "/" && !explicitRoot ? "" : parsed.pathname;
 		return `${parsed.protocol}//${parsed.host}${path}`;
 	}
-	// The empty scheme of a protocol-relative `//host` URL, or a scheme
-	// followed by `//`, is kept; userinfo is never part of it.
-	const prefix = /^(?:[a-z][a-z0-9+.-]*:)?\/\//i.exec(trimmed)?.[0] ?? "";
-	const rest = trimmed.slice(prefix.length);
-	const afterUserinfo = rest.slice(rest.lastIndexOf("@") + 1);
-	return prefix + afterUserinfo.split(/[?#]/, 1)[0];
+	return rest.split(/[?#]/, 1)[0];
 }
 
 function parseUrlWithHost(url: string): URL | undefined {

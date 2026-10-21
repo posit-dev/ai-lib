@@ -346,6 +346,8 @@ describe("providers.json masking", () => {
 		["user:SEEDED@account.snowflakecomputing.com", "account.snowflakecomputing.com"],
 		["https://host.example/", "https://host.example/"],
 		["https://host.example/?k=v", "https://host.example/"],
+		["https://alice:1234/SEEDED@host.example/v1", "https://host.example/v1"],
+		["https://u:123?SEEDED@host.example", "https://host.example"],
 	])("strips userinfo, query and fragment from %s", (url, expected) => {
 		expect(stripUrlSecrets(url)).toBe(expected);
 	});
@@ -358,16 +360,31 @@ describe("providers.json masking", () => {
 		["user:SEE/DED@host.example"],
 		["https:user:SEEDED@host.example"],
 		["foo:/user:SEEDED@host.example"],
-	])("keeps no text that could be a password in the unparseable %s", (url) => {
-		expect(stripUrlSecrets(url)).not.toMatch(/SEE|DED/);
+		// Parseable: `URL` ends the authority inside the password.
+		["https://alice:1234/SEE/DED@host.example/v1"],
+		["https://abcSEE/xyzDED@host.example/v1"],
+		["https://u:123?SEE#DED@host.example"],
+		["https://alice@SEE/DED@host.example/v1"],
+		["https://a@b:1?SEEDED@host.example"],
+	])("keeps no text that could be a password in %s", (url) => {
+		expect(stripUrlSecrets(url)).not.toMatch(/SEE|DED|alice|1234|abc|u:123|b:1/);
 	});
 
-	it("shows a Snowflake host without userinfo", () => {
+	it.each([["host"], ["account"]])("shows a Snowflake %s without userinfo", (field) => {
 		expect(
 			maskProvidersConfigValue(
-				["providers", "snowflake-cortex", "snowflake", "host"],
+				["providers", "snowflake-cortex", "snowflake", field],
 				"user:SEEDED@acme.snowflakecomputing.com",
 			),
 		).toBe("acme.snowflakecomputing.com");
+	});
+
+	it("shows an ordinary Snowflake account unchanged", () => {
+		expect(
+			maskProvidersConfigValue(
+				["providers", "snowflake-cortex", "snowflake", "account"],
+				"acme-xy123",
+			),
+		).toBe("acme-xy123");
 	});
 });

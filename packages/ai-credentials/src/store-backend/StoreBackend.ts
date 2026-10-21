@@ -63,15 +63,18 @@ export interface StoreBackendStorage {
 	get<T>(key: string): Promise<T | undefined>;
 	/**
 	 * Read a value with no side effects at all, for passive inspection
-	 * (`describeCredentialSource`). Backings whose `get` has none may omit it.
+	 * (`describeCredentialSource`). A backing whose `get` has none can reuse it.
 	 */
-	peek?<T>(key: string): Promise<T | undefined>;
+	peek<T>(key: string): Promise<T | undefined>;
 	set<T>(key: string, value: T): Promise<void>;
 	withLock<T>(fn: () => Promise<T>): Promise<T>;
 	/** Invoke `handler` whenever any stored value may have changed. */
 	watch(handler: () => void): Disposable;
-	/** Where the records live (e.g. a file path), for diagnostics. Never a secret. */
-	readonly location?: string;
+	/**
+	 * Where the records live (e.g. a file path), for diagnostics; `null` when
+	 * there is no such place to show. Never a secret.
+	 */
+	readonly location: string | null;
 }
 
 /**
@@ -203,10 +206,7 @@ export function createStoreBackend(options: CreateStoreBackendOptions): StoreBac
 	): Promise<StoredProviderCredentials | undefined> {
 		const key = keyFor(providerId);
 		if (!key) return undefined;
-		const raw =
-			read === "passive" && store.peek
-				? await store.peek<unknown>(key)
-				: await store.get<unknown>(key);
+		const raw = read === "passive" ? await store.peek<unknown>(key) : await store.get<unknown>(key);
 		if (raw === undefined) return undefined;
 		const parsed = storedProviderCredentialsSchema.safeParse(raw);
 		if (!parsed.success) {
@@ -501,7 +501,7 @@ export function createStoreBackend(options: CreateStoreBackendOptions): StoreBac
 		const status = statusFor(providerId, normalized);
 		const storedFacts = {
 			kind: "stored" as const,
-			location: store.location ?? null,
+			location: store.location,
 			credentialType: storedCredentialType(normalized),
 			readiness: normalized?.readiness ?? ("none" as const),
 			expiresAt: normalized?.tokens?.expiresAt ?? null,
