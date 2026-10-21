@@ -233,18 +233,18 @@ describe("inferModelCapabilities", () => {
 
 	it("serves snowflake Claude models with their Anthropic output limits", () => {
 		// Cortex routes Claude through the Anthropic Messages API with the
-		// upstream limits: the Anthropic table gives Opus 4.7 a 1M window and
-		// 128k output, and input shares the window with output.
-		const caps = inferModelCapabilities("snowflake-cortex", "claude-opus-4-7");
+		// upstream limits: the Anthropic table gives Opus 4.8 128k output, and
+		// input shares the catalog's 1M window with output.
+		const caps = inferModelCapabilities("snowflake-cortex", "claude-opus-4-8");
 		expect(caps.protocol).toBe("anthropic-messages");
 		expect(caps.maxContextLength).toBe(1_000_000);
 		expect(caps.maxOutputTokens).toBe(128_000);
 		expect(caps.maxInputTokens).toBe(1_000_000 - 128_000);
 		expect(caps.supportsToolResultImages).toBe(true);
-		expect(caps.family).toBe("claude-4.7"); // still borrowed from the table
+		expect(caps.family).toBe("claude-4.8"); // still borrowed from the table
 
 		// Chat Completions models likewise use the upstream OpenAI table limits.
-		const openai = inferModelCapabilities("snowflake-cortex", "openai-gpt-5.2");
+		const openai = inferModelCapabilities("snowflake-cortex", "openai-gpt-5.6-sol");
 		expect(openai.protocol).toBe("openai-chat");
 		expect(openai.maxContextLength).toBe(272_000);
 		expect(openai.maxOutputTokens).toBe(128_000);
