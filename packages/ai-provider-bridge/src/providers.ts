@@ -29,10 +29,15 @@ export {
 	registerDeepSeekProvider,
 } from "./providers/deepseek-provider";
 export {
+	checkAwsSignIn,
 	registerBedrockProvider,
 	registerCustomBedrockProvider,
 } from "./providers/bedrock-provider";
-export type { BedrockProviderCallbacks } from "./providers/bedrock-provider";
+export type {
+	AwsSignInCheck,
+	BedrockProviderCallbacks,
+	BedrockProviderStatusUpdate,
+} from "./providers/bedrock-provider";
 export {
 	registerCustomFoundryProvider,
 	registerFoundryProvider,
