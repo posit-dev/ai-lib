@@ -60,8 +60,8 @@ export type ExplainProviderCatalogOptions = Omit<LoadCatalogOptions, "logger">;
  * Explain the catalog the same options would load: every layer read (with
  * missing / empty / invalid / not set states), and for each key some layer
  * sets, the layer whose value is used and what the others said. Values are
- * masked. Read-only and silent: never writes, never logs; issues are
- * returned in fixed wording.
+ * masked. Read-only and silent: never writes, never logs; issues carry no
+ * parser message (it can quote the input), only where and how bad.
  */
 export async function explainProviderCatalog(
 	opts: ExplainProviderCatalogOptions,

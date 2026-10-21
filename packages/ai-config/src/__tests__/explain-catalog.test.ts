@@ -203,15 +203,14 @@ describe("explainProviderCatalog", () => {
 		});
 		expect(report.agentEngines).toEqual({ enabled: false });
 		// Recovery dropped only the provider configuration; engine settings survive.
-		expect(explanation.issues).toEqual(
-			report.issues.map((issue) => ({ ...issue, scope: "providers" })),
-		);
+		expect(report.issues).toEqual([expect.objectContaining({ severity: "error" })]);
 		expect(explanation.issues).toEqual([
-			expect.objectContaining({
+			{
 				severity: "error",
+				path: [],
 				scope: "providers",
 				source: { kind: "default", label: DEFAULT },
-			}),
+			},
 		]);
 	});
 
@@ -268,6 +267,9 @@ describe("explainProviderCatalog", () => {
 			}),
 			POSITRON_ENFORCED_SETTINGS: `{"authentication.anthropic.baseUrl":"${secret(14)}"`,
 			LITELLM_BASE_URL: `https://u:${secret(15)}@litellm.example?k=${secret(16)}`,
+			OPENAI_BASE_URL: `https:///u:${secret(17)}@openai.example/v1`,
+			GEMINI_BASE_URL: `https:/u:${secret(18)}@gemini.example/v1`,
+			SNOWFLAKE_HOST: `u:${secret(19)}@acme.snowflakecomputing.com`,
 		};
 
 		const explanation = await explainProviderCatalog(
@@ -275,7 +277,7 @@ describe("explainProviderCatalog", () => {
 		);
 
 		const json = JSON.stringify(explanation);
-		for (let n = 1; n <= 16; n++) {
+		for (let n = 1; n <= 19; n++) {
 			expect(json).not.toContain(secret(n));
 		}
 		expect(traceAt(explanation, ["providers", "openai", "apiKeyHelper"])?.effective).toBe(
@@ -290,6 +292,27 @@ describe("explainProviderCatalog", () => {
 		expect(traceAt(explanation, ["providers", "anthropic", "baseUrl"])?.effective).toBe(
 			"https://gateway.example/v1",
 		);
+		expect(
+			traceAt(explanation, ["providers", "snowflake-cortex", "snowflake", "host"])?.effective,
+		).toBe("acme.snowflakecomputing.com");
+	});
+
+	it.each([
+		['{ "providers": { "openai": { "SEEDED": 1 } } }'],
+		['{ "providers": { "openai": { "baseUrl": { "constructor": { "name": "SEEDED" } } } } }'],
+	])("returns issues without parser text that quotes the input: %s", async (raw) => {
+		await fixture.writeRawJsonc(raw);
+
+		const explanation = await explainProviderCatalog(options());
+
+		expect(explanation.issues).toEqual([
+			{
+				severity: "warning",
+				path: ["providers", "openai"],
+				scope: "source",
+				source: { kind: "user", label: fixture.configPath },
+			},
+		]);
 	});
 });
 
@@ -317,7 +340,34 @@ describe("providers.json masking", () => {
 		["  https://user:SEEDED@host.example/v1  ", "https://host.example/v1"],
 		["//user:SEEDED@host.example/v1?k=v", "//host.example/v1"],
 		[" //user:SEEDED@host.example ", "//host.example"],
+		["https:///user:SEEDED@host.example/v1", "https://host.example/v1"],
+		["https:/user:SEEDED@host.example/v1", "https://host.example/v1"],
+		["https:\\\\user:SEEDED@host.example\\v1", "https://host.example/v1"],
+		["user:SEEDED@account.snowflakecomputing.com", "account.snowflakecomputing.com"],
+		["https://host.example/", "https://host.example/"],
+		["https://host.example/?k=v", "https://host.example/"],
 	])("strips userinfo, query and fragment from %s", (url, expected) => {
 		expect(stripUrlSecrets(url)).toBe(expected);
+	});
+
+	it.each([
+		["https://user:SEE/DED@host.example/v1"],
+		["https://user:SEE#DED@host.example"],
+		["https://user:SEE?DED@host.example"],
+		["//user:SEE/DED@host.example"],
+		["user:SEE/DED@host.example"],
+		["https:user:SEEDED@host.example"],
+		["foo:/user:SEEDED@host.example"],
+	])("keeps no text that could be a password in the unparseable %s", (url) => {
+		expect(stripUrlSecrets(url)).not.toMatch(/SEE|DED/);
+	});
+
+	it("shows a Snowflake host without userinfo", () => {
+		expect(
+			maskProvidersConfigValue(
+				["providers", "snowflake-cortex", "snowflake", "host"],
+				"user:SEEDED@acme.snowflakecomputing.com",
+			),
+		).toBe("acme.snowflakecomputing.com");
 	});
 });

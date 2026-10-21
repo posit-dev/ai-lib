@@ -63,10 +63,16 @@ export interface ConfigValueTrace {
  * the overlay's provider configuration; its `agentEngines` block survives).
  * Meaningful for errors; a warning drops one value. Explanation-only: live
  * `ConfigIssue`s are unchanged.
+ *
+ * Carries no message: parser text can quote the input, so callers word the
+ * issue from its severity, scope, path and source.
  */
-export type ExplainedConfigIssue = SourcedConfigIssue & {
+export type ExplainedConfigIssue = WithoutMessage<SourcedConfigIssue> & {
 	readonly scope: "source" | "providers";
 };
+
+/** `Omit<I, "message">` per union member, so severity still narrows path. */
+type WithoutMessage<I> = I extends unknown ? Omit<I, "message"> : never;
 
 /** The provider config explained from its current sources. */
 export interface ProviderCatalogExplanation {

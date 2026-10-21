@@ -332,7 +332,8 @@ detail, state }`), `entries` (one `ConfigValueTrace` `{ path, effective, rule: "
 note?, layers: { layer, value, status }[] }` per key some layer sets) and `issues` (read +
 resolve issues, each an `ExplainedConfigIssue` whose `scope` is `"source"` for read-stage issues
 and `"providers"` for resolve-stage recovery drops that discarded only an overlay's provider
-configuration). It is read-only and silent, and shares the loader's one source assembly
+configuration; it has no `message`, since parser text can quote the input, so callers word issues
+from severity, scope, path and source). It is read-only and silent, and shares the loader's one source assembly
 (`readCatalogLayers` in `load-catalog.ts`, which both `loadProviderCatalogReport` and
 `explainProviderCatalog` call), so it sees exactly the sources a load resolves.
 
@@ -355,7 +356,9 @@ configuration). It is read-only and silent, and shares the loader's one source a
   which reads the same mapping table as the env reader).
 - **Masking.** `providers-config-safe-fields.ts` declares, typed against the schema's inferred
   types, which fields are shown (`safe`), shown without userinfo/query/fragment (`url`), or shown
-  as `"<configured>"` (`apiKeyHelper`). Everything else renders `"<masked>"` with keys kept, so a
+  as `"<configured>"` (`apiKeyHelper`). `stripUrlSecrets` reads a URL with a host through
+  `new URL` (so lenient spellings like `https:/user:pw@host` lose their userinfo) and otherwise
+  keeps only the text after the last `@`. Everything else renders `"<masked>"` with keys kept, so a
   new schema field starts masked; `customHeaders.*` and every `agentEngines.acp.*` field are
   deliberately undeclared. Issue text never quotes parser or OS messages (an unreadable file
   names only its errno code).

@@ -14,6 +14,7 @@
  * `providers-config-safe-fields.ts`. Pure and silent: no logger, no I/O.
  */
 
+import type { SourcedConfigIssue } from "./config-issue.js";
 import type { ProviderConfigLayer, ProviderConfigSourceReadReport } from "./config-source.js";
 import type {
 	ConfigLayerRef,
@@ -95,13 +96,22 @@ export function explainProviderSources(
 			comparePaths(a.path, b.path),
 		),
 		issues: [
-			...reports
-				.flatMap((report) => report.issues)
-				.map((issue): ExplainedConfigIssue => ({ ...issue, scope: "source" })),
+			...reports.flatMap((report) => report.issues).map((issue) => explainIssue(issue, "source")),
 			// Recovery drops an overlay's provider configuration only.
-			...fold.issues.map((issue): ExplainedConfigIssue => ({ ...issue, scope: "providers" })),
+			...fold.issues.map((issue) => explainIssue(issue, "providers")),
 		],
 	};
+}
+
+/** An issue without its parser message, which can quote the input. */
+function explainIssue(
+	issue: SourcedConfigIssue,
+	scope: ExplainedConfigIssue["scope"],
+): ExplainedConfigIssue {
+	const { source } = issue;
+	return issue.severity === "error"
+		? { severity: "error", path: [], source, scope }
+		: { severity: "warning", path: issue.path, source, scope };
 }
 
 // ---------------------------------------------------------------------------
