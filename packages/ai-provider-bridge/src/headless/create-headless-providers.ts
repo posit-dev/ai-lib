@@ -95,6 +95,7 @@ export function createHeadlessProviders(options: HeadlessProvidersOptions): Head
 
 	async function buildRegistry(): Promise<ProviderRegistry> {
 		const providers = await currentCatalog();
+		// Joined back onto the catalog because mappings carry plain string ids, not ResolvedProviderId.
 		const clientKinds = new Map(
 			servableProviders(providers).flatMap(({ mapping, clientKind }) =>
 				clientKind ? [[mapping.providerId, clientKind] as const] : [],
