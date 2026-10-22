@@ -191,11 +191,19 @@ last-writer-wins.
 Attempt ownership is deliberately split: `ai-credentials` owns provider-scoped
 process-local attempt state and durable generation validity, while host
 applications own which session initiated each attempt (credential changes are
-multicast to all sessions). Loopback U2M has two fail-closed gates: the
-platform must guarantee browser/backend colocation, and the Databricks
-client/redirect/scopes must have release approval. The second prerequisite is
-currently unresolved, so production U2M is disabled even on hosts that satisfy
-the first gate. M2M and PAT remain available everywhere.
+multicast to all sessions). Loopback U2M is offered only where the host
+guarantees browser/backend colocation and supplies an authorization-code
+receiver. The host passes the client ID and scope (Posit Assistant uses the
+preregistered `databricks-cli` client with `all-apis offline_access`); this
+package stays client-agnostic. M2M and PAT remain available everywhere.
+
+Endpoint discovery reads `<host>/oidc/.well-known/oauth-authorization-server`
+with a 2 second timeout. Any failure (timeout, HTTP error, missing fields, or a
+cross-origin endpoint) falls back to `<host>/oidc/v1/authorize` and
+`<host>/oidc/v1/token`. The result, discovered or fallback, is cached per
+workspace for the process lifetime: every credential read builds the grant, so
+retrying a failed discovery would add up to 2 seconds to each read. A refresh
+response without a `refresh_token` keeps the stored one.
 
 The Databricks protocol implementation belongs in this package. Positron PR
 #14898 predates that seam and carries a companion copy; its follow-up should
