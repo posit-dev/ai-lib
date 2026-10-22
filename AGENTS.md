@@ -43,6 +43,7 @@ packages/ai-provider-bridge/src/
 ├── model-capabilities/  # Gemini Interactions API allowlist (capability tables live in ai-config)
 ├── providers/           # register*Provider() modules + ProviderRegistry class
 ├── positron/            # VS Code integration (/positron entrypoint)
+├── headless/            # Headless provider module (/headless entrypoint)
 ├── types.ts             # PROVIDER_IDS, credential types, ProviderId
 ├── provider-map.ts      # PROVIDER_MAP (provider ID -> auth session mapping)
 ├── credential-shaping.ts # Pure shapeCredentials (browser-safe entrypoint)
@@ -57,12 +58,13 @@ packages/ai-provider-bridge/src/
 
 **`ai-provider-bridge`**
 
-| Entrypoint                              | What it provides                                                                                                                          | vscode dep? |
-| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
-| `ai-provider-bridge`                    | ProviderRegistry, interfaces, types, cached model fetcher, provider map, LocalProviderManager                                             | No          |
-| `ai-provider-bridge/providers`          | `register*Provider()` functions, all client classes                                                                                       | No          |
-| `ai-provider-bridge/positron`           | VscodeLmClient, message conversion utilities (PositronCredentialProvider removed — credentials now resolve via `ai-credentials/positron`) | **Yes**     |
-| `ai-provider-bridge/credential-shaping` | Compat re-export of `ai-credentials/types` (`shapeCredentials()` + `CredentialConfig`); the implementation now lives in `ai-credentials`  | No          |
+| Entrypoint                              | What it provides                                                                                                                                             | vscode dep? |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------- |
+| `ai-provider-bridge`                    | ProviderRegistry, interfaces, types, cached model fetcher, provider map, LocalProviderManager                                                                | No          |
+| `ai-provider-bridge/providers`          | `register*Provider()` functions, all client classes                                                                                                          | No          |
+| `ai-provider-bridge/positron`           | VscodeLmClient, message conversion utilities (PositronCredentialProvider removed — credentials now resolve via `ai-credentials/positron`)                    | **Yes**     |
+| `ai-provider-bridge/credential-shaping` | Compat re-export of `ai-credentials/types` (`shapeCredentials()` + `CredentialConfig`); the implementation now lives in `ai-credentials`                     | No          |
+| `ai-provider-bridge/headless`           | `createHeadlessProviders()`: catalog as plain data, auth mappings, model listing from a raw session token, chat streaming; credential shaping happens inside | No          |
 
 **`ai-config`**
 

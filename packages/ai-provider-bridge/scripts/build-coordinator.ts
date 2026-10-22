@@ -48,6 +48,7 @@ const entryPoints = [
 	"src/providers.ts",
 	"src/positron/index.ts",
 	"src/credential-shaping.ts",
+	"src/headless.ts",
 ];
 
 const externalDeps = [
@@ -64,6 +65,7 @@ const externalDeps = [
 	"@openrouter/ai-sdk-provider",
 	"@azure/identity",
 	"ai",
+	"ai-config/node",
 	"ai-sdk-ollama",
 	"google-auth-library",
 	"vscode",
