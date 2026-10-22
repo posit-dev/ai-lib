@@ -173,6 +173,10 @@ export function createHeadlessProviders(options: HeadlessProvidersOptions): Head
 		token: CancellationToken,
 	): AsyncGenerator<string> {
 		const resolved = await resolveListing(request.providerId, request.sessionToken);
+		// The client only hears cancellations after it subscribes, so one made during discovery stops here.
+		if (token.isCancellationRequested) {
+			return;
+		}
 		if (!resolved) {
 			throw new Error(`No credentials for provider ${request.providerId}`);
 		}

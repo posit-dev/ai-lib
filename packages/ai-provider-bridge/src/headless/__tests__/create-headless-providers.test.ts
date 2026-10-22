@@ -383,6 +383,42 @@ describe("createHeadlessProviders", () => {
 			expect(result).toEqual({ text: ["partial"], failure: error });
 		});
 
+		it("does not start a chat cancelled while model discovery is pending", async () => {
+			await writeProviders(customEntry({ baseUrl: await startModelServer() }));
+			let finishDiscovery = () => {};
+			const discoveryHeld = new Promise<void>((resolve) => (finishDiscovery = resolve));
+			const discover = ProviderRegistry.prototype.getModelsForProvider;
+			const discovery = vi
+				.spyOn(ProviderRegistry.prototype, "getModelsForProvider")
+				.mockImplementation(async function (
+					this: ProviderRegistry,
+					...args: Parameters<ProviderRegistry["getModelsForProvider"]>
+				) {
+					await discoveryHeld;
+					return discover.apply(this, args);
+				});
+			const chat = vi.fn(async () => partsOf({ type: "text-delta", id: "1", text: "late" }));
+			vi.spyOn(ProviderRegistry.prototype, "getClientForProviderOrKind").mockReturnValue({ chat });
+			// Never replays a cancellation to late subscribers.
+			const token = {
+				isCancellationRequested: false,
+				onCancellationRequested: () => ({ dispose() {} }),
+			};
+
+			const result = collect(
+				create().streamChat(
+					{ providerId: customId, modelId: "m1", systemPrompt: "", messages: [] },
+					token,
+				),
+			);
+			await vi.waitFor(() => expect(discovery).toHaveBeenCalled());
+			token.isCancellationRequested = true;
+			finishDiscovery();
+
+			expect(await result).toEqual({ text: [], failure: undefined });
+			expect(chat).not.toHaveBeenCalled();
+		});
+
 		describe("routing", () => {
 			async function sendTo(headless: HeadlessProviders, modelId: string) {
 				await collect(
