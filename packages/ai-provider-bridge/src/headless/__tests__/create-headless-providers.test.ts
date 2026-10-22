@@ -88,14 +88,16 @@ function create() {
 	return providers;
 }
 
-async function startModelServer(): Promise<string> {
+async function startModelServer(
+	modelIdsFor: (authorization: string | undefined) => string[] = () => ["m1", "m2"],
+): Promise<string> {
 	server = createServer((req, res) => {
 		requestHeaders.push(req.headers);
 		requestUrls.push(req.url);
 		res.setHeader("content-type", "application/json");
 		res.end(
 			JSON.stringify({
-				data: [{ id: "m1" }, { id: "m2" }],
+				data: modelIdsFor(req.headers.authorization).map((id) => ({ id })),
 				chat: [{ id: "m1", display_name: "M1" }],
 			}),
 		);
@@ -253,6 +255,26 @@ describe("createHeadlessProviders", () => {
 			await create().listModels(customId, "sk-1");
 
 			expect(requestHeaders.map((headers) => headers.authorization)).toEqual(["Bearer sk-1"]);
+		});
+
+		it("rediscovers with the current token when it changes on the same instance", async () => {
+			const baseUrl = await startModelServer((authorization) => [
+				`for ${authorization ?? "anonymous"}`,
+			]);
+			await writeProviders(customEntry({ baseUrl }));
+			const headless = create();
+			const modelIds = async (token: string | undefined) =>
+				(await headless.listModels(customId, token)).models.map((model) => model.id);
+
+			expect(await modelIds("sk-a")).toEqual(["for Bearer sk-a"]);
+			expect(await modelIds("sk-a")).toEqual(["for Bearer sk-a"]);
+			expect(await modelIds("sk-b")).toEqual(["for Bearer sk-b"]);
+			expect(await modelIds(undefined)).toEqual(["for anonymous"]);
+			expect(requestHeaders.map((headers) => headers.authorization)).toEqual([
+				"Bearer sk-a",
+				"Bearer sk-b",
+				undefined,
+			]);
 		});
 
 		it("lists Posit AI models from the catalog base URL", async () => {

@@ -37,6 +37,8 @@ export function createHeadlessProviders(options: HeadlessProvidersOptions): Head
 	let catalogReady: Promise<readonly ResolvedProvider[]> | undefined;
 	let registry: Promise<ProviderRegistry> | undefined;
 	let watcher: ReturnType<typeof watchResolvedProviderCatalog> | undefined;
+	// Tokens arrive per call, so a changed token is the only sign that the account changed.
+	const lastSessionTokens = new Map<string, string | undefined>();
 	let disposed = false;
 
 	function assertNotDisposed(): void {
@@ -136,7 +138,10 @@ export function createHeadlessProviders(options: HeadlessProvidersOptions): Head
 		return credentials && { servable, credentials, providers };
 	}
 
-	/** Discovery is cached per registry, and the registry is rebuilt on catalog change. */
+	/**
+	 * Discovery is cached per registry; the registry is rebuilt on catalog change, and a
+	 * provider's cache is cleared when its session token changes.
+	 */
 	async function resolveListing(providerId: string, sessionToken: string | undefined) {
 		const resolved = await credentialsFor(providerId, sessionToken);
 		if (!resolved) {
@@ -144,6 +149,10 @@ export function createHeadlessProviders(options: HeadlessProvidersOptions): Head
 		}
 		const provider = resolved.providers.find((p) => p.id === providerId);
 		const registry = await currentRegistry();
+		if (lastSessionTokens.has(providerId) && lastSessionTokens.get(providerId) !== sessionToken) {
+			registry.clearModelCache(providerId);
+		}
+		lastSessionTokens.set(providerId, sessionToken);
 		const discovered =
 			provider?.models?.discovery === "off"
 				? []
@@ -232,6 +241,7 @@ export function createHeadlessProviders(options: HeadlessProvidersOptions): Head
 			}
 			disposed = true;
 			listeners.clear();
+			lastSessionTokens.clear();
 			watcher?.dispose();
 			watcher = undefined;
 			catalog = undefined;
