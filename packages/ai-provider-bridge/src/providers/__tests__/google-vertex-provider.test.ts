@@ -43,7 +43,11 @@ describe("registerGoogleVertexProvider", () => {
 		vi.clearAllMocks();
 		authMocks.getAccessToken.mockResolvedValue({ token: "captured-adc-token" });
 		authMocks.getClient.mockResolvedValue({ getAccessToken: authMocks.getAccessToken });
-		authMocks.googleAuth.mockImplementation(() => ({ getClient: authMocks.getClient }));
+		// A `function` (not an arrow) so the code under test can call it with
+		// `new GoogleAuth(...)`; returning an object makes it the instance.
+		authMocks.googleAuth.mockImplementation(function () {
+			return { getClient: authMocks.getClient };
+		});
 		vi.stubGlobal(
 			"fetch",
 			vi.fn(async () => {
@@ -302,7 +306,11 @@ describe("resolveGoogleVertexAccessToken", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		authMocks.getClient.mockResolvedValue({ getAccessToken: authMocks.getAccessToken });
-		authMocks.googleAuth.mockImplementation(() => ({ getClient: authMocks.getClient }));
+		// A `function` (not an arrow) so the code under test can call it with
+		// `new GoogleAuth(...)`; returning an object makes it the instance.
+		authMocks.googleAuth.mockImplementation(function () {
+			return { getClient: authMocks.getClient };
+		});
 	});
 
 	it("mints from inline service-account env vars before ADC", async () => {

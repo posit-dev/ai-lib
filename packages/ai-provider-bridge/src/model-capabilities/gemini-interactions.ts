@@ -2,6 +2,8 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
+import { findGeminiVariantDonor } from "ai-config";
+
 /**
  * Gemini Interactions API routing: discovery gate + thinking profiles.
  *
@@ -14,11 +16,15 @@
  * - **Discovery is fail-open** ({@link isGeminiApiChatModel}): any
  *   chat-shaped model the endpoint lists may appear in the picker, so new
  *   models work immediately at their default thinking state.
- * - **Thinking is fail-closed** ({@link INTERACTIONS_PROFILES}): only
- *   profiled models advertise thinking levels or get `thinkingLevel`/
+ * - **Thinking is profiled** ({@link INTERACTIONS_PROFILES}): only models
+ *   with a profile advertise thinking levels or get `thinkingLevel`/
  *   `thinkingSummaries` on the wire, because valid levels vary per model in
- *   ways that cannot be inferred (gemini-3.7-flash rejects `minimal` while
- *   3.6-flash accepts it; hosted Gemma takes only `minimal`/`high`).
+ *   ways that cannot be inferred backwards (gemini-3.7-flash rejects
+ *   `minimal` while 3.6-flash accepts it; 3 Pro takes only `low`/`high`;
+ *   hosted Gemma takes only `minimal`/`high`). Unprofiled ids older than or
+ *   between profiled ones stay fail-closed; a future version of a variant
+ *   inherits the newest profile of that variant (see
+ *   {@link getGeminiInteractionsProfile}).
  */
 
 /**
@@ -49,14 +55,17 @@ function identityLevels(...levels: string[]): Readonly<Record<string, string>> {
 
 /**
  * Explicit enumerated thinking profiles for models reachable via
- * `POST /v1beta/interactions`. **Fail-closed for thinking only**: unlisted
- * IDs are still discoverable (see {@link isGeminiApiChatModel}) but get no
- * advertised thinking levels and no `thinkingLevel`/`thinkingSummaries` on
- * the wire — they run at the model's default thinking state.
+ * `POST /v1beta/interactions`. An unlisted Gemini chat ID at or above the
+ * newest listed version of its variant (`pro`, `flash`, `flash-lite`)
+ * inherits that entry's profile, so the newest entry of a variant also
+ * serves its future versions. Other unlisted IDs are still discoverable (see
+ * {@link isGeminiApiChatModel}) but get no advertised thinking levels and no
+ * `thinkingLevel`/`thinkingSummaries` on the wire — they run at the model's
+ * default thinking state.
  *
  * To profile a model: verify its accepted `thinkingLevel` values on the
  * Interactions API, add its exact ID here, then update the corresponding
- * capability rules in ai-config and tests.
+ * capability entries in ai-config and tests.
  *
  * effortToWireLevel must match the Interactions API docs for each model.
  */
@@ -100,21 +109,32 @@ const INTERACTIONS_PROFILES: ReadonlyMap<string, GeminiInteractionsProfile> = ne
 
 /**
  * Return the Interactions API thinking profile for a model, or `undefined`
- * if the model has no profile. Unprofiled models are still discoverable and
- * chat-able — they just run at their default thinking state.
+ * if the model has no profile. An exact entry wins; otherwise a Gemini chat
+ * ID inherits from its variant's newest profiled ID when its version is at
+ * or above it (`gemini-3.9-flash` → `gemini-3.8-flash`). Older and
+ * intermediate unprofiled IDs get nothing, because level sets aren't
+ * monotone across versions. Non-chat IDs (`-image`, `-tts`) never inherit.
+ * Unprofiled models are still discoverable and chat-able — they just run at
+ * their default thinking state.
  */
 export function getGeminiInteractionsProfile(
 	modelId: string,
 ): GeminiInteractionsProfile | undefined {
-	return INTERACTIONS_PROFILES.get(modelId);
+	const exact = INTERACTIONS_PROFILES.get(modelId);
+	if (exact || !isGeminiApiChatModel(modelId)) {
+		return exact;
+	}
+	const donor = findGeminiVariantDonor(modelId, INTERACTIONS_PROFILES.keys());
+	return donor?.newest ? INTERACTIONS_PROFILES.get(donor.id) : undefined;
 }
 
 /**
- * Whether a model ID has an Interactions thinking profile. Gates thinking
+ * Whether a model ID has an Interactions thinking profile, exact or
+ * inherited (see {@link getGeminiInteractionsProfile}). Gates thinking
  * levels/summaries only — NOT discovery (see {@link isGeminiApiChatModel}).
  */
 export function hasGeminiInteractionsProfile(modelId: string): boolean {
-	return INTERACTIONS_PROFILES.has(modelId);
+	return getGeminiInteractionsProfile(modelId) !== undefined;
 }
 
 // ---------------------------------------------------------------------------

@@ -114,12 +114,27 @@ Gemini 3.6/3.7 Flash were invisible until manually allowlisted):
   fail the versioned-ID check, avoiding duplicate picker entries. An
   unprofiled model chats at its default thinking state; the worst case for a
   bad inclusion is a visible, retryable error on the first turn.
-- **Thinking** (`INTERACTIONS_PROFILES`) stays **fail-closed**: valid
-  `thinkingLevel` values cannot be inferred — gemini-3.7-flash rejects
-  `minimal` while 3.6-flash accepts it (verified 2026-08-17); hosted Gemma
+- **Thinking** (`INTERACTIONS_PROFILES`) stays **fail-closed** for older and
+  intermediate ids: valid `thinkingLevel` values aren't monotone across
+  versions — gemini-3.7-flash rejects `minimal` while 3.6-flash accepts it
+  (verified 2026-08-17); 3 Pro documents only `low`/`high`; hosted Gemma
   takes only `minimal`/`high`. Unprofiled models advertise no
   `thinkingEffortLevels` (`buildGeminiModel` strips them) and the client
   sends no `thinkingLevel`/`thinkingSummaries`.
+- **Future versions inherit.** `getGeminiInteractionsProfile` falls back,
+  after an exact miss, to ai-config's `findGeminiVariantDonor`: a Gemini
+  chat id (`isGeminiApiChatModel`) whose variant (`pro`, `flash`,
+  `flash-lite`) version is at or above that variant's newest profiled id
+  takes that profile (`gemini-3.9-flash` → `gemini-3.8-flash`,
+  `gemini-4-pro` and the alias `gemini-3.1-pro` → `gemini-3.1-pro-preview`).
+  An id below the newest profile (`gemini-3-pro-preview`) gets nothing,
+  since plain "nearest older" would hand it 2.5 Pro's `medium`. The chat gate
+  matters because `GeminiClient` looks up whatever id it is given:
+  `gemini-3.1-flash-lite-image` must not inherit Flash-Lite 3.1's levels.
+  `hasGeminiInteractionsProfile` delegates to `get`, so the picker, the
+  fallback-row filter, and the wire mapping agree. Gemma profiles stay exact.
+  Accepted cost: an inherited level a new model rejects fails that request
+  until a profile is added.
 
 ## Server-Side Web Search (Google Search Grounding)
 

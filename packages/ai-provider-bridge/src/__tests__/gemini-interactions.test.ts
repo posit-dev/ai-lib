@@ -33,6 +33,39 @@ describe("hasGeminiInteractionsProfile", () => {
 		expect(hasGeminiInteractionsProfile("gemma-3-27b-it")).toBe(false);
 		expect(hasGeminiInteractionsProfile("unknown-model")).toBe(false);
 	});
+
+	it("follows getGeminiInteractionsProfile for inherited profiles", () => {
+		expect(hasGeminiInteractionsProfile("gemini-3.9-flash")).toBe(true);
+	});
+});
+
+describe("getGeminiInteractionsProfile inheritance", () => {
+	it.each([
+		{ id: "gemini-3.9-flash", donor: "gemini-3.8-flash" },
+		{ id: "gemini-3.10-flash", donor: "gemini-3.8-flash" },
+		{ id: "gemini-4-pro", donor: "gemini-3.1-pro-preview" },
+		// Equal version: an alias of the newest profiled id
+		{ id: "gemini-3.1-pro", donor: "gemini-3.1-pro-preview" },
+	])("$id inherits the newest same-variant profile", ({ id, donor }) => {
+		const profile = getGeminiInteractionsProfile(id);
+		expect(profile).toBeDefined();
+		expect(profile).toEqual(getGeminiInteractionsProfile(donor));
+	});
+
+	it.each([
+		// Older than the newest Pro profile (3.1): level sets aren't monotone
+		"gemini-3-pro-preview",
+		// Older than the newest Flash profile (3.8)
+		"gemini-2.5-flash-preview-09-2025",
+		// Non-chat id at the newest Flash-Lite version
+		"gemini-3.1-flash-lite-image",
+		// No recognized variant or not a Gemini variant id
+		"gemini-4-ultra",
+		"gemini-flash-latest",
+		"gemma-5-8b-it",
+	])("%s stays unprofiled", (id) => {
+		expect(getGeminiInteractionsProfile(id)).toBeUndefined();
+	});
 });
 
 describe("getGeminiInteractionsProfile", () => {
@@ -566,6 +599,16 @@ describe("buildInteractionsOptions", () => {
 			modelId: "gemini-3.5-flash",
 			previousInteractionId: null,
 		});
+		expect(result.google.thinkingSummaries).toBe("auto");
+	});
+
+	it("sends the inherited thinkingLevel and thinkingSummaries for a future id", () => {
+		const result = buildInteractionsOptions({
+			thinkingEffort: "medium",
+			modelId: "gemini-3.9-flash",
+			previousInteractionId: null,
+		});
+		expect(result.google.thinkingLevel).toBe("medium");
 		expect(result.google.thinkingSummaries).toBe("auto");
 	});
 

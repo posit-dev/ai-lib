@@ -578,6 +578,34 @@ the canonical `Protocol` union) and private sibling modules. `positai-helpers.ts
 composes the Anthropic and Gemma tables, since Posit AI Pass routes both
 families.
 
+**Future-model fallbacks.** The Anthropic, OpenAI, and Gemini tables answer ids newer
+than their rows with the newest known model, so every provider reusing them
+benefits without an update. Anthropic parses modern ids
+(`claude-<tier>-<major>[-<minor>]`, a date is never a minor) and takes the
+tier's entry with the greatest version at or below the requested one:
+`claude-sonnet-5-7` → Sonnet 5.5, `claude-opus-6` → Opus 5.5. Adding a model is
+one entry, which becomes its tier's new fallback. Ids with no entry at or below
+their version (Sonnet/Opus 4.5 and earlier) and pre-tier shapes
+(`claude-3-5-…`) use the legacy regex rules; an unknown tier gets 200k / 64k
+with no `family`. OpenAI maps a generation above `NEWEST_KNOWN_GPT_GENERATION`
+to a donor id (`-mini`/`-nano` → the newest of that variant, otherwise the
+newest named flagship) and recurses, so the result is the donor's by
+construction; bump the constants when a newer flagship or mini ships. Within a
+known generation, the existing GPT-5.x and GPT-6 catch-alls still apply.
+Gemini (`gemini-helpers.ts`) keys its entries by a representative id per
+variant and version (`gemini-3.7-flash`, `gemini-3-pro`); the exported
+`findGeminiVariantDonor` (`gemini-variant.ts`) parses
+`gemini-<major>[.<minor>]-<pro|flash|flash-lite>` and returns the
+same-variant known id with the greatest version at or below the requested
+one, plus whether it is the variant's newest: `gemini-3.9-flash` → 3.7/3.8
+Flash, `gemini-4-pro` → 3 Pro. The table ignores the newest flag; the
+bridge's Interactions profiles reuse the function and inherit only from the
+newest (see `geminiInteractions.md`). Ids with no recognized variant or no
+entry at or below their version use the version-family regex rules.
+Inherited values are reported as ordinary table values (no "inferred" marker),
+so they drive context budgeting. Accepted cost: a new model that shrinks a
+limit or drops a thinking level fails requests until a row is added.
+
 **Shared GPT-6 traits** live in the private `gpt6-model-profile.ts`
 (`getGpt6ModelProfile`, not exported from the package). It takes a canonical,
 unprefixed ID and owns the traits that hold on every endpoint: family, tools,
@@ -624,7 +652,8 @@ Per-provider cases:
   the table itself doesn't set it. GPT-5.6 Sol/Terra/Luna/bare/snapshot IDs
   carry the published 1.05M combined window and 128K output facts, producing a
   922K derived input fact. GPT-6 IDs take the shared GPT-6 profile with the
-  same 1.05M/128K facts.
+  same 1.05M/128K facts. Future generations (`gpt-7`) resolve as their donor
+  (see "Future-model fallbacks").
 - `positai` → the combined Anthropic/Gemma lookup.
 - `gemini` → the Gemini-API endpoint composition
   (`getGeminiApiModelCapabilities`, `gemini-api-helpers.ts`): hosted-Gemma
@@ -649,15 +678,16 @@ Per-provider cases:
   API's row order; `SNOWFLAKE_CORTEX_CATALOG` (13 ids) is only the static
   fallback list for when that query can't run or lists nothing, and the set
   the Cortex rate card must price. "Recognized" is defined by the upstream
-  tables: a Claude id an explicit Anthropic rule matches (`family` set), or an
-  `openai-` id the OpenAI table knows once stripped, so widening those tables
-  widens discovery. Display names come from `snowflakeCortexModelName(id)`
+  tables: a Claude id an Anthropic entry or legacy rule matches (`family` set),
+  or an `openai-` id the OpenAI table knows once stripped, so widening those
+  tables widens discovery; future same-tier Claude versions and future GPT
+  generations are recognized through the future-model fallbacks. Display names come from `snowflakeCortexModelName(id)`
   (`claude-opus-4-8` → "Claude Opus 4.8", `openai-gpt-6.1-sol` → "GPT-6.1
   Sol"). Context windows and output limits always come from the upstream
   Anthropic/OpenAI tables, for listed ids and `models.custom` ids alike.
   Unrecognized ids get conservative fallbacks: 200k window (Claude) / 128k
   (OpenAI), and a 16,384 output limit
-  (the Anthropic helper's own optimistic 64k default for unknown Claude ids is
+  (the Anthropic helper's own optimistic 64k default for unknown Claude tiers is
   deliberately rejected; output is adopted only for a recognized id). No
   output-vs-window guard exists: every upstream rule leaves a positive input
   budget (output limits are <= 128k against windows >= 200k,

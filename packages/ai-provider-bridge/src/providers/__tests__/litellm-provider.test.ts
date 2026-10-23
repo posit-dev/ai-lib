@@ -451,15 +451,14 @@ describe("litellm model discovery", () => {
 		}
 	});
 
-	it("uses LiteLLM reasoning metadata for future OpenAI model versions", async () => {
-		// The fixture id must stay ahead of the capability table: gpt-6 now has
-		// table rows (whose known levels feed the list), so the unknown-future
-		// premise moved to gpt-7.
+	it("uses LiteLLM reasoning metadata for OpenAI models the capability table doesn't know", async () => {
+		// The fixture id must stay outside the capability table, whose known levels
+		// would otherwise feed the list; future gpt-<N> ids now inherit table rows.
 		const [model] = await discoverModels({
 			data: [
 				{
-					model_name: "future-fast",
-					litellm_params: { model: "openai/gpt-7-mini" },
+					model_name: "oss",
+					litellm_params: { model: "openai/gpt-oss-120b" },
 					model_info: {
 						litellm_provider: "openai",
 						mode: "chat",
