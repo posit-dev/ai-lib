@@ -30,7 +30,7 @@ const PROVIDER_PREFIX_CASES = [
 
 describe("getAnthropicModelCapabilities", () => {
 	it.each(OUTPUT_PRECEDENCE_CASES)(
-		"applies the $name tier-specific rule before broader generation rules",
+		"keeps the $name tier-specific output limit within a shared generation",
 		({ id, expectedMaxOutputTokens }) => {
 			expect(getAnthropicModelCapabilities(id)?.maxOutputTokens).toBe(expectedMaxOutputTokens);
 		},
@@ -107,8 +107,42 @@ describe("getAnthropicModelCapabilities", () => {
 		expect(caps?.thinkingEffortLevels).toContain("off");
 	});
 
-	it("uses a conservative fallback for an unrecognized Claude model", () => {
-		expect(getAnthropicModelCapabilities("claude-opus-6")?.maxOutputTokens).toBe(64_000);
+	it.each([
+		// Regression: the broad `^claude-sonnet-5` rule used to answer with Sonnet 5's "off".
+		{ name: "a later minor version", id: "claude-sonnet-5-7", donor: "claude-sonnet-5-5" },
+		{ name: "a major bump", id: "claude-opus-6", donor: "claude-opus-5-5" },
+		{ name: "a minor below the next major", id: "claude-sonnet-4-7", donor: "claude-sonnet-4-6" },
+		{ name: "a two-digit minor", id: "claude-opus-4-10", donor: "claude-opus-4-8" },
+	])("inherits the nearest older same-tier entry for $name", ({ id, donor }) => {
+		expect(getAnthropicModelCapabilities(id)).toEqual(getAnthropicModelCapabilities(donor));
+	});
+
+	it.each([
+		{ name: "a dated suffix", id: "claude-sonnet-5-20260724", canonical: "claude-sonnet-5" },
+		{ name: "a Vertex suffix", id: "claude-opus-4-8@20260101", canonical: "claude-opus-4-8" },
+	])("matches $name exactly, never reading a date as a minor", ({ id, canonical }) => {
+		expect(getAnthropicModelCapabilities(id)).toEqual(getAnthropicModelCapabilities(canonical));
+	});
+
+	it.each([
+		{
+			name: "below the first tier entry",
+			id: "claude-sonnet-4-5",
+			family: "claude-4.5",
+			out: 16_000,
+		},
+		{ name: "a pre-tier shape", id: "claude-3-5-sonnet-20241022", family: "claude-3", out: 8_192 },
+	])("keeps the legacy result for an id $name", ({ id, family, out }) => {
+		const caps = getAnthropicModelCapabilities(id);
+		expect(caps?.family).toBe(family);
+		expect(caps?.maxOutputTokens).toBe(out);
+	});
+
+	it("uses a conservative fallback for an unknown Claude tier", () => {
+		const caps = getAnthropicModelCapabilities("claude-poet-6");
+		expect(caps?.family).toBeUndefined();
+		expect(caps?.maxContextLength).toBe(200_000);
+		expect(caps?.maxOutputTokens).toBe(64_000);
 	});
 
 	it("returns undefined for non-Claude models", () => {

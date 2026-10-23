@@ -8,12 +8,40 @@ import { getGpt6ModelProfile } from "./gpt6-model-profile.js";
 const OPENAI_THINKING_EFFORT_LEVELS = ["off", "low", "medium", "high"];
 
 /**
+ * A GPT generation above the newest known one (`gpt-7`, `gpt-7-mini`) resolves
+ * as the newest known model of its variant, so its result is the donor's by
+ * construction. Update these together when a newer flagship or mini/nano ships;
+ * until then future ids inherit the older donor, the conservative direction.
+ */
+const NEWEST_KNOWN_GPT_GENERATION = 6;
+const FUTURE_GPT_DONORS = {
+	mini: "gpt-5.4-mini",
+	nano: "gpt-5.4-nano",
+	flagship: "gpt-6.1-sol",
+};
+
+function futureGptDonor(modelId: string): string | undefined {
+	const generation = /^gpt-(\d+)(?=$|[-.])/.exec(modelId);
+	if (!generation || Number(generation[1]) <= NEWEST_KNOWN_GPT_GENERATION) {
+		return undefined;
+	}
+	if (/-mini(?:-|$)/.test(modelId)) return FUTURE_GPT_DONORS.mini;
+	if (/-nano(?:-|$)/.test(modelId)) return FUTURE_GPT_DONORS.nano;
+	return FUTURE_GPT_DONORS.flagship;
+}
+
+/**
  * Determine OpenAI model capabilities based on ID.
  *
  * @returns A partial `ModelInfo` with token limits and capability flags,
  *          or `undefined` for non-OpenAI models.
  */
 export function getOpenAIModelCapabilities(modelId: string): Partial<ModelInfo> | undefined {
+	const donor = futureGptDonor(modelId);
+	if (donor) {
+		return getOpenAIModelCapabilities(donor);
+	}
+
 	// o-series reasoning models
 	if (modelId.startsWith("o1-") || modelId.startsWith("o3-")) {
 		return {

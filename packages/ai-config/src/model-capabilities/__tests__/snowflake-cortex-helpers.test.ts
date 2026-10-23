@@ -11,16 +11,21 @@ import {
 } from "../snowflake-cortex-helpers.js";
 
 describe("isRecognizedSnowflakeCortexModel", () => {
-	it.each(["claude-opus-4-8", "claude-sonnet-5-5", "openai-gpt-6.1-sol", "openai-gpt-5.4"])(
-		"recognizes %s",
-		(id) => {
-			expect(isRecognizedSnowflakeCortexModel(id)).toBe(true);
-		},
-	);
+	it.each([
+		"claude-opus-4-8",
+		"claude-sonnet-5-5",
+		"openai-gpt-6.1-sol",
+		"openai-gpt-5.4",
+		// Future versions inherit a known model's capabilities.
+		"claude-opus-9",
+		"openai-gpt-9",
+	])("recognizes %s", (id) => {
+		expect(isRecognizedSnowflakeCortexModel(id)).toBe(true);
+	});
 
 	it.each([
-		// Claude-shaped, but no explicit Anthropic capability rule matches.
-		"claude-opus-9",
+		// Claude-shaped, but an unknown tier matches no Anthropic capability rule.
+		"claude-poet-9",
 		// The OpenAI table doesn't know the stripped id.
 		"openai-1p-gpt-5.6-sol",
 		// Known to the OpenAI table, but not a Cortex `openai-` id.

@@ -256,7 +256,7 @@ describe("inferModelCapabilities", () => {
 	});
 
 	it("falls back to conservative windows for snowflake ids outside the catalog", () => {
-		const claude = inferModelCapabilities("snowflake-cortex", "claude-opus-9");
+		const claude = inferModelCapabilities("snowflake-cortex", "claude-poet-9");
 		expect(claude.protocol).toBe("anthropic-messages");
 		expect(claude.maxContextLength).toBe(200_000);
 		// No explicit Anthropic rule matches, so the helper's optimistic 64k
@@ -265,7 +265,7 @@ describe("inferModelCapabilities", () => {
 		expect(claude.maxInputTokens).toBe(200_000 - 16_384);
 		expect(claude.supportsToolResultImages).toBe(true);
 
-		const other = inferModelCapabilities("snowflake-cortex", "openai-gpt-9");
+		const other = inferModelCapabilities("snowflake-cortex", "openai-gpt-oss-120b");
 		expect(other.protocol).toBe("openai-chat");
 		expect(other.maxContextLength).toBe(128_000);
 		expect(other.maxOutputTokens).toBe(16_384); // conservative fallback

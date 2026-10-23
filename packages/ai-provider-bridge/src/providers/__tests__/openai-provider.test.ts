@@ -32,16 +32,20 @@ describe("OpenAI model discovery", () => {
 		vi.unstubAllGlobals();
 	});
 
-	it("keeps GPT-6 IDs from the live /v1/models listing", async () => {
+	it("keeps GPT-6 and future-generation IDs from the live /v1/models listing", async () => {
 		vi.stubGlobal(
 			"fetch",
 			vi.fn(async () =>
 				listingResponse([
+					"gpt-7",
+					"gpt-7-mini",
 					"gpt-6-astra",
 					"gpt-6-sol-2026-09-22",
 					"gpt-6.1-sol",
 					"gpt-6-luna",
 					"gpt-5.4",
+					"gpt-3.5-turbo",
+					"gpt-3.5-turbo-instruct",
 					"text-embedding-3-large",
 				]),
 			),
@@ -52,6 +56,8 @@ describe("OpenAI model discovery", () => {
 		const models = await registry.getModelsForProvider("openai", credentials);
 
 		expect(models.map((model) => model.id)).toEqual([
+			"gpt-7",
+			"gpt-7-mini",
 			"gpt-6-astra",
 			"gpt-6-sol-2026-09-22",
 			"gpt-6.1-sol",
