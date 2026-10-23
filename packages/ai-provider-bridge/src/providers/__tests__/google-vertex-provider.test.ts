@@ -2,6 +2,10 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { mintCustomProviderId } from "ai-config";
 import { captureProviderEnvironment } from "ai-credentials/store-backend";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -17,7 +21,10 @@ vi.mock("google-auth-library", () => ({
 	OAuth2Client: class {},
 }));
 
-import { resolveGoogleVertexAccessToken } from "../../google-vertex-credentials";
+import {
+	describeGoogleVertexCredentialSource,
+	resolveGoogleVertexAccessToken,
+} from "../../google-vertex-credentials";
 import {
 	getEffectiveLocation,
 	isVertexAnthropicModel,
@@ -180,6 +187,44 @@ describe("registerGoogleVertexProvider", () => {
 		);
 	});
 
+	it("reports a GOOGLE_APPLICATION_CREDENTIALS path that does not exist as an auth error naming the path", async () => {
+		// The error google-auth-library throws when `keyFilename` points nowhere.
+		authMocks.getClient.mockRejectedValueOnce(
+			Object.assign(new Error("ENOENT: no such file or directory, open '/no/such/adc.json'"), {
+				code: "ENOENT",
+			}),
+		);
+		const onProviderStatusChange = vi.fn().mockResolvedValue(undefined);
+		const registry = new ProviderRegistry(mockLogger);
+		registerGoogleVertexProvider(
+			registry,
+			mockLogger,
+			{ onProviderStatusChange },
+			{ GOOGLE_APPLICATION_CREDENTIALS: "/no/such/adc.json" },
+		);
+
+		await registry.getModelsForProvider("google-vertex", {
+			type: "google-cloud",
+			project: "my-project",
+			location: "us-central1",
+		});
+
+		expect(onProviderStatusChange).toHaveBeenCalledWith(
+			expect.objectContaining({
+				status: "auth_error",
+				error: expect.objectContaining({ code: "adc_expired" }),
+			}),
+		);
+		expect(mockLogger.error).toHaveBeenCalledWith(
+			expect.stringContaining(
+				"Application Default Credentials from GOOGLE_APPLICATION_CREDENTIALS (/no/such/adc.json, which does not exist)",
+			),
+		);
+		expect(mockLogger.info).not.toHaveBeenCalledWith(
+			expect.stringContaining("[GoogleVertex] Using"),
+		);
+	});
+
 	it("reports a dropped inline token exchange as a network error, not rejected credentials", async () => {
 		authMocks.getAccessToken.mockRejectedValueOnce(
 			Object.assign(new Error("socket hang up"), { code: "ECONNRESET" }),
@@ -204,6 +249,35 @@ describe("registerGoogleVertexProvider", () => {
 
 		expect(onProviderStatusChange).toHaveBeenCalledWith(
 			expect.objectContaining({ providerId: "google-vertex", status: "network_error" }),
+		);
+	});
+
+	it("names the credential source when minting an ADC token fails transiently", async () => {
+		authMocks.getClient.mockRejectedValueOnce(
+			Object.assign(new Error("unavailable"), { response: { status: 503 } }),
+		);
+		const onProviderStatusChange = vi.fn().mockResolvedValue(undefined);
+		const registry = new ProviderRegistry(mockLogger);
+		registerGoogleVertexProvider(
+			registry,
+			mockLogger,
+			{ onProviderStatusChange },
+			{ GOOGLE_APPLICATION_CREDENTIALS: "/no/such/adc.json" },
+		);
+
+		await registry.getModelsForProvider("google-vertex", {
+			type: "google-cloud",
+			project: "my-project",
+			location: "us-central1",
+		});
+
+		expect(onProviderStatusChange).toHaveBeenCalledWith(
+			expect.objectContaining({ status: "network_error" }),
+		);
+		expect(mockLogger.warn).toHaveBeenCalledWith(
+			expect.stringContaining(
+				"Credential source: Application Default Credentials from GOOGLE_APPLICATION_CREDENTIALS (/no/such/adc.json",
+			),
 		);
 	});
 
@@ -235,6 +309,11 @@ describe("registerGoogleVertexProvider", () => {
 			scopes: ["https://www.googleapis.com/auth/cloud-platform"],
 			keyFilename: "/secrets/service-account.json",
 		});
+		expect(mockLogger.info).toHaveBeenCalledWith(
+			expect.stringContaining(
+				"[GoogleVertex] Using Application Default Credentials from GOOGLE_APPLICATION_CREDENTIALS (/secrets/service-account.json",
+			),
+		);
 	});
 
 	it("discovers models under a custom Vertex provider ID", async () => {
@@ -389,10 +468,61 @@ describe("resolveGoogleVertexAccessToken", () => {
 		);
 	});
 
-	it("throws when ADC yields no token", async () => {
+	it("treats ADC yielding no token as a credential error", async () => {
 		authMocks.getAccessToken.mockResolvedValueOnce({ token: null });
-		await expect(resolveGoogleVertexAccessToken({})).rejects.toThrow(
-			"Failed to obtain access token from Application Default Credentials",
+		await expect(resolveGoogleVertexAccessToken({})).rejects.toMatchObject({
+			name: "ApplicationDefaultCredentialsError",
+			message: "Application Default Credentials failed: no access token was returned",
+		});
+	});
+});
+
+describe("describeGoogleVertexCredentialSource", () => {
+	let dir: string;
+
+	beforeEach(() => {
+		dir = mkdtempSync(join(tmpdir(), "vertex-adc-"));
+		// Point both platforms' gcloud config dirs at the temp dir.
+		vi.stubEnv("HOME", dir);
+		vi.stubEnv("APPDATA", join(dir, ".config"));
+		vi.stubEnv("GOOGLE_APPLICATION_CREDENTIALS", undefined);
+	});
+
+	afterEach(() => {
+		vi.unstubAllEnvs();
+		rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("names an existing GOOGLE_APPLICATION_CREDENTIALS file", () => {
+		const file = join(dir, "key.json");
+		writeFileSync(file, "{}");
+		expect(describeGoogleVertexCredentialSource({ kind: "adc", keyFilename: file })).toBe(
+			`Application Default Credentials from GOOGLE_APPLICATION_CREDENTIALS (${file})`,
+		);
+	});
+
+	it("reads GOOGLE_APPLICATION_CREDENTIALS from the ambient environment when none was captured", () => {
+		const file = join(dir, "missing.json");
+		vi.stubEnv("GOOGLE_APPLICATION_CREDENTIALS", file);
+		expect(describeGoogleVertexCredentialSource({ kind: "adc", keyFilename: undefined })).toBe(
+			`Application Default Credentials from GOOGLE_APPLICATION_CREDENTIALS (${file}, which does not exist)`,
+		);
+	});
+
+	it("names gcloud's file when GOOGLE_APPLICATION_CREDENTIALS is unset", () => {
+		const gcloudDir = join(dir, ".config", "gcloud");
+		mkdirSync(gcloudDir, { recursive: true });
+		const file = join(gcloudDir, "application_default_credentials.json");
+		writeFileSync(file, "{}");
+		expect(describeGoogleVertexCredentialSource({ kind: "adc", keyFilename: undefined })).toBe(
+			`Application Default Credentials from gcloud's file (${file})`,
+		);
+	});
+
+	it("lists the missing files when only the metadata server is left", () => {
+		const gcloudFile = join(dir, ".config", "gcloud", "application_default_credentials.json");
+		expect(describeGoogleVertexCredentialSource({ kind: "adc", keyFilename: undefined })).toBe(
+			`Application Default Credentials with no file (GOOGLE_APPLICATION_CREDENTIALS is unset and there is no gcloud file at ${gcloudFile}), so only the metadata server can supply them`,
 		);
 	});
 });
