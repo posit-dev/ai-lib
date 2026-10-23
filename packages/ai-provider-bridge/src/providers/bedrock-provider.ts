@@ -565,6 +565,7 @@ function createBedrockClientFactory(logger: Logger): ClientFactory {
 				secretAccessKey: credentials.secretAccessKey,
 				sessionToken: credentials.sessionToken,
 				customHeaders: credentials.customHeaders,
+				allowBaseUrlUnderFips: credentials.allowBaseUrlUnderFips,
 			},
 			logger,
 		);

@@ -16,7 +16,7 @@ import { createBedrockMantle } from "@ai-sdk/amazon-bedrock/mantle";
 import type { LanguageModelV4 } from "@ai-sdk/provider";
 import { streamText } from "ai";
 
-import { createAwsCredentialProvider } from "../aws-credentials";
+import { createAwsCredentialProvider, hasManualAwsKeys } from "../aws-credentials";
 import { safeSdkCustomHeaders } from "../custom-headers";
 import { resolveBedrockTransport, type BedrockTransport } from "../providers/bedrock-transport";
 import { sanitizeToolCallIdsForAnthropic } from "../tool-call-ids";
@@ -279,6 +279,10 @@ export class BedrockClient implements ModelClient {
 		session: string | undefined,
 	): LanguageModelV4 {
 		const credentialProvider = createAwsCredentialProvider(this.config);
+		// Explicit keys are the intended identity (for example, Connect-minted
+		// gateway credentials); an ambient AWS_BEARER_TOKEN_BEDROCK must not
+		// replace them, so blank the SDK's apiKey lookup.
+		const explicitKeyAuth = hasManualAwsKeys(this.config) ? { apiKey: "" } : {};
 		const headers = safeSdkCustomHeaders(this.config.customHeaders);
 		const loggedFetch = withRawHttpLogging(undefined, {
 			provider: "bedrock",
@@ -327,6 +331,7 @@ export class BedrockClient implements ModelClient {
 				baseURL: baseUrl ?? transport.runtimeBaseUrl,
 				headers,
 				credentialProvider,
+				...explicitKeyAuth,
 				...(loggedFetch && { fetch: loggedFetch }),
 			})(modelId);
 		}
@@ -336,6 +341,7 @@ export class BedrockClient implements ModelClient {
 			baseURL: baseUrl ?? transport.runtimeBaseUrl,
 			headers,
 			credentialProvider,
+			...explicitKeyAuth,
 			...(loggedFetch && { fetch: loggedFetch }),
 		})(modelId);
 	}

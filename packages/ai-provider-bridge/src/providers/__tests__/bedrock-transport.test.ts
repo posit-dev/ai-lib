@@ -137,4 +137,78 @@ describe("resolveBedrockTransport", () => {
 			),
 		);
 	});
+
+	describe("endpoint overrides from the environment", () => {
+		const specific = "http://gw.example/__gateway__/bedrock/g1/";
+
+		beforeEach(() => {
+			process.env.AWS_CONFIG_FILE = configFile;
+			delete process.env.AWS_USE_FIPS_ENDPOINT;
+		});
+
+		it("lets the service-specific override replace the runtime host", async () => {
+			await expect(
+				resolveBedrockTransport({
+					region: "us-east-1",
+					profile: "standard",
+					env: { AWS_ENDPOINT_URL_BEDROCK_RUNTIME: specific },
+				}),
+			).resolves.toMatchObject({
+				runtimeBaseUrl: "http://gw.example/__gateway__/bedrock/g1",
+				mantleEnabled: true,
+			});
+		});
+
+		it("uses the generic override when the specific one is unset", async () => {
+			await expect(
+				resolveBedrockTransport({
+					region: "us-east-1",
+					profile: "standard",
+					env: { AWS_ENDPOINT_URL: "http://local:4566" },
+				}),
+			).resolves.toMatchObject({ runtimeBaseUrl: "http://local:4566" });
+		});
+
+		it("prefers the specific override over the generic one", async () => {
+			await expect(
+				resolveBedrockTransport({
+					region: "us-east-1",
+					profile: "standard",
+					env: {
+						AWS_ENDPOINT_URL_BEDROCK_RUNTIME: "http://specific",
+						AWS_ENDPOINT_URL: "http://generic",
+					},
+				}),
+			).resolves.toMatchObject({ runtimeBaseUrl: "http://specific" });
+		});
+
+		it("warns and still applies an override under FIPS", async () => {
+			const log = logger();
+			await expect(
+				resolveBedrockTransport({
+					region: "us-gov-west-1",
+					profile: "secure",
+					logger: log,
+					env: { AWS_ENDPOINT_URL_BEDROCK_RUNTIME: specific },
+				}),
+			).resolves.toEqual({
+				useFipsEndpoint: true,
+				runtimeBaseUrl: "http://gw.example/__gateway__/bedrock/g1",
+				mantleEnabled: false,
+			});
+			expect(log.warn).toHaveBeenCalledTimes(1);
+		});
+
+		it("ignores a blank override", async () => {
+			await expect(
+				resolveBedrockTransport({
+					region: "us-east-1",
+					profile: "standard",
+					env: { AWS_ENDPOINT_URL_BEDROCK_RUNTIME: "  " },
+				}),
+			).resolves.toMatchObject({
+				runtimeBaseUrl: "https://bedrock-runtime.us-east-1.amazonaws.com",
+			});
+		});
+	});
 });

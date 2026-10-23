@@ -706,6 +706,27 @@ class ConnectClient implements ModelClient {
 		const credentialKey = await connectCredentialKey(parsed.connectUrl, this.credentials);
 		const cached = this.cache.findByGuid(credentialKey, parsed.guid);
 		if (cached) return cached;
+		// An aws stamp needs the record's sts_region to sign. A cache miss
+		// (restart, eviction, foreign credentials) re-reads the integrations
+		// endpoint once instead of guessing. The cache is not written: its
+		// generation guard belongs to the model fetcher.
+		if (parsed.template === "aws") {
+			try {
+				const found = (
+					await fetchConnectIntegrations(
+						parsed.connectUrl,
+						this.credentials,
+						resolveTemplates(this.callbacks?.templates?.(), this.logger),
+					)
+				).find((i) => i.guid === parsed.guid);
+				if (found) return found;
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				this.logger.warn(
+					`[posit-connect] Could not re-read integration ${parsed.guid} for its region: ${message}`,
+				);
+			}
+		}
 		return {
 			idPrefix: prefix ?? `posit-connect-${parsed.guid}`,
 			guid: parsed.guid,

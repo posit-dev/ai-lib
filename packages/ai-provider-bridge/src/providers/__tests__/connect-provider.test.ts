@@ -662,6 +662,10 @@ describe("connect chat routing", () => {
 	});
 
 	it("routes stamped models statelessly when the integration cache is empty", async () => {
+		// The aws re-read must not reach the network; make it fail so the stamp is used.
+		stubDiscoveryFetch({
+			[`${CONNECT_URL}/__api__/v1/oauth/integrations`]: () => json({}, 500),
+		});
 		const getAwsCredentials = mintSuccess();
 		const client = clientWithoutDiscovery({ getAwsCredentials });
 		const modelId = CONNECT_BEDROCK_MODEL_IDS[0];
@@ -687,6 +691,71 @@ describe("connect chat routing", () => {
 		expect(chats.anthropic).toHaveBeenCalledWith(
 			expect.objectContaining({ baseUrl: ANTHROPIC_GATEWAY }),
 		);
+	});
+
+	it("re-reads the region for a stamped aws model with an empty cache", async () => {
+		const fetchMock = stubDiscoveryFetch({
+			[`${CONNECT_URL}/__api__/v1/oauth/integrations`]: () =>
+				json([
+					{
+						guid: AWS_GUID,
+						template: "aws",
+						name: "Bedrock Team",
+						auth_type: "Viewer",
+						config: { sts_region: "eu-west-1" },
+					},
+				]),
+		});
+		const getAwsCredentials = mintSuccess("eu-west-1");
+		const client = clientWithoutDiscovery({ getAwsCredentials });
+
+		await client.chat(
+			chatParams(`${AWS_PREFIX}/${CONNECT_BEDROCK_MODEL_IDS[0]}`, "bedrock-converse"),
+		);
+
+		expect(getAwsCredentials).toHaveBeenCalledWith(
+			expect.objectContaining({ guid: AWS_GUID, region: "eu-west-1" }),
+			expect.any(AbortSignal),
+		);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(BedrockClient).toHaveBeenCalledWith(
+			expect.objectContaining({ region: "eu-west-1" }),
+			logger,
+		);
+	});
+
+	it("falls back to the stamp when the region re-read fails", async () => {
+		stubDiscoveryFetch({
+			[`${CONNECT_URL}/__api__/v1/oauth/integrations`]: () => json({}, 500),
+		});
+		const getAwsCredentials = mintSuccess();
+		const client = clientWithoutDiscovery({ getAwsCredentials });
+
+		await client.chat(
+			chatParams(`${AWS_PREFIX}/${CONNECT_BEDROCK_MODEL_IDS[0]}`, "bedrock-converse"),
+		);
+
+		const integration = getAwsCredentials.mock.calls[0][0] as { region?: string };
+		expect(integration.region).toBeUndefined();
+		expect(logger.warn).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not re-read the integrations endpoint when the record is cached", async () => {
+		const client = await clientAfterDiscovery({ getAwsCredentials: mintSuccess() });
+		const fetchMock = vi.mocked(fetch);
+		const callsAfterDiscovery = fetchMock.mock.calls.filter(([url]) =>
+			String(url).endsWith("/__api__/v1/oauth/integrations"),
+		).length;
+
+		await client.chat(
+			chatParams(`${AWS_PREFIX}/${CONNECT_BEDROCK_MODEL_IDS[0]}`, "bedrock-converse"),
+		);
+
+		const total = fetchMock.mock.calls.filter(([url]) =>
+			String(url).endsWith("/__api__/v1/oauth/integrations"),
+		).length;
+		expect(callsAfterDiscovery).toBe(1);
+		expect(total).toBe(1);
 	});
 
 	it("rejects a stamped model discovered against a different Connect server", async () => {

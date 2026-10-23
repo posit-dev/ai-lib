@@ -46,10 +46,13 @@ function captureGatewayRequest() {
 		{ type: "message_stop" },
 	];
 	const body = events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("");
-	const capture = createRawFetchCapture(
-		async () =>
-			new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } }),
-	);
+	const capture = createRawFetchCapture(async (input) => {
+		// The empty-cache aws chat re-reads the integrations endpoint for its region.
+		if (String(input).endsWith("/__api__/v1/oauth/integrations")) {
+			return new Response("[]", { status: 200 });
+		}
+		return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+	});
 	vi.stubGlobal("fetch", capture.mock);
 	return capture;
 }
@@ -99,7 +102,8 @@ describe("Connect Bedrock gateway attribution", () => {
 			// Drive the Bedrock gateway request into the stubbed fetch.
 		}
 
-		const [url, init] = capture.single();
+		// The last call is the signed gateway request, after the region re-read.
+		const [url, init] = capture.call(capture.calls.length - 1);
 		expect(String(url)).toContain(gatewayUrl);
 		const headers = new Headers(init?.headers);
 		expect(headers.get("Gateway-Metadata")).toBe("workbench-session-id=s1,team=research");
