@@ -19,18 +19,22 @@ export interface LoadConfigSourcesOptions {
 	readonly configPath?: string;
 	readonly enforcedEnvVar?: string;
 	readonly defaultEnvVar?: string;
-	readonly env?: Record<string, string | undefined>;
+	/**
+	 * Required environment for enforced/default fragments. Hosts that delete
+	 * these variables from `process.env` must retain their values here.
+	 */
+	readonly env: Record<string, string | undefined>;
 	readonly logger?: LoggerLike;
 }
 
 /** Assemble complete read reports without rendering diagnostics. */
 export async function loadConfigSourceReports(
-	opts?: LoadConfigSourcesOptions,
+	opts: LoadConfigSourcesOptions,
 ): Promise<ProviderConfigSourceReadReport[]> {
-	const configPath = opts?.configPath ?? PROVIDERS_CONFIG_PATH;
-	const enforcedEnvVar = opts?.enforcedEnvVar ?? ENFORCED_ENV_VAR;
-	const defaultEnvVar = opts?.defaultEnvVar ?? DEFAULT_ENV_VAR;
-	const env = opts?.env ?? process.env;
+	const configPath = opts.configPath ?? PROVIDERS_CONFIG_PATH;
+	const enforcedEnvVar = opts.enforcedEnvVar ?? ENFORCED_ENV_VAR;
+	const defaultEnvVar = opts.defaultEnvVar ?? DEFAULT_ENV_VAR;
+	const env = opts.env;
 
 	return [
 		await readFileConfig(configPath),
@@ -41,11 +45,11 @@ export async function loadConfigSourceReports(
 
 /** Compatibility wrapper retaining the historical bare-source signature. */
 export async function loadConfigSources(
-	opts?: LoadConfigSourcesOptions,
+	opts: LoadConfigSourcesOptions,
 ): Promise<ProviderConfigSource[]> {
 	const reports = await loadConfigSourceReports(opts);
 	for (const issue of reports.flatMap((report) => report.issues)) {
-		opts?.logger?.warn(formatConfigIssue(issue));
+		opts.logger?.warn(formatConfigIssue(issue));
 	}
 	return reports.flatMap((report) => (report.source ? [report.source] : []));
 }

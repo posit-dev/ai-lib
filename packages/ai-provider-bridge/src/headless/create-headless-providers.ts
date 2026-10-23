@@ -49,7 +49,7 @@ export function createHeadlessProviders(options: HeadlessProvidersOptions): Head
 
 	const loadOptions: LoadCatalogOptions = {
 		configPath,
-		envVars: options.catalog?.envVars,
+		envVars: options.catalog?.envVars ?? process.env,
 		// Positron is the only caller and always reads Workbench's enforced settings this way.
 		legacyPositronEnforcedSettings: true,
 		logger: {
