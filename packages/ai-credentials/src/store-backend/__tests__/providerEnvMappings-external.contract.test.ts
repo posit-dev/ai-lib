@@ -33,9 +33,11 @@ import type { StoreBackendStorage } from "../StoreBackend.js";
 function emptyStore(): StoreBackendStorage {
 	return {
 		get: async () => undefined,
+		peek: async () => undefined,
 		set: async () => {},
 		withLock: async (fn) => fn(),
 		watch: () => ({ dispose() {} }),
+		location: null,
 	};
 }
 

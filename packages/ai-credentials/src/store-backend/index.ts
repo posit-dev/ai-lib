@@ -25,6 +25,7 @@ export { createStoreBackend } from "./StoreBackend.js";
 export type {
 	AuthMethodDescriptor,
 	CreateStoreBackendOptions,
+	StoreBackend,
 	StoreBackendStorage,
 } from "./StoreBackend.js";
 

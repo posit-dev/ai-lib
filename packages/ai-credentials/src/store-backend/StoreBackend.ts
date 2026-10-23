@@ -18,9 +18,16 @@ import type {
 	CredentialStatus,
 	Disposable,
 } from "../CredentialProvider.js";
-import type { Logger, ProviderCredentials, TokenData } from "../types/index.js";
+import type {
+	EnvironmentCredentialStep,
+	Logger,
+	ProviderCredentials,
+	StoredCredentialStep,
+	TokenData,
+} from "../types/index.js";
 import { normalizeDatabricksHost, requireBareAuthHost, storageKeyFor } from "../types/index.js";
 import {
+	credentialEnvironmentNames,
 	isWorkbenchManagedDatabricks,
 	resolveCredentialsFromEnv,
 } from "./envCredentialResolver.js";
@@ -52,11 +59,46 @@ import {
  * every writer of the same keys.
  */
 export interface StoreBackendStorage {
+	/** Read a value. A backing may repair its storage here (e.g. file permissions). */
 	get<T>(key: string): Promise<T | undefined>;
+	/**
+	 * Read a value with no side effects at all, for passive inspection
+	 * (`describeCredentialSource`). A backing whose `get` has none can reuse it.
+	 */
+	peek<T>(key: string): Promise<T | undefined>;
 	set<T>(key: string, value: T): Promise<void>;
 	withLock<T>(fn: () => Promise<T>): Promise<T>;
 	/** Invoke `handler` whenever any stored value may have changed. */
 	watch(handler: () => void): Disposable;
+	/**
+	 * Where the records live (e.g. a file path), for diagnostics; `null` when
+	 * there is no such place to show. Never a secret.
+	 */
+	readonly location: string | null;
+}
+
+/**
+ * Account of the store backend's credential lookup for one provider: the
+ * stored step, then the environment step, in the order `getCredentials`
+ * checks them. Built from the same decision, passively: no token refresh,
+ * grant setup, or write of any kind (not even a permission repair).
+ */
+export interface StoreCredentialSourceDescription {
+	/** Secret-free. */
+	readonly steps: readonly [StoredCredentialStep, EnvironmentCredentialStep];
+	/** Whether the lookup would supply a credential (a stored sign-in counts when ready). */
+	readonly supplies: boolean;
+	/**
+	 * `getCredentialStatus`'s answer from the same passive read, for host
+	 * policy checks on the source (its workspace host or server). Not for
+	 * display: its error and metadata are free-form.
+	 */
+	readonly status: CredentialStatus;
+}
+
+/** The store-backed `MutableBackend`, plus a passive description of its lookup. */
+export interface StoreBackend extends MutableBackend {
+	describeCredentialSource(providerId: string): Promise<StoreCredentialSourceDescription>;
 }
 
 export interface AuthMethodDescriptor {
@@ -117,7 +159,22 @@ interface NormalizedStored {
 
 const NOOP_DISPOSABLE: Disposable = { dispose() {} };
 
-export function createStoreBackend(options: CreateStoreBackendOptions): MutableBackend {
+/** An ordinary read, or a passive one with no side effects (see {@link StoreBackendStorage.peek}). */
+type StoreRead = "ordinary" | "passive";
+
+/**
+ * Which part of the store backend answers a credential read, decided from the
+ * stored record. Shared by `getCredentials` and `describeCredentialSource`.
+ */
+type StoredSourceDecision =
+	/** The stored source answers (OAuth sources through acquisition); the environment is never read. */
+	| { readonly kind: "stored"; readonly source: CredentialSourceInput }
+	/** A stored API key the provider refuses; nothing is served, not even from the environment. */
+	| { readonly kind: "ignored-key" }
+	/** Nothing usable is stored, so the environment answers. */
+	| { readonly kind: "environment"; readonly stored: "absent" | "unusable" | "empty-key" };
+
+export function createStoreBackend(options: CreateStoreBackendOptions): StoreBackend {
 	const {
 		store,
 		resolveAuthMethod,
@@ -139,10 +196,17 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 		return descriptor ? storageKeyFor(providerId, descriptor.authMethodId) : undefined;
 	}
 
-	async function readRecord(providerId: string): Promise<StoredProviderCredentials | undefined> {
+	/**
+	 * Read a provider's stored record. A `passive` read has no side effects;
+	 * an ordinary one lets the backing repair its storage.
+	 */
+	async function readRecord(
+		providerId: string,
+		read: StoreRead = "ordinary",
+	): Promise<StoredProviderCredentials | undefined> {
 		const key = keyFor(providerId);
 		if (!key) return undefined;
-		const raw = await store.get<unknown>(key);
+		const raw = read === "passive" ? await store.peek<unknown>(key) : await store.get<unknown>(key);
 		if (raw === undefined) return undefined;
 		const parsed = storedProviderCredentialsSchema.safeParse(raw);
 		if (!parsed.success) {
@@ -257,8 +321,11 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 		return { readiness: "unauthenticated", generation: record.generation, error: record.error };
 	}
 
-	async function storedSource(providerId: string): Promise<NormalizedStored | null> {
-		return normalize(providerId, await readRecord(providerId));
+	async function storedSource(
+		providerId: string,
+		read: StoreRead = "ordinary",
+	): Promise<NormalizedStored | null> {
+		return normalize(providerId, await readRecord(providerId, read));
 	}
 
 	type EnvironmentResolution =
@@ -390,31 +457,128 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 		};
 	}
 
+	function decideStoredSource(
+		providerId: string,
+		descriptor: AuthMethodDescriptor,
+		normalized: NormalizedStored | null,
+	): StoredSourceDecision {
+		const source = normalized?.source;
+		if (!source) return { kind: "environment", stored: normalized ? "unusable" : "absent" };
+		if (source.type === "api-key") {
+			if (ignoresStoredApiKey?.(providerId)) return { kind: "ignored-key" };
+			if (!source.apiKey && !descriptor.apiKeyOptional) {
+				return { kind: "environment", stored: "empty-key" };
+			}
+		}
+		return { kind: "stored", source };
+	}
+
 	async function getCredentials(providerId: string): Promise<ProviderCredentials | null> {
 		const descriptor = resolveAuthMethod(providerId);
 		if (!descriptor) return null;
-		const normalized = await storedSource(providerId);
-		if (normalized?.source) {
-			const source = normalized.source;
-			switch (source.type) {
-				case "api-key":
-					if (ignoresStoredApiKey?.(providerId)) return null;
-					if (!source.apiKey && !descriptor.apiKeyOptional) break;
-					return { type: "apikey", apiKey: source.apiKey, baseUrl: source.baseUrl };
-				case "local":
-					return { type: "local", endpoint: source.endpoint };
-				case "aws-credentials":
-					return { ...source };
-				case "google-cloud":
-					return { ...source };
-				case "oauth-device":
-				case "oauth-u2m":
-				case "oauth-m2m":
-					return null;
+		const decision = decideStoredSource(providerId, descriptor, await storedSource(providerId));
+		switch (decision.kind) {
+			case "stored":
+				return runtimeCredentials(decision.source);
+			case "ignored-key":
+				return null;
+			case "environment": {
+				const environment = environmentResolution(providerId);
+				return environment.kind === "credentials" ? environment.credentials : null;
 			}
 		}
-		const environment = environmentResolution(providerId);
-		return environment.kind === "credentials" ? environment.credentials : null;
+	}
+
+	async function describeCredentialSource(
+		providerId: string,
+	): Promise<StoreCredentialSourceDescription> {
+		const env = currentEnvironment();
+		const variables = credentialEnvironmentNames(providerId).map((name) => ({
+			name,
+			set: Boolean(env[name]),
+		}));
+		const normalized = await storedSource(providerId, "passive");
+		const status = statusFor(providerId, normalized);
+		const storedFacts = {
+			kind: "stored" as const,
+			location: store.location,
+			credentialType: storedCredentialType(normalized),
+			readiness: normalized?.readiness ?? ("none" as const),
+			expiresAt: normalized?.tokens?.expiresAt ?? null,
+		};
+		const descriptor = resolveAuthMethod(providerId);
+		const decision: StoredSourceDecision = descriptor
+			? decideStoredSource(providerId, descriptor, normalized)
+			: { kind: "environment", stored: "absent" };
+		switch (decision.kind) {
+			case "stored": {
+				// OAuth sources serve through acquisition, which needs a ready sign-in.
+				const supplies =
+					runtimeCredentials(decision.source) !== null || normalized?.readiness === "ready";
+				return {
+					steps: [
+						{
+							...storedFacts,
+							outcome: supplies ? "used" : "not-used",
+							reason: supplies ? "supplies" : "stored-signed-out",
+						},
+						{
+							kind: "environment",
+							variables,
+							outcome: "not-consulted",
+							reason: "stored-checked-first",
+						},
+					],
+					supplies,
+					status,
+				};
+			}
+			case "ignored-key":
+				return {
+					steps: [
+						{ ...storedFacts, outcome: "not-used", reason: "stored-key-ignored" },
+						{
+							kind: "environment",
+							variables,
+							outcome: "not-consulted",
+							reason: "earlier-step-decided",
+						},
+					],
+					supplies: false,
+					status,
+				};
+			case "environment": {
+				const storedReason =
+					decision.stored === "absent"
+						? "nothing-stored"
+						: decision.stored === "empty-key"
+							? "stored-key-empty"
+							: "stored-unusable";
+				const environment: EnvironmentResolution = descriptor
+					? environmentResolution(providerId)
+					: { kind: "none" };
+				const supplies = environment.kind === "credentials" || environment.kind === "oauth-m2m";
+				return {
+					steps: [
+						{ ...storedFacts, outcome: "not-used", reason: storedReason },
+						{
+							kind: "environment",
+							variables,
+							outcome: supplies ? "used" : "not-used",
+							reason: supplies
+								? "supplies"
+								: variables.length === 0
+									? "no-environment-variables"
+									: variables.some((variable) => variable.set)
+										? "environment-unusable"
+										: "no-variables-set",
+						},
+					],
+					supplies,
+					status,
+				};
+			}
+		}
 	}
 
 	async function mutateCredentials(
@@ -524,7 +688,10 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 	}
 
 	async function getCredentialStatus(providerId: string): Promise<CredentialStatus> {
-		const normalized = await storedSource(providerId);
+		return statusFor(providerId, await storedSource(providerId));
+	}
+
+	function statusFor(providerId: string, normalized: NormalizedStored | null): CredentialStatus {
 		if (normalized?.source) {
 			const metadata = sourceMetadata(normalized.source);
 			return {
@@ -796,7 +963,49 @@ export function createStoreBackend(options: CreateStoreBackendOptions): MutableB
 		mutateCredentials,
 		getCredentialStatus,
 		getCredentialSource,
+		describeCredentialSource,
 	};
+}
+
+/** The runtime credential a stored source serves directly; OAuth sources serve through acquisition. */
+function runtimeCredentials(source: CredentialSourceInput): ProviderCredentials | null {
+	switch (source.type) {
+		case "api-key":
+			return { type: "apikey", apiKey: source.apiKey, baseUrl: source.baseUrl };
+		case "local":
+			return { type: "local", endpoint: source.endpoint };
+		case "aws-credentials":
+			return { ...source };
+		case "google-cloud":
+			return { ...source };
+		case "oauth-device":
+		case "oauth-u2m":
+		case "oauth-m2m":
+			return null;
+	}
+}
+
+function storedCredentialType(
+	normalized: NormalizedStored | null,
+): StoredCredentialStep["credentialType"] {
+	if (!normalized) return "none";
+	switch (normalized.source?.type) {
+		case undefined:
+			return "unusable";
+		case "api-key":
+			return "api-key";
+		case "oauth-device":
+		case "oauth-u2m":
+			return "oauth";
+		case "oauth-m2m":
+			return "oauth-client-credentials";
+		case "local":
+			return "local";
+		case "aws-credentials":
+			return "aws";
+		case "google-cloud":
+			return "google-cloud";
+	}
 }
 
 function storedTokens(record: StoredProviderCredentials): StoredOAuthTokens | undefined {

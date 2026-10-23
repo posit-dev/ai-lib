@@ -25,6 +25,7 @@
 
 import { sourceConfigIssue, sourcedWholeSourceIssue } from "../config-issue.js";
 import type {
+	ProviderConfigLayer,
 	ProviderConfigSourceProvider,
 	ProviderConfigSourceReadReport,
 } from "../config-source.js";
@@ -76,6 +77,13 @@ function createReaderSettingsProvider(reader: LegacySettingsReader): ProviderCon
 			} satisfies Pick<ProviderConfigSource, "kind" | "label">;
 			const { config, issues } = translateLegacyPositronSettingsReport(reader);
 			return {
+				layer: {
+					kind: "legacy-positron",
+					tag: "legacy",
+					label: "legacy Positron settings",
+					detail: "Positron settings",
+					state: hasProviders(config) ? "found" : "not set",
+				},
 				source: hasProviders(config) ? { ...identity, config } : undefined,
 				issues: issues.map((issue) => sourceConfigIssue(issue, identity)),
 			};
@@ -100,9 +108,16 @@ function createEnforcedSettingsProvider(
 				kind: "legacy-positron-enforced",
 				label: POSITRON_ENFORCED_SETTINGS_ENV_VAR,
 			} satisfies Pick<ProviderConfigSource, "kind" | "label">;
+			const layer = (state: ProviderConfigLayer["state"]): ProviderConfigLayer => ({
+				kind: "legacy-positron-enforced",
+				tag: "legacy-enforced",
+				label: "legacy Positron enforced settings",
+				detail: POSITRON_ENFORCED_SETTINGS_ENV_VAR,
+				state,
+			});
 			const raw = env[POSITRON_ENFORCED_SETTINGS_ENV_VAR];
 			if (!raw) {
-				return { issues: [] };
+				return { layer: layer("not set"), issues: [] };
 			}
 
 			let parsed: unknown;
@@ -112,13 +127,13 @@ function createEnforcedSettingsProvider(
 				// No error detail: JSON.parse messages embed input snippets, and
 				// this payload can carry credential-adjacent values.
 				return issueOnly(
-					identity,
+					layer("invalid"),
 					`Failed to parse ${POSITRON_ENFORCED_SETTINGS_ENV_VAR} as JSON. Ignoring.`,
 				);
 			}
 			if (!isPlainObject(parsed)) {
 				return issueOnly(
-					identity,
+					layer("invalid"),
 					`${POSITRON_ENFORCED_SETTINGS_ENV_VAR} is not a JSON object. Ignoring.`,
 				);
 			}
@@ -130,6 +145,7 @@ function createEnforcedSettingsProvider(
 				get: (key) => payload[key],
 			});
 			return {
+				layer: layer(hasProviders(config) ? "found" : "empty"),
 				source: hasProviders(config) ? { ...identity, config } : undefined,
 				issues: issues.map((issue) => sourceConfigIssue(issue, identity)),
 			};
@@ -145,9 +161,9 @@ function hasProviders(config: ProvidersConfigFragment): boolean {
 	return !!config.providers && Object.keys(config.providers).length > 0;
 }
 
-function issueOnly(
-	identity: Pick<ProviderConfigSource, "kind" | "label">,
-	message: string,
-): ProviderConfigSourceReadReport {
-	return { issues: [sourcedWholeSourceIssue(identity, message)] };
+function issueOnly(layer: ProviderConfigLayer, message: string): ProviderConfigSourceReadReport {
+	return {
+		layer,
+		issues: [sourcedWholeSourceIssue({ kind: layer.kind, label: layer.detail }, message)],
+	};
 }

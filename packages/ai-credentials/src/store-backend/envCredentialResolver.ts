@@ -19,6 +19,7 @@
 
 import type { ProviderCredentials } from "../types/credentials.js";
 import {
+	type EnvironmentFieldDescriptor,
 	PROVIDER_ENV_MAPPINGS,
 	type ProviderEnvMapping,
 	readSdkCredentialEnvironment,
@@ -71,9 +72,31 @@ export function hasEnvCredentials(
 	return resolveCredentialsFromEnv(providerId, envVars) !== null;
 }
 
+/**
+ * The environment variables that can carry a provider's credential, in the
+ * order they are read: its API key and older names, AWS keys, or Databricks
+ * OAuth M2M fields. Names only; for diagnostics that report presence.
+ */
+export function credentialEnvironmentNames(providerId: string): readonly string[] {
+	const mapping = PROVIDER_ENV_MAPPINGS[providerId];
+	if (!mapping) return [];
+	const descriptors = [
+		...apiKeyDescriptors(mapping),
+		...(mapping.aws
+			? [mapping.aws.accessKeyId, mapping.aws.secretAccessKey, mapping.aws.sessionToken]
+			: []),
+		...(mapping.oauthM2m ? Object.values(mapping.oauthM2m) : []),
+	];
+	return descriptors.flatMap((descriptor) => (descriptor ? [descriptor.name] : []));
+}
+
 // ---------------------------------------------------------------------------
 // Internal
 // ---------------------------------------------------------------------------
+
+function apiKeyDescriptors(mapping: ProviderEnvMapping): readonly EnvironmentFieldDescriptor[] {
+	return mapping.apiKey ? [mapping.apiKey, ...(mapping.apiKeyAliases ?? [])] : [];
+}
 
 function resolveFromMapping(
 	mapping: ProviderEnvMapping,
@@ -81,8 +104,7 @@ function resolveFromMapping(
 ): ProviderCredentials | null {
 	// API key providers
 	if (mapping.apiKey) {
-		const names = [mapping.apiKey, ...(mapping.apiKeyAliases ?? [])];
-		for (const descriptor of names) {
+		for (const descriptor of apiKeyDescriptors(mapping)) {
 			const apiKey = envVars[descriptor.name];
 			if (apiKey) {
 				return { type: "apikey", apiKey };

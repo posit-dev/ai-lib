@@ -7,7 +7,8 @@
 import { promises as fs } from "fs";
 
 import { formatConfigIssue, sourceConfigIssue, sourcedWholeSourceIssue } from "../config-issue.js";
-import type { ProviderConfigSourceReadReport } from "../config-source.js";
+import { presentLayerState } from "../config-source.js";
+import type { ProviderConfigLayer, ProviderConfigSourceReadReport } from "../config-source.js";
 import type { ProviderConfigSource } from "../resolve-catalog.js";
 import { salvageProvidersConfigFragment } from "../salvage-config.js";
 import type { SalvageFailureReason } from "../salvage-config.js";
@@ -50,25 +51,38 @@ export async function loadConfigSources(
 	return reports.flatMap((report) => (report.source ? [report.source] : []));
 }
 
-/** Read the user file tolerantly. Missing is a healthy empty user source. */
+/**
+ * Read the user file tolerantly. Missing is a healthy empty user source; the
+ * layer's state still tells missing, empty and invalid apart.
+ */
 export async function readFileConfig(configPath: string): Promise<ProviderConfigSourceReadReport> {
 	const identity = { kind: "user", label: configPath } satisfies Pick<
 		ProviderConfigSource,
 		"kind" | "label"
 	>;
+	const layer = (state: ProviderConfigLayer["state"]): ProviderConfigLayer => ({
+		kind: "user",
+		tag: "user",
+		label: "user providers.json",
+		detail: configPath,
+		state,
+	});
 	let raw: string;
 	try {
 		raw = await fs.readFile(configPath, "utf-8");
 	} catch (error) {
 		if (isErrnoCode(error, "ENOENT")) {
-			return { source: { ...identity, config: {} }, issues: [] };
+			return { layer: layer("missing"), source: { ...identity, config: {} }, issues: [] };
 		}
+		// Never the OS message: name only the error code.
+		const code = errnoCode(error);
 		return {
+			layer: layer("invalid"),
 			source: { ...identity, config: {} },
 			issues: [
 				sourcedWholeSourceIssue(
 					identity,
-					`Could not read the file: ${errorMessage(error)}. Using empty config.`,
+					`Could not read the file${code ? ` (${code})` : ""}. Using empty config.`,
 				),
 			],
 		};
@@ -76,7 +90,9 @@ export async function readFileConfig(configPath: string): Promise<ProviderConfig
 
 	try {
 		const { config, issues } = parseProvidersConfigTolerant(raw);
+		const wholeFileFailed = issues.some((issue) => issue.severity === "error");
 		return {
+			layer: layer(wholeFileFailed ? "invalid" : presentLayerState(config)),
 			source: { ...identity, config },
 			issues: issues.map((issue) =>
 				sourceConfigIssue({ ...issue, message: `Validation errors: ${issue.message}` }, identity),
@@ -84,13 +100,16 @@ export async function readFileConfig(configPath: string): Promise<ProviderConfig
 		};
 	} catch (error) {
 		return {
+			layer: layer("invalid"),
 			source: { ...identity, config: {} },
 			issues: [
 				sourcedWholeSourceIssue(
 					identity,
+					// A JsoncSyntaxError's message is its code and position only;
+					// any other error's message is never copied.
 					error instanceof SyntaxError
 						? `Invalid JSONC: ${errorMessage(error)}. Using empty config.`
-						: `Unexpected error: ${errorMessage(error)}. Using empty config.`,
+						: "Could not parse the file. Using empty config.",
 				),
 			],
 		};
@@ -110,21 +129,28 @@ export function readEnvFragment(
 	env: Record<string, string | undefined>,
 ): ProviderConfigSourceReadReport {
 	const identity = { kind, label: envVarName };
+	const layer = (state: ProviderConfigLayer["state"]): ProviderConfigLayer => ({
+		kind,
+		tag: kind,
+		label: kind === "enforced" ? "admin enforced" : "admin default",
+		detail: envVarName,
+		state,
+	});
 	const envValue = env[envVarName];
 	if (!envValue) {
-		return { issues: [] };
+		return { layer: layer("not set"), issues: [] };
 	}
 
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(envValue);
-	} catch (error) {
+	} catch {
+		// Never include the parser's message: it quotes part of the payload,
+		// which can hold secrets.
 		return {
+			layer: layer("invalid"),
 			issues: [
-				sourcedWholeSourceIssue(
-					identity,
-					`Failed to parse ${envVarName} as JSON: ${errorMessage(error)}. Ignoring.`,
-				),
+				sourcedWholeSourceIssue(identity, `Failed to parse ${envVarName} as JSON. Ignoring.`),
 			],
 		};
 	}
@@ -132,11 +158,13 @@ export function readEnvFragment(
 	const result = salvageProvidersConfigFragment(parsed);
 	if (!result.ok) {
 		return {
+			layer: layer("invalid"),
 			issues: [sourcedWholeSourceIssue(identity, envFailureMessage(envVarName, result.reason))],
 		};
 	}
 
 	return {
+		layer: layer(presentLayerState(result.config)),
 		source: { ...identity, config: result.config },
 		issues: result.issues.map((issue) => sourceConfigIssue(issue, identity)),
 	};
@@ -162,5 +190,11 @@ function errorMessage(error: unknown): string {
 }
 
 function isErrnoCode(error: unknown, code: string): boolean {
-	return error instanceof Error && "code" in error && error.code === code;
+	return errnoCode(error) === code;
+}
+
+function errnoCode(error: unknown): string | undefined {
+	return error instanceof Error && "code" in error && typeof error.code === "string"
+		? error.code
+		: undefined;
 }

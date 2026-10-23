@@ -686,6 +686,19 @@ describe("loadResolvedProviderCatalog", () => {
 			]);
 		});
 
+		it("never quotes the payload in a JSON parse error", () => {
+			const report = readFragment('{"providers":{"openai":{"apiKey": sk-SEEDED-SECRET-123}}}');
+
+			expect(report.issues).toEqual([
+				{
+					severity: "error",
+					source,
+					path: [],
+					message: `Failed to parse ${envVar} as JSON. Ignoring.`,
+				},
+			]);
+		});
+
 		it("removes an unknown endpoints protocol key and keeps the other endpoints", async () => {
 			const report = readFragment(
 				JSON.stringify({
@@ -1106,7 +1119,7 @@ describe("loadResolvedProviderCatalog", () => {
 					severity: "error",
 					path: [],
 					source: { kind: "user", label: configPath },
-					message: expect.stringContaining("Could not read the file: permission denied"),
+					message: "Could not read the file (EACCES). Using empty config.",
 				}),
 			]);
 		});
