@@ -109,7 +109,7 @@
     "oxlint": "^1.57.0",
     "tsx": "^4.20.6",
     "typescript": "^7.0.2",
-    "vitest": "^3.2.1",
+    "vitest": "^4.1.12",
     "whatwg-fetch": "^3.6.20"
   },
   "repository": {
