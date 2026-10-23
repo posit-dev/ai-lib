@@ -318,12 +318,10 @@ describe("inferModelCapabilities", () => {
 		expect(caps.maxOutputTokens).toBe(65_536);
 	});
 
-	it("keeps the generic 3.x rule fail-open for future 3.x models", () => {
-		// A hypothetical 3.9 must still fall through to the generic rule
-		// (minimal included) — the 3.7/3.8 narrowing must not over-reach.
+	it("gives future Flash versions the newest Flash levels (no minimal)", () => {
 		const caps = inferModelCapabilities("gemini", "gemini-3.9-flash");
 		expect(caps.family).toBe("gemini-3");
-		expect(caps.thinkingEffortLevels).toEqual(["minimal", "low", "medium", "high"]);
+		expect(caps.thinkingEffortLevels).toEqual(["low", "medium", "high"]);
 	});
 
 	it("keeps hosted-Gemma semantics out of google-vertex and the shared gemini table", () => {

@@ -578,7 +578,7 @@ the canonical `Protocol` union) and private sibling modules. `positai-helpers.ts
 composes the Anthropic and Gemma tables, since Posit AI Pass routes both
 families.
 
-**Future-model fallbacks.** The Anthropic and OpenAI tables answer ids newer
+**Future-model fallbacks.** The Anthropic, OpenAI, and Gemini tables answer ids newer
 than their rows with the newest known model, so every provider reusing them
 benefits without an update. Anthropic parses modern ids
 (`claude-<tier>-<major>[-<minor>]`, a date is never a minor) and takes the
@@ -592,6 +592,16 @@ to a donor id (`-mini`/`-nano` → the newest of that variant, otherwise the
 newest named flagship) and recurses, so the result is the donor's by
 construction; bump the constants when a newer flagship or mini ships. Within a
 known generation, the existing GPT-5.x and GPT-6 catch-alls still apply.
+Gemini (`gemini-helpers.ts`) keys its entries by a representative id per
+variant and version (`gemini-3.7-flash`, `gemini-3-pro`); the exported
+`findGeminiVariantDonor` (`gemini-variant.ts`) parses
+`gemini-<major>[.<minor>]-<pro|flash|flash-lite>` and returns the
+same-variant known id with the greatest version at or below the requested
+one, plus whether it is the variant's newest: `gemini-3.9-flash` → 3.7/3.8
+Flash, `gemini-4-pro` → 3 Pro. The table ignores the newest flag; the
+bridge's Interactions profiles reuse the function and inherit only from the
+newest (see `geminiInteractions.md`). Ids with no recognized variant or no
+entry at or below their version use the version-family regex rules.
 Inherited values are reported as ordinary table values (no "inferred" marker),
 so they drive context budgeting. Accepted cost: a new model that shrinks a
 limit or drops a thinking level fails requests until a row is added.

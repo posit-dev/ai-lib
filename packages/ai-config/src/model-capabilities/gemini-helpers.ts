@@ -3,6 +3,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import type { InferredModelCapabilities as ModelInfo } from "../types.js";
+import { findGeminiVariantDonor } from "./gemini-variant.js";
 
 // ---------------------------------------------------------------------------
 // Gemini model capability inference
@@ -21,9 +22,8 @@ const LEVELS_WITH_MINIMAL = ["minimal", "low", "medium", "high"];
  */
 const LEVELS_WITHOUT_MINIMAL = ["low", "medium", "high"];
 
-/** Capability rule: regex match against normalized Gemini model ID. */
-interface CapabilityRule {
-	match: RegExp;
+/** Limits and thinking levels a capability entry assigns to a Gemini model. */
+interface GeminiCapabilities {
 	family: string;
 	maxInputTokens: number;
 	maxContextLength: number;
@@ -31,10 +31,21 @@ interface CapabilityRule {
 	thinkingEffortLevels?: string[];
 }
 
+/** Limits shared by every Gemini 2.5 and 3.x model. */
+const LIMITS_1M = {
+	maxInputTokens: 1_000_000,
+	maxContextLength: 1_000_000,
+	maxOutputTokens: 65_536,
+};
+
 /**
- * Ordered list of rules. First match wins.
- * More-specific patterns must come before less-specific ones
- * (e.g. "gemini-2.5-flash-lite" before "gemini-2.5-flash" before "gemini-2.5").
+ * Gemini models keyed by a representative id of their variant (`pro`,
+ * `flash`, `flash-lite`) and version. A requested id takes the entry of its
+ * variant with the greatest version at or below its own (see
+ * {@link findGeminiVariantDonor}), so each entry covers the versions up to
+ * the next one, and the newest entry of a variant is the fallback for later
+ * versions (`gemini-3.9-flash` → the 3.7 Flash entry, `gemini-4-pro` → 3 Pro).
+ * Order does not matter.
  *
  * Thinking effort levels and budget/level ranges are based on:
  * https://ai.google.dev/gemini-api/docs/thinking#levels-budgets
@@ -44,64 +55,73 @@ interface CapabilityRule {
  * there); this table's levels serve Vertex, provider-agnostic inference,
  * and the config-migration seam.
  */
-const CAPABILITY_RULES: CapabilityRule[] = [
-	// --- Gemini 3 family ---
-	// 3.x Pro models: low/medium/high only
-	{
-		match: /^gemini-3[\d.]*-pro/,
-		family: "gemini-3",
-		maxInputTokens: 1_000_000,
-		maxContextLength: 1_000_000,
-		maxOutputTokens: 65_536,
-		thinkingEffortLevels: LEVELS_WITHOUT_MINIMAL,
-	},
-	// 3.7 and 3.8 models: low/medium/high only — both reject `minimal` on
-	// the Interactions API (3.7-flash: "Allowed values are: high, low,
+const VARIANT_ENTRIES: ReadonlyMap<string, GeminiCapabilities> = new Map([
+	// --- Pro ---
+	// 2.5 and 3.x Pro: low/medium/high only (no minimal on the Interactions API)
+	[
+		"gemini-2.5-pro",
+		{ family: "gemini-2.5", ...LIMITS_1M, thinkingEffortLevels: LEVELS_WITHOUT_MINIMAL },
+	],
+	[
+		"gemini-3-pro",
+		{ family: "gemini-3", ...LIMITS_1M, thinkingEffortLevels: LEVELS_WITHOUT_MINIMAL },
+	],
+
+	// --- Flash ---
+	[
+		"gemini-2.5-flash",
+		{ family: "gemini-2.5", ...LIMITS_1M, thinkingEffortLevels: LEVELS_WITHOUT_MINIMAL },
+	],
+	// 3.0–3.6 Flash: support minimal thinkingLevel
+	[
+		"gemini-3-flash",
+		{ family: "gemini-3", ...LIMITS_1M, thinkingEffortLevels: LEVELS_WITH_MINIMAL },
+	],
+	// 3.7 Flash and later: low/medium/high only — 3.7 and 3.8 reject `minimal`
+	// on the Interactions API (3.7-flash: "Allowed values are: high, low,
 	// medium", verified 2026-08-17; 3.8-flash:
 	// https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash).
+	[
+		"gemini-3.7-flash",
+		{ family: "gemini-3", ...LIMITS_1M, thinkingEffortLevels: LEVELS_WITHOUT_MINIMAL },
+	],
+
+	// --- Flash-Lite ---
+	[
+		"gemini-2.5-flash-lite",
+		{ family: "gemini-2.5", ...LIMITS_1M, thinkingEffortLevels: LEVELS_WITHOUT_MINIMAL },
+	],
+	// Keyed at 3.0 so every 3.x Flash-Lite id supports minimal, as before.
+	[
+		"gemini-3-flash-lite",
+		{ family: "gemini-3", ...LIMITS_1M, thinkingEffortLevels: LEVELS_WITH_MINIMAL },
+	],
+]);
+
+/**
+ * Version-family rules for ids with no recognized variant
+ * (`gemini-3.5-live-translate-preview`) or no variant entry at or below their
+ * version (`gemini-2.0-flash`). First match wins.
+ */
+const VERSION_FAMILY_RULES: (GeminiCapabilities & { match: RegExp })[] = [
+	// 3.7 and 3.8: low/medium/high only (see the 3.7 Flash entry above).
 	// Must precede the generic 3.x rule.
 	{
 		match: /^gemini-3\.[78]/,
 		family: "gemini-3",
-		maxInputTokens: 1_000_000,
-		maxContextLength: 1_000_000,
-		maxOutputTokens: 65_536,
+		...LIMITS_1M,
 		thinkingEffortLevels: LEVELS_WITHOUT_MINIMAL,
 	},
-	// 3.x Flash/Flash-Lite: support minimal thinkingLevel
 	{
 		match: /^gemini-3/,
 		family: "gemini-3",
-		maxInputTokens: 1_000_000,
-		maxContextLength: 1_000_000,
-		maxOutputTokens: 65_536,
+		...LIMITS_1M,
 		thinkingEffortLevels: LEVELS_WITH_MINIMAL,
-	},
-
-	// --- Gemini 2.5 family ---
-	// All 2.5 models: low/medium/high only (no minimal on Interactions API)
-	{
-		match: /^gemini-2\.5-flash-lite/,
-		family: "gemini-2.5",
-		maxInputTokens: 1_000_000,
-		maxContextLength: 1_000_000,
-		maxOutputTokens: 65_536,
-		thinkingEffortLevels: LEVELS_WITHOUT_MINIMAL,
-	},
-	{
-		match: /^gemini-2\.5-flash/,
-		family: "gemini-2.5",
-		maxInputTokens: 1_000_000,
-		maxContextLength: 1_000_000,
-		maxOutputTokens: 65_536,
-		thinkingEffortLevels: LEVELS_WITHOUT_MINIMAL,
 	},
 	{
 		match: /^gemini-2\.5/,
 		family: "gemini-2.5",
-		maxInputTokens: 1_000_000,
-		maxContextLength: 1_000_000,
-		maxOutputTokens: 65_536,
+		...LIMITS_1M,
 		thinkingEffortLevels: LEVELS_WITHOUT_MINIMAL,
 	},
 
@@ -163,7 +183,10 @@ export function getGeminiModelCapabilities(modelId: string): Partial<ModelInfo> 
 		return undefined;
 	}
 
-	const rule = CAPABILITY_RULES.find((r) => r.match.test(normalized));
+	const donor = findGeminiVariantDonor(normalized, VARIANT_ENTRIES.keys());
+	const rule: GeminiCapabilities | undefined =
+		(donor && VARIANT_ENTRIES.get(donor.id)) ??
+		VERSION_FAMILY_RULES.find((r) => r.match.test(normalized));
 
 	return {
 		maxInputTokens: rule?.maxInputTokens ?? DEFAULT_GEMINI_MAX_INPUT,
