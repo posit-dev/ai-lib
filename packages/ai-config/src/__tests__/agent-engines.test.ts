@@ -205,46 +205,6 @@ describe("agentEngines resolution", () => {
 		]);
 	});
 
-	it("ignores an obsolete allowNamedPrincipals with a warning, keeping the engine's configuration", async () => {
-		await fixture.writeRawJsonc(
-			JSON.stringify({
-				agentEngines: {
-					copilot: { enabled: true, allowNamedPrincipals: true },
-					codex: { enabled: true, defaultModel: "gpt-5.5", allowNamedPrincipals: false },
-					acp: { local: { command: "local-agent", allowNamedPrincipals: true } },
-				},
-			}),
-		);
-
-		const report = await load({
-			enforced: { agentEngines: { copilot: { enabled: true, allowNamedPrincipals: true } } },
-		});
-
-		expect(report.agentEngines).toEqual({
-			copilot: { enabled: true },
-			codex: { enabled: true, defaultModel: "gpt-5.5" },
-			acp: { local: { command: "local-agent" } },
-		});
-		const obsolete = report.issues.filter((issue) => issue.message.includes("obsolete"));
-		expect(obsolete.map((issue) => [issue.severity, issue.path])).toEqual([
-			["warning", ["agentEngines", "copilot", "allowNamedPrincipals"]],
-			["warning", ["agentEngines", "codex", "allowNamedPrincipals"]],
-			["warning", ["agentEngines", "acp", "local", "allowNamedPrincipals"]],
-			["warning", ["agentEngines", "copilot", "allowNamedPrincipals"]],
-		]);
-	});
-
-	it("still drops an engine block with a genuinely unknown key", async () => {
-		await fixture.writeRawJsonc(
-			JSON.stringify({ agentEngines: { copilot: { enabled: true, allowNamedPrincipal: true } } }),
-		);
-
-		const report = await load();
-
-		expect(report.agentEngines).toEqual({});
-		expect(report.issues.map((issue) => issue.path)).toEqual([["agentEngines", "copilot"]]);
-	});
-
 	it("lets the writer edit a file that carries agentEngines, keeping the block", async () => {
 		await fixture.writeTypedConfig({ agentEngines: { codex: { enabled: true } } });
 

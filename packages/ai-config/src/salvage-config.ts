@@ -294,10 +294,7 @@ function salvageAgentEngines<T>(
 			issues.push(warning(path, `Unrecognized key: "${key}".`));
 			continue;
 		}
-		const block = ENGINES_WITH_NAMED_PRINCIPALS.has(key)
-			? withoutObsoleteEngineKey(value, path, issues)
-			: value;
-		keepBlock(result, key, block, AGENT_ENGINE_FIELD_SCHEMAS[key], profile, path, issues);
+		keepBlock(result, key, value, AGENT_ENGINE_FIELD_SCHEMAS[key], profile, path, issues);
 	}
 	return result;
 }
@@ -320,37 +317,9 @@ function salvageAcpAgents<T>(
 			issues.push(warning(path, ACP_AGENT_ID_MESSAGE));
 			continue;
 		}
-		const agent = withoutObsoleteEngineKey(entry, path, issues);
-		keepBlock(agents, agentId, agent, acpAgentEngineSchema, profile, path, issues);
+		keepBlock(agents, agentId, entry, acpAgentEngineSchema, profile, path, issues);
 	}
 	agentEngines.acp = agents;
-}
-
-/** The engine blocks that accepted `allowNamedPrincipals` (ACP agents too). */
-const ENGINES_WITH_NAMED_PRINCIPALS: ReadonlySet<string> = new Set(["copilot", "codex"]);
-
-/**
- * `allowNamedPrincipals` shipped on these blocks before every enabled engine
- * was offered to every user. Files that still set it keep their engine
- * configuration: the key is removed with a warning, where strict validation
- * would drop the whole block. Other unknown keys still drop it. Remove this
- * after one release.
- */
-function withoutObsoleteEngineKey(
-	value: unknown,
-	path: ConfigPath,
-	issues: ConfigIssue[],
-): unknown {
-	if (!isPlainObject(value) || !Object.hasOwn(value, "allowNamedPrincipals")) return value;
-	// An own `__proto__` key survives the copy, so `keepBlock()` still rejects it.
-	const { allowNamedPrincipals: _obsolete, ...rest } = value;
-	issues.push(
-		warning(
-			[...path, "allowNamedPrincipals"],
-			'"allowNamedPrincipals" is obsolete and ignored: every enabled engine is offered to every user. Remove it from the file.',
-		),
-	);
-	return rest;
 }
 
 /**
