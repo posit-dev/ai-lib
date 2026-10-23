@@ -30,7 +30,7 @@ These rules keep the dependency graph clean:
 | ----------------- | ------------------ | --------------- |
 | Anthropic         | AnthropicClient    | Cached via API  |
 | OpenAI            | OpenAIClient       | Cached via API  |
-| AWS Bedrock       | BedrockClient      | Cached via API  |
+| Amazon Bedrock    | BedrockClient      | Cached via API  |
 | Google Gemini     | GeminiClient       | Cached via API  |
 | Google Vertex AI  | GoogleVertexClient | Cached via API  |
 | DeepSeek          | DeepSeekClient     | Cached via API  |
