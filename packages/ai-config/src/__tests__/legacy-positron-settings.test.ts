@@ -479,7 +479,11 @@ describe("createLegacyPositronSourceProviders — legacy-positron source", () =>
 
 	it("returns no source when nothing is set", () => {
 		const { legacy, logger } = makeSources({});
-		expect(legacy.read()).toEqual({ source: undefined, issues: [] });
+		expect(legacy.read()).toEqual({
+			layer: expect.objectContaining({ tag: "legacy", state: "not set" }),
+			source: undefined,
+			issues: [],
+		});
 		expect(logger.warn).not.toHaveBeenCalled();
 	});
 

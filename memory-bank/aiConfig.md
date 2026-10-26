@@ -67,8 +67,11 @@ the map/translator live inside ai-config (see [Legacy Positron settings](#legacy
 Re-exports the pure entry, plus:
 
 - **Paths**: `AI_CONFIG_DIR` (`~/.posit/ai`) and `PROVIDERS_CONFIG_PATH`.
-- **Read seams**: `loadProviderCatalogReport(opts)` is the canonical report-first entry point;
+- **Read seams**: `loadProviderCatalogReport(opts)` is the canonical report-first entry point
+  (it returns the catalog, `agentEngines` with provenance, and the complete `issues` snapshot);
   `loadResolvedProviderCatalog(opts)` is its bare-catalog compatibility wrapper.
+  `explainProviderCatalog(opts)` explains the same sources on request (see Explaining the
+  catalog).
   `readUserCustomProviderEntry(providerId, opts)` is the intentionally narrow edit seam: it
   returns one full custom entry exactly as authored in the user file, before overlays or
   derivation. A missing file/entry returns `undefined`; a non-custom id raises
@@ -319,6 +322,46 @@ function retains its historical warn-once behavior. `resolveProviderCatalogRepor
 carries overlay-drop issues; `resolveProviderCatalog` renders those issues for compatibility. The
 one-shot node load renders its complete report once, while the watcher renders only newly
 added/changed issues after snapshot comparison.
+
+### Explaining the catalog (`explainProviderCatalog`)
+
+`explainProviderCatalog(opts)` (node entry; options are `LoadCatalogOptions` without `logger`)
+returns a `ProviderCatalogExplanation` for a settings report: `layers` (every layer read, highest
+precedence first, including the connection env vars, each a `ConfigLayerRef` `{ tag, label,
+detail, state }`), `entries` (one `ConfigValueTrace` `{ path, effective, rule: "highest-wins",
+note?, layers: { layer, value, status }[] }` per key some layer sets) and `issues` (read +
+resolve issues, each an `ExplainedConfigIssue` whose `scope` is `"source"` for read-stage issues
+and `"providers"` for resolve-stage recovery drops that discarded only an overlay's provider
+configuration; it has no `message`, since parser text can quote the input, so callers word issues
+from severity, scope, path and source). It is read-only and silent, and shares the loader's one source assembly
+(`readCatalogLayers` in `load-catalog.ts`, which both `loadProviderCatalogReport` and
+`explainProviderCatalog` call), so it sees exactly the sources a load resolves.
+
+- **Read state.** Each reader's report carries a `layer` (`ProviderConfigLayer`, the ref plus its
+  source `kind`). The user file is `missing` (ENOENT), `invalid` (unreadable, bad JSONC, or a
+  whole-file salvage failure; a zero-byte file is invalid, as its issue says), `empty` (sets no
+  `providers`/`agentEngines` key) or `found`; env payloads and legacy layers are `not set` when
+  absent.
+- **No second copy of precedence.** `resolveProviderCatalogReport` and the explainer both run
+  `foldProviderCatalog` (rank, recover, enablement layers, `agentEngines` fold). The explainer
+  replays the same merge step (`foldConfigLayers`, also used by `mergeAndValidate` and the
+  engine fold) with an observer: a leaf's winner is the layer holding it after the last step,
+  so Snowflake's endpoint yield and whole-object replacement (`isReplacedWholePath`, shared with
+  `deepMerge`) come out of the fold itself. Enablement uses `resolveEnabledDecision` /
+  `layerEnablement`, which `resolveEnabled` delegates to. `agentEngines` traces use the engine
+  fold's layers, so an engine setting survives an overlay recovery dropped.
+- **Statuses.** `effective`; `overridden` (a higher layer won); `no-effect` (an enforced layer
+  won); `dropped` (its source was dropped by recovery, or nothing holds the leaf after the fold).
+  Env values are tagged with their variable (`$OPENAI_BASE_URL`, from `connectionEnvVarFor`,
+  which reads the same mapping table as the env reader).
+- **Masking.** `providers-config-safe-fields.ts` declares, typed against the schema's inferred
+  types, which fields are shown (`safe`), shown without userinfo/query/fragment (`url`), or shown
+  as `"<configured>"` (`apiKeyHelper`). `stripUrlSecrets` reads a URL with a host through
+  `new URL` (so lenient spellings like `https:/user:pw@host` lose their userinfo) and otherwise
+  keeps only the text after the last `@`. Everything else renders `"<masked>"` with keys kept, so a
+  new schema field starts masked; `customHeaders.*` and every `agentEngines.acp.*` field are
+  deliberately undeclared. Issue text never quotes parser or OS messages (an unreadable file
+  names only its errno code).
 
 ### Connection provenance
 
@@ -1031,6 +1074,9 @@ the bridge's `ModelInfo` — compatible by contract, not by import.
 | `src/node/paths.ts`                          | `AI_CONFIG_DIR`, `PROVIDERS_CONFIG_PATH`, enforced env-var name, lockfile path                                                                   |
 | `src/node/types.ts`                          | Node seam option/result types (`LoadCatalogOptions`, `ProviderCatalogChange`, `Disposable`, …)                                                   |
 | `src/resolve-catalog.ts`                     | `resolveProviderCatalog()` — pure deep resolver seam; owns the precedence stack + sealed-enforced invariant                                      |
+| `src/explain-catalog.ts`                     | Internal explainer: per-key traces from the resolver's own fold, replayed with an observer                                                       |
+| `src/config-trace.ts`                        | `ConfigLayerRef` / `ConfigLayerValue` / `ConfigValueTrace` / `ProviderCatalogExplanation`                                                        |
+| `src/providers-config-safe-fields.ts`        | Schema-typed safe-field declarations; `maskProvidersConfigValue()` masks everything else                                                         |
 | `src/portkey-connection.ts`                  | Portkey key-type vocabulary, `checkPortkeyConnection()`, `inferredPortkeyKeyType()` — the one owner of Portkey cross-field rules                 |
 | `src/providers-config-invalid.ts`            | Browser-safe detail/phase types for invalid providers.json mutation failures                                                                     |
 | `src/node/providers-config-invalid-error.ts` | `ProvidersConfigInvalidError` thrown by `mutateProvidersConfig()`                                                                                |
@@ -1042,7 +1088,7 @@ the bridge's `ModelInfo` — compatible by contract, not by import.
 | `src/node/load-config.ts`                    | `loadConfigSourceReports()` / readers — silently assemble `{ source?, issues }` reports; compatibility wrapper renders and returns sources       |
 | `src/node/parse-jsonc.ts`                    | Internal JSONC parser; comments/trailing commas, null-prototype object materialization, `SyntaxError` on invalid input                           |
 | `src/node/parse-providers-config.ts`         | Internal strict `parseProvidersConfig()` mutation seam + tolerant `parseProvidersConfigTolerant()` read seam                                     |
-| `src/node/load-catalog.ts`                   | Canonical `loadProviderCatalogReport()` seam + bare-catalog `loadResolvedProviderCatalog()` compatibility wrapper                                |
+| `src/node/load-catalog.ts`                   | Canonical `loadProviderCatalogReport()` seam, `explainProviderCatalog()`, and the bare-catalog `loadResolvedProviderCatalog()` wrapper           |
 | `src/node/mutate-config.ts`                  | `mutateProvidersConfig()` — locked, atomic, serialized mutation                                                                                  |
 | `src/node/watch-catalog.ts`                  | `watchResolvedProviderCatalog()` — watch, reload, diff, emit typed changes                                                                       |
 | `src/node/index.ts`                          | Node entrypoint; re-exports pure entry + filesystem seams                                                                                        |

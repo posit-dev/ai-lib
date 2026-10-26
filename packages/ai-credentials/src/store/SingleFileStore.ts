@@ -67,15 +67,30 @@ export class SingleFileStore {
 		this.logger = logger;
 	}
 
+	/** The store's file path, for diagnostics. */
+	get location(): string {
+		return this.filePath;
+	}
+
 	// ========================================================================
 	// Read operations
 	// ========================================================================
 
 	/**
-	 * Get a value by key.
+	 * Get a value by key. Re-asserts the file's secure permissions if they
+	 * drifted.
 	 */
 	async get<T>(key: string): Promise<T | undefined> {
-		const data = await this.readStore();
+		const data = await this.readStore("repair");
+		return data[key] as T | undefined;
+	}
+
+	/**
+	 * Get a value by key without side effects: unlike {@link get}, it never
+	 * changes the file's permissions. For passive inspection (diagnostics).
+	 */
+	async peek<T>(key: string): Promise<T | undefined> {
+		const data = await this.readStore("leave");
 		return data[key] as T | undefined;
 	}
 
@@ -83,7 +98,7 @@ export class SingleFileStore {
 	 * Get all keys in the store.
 	 */
 	async keys(): Promise<string[]> {
-		const data = await this.readStore();
+		const data = await this.readStore("repair");
 		return Object.keys(data);
 	}
 
@@ -97,7 +112,7 @@ export class SingleFileStore {
 	 */
 	async set<T>(key: string, value: T): Promise<void> {
 		await this.withWriteLock(async () => {
-			const data = await this.readStore();
+			const data = await this.readStore("repair");
 			data[key] = value;
 			await this.writeStore(data);
 		});
@@ -109,7 +124,7 @@ export class SingleFileStore {
 	 */
 	async delete(key: string): Promise<void> {
 		await this.withWriteLock(async () => {
-			const data = await this.readStore();
+			const data = await this.readStore("repair");
 			delete data[key];
 			await this.writeStore(data);
 		});
@@ -286,25 +301,36 @@ export class SingleFileStore {
 	}
 
 	/**
-	 * Read and parse the store file.
-	 * Returns empty object on missing file or parse error.
+	 * Read and parse the store file, repairing drifted file permissions unless
+	 * `permissions` is `"leave"`. Returns empty object on missing file or parse
+	 * error.
 	 */
-	private async readStore(): Promise<Record<string, unknown>> {
+	private async readStore(permissions: "repair" | "leave"): Promise<Record<string, unknown>> {
+		let content: string;
 		try {
-			const content = await fs.readFile(this.filePath, "utf-8");
-			// Fix permissions on existing files
-			await this.ensurePermissions(this.filePath, 0o600);
-			return JSON.parse(content) as Record<string, unknown>;
+			content = await fs.readFile(this.filePath, "utf-8");
 		} catch (error) {
 			// File doesn't exist - return empty store
-			if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+			const code = (error as NodeJS.ErrnoException).code;
+			if (code === "ENOENT") {
 				return {};
 			}
-
-			// Parse error or other read error - log and return empty store
-			// The next set() will overwrite with valid JSON
+			// Other read error - log and return empty store, with fixed wording
+			// and the error code rather than the OS message.
 			this.logger?.warn(
-				`[SingleFileStore] Failed to read/parse ${this.filePath}: ${error instanceof Error ? error.message : String(error)}. Treating as empty store.`,
+				`[SingleFileStore] Failed to read ${this.filePath} (${code ?? "unknown error"}); treating it as an empty store.`,
+			);
+			return {};
+		}
+		// Fix permissions on existing files
+		if (permissions === "repair") await this.ensurePermissions(this.filePath, 0o600);
+		try {
+			return JSON.parse(content) as Record<string, unknown>;
+		} catch {
+			// Fixed wording: the parser's message quotes part of the input, which
+			// may be a secret. The next set() overwrites with valid JSON.
+			this.logger?.warn(
+				`[SingleFileStore] ${this.filePath} is not valid JSON; treating it as an empty store.`,
 			);
 			return {};
 		}

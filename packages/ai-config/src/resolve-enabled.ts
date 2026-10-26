@@ -43,21 +43,54 @@ export type EnablementLayer = ProvidersMap | ProvidersMapFragment | undefined;
  * optional. Only `enabled` is read here.
  */
 export function resolveEnabled(providerId: string, layers: readonly EnablementLayer[]): boolean {
-	for (const layer of layers) {
-		// Per-provider block wins over the layer's default block.
-		const block = getProviderBlock(layer, providerId);
-		if (block?.enabled !== undefined) {
-			return block.enabled;
-		}
-		const layerDefault = getDefaultBlock(layer);
-		if (layerDefault?.enabled !== undefined) {
-			return layerDefault.enabled;
+	return resolveEnabledDecision(providerId, layers).enabled;
+}
+
+/** What one layer says about a provider's enablement, and from which block. */
+export interface LayerEnablement {
+	readonly enabled: boolean;
+	/** `provider`: the provider's own block; `default`: the layer's `providers.default`. */
+	readonly via: "provider" | "default";
+}
+
+/**
+ * What one layer says about `providerId`'s enablement: its own block's
+ * `enabled`, else the layer's `default.enabled`. `providerId` undefined asks
+ * about a provider the layer does not name, so only `default` can answer.
+ */
+export function layerEnablement(
+	layer: EnablementLayer,
+	providerId: string | undefined,
+): LayerEnablement | undefined {
+	const block = providerId === undefined ? undefined : getProviderBlock(layer, providerId);
+	if (block?.enabled !== undefined) {
+		return { enabled: block.enabled, via: "provider" };
+	}
+	const layerDefault = getDefaultBlock(layer);
+	if (layerDefault?.enabled !== undefined) {
+		return { enabled: layerDefault.enabled, via: "default" };
+	}
+	return undefined;
+}
+
+/**
+ * {@link resolveEnabled} with the index (into `layers`) of the layer that
+ * decided, absent when no layer does and the provider is enabled.
+ */
+export function resolveEnabledDecision(
+	providerId: string | undefined,
+	layers: readonly EnablementLayer[],
+): { readonly enabled: boolean; readonly decidedBy?: number } {
+	for (const [index, layer] of layers.entries()) {
+		const decision = layerEnablement(layer, providerId);
+		if (decision) {
+			return { enabled: decision.enabled, decidedBy: index };
 		}
 	}
 
 	// No config layer decides: enabled. All platforms support all providers;
 	// restrictions belong to config layers, not the host.
-	return true;
+	return { enabled: true };
 }
 
 /**

@@ -13,7 +13,8 @@
  */
 
 import type { SourcedConfigIssue } from "./config-issue.js";
-import type { ProviderConfigSource } from "./resolve-catalog.js";
+import type { ConfigLayerRef } from "./config-trace.js";
+import type { ProviderConfigSource, ProviderConfigSourceKind } from "./resolve-catalog.js";
 import type { ProvidersConfigFragment } from "./types.js";
 
 /**
@@ -23,12 +24,25 @@ export interface Disposable {
 	dispose(): void;
 }
 
+/** A layer as read, with the precedence role it plays. */
+export interface ProviderConfigLayer extends ConfigLayerRef {
+	readonly kind: ProviderConfigSourceKind;
+}
+
 /** Complete result of reading one config source at a point in time. */
 export interface ProviderConfigSourceReadReport {
+	/** The layer and how it read, present even when it contributes nothing. */
+	readonly layer: ProviderConfigLayer;
 	/** Absent when the layer currently contributes no config. */
 	readonly source?: ProviderConfigSource;
 	/** Current issues for this source, including an empty recovered snapshot. */
 	readonly issues: SourcedConfigIssue[];
+}
+
+/** `found` when `config` sets anything a resolver reads, else `empty`. */
+export function presentLayerState(config: ProvidersConfigFragment): "found" | "empty" {
+	const sets = (block: object | undefined) => !!block && Object.keys(block).length > 0;
+	return sets(config.providers) || sets(config.agentEngines) ? "found" : "empty";
 }
 
 /**
@@ -55,6 +69,13 @@ export function createHostDefaultsSourceProviders(
 	return [
 		{
 			read: () => ({
+				layer: {
+					kind: "default",
+					tag: "host",
+					label: "host defaults",
+					detail: "set by the app",
+					state: presentLayerState(hostDefaults),
+				},
 				source: { kind: "default", label: "host defaults", config: hostDefaults },
 				issues: [],
 			}),

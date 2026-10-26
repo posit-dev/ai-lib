@@ -22,7 +22,6 @@ import { configIssueSource, formatConfigIssue, sourcedWholeSourceIssue } from ".
 import type { ConfigIssue, SourcedConfigIssue } from "./config-issue.js";
 import { readEnvConnectionConfig } from "./connection-env.js";
 import { mergeConfigFragments } from "./enforce.js";
-import type { EnablementLayer } from "./resolve-enabled.js";
 import { salvageProvidersConfigFragment } from "./salvage-config.js";
 import { providersConfigSchema } from "./schema.js";
 import type {
@@ -88,7 +87,7 @@ export type ProviderConfigSourceKind =
 type ConnectionEnvSource = { kind: "env"; label: string; config: ProvidersConfigFragment };
 
 /** Union of all source types the resolver handles internally. */
-type RankedConfigSource = ProviderConfigSource | ConnectionEnvSource;
+export type RankedConfigSource = ProviderConfigSource | ConnectionEnvSource;
 
 /**
  * Fixed precedence rank — lower number = higher precedence.
@@ -101,7 +100,7 @@ type RankedConfigSource = ProviderConfigSource | ConnectionEnvSource;
  * see the ordering doc on {@link ProviderConfigSourceKind}; do not "tidy"
  * them adjacent.
  */
-const RANK: Readonly<Record<RankedConfigSource["kind"], number>> = {
+export const RANK: Readonly<Record<RankedConfigSource["kind"], number>> = {
 	enforced: 0,
 	"legacy-positron-enforced": 1, // PROVIDER-SETTINGS-MIGRATION(legacy-positron)
 	env: 2,
@@ -204,6 +203,45 @@ export function resolveProviderCatalog(
 export function resolveProviderCatalogReport(
 	opts: ResolveProviderCatalogOptions,
 ): ProviderCatalogReport {
+	const fold = foldProviderCatalog(opts);
+	const connectionProvenance = resolveConnectionProvenance(fold.kept, fold.config);
+	const authPolicies = resolveAuthPolicies(fold.kept, fold.config);
+	return {
+		catalog: buildCatalog(
+			fold.config,
+			fold.enablement.map((source) => source.config.providers),
+			connectionProvenance,
+			authPolicies,
+		),
+		agentEngines: fold.engines.agentEngines,
+		agentEnginesProvenance: fold.engines.provenance,
+		issues: fold.issues,
+	};
+}
+
+/**
+ * The resolver's precedence decisions over one source stack, before the
+ * catalog is built. Internal: shared by {@link resolveProviderCatalogReport}
+ * and the explainer, so both read the same fold.
+ */
+export interface ProviderCatalogFold {
+	/** Every source including the connection env source, highest precedence first. */
+	readonly highestFirst: readonly RankedConfigSource[];
+	/** The sources recovery kept, highest precedence first. */
+	readonly kept: readonly RankedConfigSource[];
+	/** The validated merge of the kept sources (no `agentEngines`). */
+	readonly config: ProvidersConfig;
+	/** Enablement layers: the kept non-env sources' `providers` maps, highest first. */
+	readonly enablement: readonly ProviderConfigSource[];
+	readonly engines: AgentEnginesFold;
+	/** Recovery drops, then `agentEngines` salvage issues. */
+	readonly issues: readonly SourcedConfigIssue[];
+}
+
+/** Rank the sources, recover a valid stack, and fold `agentEngines`. */
+export function foldProviderCatalog(
+	opts: Pick<ResolveProviderCatalogOptions, "sources" | "envVars">,
+): ProviderCatalogFold {
 	const { sources, envVars } = opts;
 
 	// Synthesize the private env source from envVars. Skipped when the
@@ -222,18 +260,65 @@ export function resolveProviderCatalogReport(
 
 	// Derive enablement layers excluding the env source — it carries only
 	// connection fields, so it must never influence enablement resolution.
-	const enabledLayers = kept
-		.filter((s): s is ProviderConfigSource => s.kind !== "env")
-		.map<EnablementLayer>((s) => s.config.providers);
-	const connectionProvenance = resolveConnectionProvenance(kept, config);
-	const authPolicies = resolveAuthPolicies(kept, config);
+	const enablement = kept.filter((s): s is ProviderConfigSource => s.kind !== "env");
 	const engines = resolveAgentEngines(highestFirst);
 	return {
-		catalog: buildCatalog(config, enabledLayers, connectionProvenance, authPolicies),
-		agentEngines: engines.agentEngines,
-		agentEnginesProvenance: engines.provenance,
+		highestFirst,
+		kept,
+		config,
+		enablement,
+		engines,
 		issues: [...issues, ...engines.issues],
 	};
+}
+
+/**
+ * Fold layers given highest precedence first, from lowest to highest, with
+ * the one merge step every resolver fold uses. `observe` sees each step's
+ * layer, the fragment it contributed and the merged result after it.
+ */
+export function foldConfigLayers<L>(
+	highestFirst: readonly L[],
+	fragmentOf: (layer: L) => ProvidersConfigFragment,
+	observe?: (layer: L, fragment: ProvidersConfigFragment, merged: ProvidersConfigFragment) => void,
+): ProvidersConfigFragment {
+	let merged: ProvidersConfigFragment = {};
+	for (let i = highestFirst.length - 1; i >= 0; i--) {
+		const fragment = fragmentOf(highestFirst[i]);
+		merged = mergeConfigFragments(yieldSnowflakeEndpoint(merged, fragment), fragment);
+		observe?.(highestFirst[i], fragment, merged);
+	}
+	return merged;
+}
+
+/**
+ * A source's contribution to the provider fold. `agentEngines` is left out:
+ * {@link resolveAgentEngines} owns it, so an engine problem never drops an
+ * overlay's provider policy.
+ */
+export function providerFragmentOf(source: RankedConfigSource): ProvidersConfigFragment {
+	const { agentEngines: _owned, ...fragment } = source.config;
+	return fragment;
+}
+
+/** An engine layer's contribution to the `agentEngines` fold. */
+export function engineFragmentOf(layer: AgentEnginesLayer): ProvidersConfigFragment {
+	return { agentEngines: layer.block };
+}
+
+/** One source's salvaged `agentEngines` block. */
+export interface AgentEnginesLayer {
+	readonly source: ProviderConfigSource;
+	readonly block: AgentEnginesConfig;
+}
+
+/** The `agentEngines` fold: the merged block, its flag provenance, and the layers folded. */
+export interface AgentEnginesFold {
+	readonly agentEngines: AgentEnginesConfig;
+	readonly provenance: ResolvedAgentEnginesProvenance;
+	/** Every source with a usable block, highest precedence first. */
+	readonly layers: readonly AgentEnginesLayer[];
+	readonly issues: SourcedConfigIssue[];
 }
 
 /**
@@ -251,17 +336,11 @@ export function resolveProviderCatalogReport(
  * highest-precedence source that sets the master switch or an engine's
  * `enabled`.
  */
-function resolveAgentEngines(highestFirst: readonly RankedConfigSource[]): {
-	agentEngines: AgentEnginesConfig;
-	provenance: ResolvedAgentEnginesProvenance;
-	issues: SourcedConfigIssue[];
-} {
-	let merged: ProvidersConfigFragment = {};
-	// Highest precedence first.
-	const blocks: { role: ResolvedAgentEngineFlagSource; block: AgentEnginesConfig }[] = [];
+function resolveAgentEngines(highestFirst: readonly RankedConfigSource[]): AgentEnginesFold {
+	// Highest precedence first; issues are collected lowest first.
+	const layers: AgentEnginesLayer[] = [];
 	const issues: SourcedConfigIssue[] = [];
-	for (let i = highestFirst.length - 1; i >= 0; i--) {
-		const source = highestFirst[i];
+	for (const source of [...highestFirst].reverse()) {
 		// The env source carries connection fields only.
 		if (source.kind === "env") continue;
 		const { agentEngines } = source.config;
@@ -275,13 +354,13 @@ function resolveAgentEngines(highestFirst: readonly RankedConfigSource[]): {
 				];
 		issues.push(...blockIssues.map((issue) => ({ ...issue, source: configIssueSource(source) })));
 		const block = salvaged.ok ? salvaged.config.agentEngines : undefined;
-		if (block) {
-			merged = mergeConfigFragments(merged, { agentEngines: block });
-			blocks.unshift({ role: sourceRole(source.kind), block });
-		}
+		if (block) layers.unshift({ source, block });
 	}
-	const decidedBy = (flag: (block: AgentEnginesConfig) => boolean | undefined) =>
-		blocks.find(({ block }) => flag(block) !== undefined)?.role ?? "unset";
+	const merged = foldConfigLayers(layers, engineFragmentOf);
+	const decidedBy = (flag: (block: AgentEnginesConfig) => boolean | undefined) => {
+		const layer = layers.find(({ block }) => flag(block) !== undefined);
+		return layer ? sourceRole(layer.source.kind) : "unset";
+	};
 	return {
 		agentEngines: merged.agentEngines ?? {},
 		provenance: {
@@ -290,6 +369,7 @@ function resolveAgentEngines(highestFirst: readonly RankedConfigSource[]): {
 			copilot: { enabled: decidedBy((block) => block.copilot?.enabled) },
 			codex: { enabled: decidedBy((block) => block.codex?.enabled) },
 		},
+		layers,
 		issues,
 	};
 }
@@ -592,19 +672,23 @@ function chooseDroppedSource(
 
 /**
  * Fold a highest-first source list from lowest → highest precedence into a
- * single config and validate it with the full schema. `agentEngines` is left
- * out: {@link resolveAgentEngines} owns it, so an engine problem never drops
- * an overlay's provider policy.
+ * single config and validate it with the full schema.
  */
 function mergeAndValidate(
 	highestFirst: readonly RankedConfigSource[],
 ): ReturnType<typeof providersConfigSchema.safeParse> {
-	let merged: ProvidersConfigFragment = {};
-	for (let i = highestFirst.length - 1; i >= 0; i--) {
-		const { agentEngines: _owned, ...layer } = highestFirst[i].config;
-		merged = mergeConfigFragments(yieldSnowflakeEndpoint(merged, layer), layer);
-	}
-	return providersConfigSchema.safeParse(merged);
+	return providersConfigSchema.safeParse(foldConfigLayers(highestFirst, providerFragmentOf));
+}
+
+/**
+ * Whether `path` is one of the fields {@link yieldSnowflakeEndpoint} treats
+ * as Snowflake's single endpoint setting.
+ */
+export function isSnowflakeEndpointPath(path: readonly string[]): boolean {
+	const [root, providerId, ...field] = path;
+	if (root !== "providers" || providerId !== "snowflake-cortex") return false;
+	const key = field.join(".");
+	return key === "baseUrl" || key === "snowflake.account" || key === "snowflake.host";
 }
 
 /**

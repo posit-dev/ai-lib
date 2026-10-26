@@ -196,6 +196,23 @@ describe("SingleFileStore", () => {
 			await store.set("key", "value");
 			expect(await store.get("key")).toBe("value");
 		});
+
+		it("logs fixed wording, never the file contents, for malformed JSON", async () => {
+			const secret = "sk-SEEDED-SECRET";
+			const warn = vi.fn();
+			const logged = new SingleFileStore({ filePath: fixture.filePath }, { debug: vi.fn(), warn });
+			await fs.writeFile(fixture.filePath, `{"auth:openai:apikey": "${secret}"`);
+
+			expect(await logged.get("key")).toBeUndefined();
+			expect(await logged.peek("key")).toBeUndefined();
+
+			expect(warn).toHaveBeenCalledTimes(2);
+			for (const [message] of warn.mock.calls) {
+				expect(message).toBe(
+					`[SingleFileStore] ${fixture.filePath} is not valid JSON; treating it as an empty store.`,
+				);
+			}
+		});
 	});
 
 	// ========================================================================
@@ -443,6 +460,26 @@ describe("SingleFileStore", () => {
 				const stats = await fs.stat(path.join(fixture.directory, "secure-dir"));
 				const mode = stats.mode & 0o777;
 				expect(mode).toBe(0o700);
+			});
+
+			it("repairs drifted file permissions on an ordinary read", async () => {
+				await store.set("key", "value");
+				await fs.chmod(fixture.filePath, 0o644);
+
+				expect(await store.get("key")).toBe("value");
+
+				expect((await fs.stat(fixture.filePath)).mode & 0o777).toBe(0o600);
+			});
+
+			it("leaves file permissions and contents alone on a passive read", async () => {
+				await store.set("key", "value");
+				await fs.chmod(fixture.filePath, 0o644);
+				const before = await fs.readFile(fixture.filePath, "utf-8");
+
+				expect(await store.peek("key")).toBe("value");
+
+				expect((await fs.stat(fixture.filePath)).mode & 0o777).toBe(0o644);
+				expect(await fs.readFile(fixture.filePath, "utf-8")).toBe(before);
 			});
 		});
 	}

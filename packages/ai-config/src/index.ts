@@ -234,6 +234,7 @@ export type {
 	ResolveProviderCatalogOptions,
 } from "./resolve-catalog.js";
 export type { ConfigIssue, SourcedConfigIssue } from "./config-issue.js";
+export type { ExplainedConfigIssue, ProviderCatalogExplanation } from "./config-trace.js";
 export type {
 	ProvidersConfigInvalidDetail,
 	ProvidersConfigInvalidPhase,
@@ -245,6 +246,9 @@ export { salvageProvidersConfig } from "./salvage-config.js";
 
 // --- Disposable (returned by LegacySettingsReader.watch) --------------------
 export type { Disposable, ProviderConfigSourceReadReport } from "./config-source.js";
+
+// --- Settings-report value helpers ---------------------------------------------
+export { isScalarOrScalarList, stripUrlSecrets } from "./providers-config-safe-fields.js";
 
 // --- Enforcement merge -----------------------------------------------------
 export { mergeConfigFragments, mergeEnforced } from "./enforce.js";
