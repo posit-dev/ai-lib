@@ -87,7 +87,11 @@ describe("watchResolvedProviderCatalog", () => {
 			providers: { anthropic: { enabled: true } },
 		});
 		const probe = createChangeProbe();
-		const watcher = watchResolvedProviderCatalog(probe.handler, { configPath, logger: mockLogger });
+		const watcher = watchResolvedProviderCatalog(probe.handler, {
+			configPath,
+			envVars: process.env,
+			logger: mockLogger,
+		});
 		await awaitReady(watcher);
 
 		const changed = probe.next((change) => change.enabledChanged, "enablement change");
@@ -104,7 +108,11 @@ describe("watchResolvedProviderCatalog", () => {
 	it("should fire when only agentEngines changes", async () => {
 		await fixture.writeTypedConfig({ agentEngines: { claude: { enabled: false } } });
 		const probe = createChangeProbe();
-		const watcher = watchResolvedProviderCatalog(probe.handler, { configPath, logger: mockLogger });
+		const watcher = watchResolvedProviderCatalog(probe.handler, {
+			configPath,
+			envVars: process.env,
+			logger: mockLogger,
+		});
 		await awaitReady(watcher);
 
 		const changed = probe.next((change) => change.agentEnginesChanged, "agentEngines change");
@@ -150,7 +158,11 @@ describe("watchResolvedProviderCatalog", () => {
 			providers: { anthropic: { baseUrl: "https://a.example.com" } },
 		});
 		const probe = createChangeProbe();
-		const watcher = watchResolvedProviderCatalog(probe.handler, { configPath, logger: mockLogger });
+		const watcher = watchResolvedProviderCatalog(probe.handler, {
+			configPath,
+			envVars: process.env,
+			logger: mockLogger,
+		});
 		await awaitReady(watcher);
 
 		const changed = probe.next((change) => change.connectionChanged, "connection change");
@@ -197,7 +209,11 @@ describe("watchResolvedProviderCatalog", () => {
 			},
 		});
 		const probe = createChangeProbe();
-		const watcher = watchResolvedProviderCatalog(probe.handler, { configPath, logger: mockLogger });
+		const watcher = watchResolvedProviderCatalog(probe.handler, {
+			configPath,
+			envVars: process.env,
+			logger: mockLogger,
+		});
 		await awaitReady(watcher);
 
 		const changed = probe.next((change) => change.connectionChanged, "product-only edit");
@@ -219,7 +235,11 @@ describe("watchResolvedProviderCatalog", () => {
 	it("should stop firing after dispose", async () => {
 		await fixture.writeTypedConfig({});
 		const probe = createChangeProbe();
-		const watcher = watchResolvedProviderCatalog(probe.handler, { configPath, logger: mockLogger });
+		const watcher = watchResolvedProviderCatalog(probe.handler, {
+			configPath,
+			envVars: process.env,
+			logger: mockLogger,
+		});
 		await awaitReady(watcher);
 
 		watcher.dispose();
@@ -243,7 +263,11 @@ describe("watchResolvedProviderCatalog", () => {
 			},
 		});
 		const probe = createChangeProbe();
-		const watcher = watchResolvedProviderCatalog(probe.handler, { configPath, logger: mockLogger });
+		const watcher = watchResolvedProviderCatalog(probe.handler, {
+			configPath,
+			envVars: process.env,
+			logger: mockLogger,
+		});
 		await awaitReady(watcher);
 
 		const changed = probe.next((change) => change.connectionChanged, "custom provider type change");
@@ -277,7 +301,11 @@ describe("watchResolvedProviderCatalog", () => {
 			},
 		});
 		const probe = createChangeProbe();
-		const watcher = watchResolvedProviderCatalog(probe.handler, { configPath, logger: mockLogger });
+		const watcher = watchResolvedProviderCatalog(probe.handler, {
+			configPath,
+			envVars: process.env,
+			logger: mockLogger,
+		});
 		await awaitReady(watcher);
 
 		const policyToggle = probe.next((change) => change.connectionChanged, "auth policy toggle");
@@ -320,6 +348,7 @@ describe("watchResolvedProviderCatalog", () => {
 		};
 		const probe = createChangeProbe();
 		const watcher = watchResolvedProviderCatalog(probe.handler, {
+			envVars: process.env,
 			configPath,
 			logger: mockLogger,
 			legacyPositronSettings: reader,
@@ -372,7 +401,11 @@ describe("watchResolvedProviderCatalog", () => {
 	it("should include the full catalog in change events", async () => {
 		await fixture.writeTypedConfig({});
 		const probe = createChangeProbe();
-		const watcher = watchResolvedProviderCatalog(probe.handler, { configPath, logger: mockLogger });
+		const watcher = watchResolvedProviderCatalog(probe.handler, {
+			configPath,
+			envVars: process.env,
+			logger: mockLogger,
+		});
 		await awaitReady(watcher);
 
 		const changed = probe.next((change) => change.enabledChanged, "full catalog event");
@@ -392,7 +425,11 @@ describe("watchResolvedProviderCatalog", () => {
 		};
 		await fixture.writeRawJsonc(JSON.stringify(valid));
 		const probe = createChangeProbe();
-		const watcher = watchResolvedProviderCatalog(probe.handler, { configPath, logger: mockLogger });
+		const watcher = watchResolvedProviderCatalog(probe.handler, {
+			configPath,
+			envVars: process.env,
+			logger: mockLogger,
+		});
 		await awaitReady(watcher);
 
 		const added = probe.next((change) => change.issuesChanged, "issue addition");
