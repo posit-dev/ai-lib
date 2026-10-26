@@ -92,13 +92,11 @@ function createOpenAIModelFetcher(
 			const typedData = data as {
 				data: Array<{ id: string; object: string; owned_by: string }>;
 			};
-			// Filter to GPT models only (skip embeddings, audio, etc.)
+			// Filter to GPT-4+ and o-series models (skip embeddings, audio, GPT-3.5,
+			// etc.); later generations are admitted so they list before a table update.
 			const chatModels = typedData.data.filter(
 				(model) =>
-					(model.id.startsWith("gpt-6") ||
-						model.id.startsWith("gpt-5") ||
-						model.id.startsWith("gpt-4") ||
-						model.id.startsWith("o")) &&
+					(Number(/^gpt-(\d+)/.exec(model.id)?.[1] ?? 0) >= 4 || model.id.startsWith("o")) &&
 					!model.id.includes("instruct"), // Exclude legacy instruct models
 			);
 

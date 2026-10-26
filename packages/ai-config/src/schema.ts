@@ -911,14 +911,6 @@ export const providersMapFragmentSchema = z
 const PATH_RESOLUTION_NOTE =
 	"Paths starting with ~ are expanded; relative paths resolve against the Posit Assistant storage directory.";
 
-const allowNamedPrincipalsField = (detail: string) =>
-	z
-		.boolean()
-		.describe(
-			`Offer the engine to named principals on a multi-user server. Default false. ${detail}`,
-		)
-		.optional();
-
 export const claudeAgentEngineSchema = z
 	.object({
 		enabled: z
@@ -969,9 +961,6 @@ export const copilotAgentEngineSchema = z
 				"The Copilot model a conversation runs on when none is chosen. Empty or unset uses Copilot's default.",
 			)
 			.optional(),
-		allowNamedPrincipals: allowNamedPrincipalsField(
-			"Each then runs its own Copilot runtime with its own HOME and data directory under its storage, never the operator's GitHub sign-in.",
-		),
 	})
 	.strict()
 	.describe("The GitHub Copilot engine.");
@@ -1002,9 +991,6 @@ export const codexAgentEngineSchema = z
 				"The Codex model a conversation runs on when none is chosen. Empty or unset uses Codex's default.",
 			)
 			.optional(),
-		allowNamedPrincipals: allowNamedPrincipalsField(
-			"Each then runs Codex with its own CODEX_HOME, HOME and temp directory under its storage, never the operator's credentials.",
-		),
 	})
 	.strict()
 	.describe("The Codex engine.");
@@ -1039,12 +1025,9 @@ export const acpAgentEngineSchema = z
 		env: z
 			.record(z.string().describe("Variable name."), z.string().describe("Variable value."))
 			.describe(
-				"Extra environment variables for the agent, on top of a minimal ambient set (PATH, HOME, locale, temp dir, terminal). Posit Assistant's own secrets are never passed.",
+				"Environment variables for the agent, applied over the workload environment that Posit Assistant's shell commands also receive (after `env.filter` and `env.set`). They apply to every user.",
 			)
 			.optional(),
-		allowNamedPrincipals: allowNamedPrincipalsField(
-			"Each then runs the agent with its own HOME under its storage, never the operator's login.",
-		),
 	})
 	.strict()
 	.describe("An Agent Client Protocol agent. A higher layer's entry replaces this one whole.");

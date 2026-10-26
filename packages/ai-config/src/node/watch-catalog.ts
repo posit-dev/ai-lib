@@ -55,7 +55,7 @@ import type {
  * `settingsFileWatcher.ts`). Env sources are static (read once per rebuild).
  *
  * @param handler - Called with the change event whenever any source changes.
- * @param opts - Optional path/env overrides and the optional legacy opt-ins
+ * @param opts - Required environment, optional path overrides and legacy opt-ins
  *   (`legacyPositronSettings` reader, `legacyPositronEnforcedSettings` flag).
  * @returns Watch handle whose readiness promise settles after the initial
  * snapshot is loaded and whose disposable remains backward compatible.
@@ -65,7 +65,7 @@ export function watchResolvedProviderCatalog(
 	opts: WatchCatalogOptions,
 ): WatchCatalogHandle {
 	const configPath = opts.configPath ?? PROVIDERS_CONFIG_PATH;
-	const env = opts.envVars ?? process.env;
+	const env = opts.envVars;
 	const logger = opts.logger;
 
 	// Assemble the watchable sources: file (watchable) + env fragments
@@ -94,8 +94,7 @@ export function watchResolvedProviderCatalog(
 
 			const resolver = resolveProviderCatalogReport({
 				sources,
-				// Node seam: inject the resolved env (process.env by default) so
-				// the pure resolver stays free of Node globals.
+				// The pure resolver cannot read Node globals.
 				envVars: env,
 			});
 			const current: CatalogSnapshot = {

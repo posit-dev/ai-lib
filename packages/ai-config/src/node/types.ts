@@ -58,10 +58,14 @@ export interface LoadCatalogOptions {
 	 * Environment variables for non-secret connection fields (converted into a
 	 * resolver-owned source ranked below `enforced` but above
 	 * `user`/`legacy-positron`/`default`) AND for reading the enforced/default
-	 * fragment env vars. Defaults to `process.env` when omitted. Useful for
-	 * testing.
+	 * fragment env vars.
+	 *
+	 * Required to prevent an ambient fallback from silently losing admin tiers
+	 * after a host deletes their variables from `process.env`. Such hosts must
+	 * pass an environment that retains those values. Pass `process.env` for
+	 * live reads.
 	 */
-	readonly envVars?: Record<string, string | undefined>;
+	readonly envVars: Record<string, string | undefined>;
 
 	/**
 	 * PROVIDER-SETTINGS-MIGRATION(legacy-positron): opt in to the user-set
@@ -85,8 +89,8 @@ export interface LoadCatalogOptions {
 	 * closes.
 	 *
 	 * `true` enables the `legacy-positron-enforced` layer:
-	 * POSITRON_ENFORCED_SETTINGS, read from the loader's `envVars` (default
-	 * `process.env`), above `user`, below `enforced`. Unset or `false`
+	 * `POSITRON_ENFORCED_SETTINGS`, read from the loader's `envVars` and ranked
+	 * above `user` and below `enforced`. Unset or `false`
 	 * disables it.
 	 *
 	 * Independent of {@link legacyPositronSettings} so hosts on Positron

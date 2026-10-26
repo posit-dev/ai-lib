@@ -192,7 +192,20 @@ export class OpenAIClient implements ModelClient {
 										// sent back on subsequent stateless turns.
 										store: false,
 										reasoningEffort: params.thinkingEffort,
-										reasoningSummary: "detailed",
+										...(effectiveApiMode === "responses"
+											? {
+													// The SDK only recognizes `o\d+` / `gpt-5+` IDs as
+													// reasoning models; on Responses any other ID (Qwen,
+													// deployment names, …) would drop `reasoning` and the
+													// encrypted-content include. Forcing also sends the system
+													// prompt as the `developer` role, which Responses defines
+													// natively. Not forced on Chat, where `developer` and
+													// `max_completion_tokens` break many compatible servers.
+													forceReasoning: true,
+													// Responses-only; Chat drops it with a warning.
+													reasoningSummary: "detailed",
+												}
+											: {}),
 									}
 								: {}),
 						},

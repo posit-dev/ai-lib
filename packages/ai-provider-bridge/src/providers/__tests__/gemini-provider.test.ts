@@ -106,10 +106,11 @@ describe("registerGeminiProvider model discovery", () => {
 									outputTokenLimit: 65536,
 									supportedGenerationMethods: ["generateContent", "countTokens"],
 								},
-								// Unprofiled but chat-shaped: discoverable, no levels
+								// Unprofiled but chat-shaped, and older than the newest
+								// Pro profile: discoverable, no levels
 								{
-									name: "models/gemini-3.5-flash-lite",
-									displayName: "Gemini 3.5 Flash Lite",
+									name: "models/gemini-3-pro-preview",
+									displayName: "Gemini 3 Pro Preview",
 									inputTokenLimit: 1048576,
 									outputTokenLimit: 65536,
 									supportedGenerationMethods: ["generateContent", "countTokens"],
@@ -149,7 +150,7 @@ describe("registerGeminiProvider model discovery", () => {
 			apiKey: "key",
 		});
 
-		expect(models.map((model) => model.id)).toEqual(["gemini-3.6-flash", "gemini-3.5-flash-lite"]);
+		expect(models.map((model) => model.id)).toEqual(["gemini-3.6-flash", "gemini-3-pro-preview"]);
 
 		// Profiled model: levels from the ai-config table, live token overlay
 		expect(models[0]).toMatchObject({

@@ -78,6 +78,7 @@ describe("loadResolvedProviderCatalog", () => {
 			await fixture.writeRawJsonc(raw);
 
 			const report = await loadProviderCatalogReport({
+				envVars: process.env,
 				configPath,
 			});
 
@@ -98,6 +99,7 @@ describe("loadResolvedProviderCatalog", () => {
 			);
 
 			const report = await loadProviderCatalogReport({
+				envVars: process.env,
 				configPath,
 				logger: mockLogger,
 			});
@@ -125,6 +127,7 @@ describe("loadResolvedProviderCatalog", () => {
 			);
 
 			const report = await loadProviderCatalogReport({
+				envVars: process.env,
 				configPath,
 				logger: mockLogger,
 			});
@@ -158,6 +161,7 @@ describe("loadResolvedProviderCatalog", () => {
 			);
 
 			const catalog = await loadResolvedProviderCatalog({
+				envVars: process.env,
 				configPath,
 				logger: mockLogger,
 			});
@@ -170,6 +174,7 @@ describe("loadResolvedProviderCatalog", () => {
 
 		it("should return all built-in providers when file is missing", async () => {
 			const catalog = await loadResolvedProviderCatalog({
+				envVars: process.env,
 				configPath,
 				logger: mockLogger,
 			});
@@ -183,6 +188,7 @@ describe("loadResolvedProviderCatalog", () => {
 			await fixture.writeTypedConfig({});
 
 			const catalog = await loadResolvedProviderCatalog({
+				envVars: process.env,
 				configPath,
 				logger: mockLogger,
 			});
@@ -205,6 +211,7 @@ describe("loadResolvedProviderCatalog", () => {
 			});
 
 			const catalog = await loadResolvedProviderCatalog({
+				envVars: process.env,
 				configPath,
 				logger: mockLogger,
 			});
@@ -221,6 +228,7 @@ describe("loadResolvedProviderCatalog", () => {
 			});
 
 			const catalog = await loadResolvedProviderCatalog({
+				envVars: process.env,
 				configPath,
 				logger: mockLogger,
 			});
@@ -251,6 +259,7 @@ describe("loadResolvedProviderCatalog", () => {
 			);
 
 			const catalog = await loadResolvedProviderCatalog({
+				envVars: process.env,
 				configPath,
 				enforcedEnvVar: "TEST_ENFORCED",
 				logger: mockLogger,
@@ -276,6 +285,7 @@ describe("loadResolvedProviderCatalog", () => {
 			);
 
 			const catalog = await loadResolvedProviderCatalog({
+				envVars: process.env,
 				configPath,
 				enforcedEnvVar: "TEST_ENFORCED",
 				logger: mockLogger,
@@ -292,6 +302,7 @@ describe("loadResolvedProviderCatalog", () => {
 			vi.stubEnv("TEST_ENFORCED", "not valid json{{{");
 
 			const catalog = await loadResolvedProviderCatalog({
+				envVars: process.env,
 				configPath,
 				enforcedEnvVar: "TEST_ENFORCED",
 				logger: mockLogger,
@@ -331,6 +342,7 @@ describe("loadResolvedProviderCatalog", () => {
 			);
 
 			const catalog = await loadResolvedProviderCatalog({
+				envVars: process.env,
 				configPath,
 				enforcedEnvVar: "TEST_ENFORCED",
 				logger: mockLogger,
@@ -364,6 +376,7 @@ describe("loadResolvedProviderCatalog", () => {
 			);
 
 			const catalog = await loadResolvedProviderCatalog({
+				envVars: process.env,
 				configPath,
 				enforcedEnvVar: "TEST_ENFORCED",
 				logger: mockLogger,
@@ -389,6 +402,7 @@ describe("loadResolvedProviderCatalog", () => {
 			vi.stubEnv("TEST_DEFAULT", JSON.stringify({ providers: { default: { enabled: false } } }));
 
 			const catalog = await loadResolvedProviderCatalog({
+				envVars: process.env,
 				configPath,
 				defaultEnvVar: "TEST_DEFAULT",
 				logger: mockLogger,
@@ -405,6 +419,7 @@ describe("loadResolvedProviderCatalog", () => {
 			vi.stubEnv("TEST_DEFAULT", JSON.stringify({ providers: { default: { enabled: false } } }));
 
 			const catalog = await loadResolvedProviderCatalog({
+				envVars: process.env,
 				configPath,
 				defaultEnvVar: "TEST_DEFAULT",
 				logger: mockLogger,
@@ -423,6 +438,7 @@ describe("loadResolvedProviderCatalog", () => {
 			vi.stubEnv("TEST_ENFORCED", JSON.stringify({ providers: { anthropic: { enabled: false } } }));
 
 			const catalog = await loadResolvedProviderCatalog({
+				envVars: process.env,
 				configPath,
 				enforcedEnvVar: "TEST_ENFORCED",
 				defaultEnvVar: "TEST_DEFAULT",
@@ -830,6 +846,7 @@ describe("loadResolvedProviderCatalog", () => {
 			await fixture.writeTypedConfig({});
 
 			const catalog = await loadResolvedProviderCatalog({
+				envVars: process.env,
 				configPath,
 				logger: mockLogger,
 			});
@@ -841,6 +858,7 @@ describe("loadResolvedProviderCatalog", () => {
 			await fixture.writeTypedConfig({});
 
 			const catalog = await loadResolvedProviderCatalog({
+				envVars: process.env,
 				configPath,
 				logger: mockLogger,
 			});
@@ -852,6 +870,7 @@ describe("loadResolvedProviderCatalog", () => {
 			await fixture.writeTypedConfig({});
 
 			const catalog = await loadResolvedProviderCatalog({
+				envVars: process.env,
 				configPath,
 				logger: mockLogger,
 			});
@@ -872,6 +891,7 @@ describe("loadResolvedProviderCatalog", () => {
 			await fixture.writeTypedConfig({});
 
 			const catalog = await loadResolvedProviderCatalog({
+				envVars: process.env,
 				configPath,
 				logger: mockLogger,
 			});
@@ -885,6 +905,7 @@ describe("loadResolvedProviderCatalog", () => {
 			await fixture.writeTypedConfig({});
 
 			const catalog = await loadResolvedProviderCatalog({
+				envVars: process.env,
 				configPath,
 				logger: mockLogger,
 			});
@@ -901,6 +922,7 @@ describe("loadResolvedProviderCatalog", () => {
 			});
 
 			const catalog = await loadResolvedProviderCatalog({
+				envVars: process.env,
 				configPath,
 				logger: mockLogger,
 			});
@@ -927,6 +949,7 @@ describe("loadResolvedProviderCatalog", () => {
 			});
 
 			const catalog = await loadResolvedProviderCatalog({
+				envVars: process.env,
 				configPath,
 				logger: mockLogger,
 			});
@@ -955,6 +978,7 @@ describe("loadResolvedProviderCatalog", () => {
 			});
 
 			const catalog = await loadResolvedProviderCatalog({
+				envVars: process.env,
 				configPath,
 				logger: mockLogger,
 			});
@@ -987,6 +1011,7 @@ describe("loadResolvedProviderCatalog", () => {
 			});
 
 			const catalog = await loadResolvedProviderCatalog({
+				envVars: process.env,
 				configPath,
 				logger: mockLogger,
 			});
@@ -1007,6 +1032,7 @@ describe("loadResolvedProviderCatalog", () => {
 			await fixture.writeRawJsonc("not valid json{{{");
 
 			const catalog = await loadResolvedProviderCatalog({
+				envVars: process.env,
 				configPath,
 				logger: mockLogger,
 			});
@@ -1019,6 +1045,7 @@ describe("loadResolvedProviderCatalog", () => {
 			await fixture.writeRawJsonc(JSON.stringify({ version: 99 }));
 
 			const catalog = await loadResolvedProviderCatalog({
+				envVars: process.env,
 				configPath,
 				logger: mockLogger,
 			});
@@ -1035,6 +1062,7 @@ describe("loadResolvedProviderCatalog", () => {
 			);
 
 			const catalog = await loadResolvedProviderCatalog({
+				envVars: process.env,
 				configPath,
 				logger: mockLogger,
 			});
@@ -1056,6 +1084,7 @@ describe("loadResolvedProviderCatalog", () => {
 			await fixture.writeRawJsonc('{\n  "providers": {}\n  "version": 1\n}\n');
 
 			const report = await loadProviderCatalogReport({
+				envVars: process.env,
 				configPath,
 			});
 
@@ -1073,6 +1102,7 @@ describe("loadResolvedProviderCatalog", () => {
 			await fixture.writeRawJsonc("{ bad");
 
 			const report = await loadProviderCatalogReport({
+				envVars: process.env,
 				configPath,
 			});
 
@@ -1093,6 +1123,7 @@ describe("loadResolvedProviderCatalog", () => {
 			await fixture.writeRawJsonc(["{", '  "providers": {}', '  "version": 1', "}", ""].join(eol));
 
 			const report = await loadProviderCatalogReport({
+				envVars: process.env,
 				configPath,
 			});
 
@@ -1110,6 +1141,7 @@ describe("loadResolvedProviderCatalog", () => {
 			const readSpy = vi.spyOn(fs, "readFile").mockRejectedValueOnce(readError);
 
 			const report = await loadProviderCatalogReport({
+				envVars: process.env,
 				configPath,
 			});
 
@@ -1164,6 +1196,7 @@ describe("loadResolvedProviderCatalog", () => {
 			});
 
 			const catalog = await loadResolvedProviderCatalog({
+				envVars: process.env,
 				configPath,
 				logger: mockLogger,
 				legacyPositronSettings: fakeReader({
@@ -1248,6 +1281,7 @@ describe("loadResolvedProviderCatalog", () => {
 			await fixture.writeTypedConfig({ providers: {} });
 
 			const catalog = await loadResolvedProviderCatalog({
+				envVars: process.env,
 				configPath,
 				logger: mockLogger,
 				legacyPositronSettings: fakeReader({}),
@@ -1266,6 +1300,7 @@ describe("loadResolvedProviderCatalog", () => {
 			};
 			const opts = {
 				configPath,
+				envVars: process.env,
 				legacyPositronSettings: reader,
 			};
 

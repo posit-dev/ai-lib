@@ -62,6 +62,8 @@ If the provider has model-specific capabilities (vision, thinking, embeddings), 
 
 **Reference**: See `deepseek-helpers.ts`, `gemini-helpers.ts`, or `anthropic-helpers.ts` in `packages/ai-config/src/model-capabilities/`.
 
+If the provider serves Claude or OpenAI models, reuse `getAnthropicModelCapabilities` / `getOpenAIModelCapabilities` rather than copying rows: those tables answer ids newer than their rows with the newest known model in the same tier (Claude) or variant (GPT), so new models get current limits before a row exists, and adding a row makes it the new fallback. See "Future-model fallbacks" in `aiConfig.md`.
+
 ## Step 4: Implement Model Fetcher
 
 Create a function returning `ModelInfo[]`. Two approaches:

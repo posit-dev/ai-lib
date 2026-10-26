@@ -115,6 +115,8 @@ export type {
 	GeminiGenerateContentThinking,
 } from "./model-capabilities/gemini-generate-content.js";
 export { getGeminiModelCapabilities } from "./model-capabilities/gemini-helpers.js";
+export { findGeminiVariantDonor } from "./model-capabilities/gemini-variant.js";
+export type { GeminiVariantDonor } from "./model-capabilities/gemini-variant.js";
 export { isGeminiWebSearchVerified } from "./model-capabilities/gemini-api-helpers.js";
 export { getGemmaModelCapabilities } from "./model-capabilities/gemma-helpers.js";
 export {

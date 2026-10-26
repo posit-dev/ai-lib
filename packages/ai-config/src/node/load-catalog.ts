@@ -33,7 +33,7 @@ export interface LoadedProviderCatalogReport {
 export async function loadProviderCatalogReport(
 	opts: LoadCatalogOptions,
 ): Promise<LoadedProviderCatalogReport> {
-	const env = opts.envVars ?? process.env;
+	const env = opts.envVars;
 	const reports = await readCatalogLayers(opts, env);
 	const sources = reports.flatMap(({ source }) => (source ? [source] : []));
 	const resolver = resolveProviderCatalogReport({

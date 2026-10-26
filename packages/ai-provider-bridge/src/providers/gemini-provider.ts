@@ -64,7 +64,8 @@ function buildGeminiModel(
 		maxContextLength: inputTokenLimit ?? caps.maxContextLength,
 		// The Interactions profile is the single source of truth for product
 		// thinking levels on this endpoint: its keys are exactly the efforts
-		// the client can map to wire values. Unprofiled (fail-open) models
+		// the client can map to wire values. Future versions inherit their
+		// variant's newest profile; other unprofiled (fail-open) models
 		// advertise no levels. (ai-config's table levels serve Vertex and
 		// other inference consumers, not this path.)
 		thinkingEffortLevels: profile ? Object.keys(profile.effortToWireLevel) : undefined,

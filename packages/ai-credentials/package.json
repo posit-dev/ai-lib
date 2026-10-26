@@ -53,7 +53,7 @@
     "@types/positron-vscode": "npm:@types/vscode@^1.100.0",
     "@types/proper-lockfile": "^4.1.4",
     "typescript": "^7.0.2",
-    "vitest": "^3.2.1"
+    "vitest": "^4.1.12"
   },
   "repository": {
     "type": "git",
