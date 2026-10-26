@@ -54,7 +54,9 @@ export const CREDENTIAL_STEP_REASON_TEXT = {
 	"earlier-step-decided": "an earlier step decides",
 	"stored-checked-first": "the stored credential is checked first",
 	"nothing-stored": "nothing stored",
-	"stored-unusable": "the stored record has no usable credential (cleared or incomplete)",
+	"stored-cleared": "the stored credential was cleared",
+	"stored-aws-no-region": "the provider's AWS connection settings give no region",
+	"stored-unusable": "the stored record is incomplete and has no usable credential",
 	"stored-signed-out": "the stored sign-in is not ready",
 	"stored-other-server": "the stored sign-in is not for the configured server",
 	"stored-key-ignored": "a stored API key is not accepted for this provider",
@@ -113,8 +115,12 @@ export interface StoredCredentialStep extends CredentialStepBase {
 		| "local"
 		| "aws"
 		| "google-cloud"
+		/** A clear's tombstone: the record remains, holding no credential. */
+		| "cleared"
+		/** A record holding something, but no credential the app can use. */
 		| "unusable";
-	readonly readiness: "none" | "ready" | "pending" | "unauthenticated";
+	/** `needs-region`: stored AWS keys the catalog gives no region to use with. */
+	readonly readiness: "none" | "ready" | "pending" | "unauthenticated" | "needs-region";
 	/** When a stored sign-in token expires, if known. */
 	readonly expiresAt: string | null;
 }

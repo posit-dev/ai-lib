@@ -173,6 +173,63 @@ describe("describeCredentialSource", () => {
 		]);
 	});
 
+	it("reports a cleared credential as cleared, not as an unusable record", async () => {
+		await fixture.store.set<StoredProviderCredentials>(storageKeyFor("anthropic", "apikey"), {
+			apiKeyAuth: { apiKey: STORED_SECRET },
+		});
+		const backend = createStoreBackend({ store: fixture.store, resolveAuthMethod, env: {} });
+		await backend.mutateCredentials("anthropic", { kind: "clear" });
+
+		const [stored] = (await backend.describeCredentialSource("anthropic")).steps;
+		expect(stored).toMatchObject({
+			kind: "stored",
+			credentialType: "cleared",
+			readiness: "none",
+			outcome: "not-used",
+			reason: "stored-cleared",
+		});
+	});
+
+	it("reports stored AWS keys without a region as needing one, not as an unusable record", async () => {
+		const key = storageKeyFor("my-bedrock", "aws-credentials");
+		await fixture.store.set<StoredProviderCredentials>(key, {
+			awsKeys: { accessKeyId: "AKIA_CUSTOM", secretAccessKey: STORED_SECRET },
+		});
+		const backend = createStoreBackend({
+			store: fixture.store,
+			resolveAuthMethod: (id) =>
+				id === "my-bedrock" ? { authMethodId: "aws-credentials" } : undefined,
+			awsConnectionForProvider: () => ({ profile: "no-region" }),
+			env: {},
+		});
+
+		const description = await backend.describeCredentialSource("my-bedrock");
+		expect(description.steps[0]).toMatchObject({
+			kind: "stored",
+			credentialType: "aws",
+			readiness: "needs-region",
+			outcome: "not-used",
+			reason: "stored-aws-no-region",
+		});
+		expect(JSON.stringify(description.steps)).not.toContain(STORED_SECRET);
+	});
+
+	it("reports a record that names a source it lacks as unusable", async () => {
+		await fixture.store.set<StoredProviderCredentials>(storageKeyFor("anthropic", "apikey"), {
+			source: "api-key",
+			configured: false,
+		});
+		const backend = createStoreBackend({ store: fixture.store, resolveAuthMethod, env: {} });
+
+		const [stored] = (await backend.describeCredentialSource("anthropic")).steps;
+		expect(stored).toMatchObject({
+			kind: "stored",
+			credentialType: "unusable",
+			outcome: "not-used",
+			reason: "stored-unusable",
+		});
+	});
+
 	it("describes a stored sign-in without refreshing, resolving a grant, or writing", async () => {
 		const expiredAt = "2020-01-01T00:00:00.000Z";
 		await fixture.store.set<StoredProviderCredentials>(storageKeyFor("positai", "oauth"), {

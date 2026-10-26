@@ -155,6 +155,12 @@ interface NormalizedStored {
 	source?: CredentialSourceInput;
 	tokens?: StoredOAuthTokens;
 	error?: string;
+	/**
+	 * Why a record has no source, when known: a clear's tombstone (no source
+	 * named, nothing held), or AWS keys waiting for a region from the catalog.
+	 * Absent for a record that is merely incomplete.
+	 */
+	sourceless?: "cleared" | "needs-aws-region";
 }
 
 const NOOP_DISPOSABLE: Disposable = { dispose() {} };
@@ -172,7 +178,14 @@ type StoredSourceDecision =
 	/** A stored API key the provider refuses; nothing is served, not even from the environment. */
 	| { readonly kind: "ignored-key" }
 	/** Nothing usable is stored, so the environment answers. */
-	| { readonly kind: "environment"; readonly stored: "absent" | "unusable" | "empty-key" };
+	| {
+			readonly kind: "environment";
+			readonly stored:
+				| "absent"
+				| NonNullable<NormalizedStored["sourceless"]>
+				| "unusable"
+				| "empty-key";
+	  };
 
 export function createStoreBackend(options: CreateStoreBackendOptions): StoreBackend {
 	const {
@@ -298,6 +311,7 @@ export function createStoreBackend(options: CreateStoreBackendOptions): StoreBac
 					readiness: "unauthenticated",
 					generation: record.generation,
 					error: "AWS region is required",
+					sourceless: "needs-aws-region",
 				};
 			}
 			return {
@@ -318,7 +332,14 @@ export function createStoreBackend(options: CreateStoreBackendOptions): StoreBac
 				source: { type: "google-cloud", ...record.googleCloudAuth },
 			};
 		}
-		return { readiness: "unauthenticated", generation: record.generation, error: record.error };
+		return {
+			readiness: "unauthenticated",
+			generation: record.generation,
+			error: record.error,
+			...(record.source === undefined && record.error === undefined
+				? { sourceless: "cleared" as const }
+				: {}),
+		};
 	}
 
 	async function storedSource(
@@ -463,7 +484,10 @@ export function createStoreBackend(options: CreateStoreBackendOptions): StoreBac
 		normalized: NormalizedStored | null,
 	): StoredSourceDecision {
 		const source = normalized?.source;
-		if (!source) return { kind: "environment", stored: normalized ? "unusable" : "absent" };
+		if (!source) {
+			const stored = !normalized ? "absent" : (normalized.sourceless ?? "unusable");
+			return { kind: "environment", stored };
+		}
 		if (source.type === "api-key") {
 			if (ignoresStoredApiKey?.(providerId)) return { kind: "ignored-key" };
 			if (!source.apiKey && !descriptor.apiKeyOptional) {
@@ -503,7 +527,7 @@ export function createStoreBackend(options: CreateStoreBackendOptions): StoreBac
 			kind: "stored" as const,
 			location: store.location,
 			credentialType: storedCredentialType(normalized),
-			readiness: normalized?.readiness ?? ("none" as const),
+			readiness: storedReadiness(normalized),
 			expiresAt: normalized?.tokens?.expiresAt ?? null,
 		};
 		const descriptor = resolveAuthMethod(providerId);
@@ -548,12 +572,15 @@ export function createStoreBackend(options: CreateStoreBackendOptions): StoreBac
 					status,
 				};
 			case "environment": {
-				const storedReason =
-					decision.stored === "absent"
-						? "nothing-stored"
-						: decision.stored === "empty-key"
-							? "stored-key-empty"
-							: "stored-unusable";
+				const storedReason = (
+					{
+						absent: "nothing-stored",
+						cleared: "stored-cleared",
+						"needs-aws-region": "stored-aws-no-region",
+						"empty-key": "stored-key-empty",
+						unusable: "stored-unusable",
+					} as const
+				)[decision.stored];
 				const environment: EnvironmentResolution = descriptor
 					? environmentResolution(providerId)
 					: { kind: "none" };
@@ -985,12 +1012,22 @@ function runtimeCredentials(source: CredentialSourceInput): ProviderCredentials 
 	}
 }
 
+/** A stored record's readiness for the report; "unauthenticated" is too vague for a sourceless one. */
+function storedReadiness(normalized: NormalizedStored | null): StoredCredentialStep["readiness"] {
+	if (!normalized || normalized.sourceless === "cleared") return "none";
+	if (normalized.sourceless === "needs-aws-region") return "needs-region";
+	return normalized.readiness;
+}
+
 function storedCredentialType(
 	normalized: NormalizedStored | null,
 ): StoredCredentialStep["credentialType"] {
 	if (!normalized) return "none";
 	switch (normalized.source?.type) {
 		case undefined:
+			if (normalized.sourceless === "cleared") return "cleared";
+			// The keys are AWS credentials; they lack only a region (see storedReadiness).
+			if (normalized.sourceless === "needs-aws-region") return "aws";
 			return "unusable";
 		case "api-key":
 			return "api-key";
