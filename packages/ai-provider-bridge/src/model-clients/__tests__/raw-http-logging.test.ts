@@ -16,7 +16,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
 	configureRawHttpLogging,
@@ -134,28 +134,20 @@ describe("withRawHttpLogging", () => {
 		expect(withRawHttpLogging(undefined, { provider: "test", model: "m" })).toBeDefined();
 	});
 
-	it("the override enables logging and auto-creates the directory", () => {
+	it("the override enables logging over a missing configured dir and creates it", () => {
 		const logDir = join(workDir, "env-logs");
 		useOverrideDir(logDir);
-		const wrapped = withRawHttpLogging(undefined, { provider: "test", model: "m" });
-		expect(wrapped).toBeDefined();
-	});
-
-	it("the override wins over a missing configured dir", () => {
-		configureRawHttpLogging({
-			outputDir: join(workDir, "nope"),
-			overrideDir: join(workDir, "env-logs"),
-		});
 		expect(withRawHttpLogging(undefined, { provider: "test", model: "m" })).toBeDefined();
+		expect(existsSync(logDir)).toBe(true);
 	});
 
 	it("ignores PA_RAW_HTTP_LOG_DIR in process.env", () => {
 		configureRawHttpLogging({ outputDir: join(workDir, "nope"), overrideDir: undefined });
-		process.env.PA_RAW_HTTP_LOG_DIR = join(workDir, "env-logs");
+		vi.stubEnv("PA_RAW_HTTP_LOG_DIR", join(workDir, "env-logs"));
 		try {
 			expect(withRawHttpLogging(undefined, { provider: "test", model: "m" })).toBeUndefined();
 		} finally {
-			delete process.env.PA_RAW_HTTP_LOG_DIR;
+			vi.unstubAllEnvs();
 		}
 	});
 
