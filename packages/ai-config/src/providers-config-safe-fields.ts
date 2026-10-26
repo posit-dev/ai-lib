@@ -112,14 +112,12 @@ const AGENT_ENGINES_FIELDS = {
 		runtimePath: "safe",
 		baseDirectory: "safe",
 		defaultModel: "safe",
-		allowNamedPrincipals: "safe",
 	},
 	codex: {
 		enabled: "safe",
 		executablePath: "safe",
 		homeDirectory: "safe",
 		defaultModel: "safe",
-		allowNamedPrincipals: "safe",
 	},
 } as const satisfies FieldRules<AgentEnginesConfig>;
 
