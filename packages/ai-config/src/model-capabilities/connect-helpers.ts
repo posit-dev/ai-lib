@@ -5,26 +5,8 @@
 import { getAnthropicModelCapabilities } from "./anthropic-helpers.js";
 
 /**
- * Bedrock models offered through a Posit Connect gateway route. Declared
- * rather than discovered: Connect's Bedrock gateway proxies Bedrock *Runtime*
- * operations only and rejects ListFoundationModels/ListInferenceProfiles
- * (connect/src/connect/gateway/bedrock/provider.go), so live discovery would
- * have to bypass the gateway and hit AWS directly with Connect-minted
- * credentials.
- */
-export const CONNECT_BEDROCK_MODELS: readonly { id: string; name: string }[] = [
-	{ id: "us.anthropic.claude-sonnet-4-5-20250929-v1:0", name: "Claude Sonnet 4.5" },
-	{ id: "us.anthropic.claude-opus-4-1-20250805-v1:0", name: "Claude Opus 4.1" },
-	{ id: "us.anthropic.claude-3-5-haiku-20241022-v1:0", name: "Claude 3.5 Haiku" },
-];
-
-export const CONNECT_BEDROCK_MODEL_IDS: readonly string[] = CONNECT_BEDROCK_MODELS.map(
-	(model) => model.id,
-);
-
-/**
- * Context window and output cap for an id outside the Anthropic table — only
- * reachable via a user-configured override of the declared list. Deliberately
+ * Context window and output cap for an id outside the Anthropic table, such as
+ * a non-Claude model the gateway lists. Deliberately
  * conservative: an under-reported cap wastes budget, an over-reported one
  * produces API errors.
  */

@@ -142,6 +142,13 @@ export interface ModelInfo {
 	/** Model name for display (without provider prefix) */
 	name: string;
 
+	/**
+	 * The model's own name, when `name` adds a label to it (the Connect
+	 * integration, as in "GPT-5.6 Luna (Bedrock (Entra))"). Lets a client match
+	 * the model against a list of known names. Absent when `name` is already bare.
+	 */
+	baseName?: string;
+
 	/** Which provider offers this model */
 	providerId: ResolvedProviderId;
 

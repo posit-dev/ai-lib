@@ -27,16 +27,23 @@
  *   `GET /v1/models` reaches api.anthropic.com and models are discovered
  *   live per integration.
  * - `aws` — a SigV4-verifying proxy on `{connect}/__gateway__/bedrock/{guid}`
- *   that serves Bedrock *Runtime* operations only, so models are declared
- *   from ai-config's Connect Bedrock table rather than discovered. Requests
- *   are signed with per-integration STS credentials minted by the host
- *   (see {@link ConnectProviderCallbacks.getAwsCredentials}).
+ *   that serves the Bedrock runtime and control plane. Models are discovered
+ *   by listing inference profiles through the gateway; ai-config's Connect
+ *   Bedrock table is the fallback when listing is not possible. The same
+ *   integration also serves Bedrock Mantle on
+ *   `{connect}/__gateway__/bedrock-mantle/{guid}`, where the OpenAI models
+ *   that only Mantle serves are listed (`GET /v1/models`) and chatted with
+ *   over the OpenAI Chat Completions and Responses APIs. Requests on both
+ *   routes are signed with per-integration STS credentials minted by the
+ *   host (see {@link ConnectProviderCallbacks.getAwsCredentials}).
  */
 
+import { BedrockClient as BedrockCatalogSdkClient } from "@aws-sdk/client-bedrock";
 import type { ResolvedProviderId } from "ai-config";
 import {
-	CONNECT_BEDROCK_MODELS,
+	completeCapabilities,
 	getAnthropicModelCapabilities,
+	getBedrockMantleModelCapabilities,
 	getConnectBedrockModelCapabilities,
 } from "ai-config";
 
@@ -47,12 +54,15 @@ import { BedrockClient } from "../model-clients/BedrockClient";
 import type { ModelClient, ModelClientChatParams } from "../model-clients/ModelClient";
 import type { ApiKeyCredentials, AwsCredentials, Logger, LMStreamPart, ModelInfo } from "../types";
 import { normalizeProtocol } from "../types";
+import { listMantleModels } from "./bedrock-mantle-models";
 import { createCachedModelFetcher } from "./cached-model-fetcher";
+import { type DiscoveredBedrockModel, listGatewayModels } from "./connect-bedrock-models";
 import {
 	combineGatewayMetadataHeaders,
 	GATEWAY_METADATA_HEADER,
 	WORKBENCH_GATEWAY_METADATA_ENV,
 } from "./connect-gateway-metadata";
+import { getOpenAIModelName } from "./openai-model-names";
 import type { ClientFactory, ProviderRegistry } from "./ProviderRegistry";
 
 const DEFAULT_TEMPLATES = ["anthropic", "aws"] as const;
@@ -186,6 +196,25 @@ function gatewayBaseUrl(connectUrl: string, template: string, guid: string): str
 	return template === "aws"
 		? `${connectUrl}/__gateway__/bedrock/${guid}`
 		: `${connectUrl}/__gateway__/anthropic/${guid}/v1`;
+}
+
+/** The two OpenAI wire protocols Bedrock Mantle serves. */
+type MantleProtocol = "openai-chat" | "openai-responses";
+
+function isMantleProtocol(protocol: string | undefined): protocol is MantleProtocol {
+	return protocol === "openai-chat" || protocol === "openai-responses";
+}
+
+/**
+ * The Bedrock Mantle gateway route of an `aws` integration, versioned for one
+ * protocol. The Mantle SDK uses an explicit base URL as given and appends only
+ * the operation path, so the stamp carries Mantle's version prefix: `/v1`
+ * for Chat Completions (and model listing) and `/openai/v1` for Responses, the
+ * same paths the direct Bedrock provider picks.
+ */
+function mantleGatewayBaseUrl(connectUrl: string, guid: string, protocol: MantleProtocol): string {
+	const route = `${connectUrl}/__gateway__/bedrock-mantle/${guid}`;
+	return protocol === "openai-responses" ? `${route}/openai/v1` : `${route}/v1`;
 }
 
 /** Connect's interactive login for one integration; same shape for every template. */
@@ -376,8 +405,8 @@ function integrationLabel(integration: ConnectIntegration): string {
 }
 
 /**
- * The declared Bedrock models for one `aws`-template integration. Models
- * recognized by the Anthropic-on-Bedrock table declare `anthropic-messages`
+ * Model entries for the Bedrock models discovered for one `aws`-template
+ * integration. Models recognized by the Anthropic-on-Bedrock table declare `anthropic-messages`
  * — the route {@link BedrockClient}'s heuristic actually takes for them — so
  * host-side behavior keyed on the declared protocol (e.g. explicit
  * prompt-cache markers) matches the wire format in use; anything else falls
@@ -386,19 +415,164 @@ function integrationLabel(integration: ConnectIntegration): string {
 function bedrockGatewayModels(
 	providerId: ResolvedProviderId,
 	integration: ConnectIntegration,
+	discovered: readonly DiscoveredBedrockModel[],
 ): ModelInfo[] {
-	return CONNECT_BEDROCK_MODELS.map((model) => ({
-		id: `${integration.idPrefix}/${model.id}`,
-		name: `${model.name} (${integrationLabel(integration)})`,
-		providerId,
-		vendor: "anthropic",
-		...getConnectBedrockModelCapabilities(model.id),
-		protocol:
-			getAnthropicModelCapabilities(model.id) !== undefined
-				? ("anthropic-messages" as const)
-				: ("bedrock-converse" as const),
-		baseUrl: integration.baseUrl,
-	}));
+	return discovered.map((model) => {
+		const { vendor } = model;
+		return {
+			id: `${integration.idPrefix}/${model.id}`,
+			name: `${model.name} (${integrationLabel(integration)})`,
+			baseName: model.name,
+			providerId,
+			vendor,
+			...getConnectBedrockModelCapabilities(model.id),
+			// Converse tool use is reliable only for these vendors, as in the direct provider.
+			supportsTools: vendor === "anthropic" || vendor === "amazon",
+			protocol:
+				getAnthropicModelCapabilities(model.id) !== undefined
+					? ("anthropic-messages" as const)
+					: ("bedrock-converse" as const),
+			baseUrl: integration.baseUrl,
+		};
+	});
+}
+
+/**
+ * Model entries for the Mantle models listed for one `aws`-template
+ * integration, shaped as the direct Bedrock provider shapes its Mantle models
+ * but stamped with the integration's Mantle gateway route for each model's
+ * protocol. Ids the Mantle capability table does not support are skipped.
+ */
+function mantleGatewayModels(
+	providerId: ResolvedProviderId,
+	integration: ConnectIntegration,
+	connectUrl: string,
+	ids: readonly string[],
+	logger: Logger,
+): ModelInfo[] {
+	return ids.flatMap((id) => {
+		const capabilityFacts = getBedrockMantleModelCapabilities(id);
+		if (!capabilityFacts?.protocol || !isMantleProtocol(capabilityFacts.protocol)) {
+			logger.debug(`[posit-connect] Skipping unsupported Bedrock Mantle model ${id}`);
+			return [];
+		}
+		const protocol = capabilityFacts.protocol;
+		return [
+			{
+				id: `${integration.idPrefix}/${id}`,
+				// Mantle ids are vendor-prefixed OpenAI ids ("openai.gpt-5.6-sol"), so
+				// the curated OpenAI display names apply once the prefix is stripped.
+				name: `${getOpenAIModelName(id.replace(/^openai\./, ""))} (${integrationLabel(integration)})`,
+				baseName: getOpenAIModelName(id.replace(/^openai\./, "")),
+				providerId,
+				vendor: "openai",
+				...completeCapabilities(capabilityFacts),
+				// Whether the gateway passes Mantle's hosted web_search tool through is
+				// unverified, and ai-config's region and FIPS gates skip this provider.
+				supportsWebSearch: false,
+				capabilityFacts: {
+					maxContextLength: capabilityFacts.maxContextLength,
+					maxInputTokens: capabilityFacts.maxInputTokens,
+					maxOutputTokens: capabilityFacts.maxOutputTokens,
+				},
+				protocol,
+				baseUrl: mantleGatewayBaseUrl(connectUrl, integration.guid, protocol),
+			},
+		];
+	});
+}
+
+/**
+ * Discover an `aws` integration's models through its gateway, signed with the
+ * user's minted credentials: the Bedrock Runtime models by listing inference
+ * profiles on the `bedrock` route, and the OpenAI models only Mantle serves by
+ * listing `/v1/models` on the `bedrock-mantle` route. The two listings run in
+ * parallel and fail independently: a role without the optional Mantle
+ * permissions still lists its Runtime models, and the reverse. Any other
+ * failure (no credentials, a network error) yields no models for this
+ * integration and leaves the others unaffected. The host reports credential
+ * failures; a listing failure is logged here. An abort rejects.
+ */
+async function discoverBedrockGatewayModels(
+	providerId: ResolvedProviderId,
+	integration: ConnectIntegration,
+	connectUrl: string,
+	callbacks: ConnectProviderCallbacks,
+	logger: Logger,
+	signal: AbortSignal,
+): Promise<ModelInfo[]> {
+	try {
+		const minted = await callbacks.getAwsCredentials(integration, signal);
+		if (!minted.ok) {
+			return [];
+		}
+		const aws = minted.credentials;
+		const { accessKeyId, secretAccessKey } = aws;
+		if (!accessKeyId || !secretAccessKey) {
+			return [];
+		}
+		// Connect verifies SigV4 against the record's sts_region.
+		const region = integration.region ?? aws.region;
+		const client = new BedrockCatalogSdkClient({
+			region,
+			endpoint: integration.baseUrl,
+			credentials: { accessKeyId, secretAccessKey, sessionToken: aws.sessionToken },
+		});
+		const runtimeModels = listGatewayModels(client, logger).then(
+			(discovered) => {
+				if (discovered === null) {
+					logger.warn(
+						`[posit-connect] Bedrock model listing is unavailable for integration "${integrationLabel(integration)}". ` +
+							"Its IAM role needs bedrock:ListInferenceProfiles and bedrock:ListFoundationModels.",
+					);
+					return [];
+				}
+				return bedrockGatewayModels(providerId, integration, discovered);
+			},
+			(error: unknown): ModelInfo[] => {
+				if (signal.aborted) throw error;
+				const message = error instanceof Error ? error.message : String(error);
+				logger.warn(
+					`[posit-connect] Bedrock model discovery failed for integration "${integrationLabel(integration)}": ${message}`,
+				);
+				return [];
+			},
+		);
+		// listMantleModels logs its own failures and returns [] for them; only an
+		// abort rejects. No custom headers, as for the Runtime listing above.
+		const mantleModels = listMantleModels(
+			{
+				type: "aws-credentials",
+				region,
+				accessKeyId,
+				secretAccessKey,
+				sessionToken: aws.sessionToken,
+			},
+			logger,
+			{
+				baseUrl: mantleGatewayBaseUrl(connectUrl, integration.guid, "openai-chat"),
+				region,
+				signal,
+			},
+		).then((listings) =>
+			mantleGatewayModels(
+				providerId,
+				integration,
+				connectUrl,
+				listings.map(({ id }) => id),
+				logger,
+			),
+		);
+		const [runtime, mantle] = await Promise.all([runtimeModels, mantleModels]);
+		return [...runtime, ...mantle];
+	} catch (error) {
+		if (signal.aborted) throw error;
+		const message = error instanceof Error ? error.message : String(error);
+		logger.warn(
+			`[posit-connect] Bedrock model discovery failed for integration "${integrationLabel(integration)}": ${message}`,
+		);
+		return [];
+	}
 }
 
 /**
@@ -500,7 +674,16 @@ function createConnectModelFetcher(
 			const modelLists = await Promise.all(
 				integrations.map(async (integration): Promise<ModelInfo[]> => {
 					if (integration.template === "aws") {
-						return callbacks ? bedrockGatewayModels(providerId, integration) : [];
+						return callbacks
+							? discoverBedrockGatewayModels(
+									providerId,
+									integration,
+									connectUrl,
+									callbacks,
+									logger,
+									signal,
+								)
+							: [];
 					}
 					// One misconfigured integration must not hide the others, so
 					// per-integration discovery failures are isolated — but a deadline
@@ -559,22 +742,34 @@ function splitConnectModelId(model: string): { prefix?: string; wireModel: strin
 	return { prefix: model.slice(0, separator), wireModel: model.slice(separator + 1) };
 }
 
+/** Routing facts recovered from a discovery stamp; see {@link parseGatewayBaseUrl}. */
+interface ParsedGatewayBaseUrl {
+	connectUrl: string;
+	template: string;
+	guid: string;
+	/**
+	 * Which gateway route the stamp names: `mantle` for an `aws` integration's
+	 * Bedrock Mantle route, else `runtime` (the Bedrock runtime route, or the
+	 * Anthropic proxy).
+	 */
+	route: "runtime" | "mantle";
+}
+
 /**
  * Recover the routing facts a discovery stamp encodes. The gateway URL shape
- * ({@link gatewayBaseUrl}) embeds the Connect server, the proxy kind (which
- * names the template), and the integration guid, which is what makes
- * stamped-model routing stateless. Returns `undefined` for URLs that are not
- * Connect gateway routes.
+ * ({@link gatewayBaseUrl}, {@link mantleGatewayBaseUrl}) embeds the Connect
+ * server, the proxy kind (which names the template and route), and the
+ * integration guid, which is what makes stamped-model routing stateless.
+ * Returns `undefined` for URLs that are not Connect gateway routes.
  */
-function parseGatewayBaseUrl(
-	baseUrl: string,
-): { connectUrl: string; template: string; guid: string } | undefined {
-	const match = /^(.+?)\/__gateway__\/(anthropic|bedrock)\/([^/]+)/.exec(baseUrl);
+function parseGatewayBaseUrl(baseUrl: string): ParsedGatewayBaseUrl | undefined {
+	const match = /^(.+?)\/__gateway__\/(anthropic|bedrock|bedrock-mantle)\/([^/]+)/.exec(baseUrl);
 	if (!match) return undefined;
 	return {
 		connectUrl: match[1],
-		template: match[2] === "bedrock" ? "aws" : "anthropic",
+		template: match[2] === "anthropic" ? "anthropic" : "aws",
 		guid: match[3],
+		route: match[2] === "bedrock-mantle" ? "mantle" : "runtime",
 	};
 }
 
@@ -582,7 +777,9 @@ function parseGatewayBaseUrl(
  * Routes each request to the integration's gateway: `anthropic-messages`
  * spends the federated token as `x-api-key` (the gateway swaps it for the
  * real key), `bedrock-converse` signs with per-request STS credentials minted
- * through {@link ConnectProviderCallbacks.getAwsCredentials}.
+ * through {@link ConnectProviderCallbacks.getAwsCredentials}, and
+ * `openai-chat` / `openai-responses` sign the same way on the integration's
+ * Bedrock Mantle route.
  */
 class ConnectClient implements ModelClient {
 	constructor(
@@ -626,6 +823,7 @@ class ConnectClient implements ModelClient {
 			Boolean(params.baseUrl) && params.baseUrl!.replace(/\/+$/, "") !== connectUrl;
 
 		let integration: ConnectIntegration;
+		let route: ParsedGatewayBaseUrl["route"] = "runtime";
 		if (hasStampedBaseUrl) {
 			const parsed = parseGatewayBaseUrl(params.baseUrl!);
 			if (!parsed) {
@@ -641,6 +839,7 @@ class ConnectClient implements ModelClient {
 				);
 			}
 			integration = await this.resolveIntegration(parsed, prefix);
+			route = parsed.route;
 		} else {
 			const credentialKey = await connectCredentialKey(connectUrl, this.credentials);
 			const cached = prefix ? this.cache.get(credentialKey, prefix) : undefined;
@@ -663,10 +862,35 @@ class ConnectClient implements ModelClient {
 		// wire format within it, but never re-routes off the integration's
 		// gateway (an aws gateway always requires SigV4, whatever the protocol).
 		if (integration.template === "aws") {
+			// A Mantle stamp routes to the Mantle gateway route. An unstamped model
+			// declaring an OpenAI protocol can only be a Mantle model, so it gets
+			// the integration's Mantle route for that protocol.
+			if (route === "mantle" || (!hasStampedBaseUrl && isMantleProtocol(protocol))) {
+				// Without a declared protocol, the stamp's version prefix names it.
+				const mantleProtocol =
+					protocol ??
+					(/\/openai\/v1\/*$/.test(baseUrl) ? "openai-responses" : ("openai-chat" as const));
+				if (!isMantleProtocol(mantleProtocol)) {
+					throw new Error(
+						`Connect provider cannot route protocol "${params.protocol}" for model "${params.model}"; ` +
+							`the Bedrock Mantle route supports openai-chat and openai-responses.`,
+					);
+				}
+				return this.bedrockChat(
+					params,
+					wireModel,
+					hasStampedBaseUrl
+						? baseUrl
+						: mantleGatewayBaseUrl(connectUrl, integration.guid, mantleProtocol),
+					integration,
+					mantleProtocol,
+				);
+			}
 			if (protocol && protocol !== "bedrock-converse" && protocol !== "anthropic-messages") {
 				throw new Error(
 					`Connect provider cannot route protocol "${params.protocol}" for model "${params.model}"; ` +
-						`an AWS-backed integration supports bedrock-converse and anthropic-messages.`,
+						`the Bedrock runtime route of an AWS-backed integration supports bedrock-converse ` +
+						`and anthropic-messages.`,
 				);
 			}
 			return this.bedrockChat(
@@ -743,7 +967,7 @@ class ConnectClient implements ModelClient {
 		wireModel: string,
 		baseUrl: string,
 		integration: ConnectIntegration,
-		protocol: "anthropic-messages" | undefined,
+		protocol: "anthropic-messages" | MantleProtocol | undefined,
 	): Promise<AsyncIterable<LMStreamPart>> {
 		if (!this.callbacks) {
 			throw new Error(
@@ -802,7 +1026,9 @@ class ConnectClient implements ModelClient {
 		);
 		// Absent protocol: BedrockClient's model-id heuristic keeps
 		// `us.anthropic.*` ids on the native Anthropic (InvokeModel) route, which
-		// the gateway also allows and which supports thinking.
+		// the gateway also allows and which supports thinking. An OpenAI protocol
+		// takes BedrockClient's Mantle path, which signs for `bedrock-mantle` and
+		// is refused when AWS FIPS endpoints are enforced, whatever the base URL.
 		return client.chat({ ...params, model: wireModel, baseUrl, protocol });
 	}
 }

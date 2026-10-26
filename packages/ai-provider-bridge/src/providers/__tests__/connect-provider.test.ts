@@ -2,7 +2,6 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { CONNECT_BEDROCK_MODEL_IDS, CONNECT_BEDROCK_MODELS } from "ai-config";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const chats = vi.hoisted(() => ({
@@ -20,6 +19,16 @@ vi.mock("../../model-clients/BedrockClient", () => ({
 		return { chat: chats.bedrock };
 	}),
 }));
+
+const catalogSend = vi.hoisted(() => vi.fn());
+vi.mock("@aws-sdk/client-bedrock", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@aws-sdk/client-bedrock")>()),
+	BedrockClient: vi.fn(function () {
+		return { send: catalogSend };
+	}),
+}));
+
+import { BedrockClient as CatalogSdkClient } from "@aws-sdk/client-bedrock";
 
 import { AnthropicClient } from "../../model-clients/AnthropicClient";
 import { BedrockClient } from "../../model-clients/BedrockClient";
@@ -45,9 +54,13 @@ const ANTHROPIC_GUID = "aaaa1111-1111-1111-1111-111111111111";
 const AWS_GUID = "bbbb2222-2222-2222-2222-222222222222";
 const ANTHROPIC_GATEWAY = `${CONNECT_URL}/__gateway__/anthropic/${ANTHROPIC_GUID}/v1`;
 const BEDROCK_GATEWAY = `${CONNECT_URL}/__gateway__/bedrock/${AWS_GUID}`;
+const MANTLE_ROUTE = `${CONNECT_URL}/__gateway__/bedrock-mantle/${AWS_GUID}`;
+const MANTLE_CHAT_GATEWAY = `${MANTLE_ROUTE}/v1`;
+const MANTLE_RESPONSES_GATEWAY = `${MANTLE_ROUTE}/openai/v1`;
 // Minted prefixes always embed the full guid; see mintIntegrationPrefix.
 const ANTHROPIC_PREFIX = `posit-connect-anthropic-prod-${ANTHROPIC_GUID}`;
 const AWS_PREFIX = `posit-connect-bedrock-team-${AWS_GUID}`;
+const BEDROCK_MODEL_ID = "us.anthropic.claude-sonnet-4-5-20250929-v1:0";
 
 const INTEGRATION_RECORDS = [
 	{
@@ -100,6 +113,8 @@ function stubDiscoveryFetch(routes: Record<string, () => Response> = {}): Return
 		const route = {
 			[`${CONNECT_URL}/__api__/v1/oauth/integrations`]: () => json(INTEGRATION_RECORDS),
 			[`${ANTHROPIC_GATEWAY}/models`]: () => json(ANTHROPIC_MODELS_BODY),
+			// The integration's Mantle route lists no models unless a test says otherwise.
+			[`${MANTLE_CHAT_GATEWAY}/models`]: () => json({ data: [] }),
 			...routes,
 		}[url];
 		if (!route) throw new Error(`Unexpected fetch: ${url}`);
@@ -122,8 +137,30 @@ function mintSuccess(region = "us-west-2") {
 	}));
 }
 
+/** A gateway whose catalog lists only Claude Sonnet 4.5. */
+function stubSonnetCatalog() {
+	const bare = "anthropic.claude-sonnet-4-5-20250929-v1:0";
+	catalogSend.mockImplementation(async (command: { constructor: { name: string } }) =>
+		command.constructor.name === "ListInferenceProfilesCommand"
+			? {
+					inferenceProfileSummaries: [
+						{
+							status: "ACTIVE",
+							inferenceProfileId: BEDROCK_MODEL_ID,
+							models: [{ modelArn: `arn:aws:bedrock:us-west-2::foundation-model/${bare}` }],
+						},
+					],
+				}
+			: { modelSummaries: [{ modelId: bare, modelName: "Claude Sonnet 4.5" }] },
+	);
+}
+
 beforeEach(() => {
 	vi.clearAllMocks();
+	// Catalog listing denied unless a test says otherwise: the declared table.
+	catalogSend.mockRejectedValue(
+		Object.assign(new Error("denied"), { name: "AccessDeniedException" }),
+	);
 });
 
 afterEach(() => {
@@ -209,9 +246,10 @@ describe("connect model fetcher", () => {
 
 	it("discovers integrations and namespaces each gateway's models", async () => {
 		const fetchMock = stubDiscoveryFetch();
+		stubSonnetCatalog();
 		// Trailing slash on the configured URL must not produce double-slash requests.
 		const models = await registryWithProvider({
-			getAwsCredentials: vi.fn(),
+			getAwsCredentials: mintSuccess(),
 		}).getModelsForProvider("posit-connect", {
 			...credentials,
 			baseUrl: `${CONNECT_URL}/`,
@@ -244,14 +282,11 @@ describe("connect model fetcher", () => {
 		// so it declares anthropic-messages — the route BedrockClient actually
 		// takes for it — even though it is served through the bedrock gateway.
 		const bedrockModels = models.filter((model) => model.id.startsWith(`${AWS_PREFIX}/`));
-		expect(bedrockModels.map((model) => model.id)).toEqual(
-			CONNECT_BEDROCK_MODEL_IDS.map((id) => `${AWS_PREFIX}/${id}`),
-		);
+		expect(bedrockModels.map((model) => model.id)).toEqual([`${AWS_PREFIX}/${BEDROCK_MODEL_ID}`]);
 		// Display names come from the declared table's human-readable name plus
 		// the integration label, never the raw wire id.
-		const [firstDeclared] = CONNECT_BEDROCK_MODELS;
-		expect(models.find((model) => model.id === `${AWS_PREFIX}/${firstDeclared.id}`)?.name).toBe(
-			`${firstDeclared.name} (Bedrock Team)`,
+		expect(models.find((model) => model.id === `${AWS_PREFIX}/${BEDROCK_MODEL_ID}`)?.name).toBe(
+			"Claude Sonnet 4.5 (Bedrock Team)",
 		);
 		for (const model of bedrockModels) {
 			expect(model).toMatchObject({
@@ -262,7 +297,356 @@ describe("connect model fetcher", () => {
 			});
 		}
 
-		expect(models).toHaveLength(1 + CONNECT_BEDROCK_MODEL_IDS.length);
+		expect(models).toHaveLength(2);
+	});
+
+	describe("Bedrock model discovery", () => {
+		function stubCatalog() {
+			catalogSend.mockImplementation(async (command: { constructor: { name: string } }) => {
+				if (command.constructor.name === "ListInferenceProfilesCommand") {
+					return {
+						inferenceProfileSummaries: [
+							{
+								status: "ACTIVE",
+								inferenceProfileId: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+								models: [
+									{
+										modelArn:
+											"arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0",
+									},
+								],
+							},
+							{
+								status: "ACTIVE",
+								inferenceProfileId: "us.meta.llama3-3-70b-instruct-v1:0",
+								models: [
+									{
+										modelArn:
+											"arn:aws:bedrock:us-west-2::foundation-model/meta.llama3-3-70b-instruct-v1:0",
+									},
+								],
+							},
+							{
+								status: "ACTIVE",
+								inferenceProfileId: "us.amazon.nova-lite-v1:0",
+								models: [
+									{
+										modelArn: "arn:aws:bedrock:us-west-2::foundation-model/amazon.nova-lite-v1:0",
+									},
+								],
+							},
+							// A video-understanding model: AWS rejects chat requests to it.
+							{
+								status: "ACTIVE",
+								inferenceProfileId: "us.twelvelabs.pegasus-1-5-v1:0",
+								models: [
+									{
+										modelArn:
+											"arn:aws:bedrock:us-west-2::foundation-model/twelvelabs.pegasus-1-5-v1:0",
+									},
+								],
+							},
+							// Served through Bedrock Mantle, a separate gateway route.
+							{
+								status: "ACTIVE",
+								inferenceProfileId: "us.openai.gpt-oss-120b-1:0",
+								models: [
+									{
+										modelArn: "arn:aws:bedrock:us-west-2::foundation-model/openai.gpt-oss-120b-1:0",
+									},
+								],
+							},
+							{
+								status: "LEGACY",
+								inferenceProfileId: "us.anthropic.claude-3-haiku-20240307-v1:0",
+								models: [
+									{
+										modelArn:
+											"arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-3-haiku-20240307-v1:0",
+									},
+								],
+							},
+							// Active profile, but the model is retired: AWS rejects invokes.
+							{
+								status: "ACTIVE",
+								inferenceProfileId: "us.anthropic.claude-3-sonnet-20240229-v1:0",
+								models: [
+									{
+										modelArn:
+											"arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-3-sonnet-20240229-v1:0",
+									},
+								],
+							},
+							// Active profile whose foundation model is marked LEGACY.
+							{
+								status: "ACTIVE",
+								inferenceProfileId: "us.anthropic.claude-3-opus-20240229-v1:0",
+								models: [
+									{
+										modelArn:
+											"arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-3-opus-20240229-v1:0",
+									},
+								],
+							},
+						],
+					};
+				}
+				return {
+					modelSummaries: [
+						{
+							modelId: "anthropic.claude-sonnet-4-5-20250929-v1:0",
+							modelName: "Claude Sonnet 4.5",
+						},
+						{ modelId: "amazon.nova-lite-v1:0", modelName: "Nova Lite" },
+						{ modelId: "twelvelabs.pegasus-1-5-v1:0", modelName: "Pegasus v1.5" },
+						{ modelId: "meta.llama3-3-70b-instruct-v1:0", modelName: "Llama 3.3 70B Instruct" },
+						{ modelId: "openai.gpt-oss-120b-1:0", modelName: "gpt-oss-120b" },
+						{
+							modelId: "anthropic.claude-3-opus-20240229-v1:0",
+							modelName: "Claude 3 Opus",
+							modelLifecycle: { status: "LEGACY" },
+						},
+					],
+				};
+			});
+		}
+
+		async function bedrockModelIds(callbacks: ConnectProviderCallbacks) {
+			stubDiscoveryFetch();
+			const models = await registryWithProvider(callbacks).getModelsForProvider(
+				"posit-connect",
+				credentials,
+			);
+			return models.filter((model) => model.id.startsWith(`${AWS_PREFIX}/`));
+		}
+
+		it("lists active chat models through the gateway, skipping Mantle-only and non-chat ones", async () => {
+			stubCatalog();
+			const mint = mintSuccess();
+			const models = await bedrockModelIds({ getAwsCredentials: mint });
+			expect(models.map((model) => model.id)).toEqual([
+				`${AWS_PREFIX}/us.amazon.nova-lite-v1:0`,
+				`${AWS_PREFIX}/us.anthropic.claude-sonnet-4-5-20250929-v1:0`,
+				`${AWS_PREFIX}/us.meta.llama3-3-70b-instruct-v1:0`,
+			]);
+			expect(models.map((model) => [model.vendor, model.protocol, model.supportsTools])).toEqual([
+				["amazon", "bedrock-converse", true],
+				["anthropic", "anthropic-messages", true],
+				["meta", "bedrock-converse", false],
+			]);
+			expect(models[1].name).toBe("Claude Sonnet 4.5 (Bedrock Team)");
+			expect(models[0].baseName).toBe("Nova Lite");
+			expect(vi.mocked(CatalogSdkClient).mock.calls[0][0]).toMatchObject({
+				endpoint: BEDROCK_GATEWAY,
+				region: "us-west-2",
+			});
+		});
+
+		it("keeps models unfiltered, named by id, when the foundation-model listing fails", async () => {
+			stubCatalog();
+			const base = catalogSend.getMockImplementation()!;
+			catalogSend.mockImplementation(async (command: { constructor: { name: string } }) => {
+				if (command.constructor.name === "ListFoundationModelsCommand") {
+					throw new Error("denied");
+				}
+				return base(command);
+			});
+			const models = await bedrockModelIds({ getAwsCredentials: mintSuccess() });
+			expect(models.map((model) => model.id)).toContain(
+				`${AWS_PREFIX}/us.anthropic.claude-3-sonnet-20240229-v1:0`,
+			);
+			// Without the listing, text models cannot be told from embedding or image models.
+			expect(models.map((model) => model.vendor)).toEqual(["anthropic", "anthropic", "anthropic"]);
+		});
+
+		it("lists no models and names the missing permissions when listing is denied", async () => {
+			const models = await bedrockModelIds({ getAwsCredentials: mintSuccess() });
+			expect(models).toEqual([]);
+			expect(logger.warn).toHaveBeenCalledWith(
+				expect.stringContaining("bedrock:ListInferenceProfiles and bedrock:ListFoundationModels"),
+			);
+		});
+
+		it("lists no models and warns on other failures", async () => {
+			catalogSend.mockRejectedValue(new Error("socket hang up"));
+			const models = await bedrockModelIds({ getAwsCredentials: mintSuccess() });
+			expect(models).toEqual([]);
+			expect(logger.warn).toHaveBeenCalled();
+		});
+
+		it("lists no models when credentials cannot be minted", async () => {
+			stubCatalog();
+			const models = await bedrockModelIds({
+				getAwsCredentials: vi.fn(async () => ({
+					ok: false as const,
+					code: "oauth_session_required",
+				})),
+			});
+			expect(models).toEqual([]);
+			expect(catalogSend).not.toHaveBeenCalled();
+		});
+
+		describe("Bedrock Mantle models", () => {
+			const MANTLE_LISTING = {
+				data: [
+					{ id: "openai.gpt-oss-120b-1:0", status: "available" },
+					{ id: "openai.gpt-5.6-sol" },
+					// Not in the Mantle capability table, so it is skipped.
+					{ id: "openai.gpt-oss-safeguard-20b" },
+				],
+			};
+
+			async function discover(
+				mantle: () => Response | Promise<Response>,
+				callbacks: ConnectProviderCallbacks = { getAwsCredentials: mintSuccess() },
+			) {
+				const fetchMock = stubDiscoveryFetch({
+					[`${MANTLE_CHAT_GATEWAY}/models`]: mantle as never,
+				});
+				const models = await registryWithProvider(callbacks).getModelsForProvider(
+					"posit-connect",
+					credentials,
+				);
+				return {
+					fetchMock,
+					models: models.filter((model) => model.id.startsWith(`${AWS_PREFIX}/`)),
+				};
+			}
+
+			it("lists Mantle-only models once, from the Mantle listing, next to the Runtime models", async () => {
+				stubCatalog();
+				const { models } = await discover(() => json(MANTLE_LISTING));
+
+				// The Runtime listing keeps skipping us.openai.*: Mantle is the only source.
+				expect(models.map((model) => model.id)).toEqual([
+					`${AWS_PREFIX}/us.amazon.nova-lite-v1:0`,
+					`${AWS_PREFIX}/us.anthropic.claude-sonnet-4-5-20250929-v1:0`,
+					`${AWS_PREFIX}/us.meta.llama3-3-70b-instruct-v1:0`,
+					`${AWS_PREFIX}/openai.gpt-oss-120b-1:0`,
+					`${AWS_PREFIX}/openai.gpt-5.6-sol`,
+				]);
+				expect(models.filter((model) => model.id.includes("gpt-oss-120b"))).toHaveLength(1);
+
+				const [chat, responses] = models.slice(3);
+				expect(chat).toMatchObject({
+					providerId: "posit-connect",
+					vendor: "openai",
+					protocol: "openai-chat",
+					baseUrl: MANTLE_CHAT_GATEWAY,
+					maxOutputTokens: 16_384,
+					supportsWebSearch: false,
+				});
+				expect(chat.name).toMatch(/\(Bedrock Team\)$/);
+				expect(chat.baseName).toBe(chat.name.replace(/ \(Bedrock Team\)$/, ""));
+				expect(responses).toMatchObject({
+					vendor: "openai",
+					protocol: "openai-responses",
+					baseUrl: MANTLE_RESPONSES_GATEWAY,
+					// The Mantle table marks GPT-5.6 as web-search capable, but web search
+					// through the gateway is not offered.
+					supportsWebSearch: false,
+				});
+				expect(responses.baseUrl!.startsWith(`${MANTLE_ROUTE}/`)).toBe(true);
+				expect(chat.baseUrl!.startsWith(`${MANTLE_ROUTE}/`)).toBe(true);
+			});
+
+			it("lists through the gateway's Mantle route, signed for bedrock-mantle in the integration's region", async () => {
+				stubCatalog();
+				// The minted region differs; Connect verifies the integration's sts_region.
+				const { fetchMock } = await discover(() => json(MANTLE_LISTING), {
+					getAwsCredentials: mintSuccess("us-east-1"),
+				});
+
+				const mantleCalls = fetchMock.mock.calls.filter(([url]) => String(url).includes("mantle"));
+				expect(mantleCalls).toHaveLength(1);
+				const [url, init] = mantleCalls[0] as [string, RequestInit];
+				expect(url).toBe(`${CONNECT_URL}/__gateway__/bedrock-mantle/${AWS_GUID}/v1/models`);
+				const authorization = new Headers(init.headers).get("authorization");
+				expect(authorization).toContain("Credential=AKIA/");
+				expect(authorization).toContain("/us-west-2/bedrock-mantle/aws4_request");
+			});
+
+			it("keeps the Runtime models and names the action once when the Mantle listing is denied", async () => {
+				stubCatalog();
+				const { models } = await discover(() =>
+					json(
+						{
+							message:
+								"AccessDeniedException: User is not authorized to perform: bedrock-mantle:ListModels",
+						},
+						403,
+					),
+				);
+
+				expect(models.map((model) => model.protocol)).toEqual([
+					"bedrock-converse",
+					"anthropic-messages",
+					"bedrock-converse",
+				]);
+				const warnings = vi
+					.mocked(logger.warn)
+					.mock.calls.filter(([message]) => String(message).includes("bedrock-mantle:ListModels"));
+				expect(warnings).toHaveLength(1);
+			});
+
+			it("keeps the Mantle models when the Runtime listing is denied", async () => {
+				// catalogSend rejects with AccessDeniedException by default.
+				const { models } = await discover(() => json(MANTLE_LISTING));
+
+				expect(models.map((model) => model.id)).toEqual([
+					`${AWS_PREFIX}/openai.gpt-oss-120b-1:0`,
+					`${AWS_PREFIX}/openai.gpt-5.6-sol`,
+				]);
+				expect(logger.warn).toHaveBeenCalledWith(
+					expect.stringContaining("bedrock:ListInferenceProfiles and bedrock:ListFoundationModels"),
+				);
+			});
+
+			it("aborts a Mantle listing that never answers when discovery is cancelled", async () => {
+				// Only the deadline timer is faked; signing and hashing still settle.
+				vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+				try {
+					stubCatalog();
+					let mantleSignal: AbortSignal | undefined;
+					const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+						if (url === `${MANTLE_CHAT_GATEWAY}/models`) {
+							mantleSignal = init?.signal ?? undefined;
+							return new Promise<Response>((_resolve, reject) => {
+								mantleSignal?.addEventListener("abort", () => reject(mantleSignal!.reason));
+							});
+						}
+						if (url === `${CONNECT_URL}/__api__/v1/oauth/integrations`) {
+							return Promise.resolve(json(INTEGRATION_RECORDS));
+						}
+						return Promise.resolve(json(ANTHROPIC_MODELS_BODY));
+					});
+					vi.stubGlobal("fetch", fetchMock);
+
+					const discovery = registryWithProvider({
+						getAwsCredentials: mintSuccess(),
+					}).getModelsForProvider("posit-connect", credentials);
+					for (let i = 0; i < 1000 && !mantleSignal; i++) {
+						await new Promise((resolve) => setImmediate(resolve));
+					}
+					expect(mantleSignal).toBeDefined();
+					expect(mantleSignal!.aborted).toBe(false);
+
+					// The discovery deadline aborts the shared signal.
+					await vi.advanceTimersByTimeAsync(15_000);
+					await discovery.catch(() => undefined);
+
+					expect(mantleSignal!.aborted).toBe(true);
+					const mantleCalls = fetchMock.mock.calls.filter(([url]) => url.includes("mantle"));
+					expect(mantleCalls).toHaveLength(1);
+					// An abort is not reported as a per-listing failure.
+					expect(logger.warn).not.toHaveBeenCalledWith(
+						expect.stringContaining("[Bedrock Mantle] Model listing failed"),
+					);
+				} finally {
+					vi.useRealTimers();
+				}
+			});
+		});
 	});
 
 	it("does not forward configured gateway metadata during discovery", async () => {
@@ -308,13 +692,12 @@ describe("connect model fetcher", () => {
 		stubDiscoveryFetch({
 			[`${ANTHROPIC_GATEWAY}/models`]: () => json({ error: "boom" }, 500),
 		});
+		stubSonnetCatalog();
 		const models = await registryWithProvider({
-			getAwsCredentials: vi.fn(),
+			getAwsCredentials: mintSuccess(),
 		}).getModelsForProvider("posit-connect", credentials);
 
-		expect(models.map((model) => model.id)).toEqual(
-			CONNECT_BEDROCK_MODEL_IDS.map((id) => `${AWS_PREFIX}/${id}`),
-		);
+		expect(models.map((model) => model.id)).toEqual([`${AWS_PREFIX}/${BEDROCK_MODEL_ID}`]);
 		expect(logger.warn).toHaveBeenCalledWith(
 			expect.stringContaining('discovery failed for integration "Anthropic Prod"'),
 		);
@@ -513,9 +896,7 @@ describe("connect chat routing", () => {
 				{ getAwsCredentials: mintSuccess() },
 				{ ...credentials, customHeaders: { [HEADER]: "team=analytics" } },
 			);
-			await client.chat(
-				chatParams(`${AWS_PREFIX}/${CONNECT_BEDROCK_MODEL_IDS[0]}`, "bedrock-converse"),
-			);
+			await client.chat(chatParams(`${AWS_PREFIX}/${BEDROCK_MODEL_ID}`, "bedrock-converse"));
 			expect(vi.mocked(BedrockClient).mock.calls.at(-1)![0].customHeaders).toEqual({
 				[HEADER]: "workbench-session-id=s1,team=analytics",
 			});
@@ -523,9 +904,7 @@ describe("connect chat routing", () => {
 
 		it("sends the header on the Bedrock route", async () => {
 			const client = await clientWithMetadata({ getAwsCredentials: mintSuccess() });
-			await client.chat(
-				chatParams(`${AWS_PREFIX}/${CONNECT_BEDROCK_MODEL_IDS[0]}`, "bedrock-converse"),
-			);
+			await client.chat(chatParams(`${AWS_PREFIX}/${BEDROCK_MODEL_ID}`, "bedrock-converse"));
 			expect(BedrockClient).toHaveBeenCalledWith(
 				expect.objectContaining({
 					customHeaders: expect.objectContaining({ [HEADER]: "workbench-session-id=s1" }),
@@ -608,9 +987,7 @@ describe("connect chat routing", () => {
 					customHeaders: { "GATEWAY-METADATA": "team=fake" },
 				},
 			);
-			await client.chat(
-				chatParams(`${AWS_PREFIX}/${CONNECT_BEDROCK_MODEL_IDS[0]}`, "bedrock-converse"),
-			);
+			await client.chat(chatParams(`${AWS_PREFIX}/${BEDROCK_MODEL_ID}`, "bedrock-converse"));
 			expect(vi.mocked(BedrockClient).mock.calls.at(-1)![0].customHeaders).toEqual({
 				[HEADER]: "team=fake",
 			});
@@ -628,7 +1005,7 @@ describe("connect chat routing", () => {
 	it("routes bedrock-converse through per-request STS credentials without forcing a protocol", async () => {
 		const getAwsCredentials = mintSuccess();
 		const client = await clientAfterDiscovery({ getAwsCredentials });
-		const modelId = CONNECT_BEDROCK_MODEL_IDS[0];
+		const modelId = BEDROCK_MODEL_ID;
 
 		await client.chat(chatParams(`${AWS_PREFIX}/${modelId}`, "bedrock-converse"));
 
@@ -668,7 +1045,7 @@ describe("connect chat routing", () => {
 		});
 		const getAwsCredentials = mintSuccess();
 		const client = clientWithoutDiscovery({ getAwsCredentials });
-		const modelId = CONNECT_BEDROCK_MODEL_IDS[0];
+		const modelId = BEDROCK_MODEL_ID;
 
 		await client.chat(chatParams(`${AWS_PREFIX}/${modelId}`, "bedrock-converse"));
 
@@ -709,9 +1086,7 @@ describe("connect chat routing", () => {
 		const getAwsCredentials = mintSuccess("eu-west-1");
 		const client = clientWithoutDiscovery({ getAwsCredentials });
 
-		await client.chat(
-			chatParams(`${AWS_PREFIX}/${CONNECT_BEDROCK_MODEL_IDS[0]}`, "bedrock-converse"),
-		);
+		await client.chat(chatParams(`${AWS_PREFIX}/${BEDROCK_MODEL_ID}`, "bedrock-converse"));
 
 		expect(getAwsCredentials).toHaveBeenCalledWith(
 			expect.objectContaining({ guid: AWS_GUID, region: "eu-west-1" }),
@@ -731,9 +1106,7 @@ describe("connect chat routing", () => {
 		const getAwsCredentials = mintSuccess();
 		const client = clientWithoutDiscovery({ getAwsCredentials });
 
-		await client.chat(
-			chatParams(`${AWS_PREFIX}/${CONNECT_BEDROCK_MODEL_IDS[0]}`, "bedrock-converse"),
-		);
+		await client.chat(chatParams(`${AWS_PREFIX}/${BEDROCK_MODEL_ID}`, "bedrock-converse"));
 
 		const integration = getAwsCredentials.mock.calls[0][0] as { region?: string };
 		expect(integration.region).toBeUndefined();
@@ -747,9 +1120,7 @@ describe("connect chat routing", () => {
 			String(url).endsWith("/__api__/v1/oauth/integrations"),
 		).length;
 
-		await client.chat(
-			chatParams(`${AWS_PREFIX}/${CONNECT_BEDROCK_MODEL_IDS[0]}`, "bedrock-converse"),
-		);
+		await client.chat(chatParams(`${AWS_PREFIX}/${BEDROCK_MODEL_ID}`, "bedrock-converse"));
 
 		const total = fetchMock.mock.calls.filter(([url]) =>
 			String(url).endsWith("/__api__/v1/oauth/integrations"),
@@ -919,7 +1290,7 @@ describe("connect chat routing", () => {
 	it("forwards an anthropic-messages override on an AWS-backed integration to Bedrock", async () => {
 		const getAwsCredentials = mintSuccess();
 		const client = await clientAfterDiscovery({ getAwsCredentials });
-		const modelId = CONNECT_BEDROCK_MODEL_IDS[0];
+		const modelId = BEDROCK_MODEL_ID;
 
 		// The template selects the transport: the gateway still requires SigV4,
 		// so the override picks the wire format inside BedrockClient instead of
@@ -950,7 +1321,7 @@ describe("connect chat routing", () => {
 		});
 
 		await expect(
-			client.chat(chatParams(`${AWS_PREFIX}/${CONNECT_BEDROCK_MODEL_IDS[0]}`, "bedrock-converse")),
+			client.chat(chatParams(`${AWS_PREFIX}/${BEDROCK_MODEL_ID}`, "bedrock-converse")),
 		).rejects.toThrow(new RegExp(`oauth_session_required.*${loginUrl}`));
 		expect(chats.bedrock).not.toHaveBeenCalled();
 	});
@@ -964,7 +1335,7 @@ describe("connect chat routing", () => {
 		});
 
 		await expect(
-			client.chat(chatParams(`${AWS_PREFIX}/${CONNECT_BEDROCK_MODEL_IDS[0]}`, "bedrock-converse")),
+			client.chat(chatParams(`${AWS_PREFIX}/${BEDROCK_MODEL_ID}`, "bedrock-converse")),
 		).rejects.toThrow(/incomplete AWS credentials/);
 		expect(chats.bedrock).not.toHaveBeenCalled();
 	});
@@ -972,9 +1343,7 @@ describe("connect chat routing", () => {
 	it("signs with the integration's sts_region over the minted region and warns", async () => {
 		const client = await clientAfterDiscovery({ getAwsCredentials: mintSuccess("us-east-1") });
 
-		await client.chat(
-			chatParams(`${AWS_PREFIX}/${CONNECT_BEDROCK_MODEL_IDS[0]}`, "bedrock-converse"),
-		);
+		await client.chat(chatParams(`${AWS_PREFIX}/${BEDROCK_MODEL_ID}`, "bedrock-converse"));
 
 		expect(BedrockClient).toHaveBeenCalledWith(
 			expect.objectContaining({ region: "us-west-2" }),
@@ -993,9 +1362,7 @@ describe("connect chat routing", () => {
 			},
 		);
 
-		await client.chat(
-			chatParams(`${AWS_PREFIX}/${CONNECT_BEDROCK_MODEL_IDS[0]}`, "bedrock-converse"),
-		);
+		await client.chat(chatParams(`${AWS_PREFIX}/${BEDROCK_MODEL_ID}`, "bedrock-converse"));
 
 		expect(BedrockClient).toHaveBeenCalledWith(expect.objectContaining({ customHeaders }), logger);
 	});
@@ -1032,12 +1399,147 @@ describe("connect chat routing", () => {
 
 		await expect(
 			client.chat({
-				model: `${AWS_PREFIX}/${CONNECT_BEDROCK_MODEL_IDS[0]}`,
+				model: `${AWS_PREFIX}/${BEDROCK_MODEL_ID}`,
 				messages: [],
 				cancellationToken,
 				protocol: "openai-chat",
 				baseUrl: BEDROCK_GATEWAY,
 			}),
 		).rejects.toThrow(/cannot route protocol "openai-chat"/);
+	});
+
+	describe("Bedrock Mantle models", () => {
+		const RESPONSES_MODEL = "openai.gpt-5.6-sol";
+		const CHAT_MODEL = "openai.gpt-oss-120b-1:0";
+
+		function delegated() {
+			return chats.bedrock.mock.calls.at(-1)![0] as {
+				model: string;
+				protocol?: string;
+				baseUrl?: string;
+				webSearchEnabled?: boolean;
+				bedrockExternalWebAccess?: boolean;
+			};
+		}
+
+		it("routes a stamped Mantle model statelessly through the Mantle route with minted keys", async () => {
+			// No discovery ran; the region comes from the integrations re-read.
+			stubDiscoveryFetch();
+			const getAwsCredentials = mintSuccess("us-east-1");
+			const client = clientWithoutDiscovery({ getAwsCredentials });
+
+			await client.chat({
+				model: `${AWS_PREFIX}/${RESPONSES_MODEL}`,
+				messages: [],
+				cancellationToken,
+				protocol: "openai-responses",
+				baseUrl: MANTLE_RESPONSES_GATEWAY,
+			});
+
+			// parseGatewayBaseUrl reads the Mantle route as the aws template and guid.
+			expect(getAwsCredentials).toHaveBeenCalledWith(
+				expect.objectContaining({ guid: AWS_GUID, template: "aws" }),
+				expect.any(AbortSignal),
+			);
+			expect(BedrockClient).toHaveBeenCalledWith(
+				expect.objectContaining({
+					region: "us-west-2",
+					accessKeyId: "AKIA",
+					secretAccessKey: "SECRET",
+					sessionToken: "SESSION",
+				}),
+				logger,
+			);
+			expect(delegated()).toMatchObject({
+				model: RESPONSES_MODEL,
+				protocol: "openai-responses",
+				baseUrl: MANTLE_RESPONSES_GATEWAY,
+			});
+		});
+
+		it("routes Chat Completions models to the /v1 Mantle stamp", async () => {
+			const client = await clientAfterDiscovery({ getAwsCredentials: mintSuccess() });
+
+			await client.chat({
+				model: `${AWS_PREFIX}/${CHAT_MODEL}`,
+				messages: [],
+				cancellationToken,
+				protocol: "openai-chat",
+				baseUrl: MANTLE_CHAT_GATEWAY,
+			});
+
+			expect(delegated()).toMatchObject({
+				model: CHAT_MODEL,
+				protocol: "openai-chat",
+				baseUrl: MANTLE_CHAT_GATEWAY,
+			});
+		});
+
+		it("reads the protocol from the stamp's version prefix when none is declared", async () => {
+			const client = await clientAfterDiscovery({ getAwsCredentials: mintSuccess() });
+
+			await client.chat({
+				model: `${AWS_PREFIX}/${RESPONSES_MODEL}`,
+				messages: [],
+				cancellationToken,
+				baseUrl: MANTLE_RESPONSES_GATEWAY,
+			});
+			expect(delegated().protocol).toBe("openai-responses");
+
+			await client.chat({
+				model: `${AWS_PREFIX}/${CHAT_MODEL}`,
+				messages: [],
+				cancellationToken,
+				baseUrl: MANTLE_CHAT_GATEWAY,
+			});
+			expect(delegated().protocol).toBe("openai-chat");
+		});
+
+		it("gives an unstamped Mantle model the integration's Mantle route for its protocol", async () => {
+			const client = await clientAfterDiscovery({ getAwsCredentials: mintSuccess() });
+
+			await client.chat({
+				model: `${AWS_PREFIX}/${RESPONSES_MODEL}`,
+				messages: [],
+				cancellationToken,
+				protocol: "openai-responses",
+			});
+
+			expect(delegated().baseUrl).toBe(MANTLE_RESPONSES_GATEWAY);
+		});
+
+		it("rejects a non-OpenAI protocol on the Mantle route", async () => {
+			const client = await clientAfterDiscovery({ getAwsCredentials: mintSuccess() });
+
+			await expect(
+				client.chat({
+					model: `${AWS_PREFIX}/${CHAT_MODEL}`,
+					messages: [],
+					cancellationToken,
+					protocol: "bedrock-converse",
+					baseUrl: MANTLE_CHAT_GATEWAY,
+				}),
+			).rejects.toThrow(/Bedrock Mantle route supports openai-chat and openai-responses/);
+			expect(chats.bedrock).not.toHaveBeenCalled();
+		});
+
+		it("forwards the web search request fields to BedrockClient unchanged", async () => {
+			const client = await clientAfterDiscovery({ getAwsCredentials: mintSuccess() });
+
+			await client.chat({
+				model: `${AWS_PREFIX}/${RESPONSES_MODEL}`,
+				messages: [],
+				cancellationToken,
+				protocol: "openai-responses",
+				baseUrl: MANTLE_RESPONSES_GATEWAY,
+				webSearchEnabled: true,
+				bedrockExternalWebAccess: false,
+			});
+
+			expect(delegated()).toMatchObject({
+				webSearchEnabled: true,
+				bedrockExternalWebAccess: false,
+			});
+		});
 	});
 });
