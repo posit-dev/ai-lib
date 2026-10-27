@@ -193,9 +193,8 @@ process-local attempt state and durable generation validity, while host
 applications own which session initiated each attempt (credential changes are
 multicast to all sessions). Loopback U2M is offered only where the host
 guarantees browser/backend colocation and supplies an authorization-code
-receiver. The host passes the client ID and scope (Posit Assistant uses the
-preregistered `databricks-cli` client with `all-apis offline_access`); this
-package stays client-agnostic. M2M and PAT remain available everywhere.
+receiver. The host passes the client ID and scope; this package stays
+client-agnostic. M2M and PAT remain available everywhere.
 
 Endpoint discovery reads `<host>/oidc/.well-known/oauth-authorization-server`
 with a 2 second timeout. Any failure (timeout, HTTP error, missing fields, or a
