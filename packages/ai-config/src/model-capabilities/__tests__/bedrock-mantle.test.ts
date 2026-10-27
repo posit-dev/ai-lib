@@ -82,6 +82,17 @@ describe("Bedrock Mantle capability rules", () => {
 		}
 	});
 
+	it.each(["openai.gpt-6.1-terra", "openai.gpt-6.1-terra-2026-10-20"])(
+		"applies the documented window and output ceiling, keeping off, for GPT-6.1 Terra id %s",
+		(id) => {
+			const capabilities = getBedrockMantleModelCapabilities(id);
+			expect(capabilities?.protocol).toBe("openai-responses");
+			expect(capabilities?.maxContextLength).toBe(1_050_000);
+			expect(capabilities?.maxOutputTokens).toBe(128_000);
+			expect(capabilities?.thinkingEffortLevels).toContain("off");
+		},
+	);
+
 	it("defaults unknown future GPT-6 IDs to the 1M family window", () => {
 		const capabilities = getBedrockMantleModelCapabilities("openai.gpt-6.1");
 		expect(capabilities?.maxContextLength).toBe(1_000_000);
@@ -94,9 +105,9 @@ describe("Bedrock Mantle capability rules", () => {
 			const capabilities = getBedrockMantleModelCapabilities(id);
 			expect(capabilities?.protocol).toBe("openai-responses");
 			expect(capabilities?.thinkingEffortLevels).toEqual(["low", "medium", "high", "xhigh", "max"]);
-			// Reasoning is shared with OpenAI; capacity stays Bedrock's own.
+			// Reasoning is shared with OpenAI; capacity follows the AWS card.
 			expect(capabilities?.maxContextLength).toBe(1_000_000);
-			expect(capabilities?.maxOutputTokens).toBeUndefined();
+			expect(capabilities?.maxOutputTokens).toBe(131_072);
 		},
 	);
 
@@ -117,6 +128,12 @@ describe("Bedrock Mantle capability rules", () => {
 	it("applies Astra's reasoning rule without its dated-ID capacity rule to other suffixes", () => {
 		const capabilities = getBedrockMantleModelCapabilities("openai.gpt-6-astra-preview");
 		expect(capabilities?.thinkingEffortLevels).toEqual(["low", "medium", "high", "xhigh", "max"]);
+		expect(capabilities?.maxContextLength).toBe(1_000_000);
+		expect(capabilities?.maxOutputTokens).toBeUndefined();
+	});
+
+	it("keeps GPT-6.1 Terra's published limits off other suffixes", () => {
+		const capabilities = getBedrockMantleModelCapabilities("openai.gpt-6.1-terra-preview");
 		expect(capabilities?.maxContextLength).toBe(1_000_000);
 		expect(capabilities?.maxOutputTokens).toBeUndefined();
 	});

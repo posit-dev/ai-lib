@@ -9,7 +9,23 @@ const OPENAI_NAMESPACE = "openai.";
 const GPT_OSS_EFFORT_LEVELS = ["low", "medium", "high"];
 const GPT_5_EFFORT_LEVELS = ["off", "low", "medium", "high", "xhigh"];
 const IMAGE_MEDIA_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"];
-const ASTRA_PUBLISHED_LIMITS_ID = /^openai\.gpt-6-astra(?:-\d{4}-\d{2}-\d{2})?$/;
+const DATED_SNAPSHOT_SUFFIX = /-\d{4}-\d{2}-\d{2}$/;
+
+// Limits published on each model's AWS card, keyed by undated model name.
+// Sources verified 2026-09-22 (Astra) and 2026-10-27 (6.1 Terra, 6.1 Sol):
+// https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-astra.html
+// https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-1-terra.html
+// https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-1-sol.html
+// 6.1 Sol's card lists a 1M window and 131,072 output tokens, unlike the
+// 1.05M / 128K of the other two.
+const GPT6_PUBLISHED_LIMITS = new Map<
+	string,
+	Pick<InferredModelCapabilities, "maxContextLength" | "maxOutputTokens">
+>([
+	["gpt-6-astra", { maxContextLength: 1_050_000, maxOutputTokens: 128_000 }],
+	["gpt-6.1-terra", { maxContextLength: 1_050_000, maxOutputTokens: 128_000 }],
+	["gpt-6.1-sol", { maxContextLength: 1_000_000, maxOutputTokens: 131_072 }],
+]);
 
 /**
  * Capabilities for OpenAI models served through Bedrock Mantle.
@@ -38,21 +54,19 @@ export function getBedrockMantleModelCapabilities(
 
 	// Model traits, including which GPT-6 models lack "off", are shared with
 	// OpenAI (gpt6-model-profile.ts); capacity and routing are Bedrock's own.
-	const gpt6 = modelId.startsWith(OPENAI_NAMESPACE)
-		? getGpt6ModelProfile(modelId.slice(OPENAI_NAMESPACE.length))
+	const bareId = modelId.startsWith(OPENAI_NAMESPACE)
+		? modelId.slice(OPENAI_NAMESPACE.length)
 		: undefined;
-	if (gpt6) {
-		// Sources verified 2026-09-22:
-		// https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-astra.html
-		// The Astra model card documents the 1.05M window and 128K output
-		// ceiling (unlike GPT-5.6, whose output ceiling AWS does not publish).
+	const gpt6 = bareId === undefined ? undefined : getGpt6ModelProfile(bareId);
+	if (bareId !== undefined && gpt6) {
 		// Reasoning follows model identity, but limits follow the exact ID:
-		// only bare and dated Astra IDs get those limits. Other and unknown
-		// future GPT-6 IDs default to the 1M window with no output ceiling,
-		// even when they share Astra's reasoning rule.
-		const limits = ASTRA_PUBLISHED_LIMITS_ID.test(modelId)
-			? { maxContextLength: 1_050_000, maxOutputTokens: 128_000 }
-			: { maxContextLength: 1_000_000 };
+		// only bare and dated IDs of models with a published card get their
+		// limits (unlike GPT-5.6, whose output ceiling AWS does not publish).
+		// Other suffixes and unknown future GPT-6 IDs default to the 1M window
+		// with no output ceiling, even when they share a reasoning rule.
+		const limits = GPT6_PUBLISHED_LIMITS.get(bareId.replace(DATED_SNAPSHOT_SUFFIX, "")) ?? {
+			maxContextLength: 1_000_000,
+		};
 		return {
 			...gpt6,
 			...limits,
