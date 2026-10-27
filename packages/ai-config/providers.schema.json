@@ -10,7 +10,7 @@
     },
     "agentEngines": {
       "additionalProperties": false,
-      "description": "Preview: external agent engines that can run a Posit Assistant conversation in place of its own agent loop. Requires Posit Assistant's experimental features. Changes take effect after a restart.",
+      "description": "Preview: external agent engines that can run a Posit Assistant conversation in place of its own agent loop.",
       "properties": {
         "acp": {
           "additionalProperties": {
@@ -133,12 +133,12 @@
           "type": "boolean"
         },
         "idleSessionMinutes": {
-          "description": "Stop an engine session's process after this many minutes without a turn; its next turn resumes the session. Default 15.",
+          "description": "Stop an engine session's process after this many minutes without a turn; its next turn resumes the session. Default 15. Applies after a restart.",
           "exclusiveMinimum": 0,
           "type": "number"
         },
         "maxLiveSessions": {
-          "description": "Engine session processes each user may keep running; beyond it the least recently used idle one is stopped. Default 4.",
+          "description": "Engine session processes each user may keep running; beyond it the least recently used idle one is stopped. Default 4. Applies after a restart.",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,
           "type": "integer"
