@@ -232,7 +232,7 @@ describe("Bedrock provider Mantle aggregation", () => {
 				capabilityFacts: {
 					maxContextLength: 1_000_000,
 					maxInputTokens: undefined,
-					maxOutputTokens: undefined,
+					maxOutputTokens: 131_072,
 				},
 			});
 		},

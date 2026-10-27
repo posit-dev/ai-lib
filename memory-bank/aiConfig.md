@@ -687,9 +687,10 @@ Per-provider cases:
   published 1M combined context fact while input and output remain unknown;
   known older GPT-5.4/5.5 IDs retain the prior 272K rule, and unknown future
   GPT-5.x IDs default to the 1M family window. GPT-6 uses Responses with the
-  shared GPT-6 profile; only bare and dated Astra IDs carry the published
-  1.05M/128K facts, and other GPT-6 IDs get a 1M window with unknown output —
-  so a suffixed Astra ID can inherit Astra's no-`off` rule without its limits.
+  shared GPT-6 profile; only bare and dated IDs with a published AWS card
+  carry its limits (Astra and 6.1 Terra: 1.05M/128K; 6.1 Sol: 1M/131,072),
+  and other GPT-6 IDs get a 1M window with unknown output — so a suffixed
+  Astra ID can inherit Astra's no-`off` rule without its limits.
 - `openai` → the OpenAI table, with `maxInputTokens` re-derived via
   `openaiMaxInputTokens()` (context window minus reserved output budget) —
   the table itself doesn't set it. GPT-5.6 Sol/Terra/Luna/bare/snapshot IDs

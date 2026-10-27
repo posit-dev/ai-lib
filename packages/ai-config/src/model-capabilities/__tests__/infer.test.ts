@@ -77,7 +77,7 @@ describe("inferModelCapabilities", () => {
 	});
 
 	it("applies the GPT-6 envelope to bare and dated-suffix IDs", () => {
-		for (const modelId of ["gpt-6-sol", "gpt-6-luna", "gpt-6-sol-2026-09-22"]) {
+		for (const modelId of ["gpt-6-sol", "gpt-6-luna", "gpt-6-sol-2026-09-22", "gpt-6.1-terra"]) {
 			const caps = inferModelCapabilities("openai", modelId);
 			expect(caps.facts.maxContextLength).toBe(1_050_000);
 			expect(caps.facts.maxOutputTokens).toBe(128_000);
@@ -121,8 +121,7 @@ describe("inferModelCapabilities", () => {
 		expect(openai.facts.maxInputTokens).toBe(1_050_000 - 128_000);
 		expect(bedrock.facts.maxContextLength).toBe(1_000_000);
 		expect(bedrock.facts.maxInputTokens).toBeUndefined();
-		expect(bedrock.facts.maxOutputTokens).toBeUndefined();
-		expect(bedrock.operational.maxOutputTokens).toBe(16_384);
+		expect(bedrock.facts.maxOutputTokens).toBe(131_072);
 	});
 
 	it("keeps off for future GPT-6 IDs that fall back to the family default", () => {

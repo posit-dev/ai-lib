@@ -46,7 +46,9 @@ export function getGpt6ModelProfile(modelId: string): Gpt6ModelProfile | undefin
 		supportsImages: true,
 		supportedInputMediaTypes: IMAGE_MEDIA_TYPES,
 		supportsToolResultImages: true,
-		// Original Sol/Luna and unknown future GPT-6 IDs keep "off".
+		// Original Sol/Luna, 6.1 Terra, and unknown future GPT-6 IDs keep "off".
+		// 6.1 Terra documents "none" (verified 2026-10-27):
+		// https://developers.openai.com/api/docs/models/gpt-6.1-terra
 		thinkingEffortLevels: GPT6_NO_OFF_MODEL.test(modelId)
 			? GPT6_NO_OFF_EFFORT_LEVELS
 			: GPT6_EFFORT_LEVELS,

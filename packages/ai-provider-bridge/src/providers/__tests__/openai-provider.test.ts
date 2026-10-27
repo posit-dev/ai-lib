@@ -42,6 +42,7 @@ describe("OpenAI model discovery", () => {
 					"gpt-6-astra",
 					"gpt-6-sol-2026-09-22",
 					"gpt-6.1-sol",
+					"gpt-6.1-terra",
 					"gpt-6-luna",
 					"gpt-5.4",
 					"gpt-3.5-turbo",
@@ -61,6 +62,7 @@ describe("OpenAI model discovery", () => {
 			"gpt-6-astra",
 			"gpt-6-sol-2026-09-22",
 			"gpt-6.1-sol",
+			"gpt-6.1-terra",
 			"gpt-6-luna",
 			"gpt-5.4",
 		]);
@@ -72,6 +74,10 @@ describe("OpenAI model discovery", () => {
 		expect(sol?.name).toBe("GPT-6.1 Sol");
 		expect(sol?.thinkingEffortLevels).toContain("max");
 		expect(sol?.thinkingEffortLevels).not.toContain("off");
+		const terra = models.find((model) => model.id === "gpt-6.1-terra");
+		expect(terra?.name).toBe("GPT-6.1 Terra");
+		expect(terra?.thinkingEffortLevels).toContain("off");
+		expect(terra?.thinkingEffortLevels).toContain("max");
 	});
 
 	it("includes GPT-6 rows in the static fallback when the listing fails", async () => {
@@ -87,8 +93,18 @@ describe("OpenAI model discovery", () => {
 		const models = await registry.getModelsForProvider("openai", credentials);
 
 		expect(models.map((model) => model.id)).toEqual(
-			expect.arrayContaining(["gpt-6-astra", "gpt-6-sol", "gpt-6.1-sol", "gpt-6-luna"]),
+			expect.arrayContaining([
+				"gpt-6-astra",
+				"gpt-6-sol",
+				"gpt-6.1-sol",
+				"gpt-6.1-terra",
+				"gpt-6-luna",
+			]),
 		);
+		expect(models.find((model) => model.id === "gpt-6.1-terra")).toMatchObject({
+			name: "GPT-6.1 Terra",
+			thinkingEffortLevels: ["off", "low", "medium", "high", "xhigh", "max"],
+		});
 		expect(models.find((model) => model.id === "gpt-6.1-sol")).toMatchObject({
 			name: "GPT-6.1 Sol",
 			thinkingEffortLevels: ["low", "medium", "high", "xhigh", "max"],
