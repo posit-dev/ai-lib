@@ -1044,7 +1044,7 @@ export const agentEnginesSchema = z
 			.number()
 			.positive()
 			.describe(
-				"Stop an engine session's process after this many minutes without a turn; its next turn resumes the session. Default 15.",
+				"Stop an engine session's process after this many minutes without a turn; its next turn resumes the session. Default 15. Applies after a restart.",
 			)
 			.optional(),
 		maxLiveSessions: z
@@ -1052,7 +1052,7 @@ export const agentEnginesSchema = z
 			.int()
 			.positive()
 			.describe(
-				"Engine session processes each user may keep running; beyond it the least recently used idle one is stopped. Default 4.",
+				"Engine session processes each user may keep running; beyond it the least recently used idle one is stopped. Default 4. Applies after a restart.",
 			)
 			.optional(),
 		downloadBinaries: z
@@ -1079,7 +1079,7 @@ export const agentEnginesSchema = z
 	})
 	.strict()
 	.describe(
-		"Preview: external agent engines that can run a Posit Assistant conversation in place of its own agent loop. Requires Posit Assistant's experimental features. Changes take effect after a restart.",
+		"Preview: external agent engines that can run a Posit Assistant conversation in place of its own agent loop.",
 	);
 
 // ---------------------------------------------------------------------------
