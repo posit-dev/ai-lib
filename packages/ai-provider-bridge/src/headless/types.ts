@@ -10,8 +10,9 @@ export interface HeadlessProvidersOptions {
 	readonly logger: Logger;
 	readonly userAgent: string;
 	/**
-	 * `envVars` is required for the same reason as in `LoadCatalogOptions`.
-	 * `configPath` defaults to the standard providers.json and is overridden in tests.
+	 * Passed to the catalog loader. `envVars` is required and has no
+	 * `process.env` fallback, as described on `LoadCatalogOptions.envVars`.
+	 * `configPath` defaults to the standard providers.json.
 	 */
 	readonly catalog: Pick<LoadCatalogOptions, "configPath" | "envVars">;
 }

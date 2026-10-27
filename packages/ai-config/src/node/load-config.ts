@@ -21,8 +21,10 @@ export interface LoadConfigSourcesOptions {
 	readonly enforcedEnvVar?: string;
 	readonly defaultEnvVar?: string;
 	/**
-	 * Required environment for enforced/default fragments. Hosts that delete
-	 * these variables from `process.env` must retain their values here.
+	 * Environment holding the enforced and default admin tiers
+	 * (`POSIT_AI_PROVIDERS_ENFORCED` and `POSIT_AI_PROVIDERS_DEFAULT` unless
+	 * renamed). There is no `process.env` fallback: hosts that delete these
+	 * variables from `process.env` must pass the snapshot they took beforehand.
 	 */
 	readonly env: Record<string, string | undefined>;
 	readonly logger?: LoggerLike;
