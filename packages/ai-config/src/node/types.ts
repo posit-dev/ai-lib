@@ -55,15 +55,20 @@ export interface LoadCatalogOptions {
 	readonly logger?: LoggerLike;
 
 	/**
-	 * Environment variables for non-secret connection fields (converted into a
-	 * resolver-owned source ranked below `enforced` but above
-	 * `user`/`legacy-positron`/`default`) AND for reading the enforced/default
-	 * fragment env vars.
+	 * Environment the loader reads. It supplies:
 	 *
-	 * Required to prevent an ambient fallback from silently losing admin tiers
-	 * after a host deletes their variables from `process.env`. Such hosts must
-	 * pass an environment that retains those values. Pass `process.env` for
-	 * live reads.
+	 * - The admin tiers: `POSIT_AI_PROVIDERS_ENFORCED` and
+	 *   `POSIT_AI_PROVIDERS_DEFAULT` (renamed by `enforcedEnvVar` and
+	 *   `defaultEnvVar`), and `POSITRON_ENFORCED_SETTINGS` when
+	 *   `legacyPositronEnforcedSettings` is set.
+	 * - Non-secret connection fields such as `ANTHROPIC_BASE_URL` or
+	 *   `AWS_REGION`. They rank below `enforced` and above `user`,
+	 *   `legacy-positron` and `default`.
+	 *
+	 * There is no `process.env` fallback. Hosts that delete their control
+	 * variables from `process.env` at startup must pass the snapshot they took
+	 * beforehand. A fallback would read the scrubbed environment and drop the
+	 * admin tiers without any error. Hosts that don't scrub pass `process.env`.
 	 */
 	readonly envVars: Record<string, string | undefined>;
 

@@ -31,7 +31,7 @@ const UNCREDENTIALED: HeadlessModelListing = { credentialed: false, models: [] }
 
 export function createHeadlessProviders(options: HeadlessProvidersOptions): HeadlessProviders {
 	const { logger } = options;
-	const configPath = options.catalog?.configPath ?? PROVIDERS_CONFIG_PATH;
+	const configPath = options.catalog.configPath ?? PROVIDERS_CONFIG_PATH;
 	const listeners = new Set<(change: HeadlessCatalogChange) => void>();
 	let catalog: readonly ResolvedProvider[] | undefined;
 	let catalogReady: Promise<readonly ResolvedProvider[]> | undefined;
@@ -49,7 +49,7 @@ export function createHeadlessProviders(options: HeadlessProvidersOptions): Head
 
 	const loadOptions: LoadCatalogOptions = {
 		configPath,
-		envVars: options.catalog?.envVars ?? process.env,
+		envVars: options.catalog.envVars,
 		// Positron is the only caller and always reads Workbench's enforced settings this way.
 		legacyPositronEnforcedSettings: true,
 		logger: {
