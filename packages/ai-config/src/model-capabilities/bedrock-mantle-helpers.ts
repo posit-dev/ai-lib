@@ -20,7 +20,7 @@ const DATED_SNAPSHOT_SUFFIX = /-\d{4}-\d{2}-\d{2}$/;
 // 1.05M / 128K of the other two.
 const GPT6_PUBLISHED_LIMITS = new Map<
 	string,
-	Pick<InferredModelCapabilities, "maxContextLength" | "maxOutputTokens">
+	Required<Pick<InferredModelCapabilities, "maxContextLength" | "maxOutputTokens">>
 >([
 	["gpt-6-astra", { maxContextLength: 1_050_000, maxOutputTokens: 128_000 }],
 	["gpt-6.1-terra", { maxContextLength: 1_050_000, maxOutputTokens: 128_000 }],
