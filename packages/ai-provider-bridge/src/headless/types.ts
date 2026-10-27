@@ -9,8 +9,11 @@ import type { CancellationToken, Logger } from "../types.js";
 export interface HeadlessProvidersOptions {
 	readonly logger: Logger;
 	readonly userAgent: string;
-	/** For tests; production reads the default providers.json and process environment. */
-	readonly catalog?: Pick<LoadCatalogOptions, "configPath" | "envVars">;
+	/**
+	 * `envVars` is required for the same reason as in `LoadCatalogOptions`.
+	 * `configPath` defaults to the standard providers.json and is overridden in tests.
+	 */
+	readonly catalog: Pick<LoadCatalogOptions, "configPath" | "envVars">;
 }
 
 /** A catalog entry as plain data. Connection values stay inside the entry. */
