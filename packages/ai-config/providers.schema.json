@@ -55,7 +55,7 @@
             ],
             "type": "object"
           },
-          "description": "Agent Client Protocol agents to offer as engines, keyed by agent id. An entry is enabled when it exists.",
+          "description": "Agent Client Protocol agents to offer as engines, keyed by agent id. An entry is on unless it sets `enabled: false`.",
           "propertyNames": {
             "description": "Agent id: a lowercase letter, then up to 31 of a-z, 0-9 or '-'.",
             "pattern": "^[a-z][a-z0-9-]{0,31}$",

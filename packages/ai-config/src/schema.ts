@@ -1079,7 +1079,7 @@ export const agentEnginesSchema = z
 				acpAgentEngineSchema,
 			)
 			.describe(
-				"Agent Client Protocol agents to offer as engines, keyed by agent id. An entry is enabled when it exists.",
+				"Agent Client Protocol agents to offer as engines, keyed by agent id. An entry is on unless it sets `enabled: false`.",
 			)
 			.optional(),
 	})
