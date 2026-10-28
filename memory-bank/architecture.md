@@ -339,6 +339,39 @@ permissions are not needed after subscription. AWS's
 zero-retention guarantee: AWS account/project retention policy is configured
 separately and may still retain data according to that policy.
 
+### Bedrock through the Posit Connect gateway
+
+The `posit-connect` provider lists and chats with Bedrock models for each `aws`-template Connect
+integration. The host supplies `ConnectProviderCallbacks.getAwsCredentials()`, which mints
+short-lived keys per request; the bridge never stores them. Requests go to the integration's
+gateway route, signed in the integration's own `sts_region` (Connect checks SigV4 against it, so
+the region never comes from local config).
+
+Discovery (`listGatewayModels()` in `connect-bedrock-models.ts`) calls the gateway's control plane:
+
+- `ListInferenceProfiles` gives the invokable profile id for each model. It is the same helper the
+  direct provider uses (`listInferenceProfileIds()`), which already drops `openai.*` models.
+- `ListFoundationModels` with `byOutputModality: "TEXT"` names the models and drops embedding and
+  image models. A model without a summary is not listed.
+- There is no fixed model list and no curation: admins restrict models through the integration's
+  IAM role and Connect's controls.
+- An unavailable profile listing returns `null`, so the host can say which permissions are missing.
+  A `ListFoundationModels` failure propagates, as in the direct provider, and the provider lists no
+  Runtime models.
+
+Each model is stamped with its integration prefix (`<idPrefix>/<profileId>`), a display name with
+the integration label, and `baseName`, the bare name hosts use to match capabilities. Anthropic
+models use `anthropic-messages`; other vendors use `bedrock-converse`.
+
+`openai.*` models appear once, through the gateway's separate Mantle route
+(`/__gateway__/bedrock-mantle/{guid}`, `/v1` for Chat Completions and `/openai/v1` for
+Responses), listed with the same `listMantleModels()` as the direct provider. Mantle is hidden
+under AWS FIPS, as for direct Bedrock. A Mantle listing failure never removes the Runtime models.
+
+After each integrations listing the bridge calls `reportDiscovery()` (`ready`, `no-integrations`, or
+`unreachable`) so a host can show status. Capability defaults are shared with the direct provider
+through `getConnectBedrockModelCapabilities()`.
+
 ### Hosted web search on the OpenAI Responses transports
 
 Direct OpenAI Responses and Bedrock Mantle Responses share one hosted-tool
