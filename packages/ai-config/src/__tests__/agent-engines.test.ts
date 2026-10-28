@@ -107,6 +107,27 @@ describe("agentEngines resolution", () => {
 		expect(report.issues).toEqual([]);
 	});
 
+	it("names an ACP agent's owner by the layers that define it, not by inherited properties", async () => {
+		// `constructor` is a valid id that every plain object appears to have.
+		await fixture.writeTypedConfig({
+			agentEngines: {
+				acp: { constructor: { command: "mine" }, opencode: { command: "opencode" } },
+			},
+		});
+		expect(
+			(await load({ enforced: { agentEngines: { acp: { other: { command: "x" } } } } }))
+				.agentEnginesProvenance.acp,
+		).toEqual({ constructor: "user", opencode: "user", other: "enforced" });
+
+		await fixture.writeTypedConfig({
+			agentEngines: { acp: { opencode: { command: "opencode" } } },
+		});
+		expect(
+			(await load({ default: { agentEngines: { acp: { constructor: { command: "admin" } } } } }))
+				.agentEnginesProvenance.acp,
+		).toEqual({ constructor: "default", opencode: "user" });
+	});
+
 	it("keeps `enabled: false` on an ACP agent salvaged beside an invalid one", async () => {
 		const report = await load({
 			enforced: {

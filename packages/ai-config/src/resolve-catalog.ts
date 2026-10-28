@@ -364,7 +364,10 @@ function resolveAgentEngines(highestFirst: readonly RankedConfigSource[]): Agent
 	const agentEngines = merged.agentEngines ?? {};
 	const acp: Record<string, Exclude<ResolvedAgentEngineFlagSource, "unset">> = {};
 	for (const id of Object.keys(agentEngines.acp ?? {})) {
-		const layer = layers.find(({ block }) => block.acp?.[id] !== undefined);
+		// Own keys only: an id like `constructor` is on every plain object.
+		const layer = layers.find(
+			({ block }) => block.acp !== undefined && Object.hasOwn(block.acp, id),
+		);
 		if (layer) acp[id] = sourceRole(layer.source.kind);
 	}
 	return {
