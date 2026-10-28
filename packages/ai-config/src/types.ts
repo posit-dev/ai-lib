@@ -94,14 +94,16 @@ export type AgentEngineFlagBlock = {
 }[keyof AgentEnginesConfig];
 
 /**
- * Provenance of the resolved `agentEngines` enablement flags only: the master
- * switch and each built-in engine's `enabled`. ACP agents have no flag (an
- * entry is enabled when it exists).
+ * Provenance of the resolved `agentEngines` enablement flags (the master
+ * switch and each built-in engine's `enabled`) and, in `acp`, which layer's
+ * entry won for each resolved ACP agent id. An ACP entry is replaced whole by
+ * a higher layer, so its `enabled` and every other field come from that layer.
  */
 export interface ResolvedAgentEnginesProvenance extends Readonly<
 	Record<AgentEngineFlagBlock, { readonly enabled: ResolvedAgentEngineFlagSource }>
 > {
 	readonly enabled: ResolvedAgentEngineFlagSource;
+	readonly acp: Readonly<Record<string, Exclude<ResolvedAgentEngineFlagSource, "unset">>>;
 }
 
 /**

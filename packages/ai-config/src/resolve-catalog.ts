@@ -334,7 +334,7 @@ export interface AgentEnginesFold {
  *
  * The same fold keeps each source's salvaged block, so provenance names the
  * highest-precedence source that sets the master switch or an engine's
- * `enabled`.
+ * `enabled`, or that defines an ACP agent.
  */
 function resolveAgentEngines(highestFirst: readonly RankedConfigSource[]): AgentEnginesFold {
 	// Highest precedence first; issues are collected lowest first.
@@ -361,9 +361,16 @@ function resolveAgentEngines(highestFirst: readonly RankedConfigSource[]): Agent
 		const layer = layers.find(({ block }) => flag(block) !== undefined);
 		return layer ? sourceRole(layer.source.kind) : "unset";
 	};
+	const agentEngines = merged.agentEngines ?? {};
+	const acp: Record<string, Exclude<ResolvedAgentEngineFlagSource, "unset">> = {};
+	for (const id of Object.keys(agentEngines.acp ?? {})) {
+		const layer = layers.find(({ block }) => block.acp?.[id] !== undefined);
+		if (layer) acp[id] = sourceRole(layer.source.kind);
+	}
 	return {
-		agentEngines: merged.agentEngines ?? {},
+		agentEngines,
 		provenance: {
+			acp,
 			enabled: decidedBy((block) => block.enabled),
 			claude: { enabled: decidedBy((block) => block.claude?.enabled) },
 			copilot: { enabled: decidedBy((block) => block.copilot?.enabled) },

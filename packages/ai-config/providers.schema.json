@@ -33,6 +33,10 @@
                 "description": "The agent's name in messages to the user. Defaults to the agent id.",
                 "type": "string"
               },
+              "enabled": {
+                "description": "Whether the agent is turned on. Defaults to on; `false` keeps the agent configured but turned off.",
+                "type": "boolean"
+              },
               "env": {
                 "additionalProperties": {
                   "description": "Variable value.",

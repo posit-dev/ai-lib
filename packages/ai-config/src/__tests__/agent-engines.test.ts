@@ -67,7 +67,60 @@ describe("agentEngines resolution", () => {
 			claude: { enabled: "user" },
 			copilot: { enabled: "unset" },
 			codex: { enabled: "default" },
+			acp: {},
 		});
+	});
+
+	it("reports which layer's entry won for each ACP agent, and keeps `enabled: false` through the merge", async () => {
+		await fixture.writeTypedConfig({
+			agentEngines: {
+				acp: {
+					gemini: { command: "gemini", enabled: false },
+					mine: { command: "my-agent", enabled: false },
+					shared: { command: "user-shared" },
+				},
+			},
+		});
+
+		const report = await load({
+			enforced: { agentEngines: { acp: { gemini: { command: "/opt/gemini" } } } },
+			default: {
+				agentEngines: {
+					acp: { shared: { command: "default-shared", enabled: false }, only: { command: "x" } },
+				},
+			},
+		});
+
+		expect(report.agentEnginesProvenance.acp).toEqual({
+			gemini: "enforced",
+			mine: "user",
+			shared: "user",
+			only: "default",
+		});
+		// Whole-entry replacement: the user's `enabled: false` doesn't survive an enforced entry.
+		expect(report.agentEngines.acp).toEqual({
+			gemini: { command: "/opt/gemini" },
+			mine: { command: "my-agent", enabled: false },
+			shared: { command: "user-shared" },
+			only: { command: "x" },
+		});
+		expect(report.issues).toEqual([]);
+	});
+
+	it("keeps `enabled: false` on an ACP agent salvaged beside an invalid one", async () => {
+		const report = await load({
+			enforced: {
+				agentEngines: {
+					acp: { off: { command: "a", enabled: false }, bad: { command: "b", enabled: "no" } },
+				},
+			},
+		});
+
+		expect(report.agentEngines.acp).toEqual({ off: { command: "a", enabled: false } });
+		expect(report.agentEnginesProvenance.acp).toEqual({ off: "enforced" });
+		expect(report.issues).toEqual([
+			expect.objectContaining({ path: ["agentEngines", "acp", "bad"] }),
+		]);
 	});
 
 	it("takes an engine enabled by the default layer, with user fields merged per leaf", async () => {

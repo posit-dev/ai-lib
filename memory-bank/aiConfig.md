@@ -227,13 +227,19 @@ and engines-off, the gate, path resolution, engine ids) belongs to the host
   pure resolver built without salvage still merges validly (a single strict
   parse for an already-salvaged one). The result is `agentEngines` on the
   report (`{}` when no layer sets one).
-- **Enablement provenance.** The same fold records which source decided the
-  master switch and each built-in engine's `enabled` (engine blocks derived
-  from the schema as `AgentEngineFlagBlock`; `ResolvedAgentEngineFlagSource`:
-  `enforced` / `user` / `default` / `unset`), reported as `agentEnginesProvenance` on the report, the loaded
-  report and each watch event. Only these flags carry provenance; ACP agents
-  have no flag. Hosts read it to decide whether a user write can change a
-  flag, since an enforced `true` and a user `true` look the same as values.
+- **Provenance.** The same fold records which source decided the master
+  switch and each built-in engine's `enabled` (engine blocks derived from the
+  schema as `AgentEngineFlagBlock`; `ResolvedAgentEngineFlagSource`:
+  `enforced` / `user` / `default` / `unset`), and in `provenance.acp[<id>]`
+  which layer's entry won each resolved ACP agent (`enforced` / `user` /
+  `default`; never `unset`). It is reported as `agentEnginesProvenance` on the
+  report, the loaded report and each watch event. Hosts read it to decide
+  whether a user write can change a flag or edit an agent, since an enforced
+  `true` and a user `true` look the same as values.
+- **ACP `enabled`.** An ACP entry may carry `enabled` (default on; `false`
+  keeps it configured but off). It is part of the whole-entry unit: a higher
+  layer's entry replaces it, `enabled` included. ai-config only carries the
+  value; the host applies the gate.
 - **Watcher.** A rebuild whose resolved `agentEngines` or its provenance
   differs emits a change with `agentEnginesChanged: true`, even when no
   provider changed, as per-provider provenance does. With env layers fixed
