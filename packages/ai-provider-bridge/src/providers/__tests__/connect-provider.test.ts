@@ -20,6 +20,11 @@ vi.mock("../../model-clients/BedrockClient", () => ({
 	}),
 }));
 
+const { resolveBedrockTransport } = vi.hoisted(() => ({
+	resolveBedrockTransport: vi.fn(),
+}));
+vi.mock("../bedrock-transport", () => ({ resolveBedrockTransport }));
+
 const catalogSend = vi.hoisted(() => vi.fn());
 vi.mock("@aws-sdk/client-bedrock", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@aws-sdk/client-bedrock")>()),
@@ -29,6 +34,7 @@ vi.mock("@aws-sdk/client-bedrock", async (importOriginal) => ({
 }));
 
 import { BedrockClient as CatalogSdkClient } from "@aws-sdk/client-bedrock";
+import { BEDROCK_FALLBACK_CONTEXT_LENGTH } from "ai-config";
 
 import { AnthropicClient } from "../../model-clients/AnthropicClient";
 import { BedrockClient } from "../../model-clients/BedrockClient";
@@ -151,12 +157,21 @@ function stubSonnetCatalog() {
 						},
 					],
 				}
-			: { modelSummaries: [{ modelId: bare, modelName: "Claude Sonnet 4.5" }] },
+			: {
+					modelSummaries: [
+						{ modelId: bare, modelName: "Claude Sonnet 4.5", responseStreamingSupported: true },
+					],
+				},
 	);
 }
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	resolveBedrockTransport.mockResolvedValue({
+		useFipsEndpoint: false,
+		runtimeBaseUrl: "https://bedrock-runtime.us-west-2.amazonaws.com",
+		mantleEnabled: true,
+	});
 	// Catalog listing denied unless a test says otherwise: the declared table.
 	catalogSend.mockRejectedValue(
 		Object.assign(new Error("denied"), { name: "AccessDeniedException" }),
@@ -242,6 +257,71 @@ describe("connect model fetcher", () => {
 		});
 
 		expect(models).toEqual([]);
+	});
+
+	describe("reportDiscovery", () => {
+		const discoveryCredentials = { ...credentials, baseUrl: CONNECT_URL };
+		function callbacksWithSpy() {
+			const reportDiscovery = vi.fn();
+			return { reportDiscovery, callbacks: { getAwsCredentials: mintSuccess(), reportDiscovery } };
+		}
+
+		it("reports no-integrations when Connect lists none", async () => {
+			stubDiscoveryFetch({ [`${CONNECT_URL}/__api__/v1/oauth/integrations`]: () => json([]) });
+			const { reportDiscovery, callbacks } = callbacksWithSpy();
+
+			await expect(
+				registryWithProvider(callbacks).getModelsForProvider("posit-connect", discoveryCredentials),
+			).resolves.toEqual([]);
+			expect(reportDiscovery).toHaveBeenCalledExactlyOnceWith({ state: "no-integrations" });
+		});
+
+		it("reports ready when integrations are listed", async () => {
+			stubDiscoveryFetch();
+			stubSonnetCatalog();
+			const { reportDiscovery, callbacks } = callbacksWithSpy();
+
+			await registryWithProvider(callbacks).getModelsForProvider(
+				"posit-connect",
+				discoveryCredentials,
+			);
+			expect(reportDiscovery).toHaveBeenCalledExactlyOnceWith({ state: "ready" });
+		});
+
+		it("reports unreachable when the listing is rejected", async () => {
+			stubDiscoveryFetch({
+				[`${CONNECT_URL}/__api__/v1/oauth/integrations`]: () =>
+					new Response("nope", { status: 401, statusText: "Unauthorized" }),
+			});
+			const { reportDiscovery, callbacks } = callbacksWithSpy();
+
+			await registryWithProvider(callbacks).getModelsForProvider(
+				"posit-connect",
+				discoveryCredentials,
+			);
+			expect(reportDiscovery).toHaveBeenCalledExactlyOnceWith({
+				state: "unreachable",
+				status: 401,
+			});
+		});
+
+		it("reports unreachable without a status on a network failure", async () => {
+			stubDiscoveryFetch({
+				[`${CONNECT_URL}/__api__/v1/oauth/integrations`]: () => {
+					throw new TypeError("fetch failed");
+				},
+			});
+			const { reportDiscovery, callbacks } = callbacksWithSpy();
+
+			await registryWithProvider(callbacks).getModelsForProvider(
+				"posit-connect",
+				discoveryCredentials,
+			);
+			expect(reportDiscovery).toHaveBeenCalledExactlyOnceWith({
+				state: "unreachable",
+				status: undefined,
+			});
+		});
 	});
 
 	it("discovers integrations and namespaces each gateway's models", async () => {
@@ -335,7 +415,6 @@ describe("connect model fetcher", () => {
 									},
 								],
 							},
-							// A video-understanding model: AWS rejects chat requests to it.
 							{
 								status: "ACTIVE",
 								inferenceProfileId: "us.twelvelabs.pegasus-1-5-v1:0",
@@ -377,7 +456,7 @@ describe("connect model fetcher", () => {
 									},
 								],
 							},
-							// Active profile whose foundation model is marked LEGACY.
+							// Active profile whose foundation model is marked LEGACY: still listed.
 							{
 								status: "ACTIVE",
 								inferenceProfileId: "us.anthropic.claude-3-opus-20240229-v1:0",
@@ -396,8 +475,13 @@ describe("connect model fetcher", () => {
 						{
 							modelId: "anthropic.claude-sonnet-4-5-20250929-v1:0",
 							modelName: "Claude Sonnet 4.5",
+							responseStreamingSupported: true,
 						},
-						{ modelId: "amazon.nova-lite-v1:0", modelName: "Nova Lite" },
+						{
+							modelId: "amazon.nova-lite-v1:0",
+							modelName: "Nova Lite",
+							responseStreamingSupported: true,
+						},
 						{ modelId: "twelvelabs.pegasus-1-5-v1:0", modelName: "Pegasus v1.5" },
 						{ modelId: "meta.llama3-3-70b-instruct-v1:0", modelName: "Llama 3.3 70B Instruct" },
 						{ modelId: "openai.gpt-oss-120b-1:0", modelName: "gpt-oss-120b" },
@@ -405,6 +489,8 @@ describe("connect model fetcher", () => {
 							modelId: "anthropic.claude-3-opus-20240229-v1:0",
 							modelName: "Claude 3 Opus",
 							modelLifecycle: { status: "LEGACY" },
+							// No streaming: Converse tool use is withheld, as in the direct provider.
+							responseStreamingSupported: false,
 						},
 					],
 				};
@@ -420,29 +506,40 @@ describe("connect model fetcher", () => {
 			return models.filter((model) => model.id.startsWith(`${AWS_PREFIX}/`));
 		}
 
-		it("lists active chat models through the gateway, skipping Mantle-only and non-chat ones", async () => {
+		it("lists active text models through the gateway, skipping Mantle-only ones", async () => {
 			stubCatalog();
 			const mint = mintSuccess();
 			const models = await bedrockModelIds({ getAwsCredentials: mint });
 			expect(models.map((model) => model.id)).toEqual([
 				`${AWS_PREFIX}/us.amazon.nova-lite-v1:0`,
+				`${AWS_PREFIX}/us.anthropic.claude-3-opus-20240229-v1:0`,
 				`${AWS_PREFIX}/us.anthropic.claude-sonnet-4-5-20250929-v1:0`,
 				`${AWS_PREFIX}/us.meta.llama3-3-70b-instruct-v1:0`,
+				`${AWS_PREFIX}/us.twelvelabs.pegasus-1-5-v1:0`,
 			]);
 			expect(models.map((model) => [model.vendor, model.protocol, model.supportsTools])).toEqual([
 				["amazon", "bedrock-converse", true],
+				["anthropic", "anthropic-messages", false],
 				["anthropic", "anthropic-messages", true],
 				["meta", "bedrock-converse", false],
+				["twelvelabs", "bedrock-converse", false],
 			]);
-			expect(models[1].name).toBe("Claude Sonnet 4.5 (Bedrock Team)");
+			expect(models[2].name).toBe("Claude Sonnet 4.5 (Bedrock Team)");
 			expect(models[0].baseName).toBe("Nova Lite");
+			// Image support follows the vendor, as in the direct provider.
+			expect(models.map((model) => model.supportsImages)).toEqual([true, true, true, false, false]);
+			// An id outside the Claude table gets the shared Bedrock fallback window.
+			expect(models[3]).toMatchObject({
+				maxContextLength: BEDROCK_FALLBACK_CONTEXT_LENGTH,
+				maxInputTokens: BEDROCK_FALLBACK_CONTEXT_LENGTH - 4_096,
+			});
 			expect(vi.mocked(CatalogSdkClient).mock.calls[0][0]).toMatchObject({
 				endpoint: BEDROCK_GATEWAY,
 				region: "us-west-2",
 			});
 		});
 
-		it("keeps models unfiltered, named by id, when the foundation-model listing fails", async () => {
+		it("lists no models and warns when the foundation-model listing fails", async () => {
 			stubCatalog();
 			const base = catalogSend.getMockImplementation()!;
 			catalogSend.mockImplementation(async (command: { constructor: { name: string } }) => {
@@ -452,11 +549,8 @@ describe("connect model fetcher", () => {
 				return base(command);
 			});
 			const models = await bedrockModelIds({ getAwsCredentials: mintSuccess() });
-			expect(models.map((model) => model.id)).toContain(
-				`${AWS_PREFIX}/us.anthropic.claude-3-sonnet-20240229-v1:0`,
-			);
-			// Without the listing, text models cannot be told from embedding or image models.
-			expect(models.map((model) => model.vendor)).toEqual(["anthropic", "anthropic", "anthropic"]);
+			expect(models).toEqual([]);
+			expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("denied"));
 		});
 
 		it("lists no models and names the missing permissions when listing is denied", async () => {
@@ -520,14 +614,16 @@ describe("connect model fetcher", () => {
 				// The Runtime listing keeps skipping us.openai.*: Mantle is the only source.
 				expect(models.map((model) => model.id)).toEqual([
 					`${AWS_PREFIX}/us.amazon.nova-lite-v1:0`,
+					`${AWS_PREFIX}/us.anthropic.claude-3-opus-20240229-v1:0`,
 					`${AWS_PREFIX}/us.anthropic.claude-sonnet-4-5-20250929-v1:0`,
 					`${AWS_PREFIX}/us.meta.llama3-3-70b-instruct-v1:0`,
+					`${AWS_PREFIX}/us.twelvelabs.pegasus-1-5-v1:0`,
 					`${AWS_PREFIX}/openai.gpt-oss-120b-1:0`,
 					`${AWS_PREFIX}/openai.gpt-5.6-sol`,
 				]);
 				expect(models.filter((model) => model.id.includes("gpt-oss-120b"))).toHaveLength(1);
 
-				const [chat, responses] = models.slice(3);
+				const [chat, responses] = models.slice(5);
 				expect(chat).toMatchObject({
 					providerId: "posit-connect",
 					vendor: "openai",
@@ -581,12 +677,37 @@ describe("connect model fetcher", () => {
 				expect(models.map((model) => model.protocol)).toEqual([
 					"bedrock-converse",
 					"anthropic-messages",
+					"anthropic-messages",
+					"bedrock-converse",
 					"bedrock-converse",
 				]);
 				const warnings = vi
 					.mocked(logger.warn)
 					.mock.calls.filter(([message]) => String(message).includes("bedrock-mantle:ListModels"));
 				expect(warnings).toHaveLength(1);
+			});
+
+			it("skips the Mantle listing when AWS FIPS endpoints are enforced", async () => {
+				stubCatalog();
+				resolveBedrockTransport.mockResolvedValue({
+					useFipsEndpoint: true,
+					runtimeBaseUrl: "https://bedrock-runtime-fips.us-west-2.amazonaws.com",
+					mantleEnabled: false,
+				});
+				const { fetchMock, models } = await discover(() => json(MANTLE_LISTING));
+
+				// Chat refuses Mantle under FIPS, so only the Runtime models are listed.
+				expect(models.map((model) => model.protocol)).toEqual([
+					"bedrock-converse",
+					"anthropic-messages",
+					"anthropic-messages",
+					"bedrock-converse",
+					"bedrock-converse",
+				]);
+				expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("mantle"))).toEqual([]);
+				expect(resolveBedrockTransport).toHaveBeenCalledWith(
+					expect.objectContaining({ region: "us-west-2" }),
+				);
 			});
 
 			it("keeps the Mantle models when the Runtime listing is denied", async () => {
@@ -1111,6 +1232,76 @@ describe("connect chat routing", () => {
 		const integration = getAwsCredentials.mock.calls[0][0] as { region?: string };
 		expect(integration.region).toBeUndefined();
 		expect(logger.warn).toHaveBeenCalledTimes(1);
+	});
+
+	/** Integrations re-read that never answers until its signal aborts. */
+	function stubStalledIntegrations() {
+		let signal: AbortSignal | undefined;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn((_url: string, init?: RequestInit) => {
+				signal = init?.signal ?? undefined;
+				return new Promise<Response>((_resolve, reject) => {
+					signal?.addEventListener("abort", () => reject(signal!.reason));
+				});
+			}),
+		);
+		return { signal: () => signal };
+	}
+
+	async function untilDefined(read: () => unknown) {
+		for (let i = 0; i < 1000 && !read(); i++) {
+			await new Promise((resolve) => setImmediate(resolve));
+		}
+		expect(read()).toBeDefined();
+	}
+
+	it("abandons a stalled region re-read when the chat is cancelled", async () => {
+		const stalled = stubStalledIntegrations();
+		const getAwsCredentials = mintSuccess();
+		const client = clientWithoutDiscovery({ getAwsCredentials });
+		const listeners: Array<() => void> = [];
+		const token: CancellationToken = {
+			isCancellationRequested: false,
+			onCancellationRequested: (listener: () => void) => {
+				listeners.push(listener);
+				return { dispose() {} };
+			},
+		};
+
+		const chat = client.chat({
+			...chatParams(`${AWS_PREFIX}/${BEDROCK_MODEL_ID}`, "bedrock-converse"),
+			cancellationToken: token,
+		});
+		await untilDefined(stalled.signal);
+		(token as { isCancellationRequested: boolean }).isCancellationRequested = true;
+		for (const listener of listeners) listener();
+
+		await expect(chat).rejects.toBeDefined();
+		expect(getAwsCredentials).not.toHaveBeenCalled();
+	});
+
+	it("falls back to the stamp when the region re-read times out", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		try {
+			const stalled = stubStalledIntegrations();
+			const getAwsCredentials = mintSuccess();
+			const client = clientWithoutDiscovery({ getAwsCredentials });
+
+			const chat = client.chat(chatParams(`${AWS_PREFIX}/${BEDROCK_MODEL_ID}`, "bedrock-converse"));
+			await untilDefined(stalled.signal);
+			await vi.advanceTimersByTimeAsync(15_000);
+			await chat;
+
+			expect(stalled.signal()!.aborted).toBe(true);
+			const integration = getAwsCredentials.mock.calls[0][0] as { region?: string };
+			expect(integration.region).toBeUndefined();
+			expect(logger.warn).toHaveBeenCalledWith(
+				expect.stringContaining("Could not re-read integration"),
+			);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("does not re-read the integrations endpoint when the record is cached", async () => {

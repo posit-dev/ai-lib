@@ -30,7 +30,7 @@ vi.mock("@aws-sdk/client-bedrock", async (importOriginal) => ({
 import { createRawFetchCapture } from "../../../tests/helpers/raw-fetch-capture";
 import { registerConnectProvider } from "../../providers/connect-provider";
 import { ProviderRegistry } from "../../providers/ProviderRegistry";
-import type { CancellationToken, Logger } from "../../types";
+import type { CancellationToken, Logger, Protocol } from "../../types";
 
 const CONNECT_URL = "https://connect.example.com";
 const AWS_GUID = "bbbb2222-2222-2222-2222-222222222222";
@@ -115,7 +115,7 @@ async function consumeIgnoringNetworkFailure(
 	}
 }
 
-async function chatWithDiscoveredModel(modelId: string) {
+async function chatWithDiscoveredModel(modelId: string, protocolOverride?: Protocol) {
 	const capture = stubGatewayFetch();
 	const providers = registry();
 	const models = await providers.getModelsForProvider("posit-connect", credentials);
@@ -126,7 +126,7 @@ async function chatWithDiscoveredModel(modelId: string) {
 	await consumeIgnoringNetworkFailure(
 		client.chat({
 			model: model!.id,
-			protocol: model!.protocol,
+			protocol: protocolOverride ?? model!.protocol,
 			baseUrl: model!.baseUrl,
 			messages: [{ role: "user", content: "Hello" }],
 			cancellationToken,
@@ -173,6 +173,30 @@ describe("Connect Bedrock Mantle wire requests", () => {
 
 		expect(url).toBe(`${MANTLE_ROUTE}/v1/chat/completions`);
 		expect(authorization).toContain("/us-west-2/bedrock-mantle/aws4_request");
+	});
+
+	it("routes a protocol override to its own route, not the discovered stamp's", async () => {
+		// The override keeps the discovered /v1 stamp; the request must still
+		// reach the Responses route.
+		const responses = await chatWithDiscoveredModel("openai.gpt-oss-120b-1:0", "openai-responses");
+		expect(responses.url).toBe(`${MANTLE_ROUTE}/openai/v1/responses`);
+
+		const chat = await chatWithDiscoveredModel("openai.gpt-5.6-sol", "openai-chat");
+		expect(chat.url).toBe(`${MANTLE_ROUTE}/v1/chat/completions`);
+	});
+
+	it("lists no Mantle models when FIPS would refuse their chats", async () => {
+		resolveBedrockTransport.mockResolvedValue({
+			useFipsEndpoint: true,
+			runtimeBaseUrl: "https://bedrock-runtime-fips.us-west-2.amazonaws.com",
+			mantleEnabled: false,
+		});
+		const capture = stubGatewayFetch();
+
+		const models = await registry().getModelsForProvider("posit-connect", credentials);
+
+		expect(models.filter((model) => model.id.startsWith(`${AWS_PREFIX}/`))).toEqual([]);
+		expect(capture.calls.map(([input]) => urlOf(input))).not.toContain(`${MANTLE_ROUTE}/v1/models`);
 	});
 
 	it("refuses a Mantle chat with the existing FIPS message", async () => {

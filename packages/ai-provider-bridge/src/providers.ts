@@ -20,6 +20,7 @@ export {
 } from "./providers/connect-provider";
 export type {
 	ConnectAwsCredentialResult,
+	ConnectDiscoveryResult,
 	ConnectIntegration,
 	ConnectProviderCallbacks,
 } from "./providers/connect-provider";

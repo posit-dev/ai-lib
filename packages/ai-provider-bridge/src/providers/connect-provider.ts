@@ -28,8 +28,7 @@
  *   live per integration.
  * - `aws` — a SigV4-verifying proxy on `{connect}/__gateway__/bedrock/{guid}`
  *   that serves the Bedrock runtime and control plane. Models are discovered
- *   by listing inference profiles through the gateway; ai-config's Connect
- *   Bedrock table is the fallback when listing is not possible. The same
+ *   by listing inference profiles through the gateway. The same
  *   integration also serves Bedrock Mantle on
  *   `{connect}/__gateway__/bedrock-mantle/{guid}`, where the OpenAI models
  *   that only Mantle serves are listed (`GET /v1/models`) and chatted with
@@ -45,6 +44,7 @@ import {
 	getAnthropicModelCapabilities,
 	getBedrockMantleModelCapabilities,
 	getConnectBedrockModelCapabilities,
+	supportsBedrockConverseTools,
 } from "ai-config";
 
 import { additiveHeaderRecord } from "../custom-headers";
@@ -52,9 +52,17 @@ import { createAbortControllerFromToken } from "../model-clients/ai-sdk-helpers"
 import { AnthropicClient } from "../model-clients/AnthropicClient";
 import { BedrockClient } from "../model-clients/BedrockClient";
 import type { ModelClient, ModelClientChatParams } from "../model-clients/ModelClient";
-import type { ApiKeyCredentials, AwsCredentials, Logger, LMStreamPart, ModelInfo } from "../types";
+import type {
+	ApiKeyCredentials,
+	AwsCredentials,
+	CancellationToken,
+	Logger,
+	LMStreamPart,
+	ModelInfo,
+} from "../types";
 import { normalizeProtocol } from "../types";
 import { listMantleModels } from "./bedrock-mantle-models";
+import { resolveBedrockTransport } from "./bedrock-transport";
 import { createCachedModelFetcher } from "./cached-model-fetcher";
 import { type DiscoveredBedrockModel, listGatewayModels } from "./connect-bedrock-models";
 import {
@@ -84,6 +92,18 @@ const DEFAULT_STS_REGION = "us-east-1";
 const INTEGRATIONS_PATH = "/__api__/v1/oauth/integrations";
 const ANTHROPIC_VERSION_HEADER = "2023-06-01";
 const CONNECT_CACHE_MAX_ENTRIES = 32;
+/** How long a chat waits on re-reading an integration it has no cached record for. */
+const INTEGRATION_REREAD_TIMEOUT_MS = 15_000;
+
+/** A non-2xx answer from Connect's integrations endpoint. */
+class ConnectHttpError extends Error {
+	constructor(
+		readonly status: number,
+		statusText: string,
+	) {
+		super(`Connect integrations endpoint returned ${status}: ${statusText}`);
+	}
+}
 
 /** One allowlisted integration, shaped from Connect's integrations endpoint. */
 export interface ConnectIntegration {
@@ -133,6 +153,17 @@ export interface ConnectAwsCredentialFailure {
 export type ConnectAwsCredentialResult = ConnectAwsCredentialSuccess | ConnectAwsCredentialFailure;
 
 /**
+ * The outcome of listing a Connect server's integrations, for hosts that show
+ * provider status. `no-integrations` means Connect answered but offered this
+ * user no allowlisted integration; `unreachable` means the listing itself
+ * failed. `status` is Connect's HTTP status, absent for a network error.
+ */
+export type ConnectDiscoveryResult =
+	| { state: "ready" }
+	| { state: "no-integrations" }
+	| { state: "unreachable"; status?: number };
+
+/**
  * Platform-provided Connect hooks. Pre-built by the Node caller and threaded
  * in through registration; the bridge must NOT construct these.
  */
@@ -153,6 +184,12 @@ export interface ConnectProviderCallbacks {
 	 * its supported set; absent means the default (`anthropic`, `aws`).
 	 */
 	templates?(): readonly string[];
+	/**
+	 * Called after each integrations listing, before any model discovery, so a
+	 * host can show whether this user has anything to use. Not called when the
+	 * listing is aborted.
+	 */
+	reportDiscovery?(result: ConnectDiscoveryResult): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -332,7 +369,7 @@ async function connectCredentialKey(
 	connectUrl: string,
 	credentials: ApiKeyCredentials,
 ): Promise<string> {
-	const input = new TextEncoder().encode(`${connectUrl} ${credentials.apiKey}`);
+	const input = new TextEncoder().encode(`${connectUrl}\0${credentials.apiKey}`);
 	const digest = new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", input));
 	let fingerprint = "";
 	for (const byte of digest) {
@@ -384,9 +421,7 @@ export async function fetchConnectIntegrations(
 	);
 	const response = await fetch(`${baseUrl}${INTEGRATIONS_PATH}`, { headers, signal });
 	if (!response.ok) {
-		throw new Error(
-			`Connect integrations endpoint returned ${response.status}: ${response.statusText}`,
-		);
+		throw new ConnectHttpError(response.status, response.statusText);
 	}
 	const body: unknown = await response.json();
 	if (!Array.isArray(body)) {
@@ -425,9 +460,8 @@ function bedrockGatewayModels(
 			baseName: model.name,
 			providerId,
 			vendor,
-			...getConnectBedrockModelCapabilities(model.id),
-			// Converse tool use is reliable only for these vendors, as in the direct provider.
-			supportsTools: vendor === "anthropic" || vendor === "amazon",
+			...getConnectBedrockModelCapabilities(model.id, vendor),
+			supportsTools: supportsBedrockConverseTools(vendor, model.responseStreamingSupported),
 			protocol:
 				getAnthropicModelCapabilities(model.id) !== undefined
 					? ("anthropic-messages" as const)
@@ -513,6 +547,9 @@ async function discoverBedrockGatewayModels(
 		}
 		// Connect verifies SigV4 against the record's sts_region.
 		const region = integration.region ?? aws.region;
+		// Chat refuses Mantle when AWS FIPS endpoints are enforced, even through
+		// the gateway, so its models are not listed then either.
+		const { mantleEnabled } = await resolveBedrockTransport({ region, logger });
 		const client = new BedrockCatalogSdkClient({
 			region,
 			endpoint: integration.baseUrl,
@@ -540,29 +577,31 @@ async function discoverBedrockGatewayModels(
 		);
 		// listMantleModels logs its own failures and returns [] for them; only an
 		// abort rejects. No custom headers, as for the Runtime listing above.
-		const mantleModels = listMantleModels(
-			{
-				type: "aws-credentials",
-				region,
-				accessKeyId,
-				secretAccessKey,
-				sessionToken: aws.sessionToken,
-			},
-			logger,
-			{
-				baseUrl: mantleGatewayBaseUrl(connectUrl, integration.guid, "openai-chat"),
-				region,
-				signal,
-			},
-		).then((listings) =>
-			mantleGatewayModels(
-				providerId,
-				integration,
-				connectUrl,
-				listings.map(({ id }) => id),
-				logger,
-			),
-		);
+		const mantleModels = mantleEnabled
+			? listMantleModels(
+					{
+						type: "aws-credentials",
+						region,
+						accessKeyId,
+						secretAccessKey,
+						sessionToken: aws.sessionToken,
+					},
+					logger,
+					{
+						baseUrl: mantleGatewayBaseUrl(connectUrl, integration.guid, "openai-chat"),
+						region,
+						signal,
+					},
+				).then((listings) =>
+					mantleGatewayModels(
+						providerId,
+						integration,
+						connectUrl,
+						listings.map(({ id }) => id),
+						logger,
+					),
+				)
+			: Promise.resolve([]);
 		const [runtime, mantle] = await Promise.all([runtimeModels, mantleModels]);
 		return [...runtime, ...mantle];
 	} catch (error) {
@@ -658,12 +697,21 @@ function createConnectModelFetcher(
 			const connectUrl = credentials.baseUrl!.replace(/\/+$/, "");
 			const credentialKey = await connectCredentialKey(connectUrl, credentials);
 			const templates = resolveTemplates(callbacks?.templates?.(), logger);
-			const integrations = await fetchConnectIntegrations(
-				connectUrl,
-				credentials,
-				templates,
-				signal,
-			);
+			let integrations: ConnectIntegration[];
+			try {
+				integrations = await fetchConnectIntegrations(connectUrl, credentials, templates, signal);
+			} catch (error) {
+				if (!signal.aborted) {
+					callbacks?.reportDiscovery?.({
+						state: "unreachable",
+						status: error instanceof ConnectHttpError ? error.status : undefined,
+					});
+				}
+				throw error;
+			}
+			callbacks?.reportDiscovery?.({
+				state: integrations.length > 0 ? "ready" : "no-integrations",
+			});
 
 			if (!callbacks && integrations.some((integration) => integration.template === "aws")) {
 				logger.warn(
@@ -838,7 +886,7 @@ class ConnectClient implements ModelClient {
 						`but the provider now points at ${connectUrl}. Refresh the model list and try again.`,
 				);
 			}
-			integration = await this.resolveIntegration(parsed, prefix);
+			integration = await this.resolveIntegration(parsed, prefix, params.cancellationToken);
 			route = parsed.route;
 		} else {
 			const credentialKey = await connectCredentialKey(connectUrl, this.credentials);
@@ -876,12 +924,13 @@ class ConnectClient implements ModelClient {
 							`the Bedrock Mantle route supports openai-chat and openai-responses.`,
 					);
 				}
+				// Build the route from the effective protocol rather than reuse the
+				// stamp: a protocol override keeps the discovered stamp, whose version
+				// prefix names the discovered protocol.
 				return this.bedrockChat(
 					params,
 					wireModel,
-					hasStampedBaseUrl
-						? baseUrl
-						: mantleGatewayBaseUrl(connectUrl, integration.guid, mantleProtocol),
+					mantleGatewayBaseUrl(connectUrl, integration.guid, mantleProtocol),
 					integration,
 					mantleProtocol,
 				);
@@ -926,6 +975,7 @@ class ConnectClient implements ModelClient {
 	private async resolveIntegration(
 		parsed: { connectUrl: string; template: string; guid: string },
 		prefix: string | undefined,
+		cancellationToken: CancellationToken,
 	): Promise<ConnectIntegration> {
 		const credentialKey = await connectCredentialKey(parsed.connectUrl, this.credentials);
 		const cached = this.cache.findByGuid(credentialKey, parsed.guid);
@@ -933,22 +983,31 @@ class ConnectClient implements ModelClient {
 		// An aws stamp needs the record's sts_region to sign. A cache miss
 		// (restart, eviction, foreign credentials) re-reads the integrations
 		// endpoint once instead of guessing. The cache is not written: its
-		// generation guard belongs to the model fetcher.
+		// generation guard belongs to the model fetcher. The re-read follows the
+		// chat's cancellation and is bounded, so a stalled server cannot hold the
+		// chat; a timeout falls back to the stamp like any other failure.
 		if (parsed.template === "aws") {
+			const { abortController, cleanup } = createAbortControllerFromToken(cancellationToken);
+			const timer = setTimeout(() => abortController.abort(), INTEGRATION_REREAD_TIMEOUT_MS);
 			try {
 				const found = (
 					await fetchConnectIntegrations(
 						parsed.connectUrl,
 						this.credentials,
 						resolveTemplates(this.callbacks?.templates?.(), this.logger),
+						abortController.signal,
 					)
 				).find((i) => i.guid === parsed.guid);
 				if (found) return found;
 			} catch (error) {
+				if (cancellationToken.isCancellationRequested) throw error;
 				const message = error instanceof Error ? error.message : String(error);
 				this.logger.warn(
 					`[posit-connect] Could not re-read integration ${parsed.guid} for its region: ${message}`,
 				);
+			} finally {
+				clearTimeout(timer);
+				cleanup();
 			}
 		}
 		return {

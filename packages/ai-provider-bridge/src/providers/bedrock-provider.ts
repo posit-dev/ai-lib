@@ -8,9 +8,12 @@ import {
 } from "@aws-sdk/client-bedrock";
 import type { ResolvedProviderId } from "ai-config";
 import {
+	BEDROCK_FALLBACK_CONTEXT_LENGTH,
 	completeCapabilities,
 	getAnthropicModelCapabilities,
+	getBedrockConverseMediaSupport,
 	getBedrockMantleModelCapabilities,
+	supportsBedrockConverseTools,
 } from "ai-config";
 
 import { classifyAwsCredentialFailure } from "../aws-credential-failure";
@@ -428,10 +431,11 @@ function createBedrockModelFetcher(
 						const vendor = modelId.split(".")[0] || "aws";
 
 						// Determine capabilities based on model metadata
-						const supportsTools = Boolean(
-							model.responseStreamingSupported && (vendor === "anthropic" || vendor === "amazon"),
+						const supportsTools = supportsBedrockConverseTools(
+							vendor,
+							model.responseStreamingSupported,
 						);
-						const supportsImages = vendor === "anthropic" || vendor === "amazon";
+						const media = getBedrockConverseMediaSupport(vendor);
 
 						// Infer capabilities for Anthropic models
 						const capabilities = getAnthropicModelCapabilities(modelId);
@@ -446,12 +450,8 @@ function createBedrockModelFetcher(
 								maxInputTokens: undefined,
 								maxOutputTokens: undefined,
 								supportsTools,
-								supportsImages,
-								supportsToolResultImages: supportsImages,
-								supportedInputMediaTypes: supportsImages
-									? ["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"]
-									: undefined,
-								maxContextLength: 200000,
+								...media,
+								maxContextLength: BEDROCK_FALLBACK_CONTEXT_LENGTH,
 								// Spread Anthropic capabilities (token limits, family, thinking effort)
 								...capabilities,
 								supportsWebSearch: false,

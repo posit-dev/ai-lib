@@ -91,6 +91,11 @@ export type {
 
 // --- Model capability inference ---------------------------------------------
 export { getAnthropicModelCapabilities } from "./model-capabilities/anthropic-helpers.js";
+export {
+	BEDROCK_FALLBACK_CONTEXT_LENGTH,
+	getBedrockConverseMediaSupport,
+	supportsBedrockConverseTools,
+} from "./model-capabilities/bedrock-defaults.js";
 export { getBedrockMantleModelCapabilities } from "./model-capabilities/bedrock-mantle-helpers.js";
 export { getConnectBedrockModelCapabilities } from "./model-capabilities/connect-helpers.js";
 export type { ConnectBedrockModelCapabilities } from "./model-capabilities/connect-helpers.js";

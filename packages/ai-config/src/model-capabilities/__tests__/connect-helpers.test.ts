@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 
 import { getAnthropicModelCapabilities } from "../anthropic-helpers.js";
+import { BEDROCK_FALLBACK_CONTEXT_LENGTH } from "../bedrock-defaults.js";
 import { getConnectBedrockModelCapabilities } from "../connect-helpers.js";
 
 describe("getConnectBedrockModelCapabilities", () => {
@@ -12,7 +13,7 @@ describe("getConnectBedrockModelCapabilities", () => {
 		const id = "us.anthropic.claude-sonnet-4-5-20250929-v1:0";
 		const claude = getAnthropicModelCapabilities(id)!;
 
-		const caps = getConnectBedrockModelCapabilities(id);
+		const caps = getConnectBedrockModelCapabilities(id, "anthropic");
 
 		expect(caps.family).toBe(claude.family);
 		expect(caps.family).toBeDefined();
@@ -28,13 +29,21 @@ describe("getConnectBedrockModelCapabilities", () => {
 		});
 	});
 
+	it("gives Amazon models image support without a Claude table entry", () => {
+		const caps = getConnectBedrockModelCapabilities("us.amazon.nova-lite-v1:0", "amazon");
+
+		expect(caps.supportsImages).toBe(true);
+		expect(caps.supportsToolResultImages).toBe(true);
+		expect(caps.supportedInputMediaTypes).toContain("image/png");
+	});
+
 	it("falls back to conservative limits and image flags for an id the Anthropic table cannot answer", () => {
-		const caps = getConnectBedrockModelCapabilities("mistral.mistral-large-2407-v1:0");
+		const caps = getConnectBedrockModelCapabilities("mistral.mistral-large-2407-v1:0", "mistral");
 
 		expect(caps.family).toBeUndefined();
 		expect(caps.thinkingEffortLevels).toBeUndefined();
 		expect(caps.supportedInputMediaTypes).toBeUndefined();
-		expect(caps.maxContextLength).toBe(200_000);
+		expect(caps.maxContextLength).toBe(BEDROCK_FALLBACK_CONTEXT_LENGTH);
 		expect(caps.maxOutputTokens).toBe(4_096);
 		expect(caps.maxInputTokens).toBe(caps.maxContextLength - caps.maxOutputTokens);
 		// Vision is not the norm across Bedrock chat models; over-reporting it
