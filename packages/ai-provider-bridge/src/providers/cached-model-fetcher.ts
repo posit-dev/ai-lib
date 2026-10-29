@@ -11,6 +11,7 @@
 
 import { additiveHeaderRecord, isHeaderCarrying } from "../custom-headers";
 import type { Logger, ModelInfo, ProviderCredentials } from "../types";
+import type { ModelDiscoveryResult } from "./ProviderRegistry";
 import type { ModelRequestCoalescer } from "./request-coalescer";
 import { fingerprintHeaders, normalizeRequestUrl } from "./request-coalescer";
 
@@ -160,6 +161,15 @@ export interface CachedModelFetcherRequestConfig<
 	identityHeaders?: (credentials: T) => Record<string, string>;
 
 	/**
+	 * Optional: decide whether a non-OK listing response means the provider
+	 * rejected the credential. Default: `status === 401`. 403 is deliberately
+	 * not a rejection: a key can be valid for chat yet not allowed to list
+	 * models. Providers that report a bad key differently (Gemini's 400
+	 * `API_KEY_INVALID`) supply their own.
+	 */
+	isCredentialRejection?: (status: number, body: string) => boolean;
+
+	/**
 	 * Excluded on this variant so the union stays exclusive: `fetchFresh`
 	 * belongs to the provider-owned-fetch variant. Without this (and the
 	 * mirrored exclusions there), an object carrying both variants' fields
@@ -197,6 +207,7 @@ export interface CachedModelFetcherFetchFreshConfig<
 	requestCoalescer?: never;
 	identityUrl?: never;
 	identityHeaders?: never;
+	isCredentialRejection?: never;
 }
 
 export type CachedModelFetcherConfig<T extends ProviderCredentials = ProviderCredentials> =
@@ -216,11 +227,40 @@ function isFetchFreshConfig<T extends ProviderCredentials>(
 }
 
 /**
- * A ModelFetcher with an optional clearCache method for invalidation.
+ * A ModelFetcher with an optional clearCache method for invalidation, and an
+ * optional `discover` that also reports what the listing learned about the
+ * credential (see `ProviderRegistry.discoverModels`).
  */
 export type ClearableModelFetcher = ((credentials: ProviderCredentials) => Promise<ModelInfo[]>) & {
 	clearCache?: () => void;
+	discover?: (
+		credentials: ProviderCredentials,
+		metadata?: Record<string, unknown>,
+	) => Promise<ModelDiscoveryResult>;
 };
+
+/**
+ * A non-OK listing response. Thrown by both the direct and coalesced request
+ * paths (every joiner of a coalesced flight sees the same instance) so the
+ * fetcher can classify credential rejections. Never escapes the fetcher.
+ */
+class ModelListingHttpError extends Error {
+	constructor(
+		readonly status: number,
+		readonly body: string,
+	) {
+		super(`API returned ${status}`);
+	}
+}
+
+async function listingHttpError(response: Response): Promise<ModelListingHttpError> {
+	const body = await response.text().catch(() => "");
+	return new ModelListingHttpError(response.status, body);
+}
+
+function defaultIsCredentialRejection(status: number): boolean {
+	return status === 401;
+}
 
 /**
  * Create a model fetcher with closure-based caching and graceful fallback
@@ -272,9 +312,17 @@ export function createCachedModelFetcher<T extends ProviderCredentials = Provide
 	// Shared across keys — clearCache() invalidates the whole fetcher.
 	let generation = 0;
 
-	const fetcher: ClearableModelFetcher = async (
-		credentials: ProviderCredentials,
-	): Promise<ModelInfo[]> => {
+	const isCredentialRejection = isFetchFreshConfig(config)
+		? undefined
+		: (config.isCredentialRejection ?? defaultIsCredentialRejection);
+
+	/**
+	 * Credential check rules: a fresh request-variant success is `accepted`;
+	 * a classified HTTP rejection is `rejected` (even when a stale cache
+	 * answers); everything else — no credentials, cache hit, timeout, network
+	 * error, unclassified status, any `fetchFresh` outcome — is `unknown`.
+	 */
+	const discover = async (credentials: ProviderCredentials): Promise<ModelDiscoveryResult> => {
 		const logPrefix = `[${config.providerId}]`;
 		// Cast to T for type-safe callbacks (safe at runtime as correct type is always passed)
 		const typedCredentials = credentials as T;
@@ -282,7 +330,7 @@ export function createCachedModelFetcher<T extends ProviderCredentials = Provide
 		// Guard: Check if credentials are present
 		if (!config.hasCredentials(typedCredentials)) {
 			config.logger.debug(`${logPrefix} No credentials, using fallback models`);
-			return config.fallbackModels;
+			return { models: config.fallbackModels, credentialCheck: "unknown" };
 		}
 
 		const cacheKey = config.cacheKey ? await config.cacheKey(typedCredentials) : DEFAULT_CACHE_KEY;
@@ -292,7 +340,7 @@ export function createCachedModelFetcher<T extends ProviderCredentials = Provide
 		const now = Date.now();
 		if (cached && now - cached.fetchedAt < TTL) {
 			config.logger.debug(`${logPrefix} Using cached models`);
-			return cached.models;
+			return { models: cached.models, credentialCheck: "unknown" };
 		}
 
 		// One deadline covers the base request (or provider-owned fetchFresh)
@@ -354,7 +402,7 @@ export function createCachedModelFetcher<T extends ProviderCredentials = Provide
 						async (signal) => {
 							const response = await fetch(apiUrl, { headers, signal });
 							if (!response.ok) {
-								throw new Error(`API returned ${response.status}`);
+								throw await listingHttpError(response);
 							}
 							return response.json();
 						},
@@ -363,7 +411,7 @@ export function createCachedModelFetcher<T extends ProviderCredentials = Provide
 					const response = await fetch(apiUrl, { headers, signal: controller.signal });
 
 					if (!response.ok) {
-						throw new Error(`API returned ${response.status}`);
+						throw await listingHttpError(response);
 					}
 
 					data = await response.json();
@@ -416,23 +464,35 @@ export function createCachedModelFetcher<T extends ProviderCredentials = Provide
 					`${logPrefix} Cache cleared during fetch; returning models without caching`,
 				);
 			}
-			return freshModels;
+			return {
+				models: freshModels,
+				credentialCheck: isCredentialRejection ? "accepted" : "unknown",
+			};
 		} catch (error) {
 			const errorMsg = error instanceof Error ? error.message : String(error);
 			config.logger.warn(`${logPrefix} API fetch failed: ${errorMsg}, using fallback`);
+			const credentialCheck =
+				error instanceof ModelListingHttpError &&
+				isCredentialRejection?.(error.status, error.body) === true
+					? "rejected"
+					: "unknown";
 
 			// Return stale cache if available
 			if (cached) {
 				config.logger.debug(`${logPrefix} Returning stale cached models`);
-				return cached.models;
+				return { models: cached.models, credentialCheck };
 			}
 
 			// Ultimate fallback
-			return config.fallbackModels;
+			return { models: config.fallbackModels, credentialCheck };
 		} finally {
 			clearTimeout(timer);
 		}
 	};
+
+	const fetcher: ClearableModelFetcher = async (credentials) =>
+		(await discover(credentials)).models;
+	fetcher.discover = discover;
 
 	fetcher.clearCache = () => {
 		generation += 1;

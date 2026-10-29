@@ -106,6 +106,9 @@ function createGeminiModelFetcher(
 			return url.toString();
 		},
 		identityHeaders: (credentials) => ({ "x-identity-api-key": credentials.apiKey }),
+		// Google reports a bad key as 400 `API_KEY_INVALID`, not 401.
+		isCredentialRejection: (status, body) =>
+			status === 401 || (status === 400 && body.includes("API_KEY_INVALID")),
 		parseResponse: (data) => {
 			// Parse Google's model list format
 			const typedData = data as {

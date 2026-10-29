@@ -85,10 +85,34 @@ export type ModelFetcher = (
 	metadata?: Record<string, unknown>,
 ) => Promise<ModelInfo[]>;
 
+/**
+ * What one model listing learned about the credential it was sent with:
+ * the provider `accepted` it (fresh successful listing), `rejected` it
+ * (classified HTTP rejection), or the call learned nothing (`unknown` —
+ * never "fine": cache hits, timeouts, network errors, keyless requests, and
+ * fetchers that cannot classify all land here).
+ */
+export type CredentialCheck = "accepted" | "rejected" | "unknown";
+
+/** Models from one listing plus what it learned about the credential. */
+export interface ModelDiscoveryResult {
+	models: ModelInfo[];
+	credentialCheck: CredentialCheck;
+}
+
 type ClearableModelFetcher = ModelFetcher & {
 	clearCache?: () => void;
 	getFetchState?: () => unknown;
+	discover?: (
+		credentials: ProviderCredentials,
+		metadata?: Record<string, unknown>,
+	) => Promise<ModelDiscoveryResult>;
 };
+
+/** Only a request that carried a non-empty API key can have it accepted or rejected. */
+function carriesApiKey(credentials: ProviderCredentials): boolean {
+	return credentials.type === "apikey" && credentials.apiKey !== "";
+}
 
 /**
  * Function that creates an API client for a provider
@@ -193,6 +217,42 @@ export class ProviderRegistry implements ModelRequestCoalescer {
 	}
 
 	/**
+	 * Discover models for a provider and report what the listing learned about
+	 * the credential. Never throws: an unregistered provider or a throwing
+	 * fetcher yields no models and `unknown`. A fetcher without `discover`,
+	 * and any request without a non-empty API key (anonymous discovery still
+	 * runs), report `unknown`.
+	 *
+	 * @param providerId - Provider ID
+	 * @param credentials - Provider credentials
+	 * @param metadata - Optional provider metadata
+	 */
+	async discoverModels(
+		providerId: string,
+		credentials: ProviderCredentials,
+		metadata?: Record<string, unknown>,
+	): Promise<ModelDiscoveryResult> {
+		const fetcher = this.modelFetchers.get(providerId);
+
+		if (!fetcher) {
+			this.logger.warn(`No model fetcher registered for ${providerId}`);
+			return { models: [], credentialCheck: "unknown" };
+		}
+
+		const shaped = this.withDefaultUserAgent(credentials);
+		try {
+			if (!fetcher.discover) {
+				return { models: await fetcher(shaped, metadata), credentialCheck: "unknown" };
+			}
+			const result = await fetcher.discover(shaped, metadata);
+			return carriesApiKey(credentials) ? result : { ...result, credentialCheck: "unknown" };
+		} catch (error) {
+			this.logger.error(`Error fetching models for ${providerId}:`, error);
+			return { models: [], credentialCheck: "unknown" };
+		}
+	}
+
+	/**
 	 * Get models for a provider
 	 * Returns empty array if provider not registered or fetch fails
 	 *
@@ -206,19 +266,7 @@ export class ProviderRegistry implements ModelRequestCoalescer {
 		credentials: ProviderCredentials,
 		metadata?: Record<string, unknown>,
 	): Promise<ModelInfo[]> {
-		const fetcher = this.modelFetchers.get(providerId);
-
-		if (!fetcher) {
-			this.logger.warn(`No model fetcher registered for ${providerId}`);
-			return [];
-		}
-
-		try {
-			return await fetcher(this.withDefaultUserAgent(credentials), metadata);
-		} catch (error) {
-			this.logger.error(`Error fetching models for ${providerId}:`, error);
-			return [];
-		}
+		return (await this.discoverModels(providerId, credentials, metadata)).models;
 	}
 
 	/**
