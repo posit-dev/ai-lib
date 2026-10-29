@@ -1028,6 +1028,12 @@ export const acpAgentEngineSchema = z
 				"Environment variables for the agent, applied over the workload environment that Posit Assistant's shell commands also receive (after `env.filter` and `env.set`). They apply to every user.",
 			)
 			.optional(),
+		enabled: z
+			.boolean()
+			.describe(
+				"Whether the agent is turned on. Defaults to on; `false` keeps the agent configured but turned off.",
+			)
+			.optional(),
 	})
 	.strict()
 	.describe("An Agent Client Protocol agent. A higher layer's entry replaces this one whole.");
@@ -1073,7 +1079,7 @@ export const agentEnginesSchema = z
 				acpAgentEngineSchema,
 			)
 			.describe(
-				"Agent Client Protocol agents to offer as engines, keyed by agent id. An entry is enabled when it exists.",
+				"Agent Client Protocol agents to offer as engines, keyed by agent id. An entry is on unless it sets `enabled: false`.",
 			)
 			.optional(),
 	})
