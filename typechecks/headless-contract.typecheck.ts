@@ -100,7 +100,8 @@ interface HeadlessProvidersV1 {
 
 interface HeadlessContractV1 {
 	readonly HEADLESS_CONTRACT_VERSION: 1;
-	readonly CUSTOM_PROVIDERS_AUTH_PROVIDER_ID: string;
+	// Posit Assistant's manifest registers this ID; a rename needs a matching manifest change.
+	readonly CUSTOM_PROVIDERS_AUTH_PROVIDER_ID: "custom-providers";
 	readonly createHeadlessProviders: (options: HeadlessProvidersOptionsV1) => HeadlessProvidersV1;
 }
 
