@@ -48,6 +48,10 @@ jobs:
       - name: Type check
         run: npm run check-types -w ai-provider-bridge
 
+      # The root has no TypeScript install, so this borrows the bridge's compiler.
+      - name: Shape and contract guards
+        run: npm exec -w ai-provider-bridge -- tsc -p ../../typechecks/tsconfig.json
+
       - name: Test
         run: npm test
 

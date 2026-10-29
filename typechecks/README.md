@@ -8,6 +8,7 @@ Compile-time assertions that keep `ai-config`'s vocabulary compatible with `ai-p
 - **Model-override fields** — `MODEL_METADATA_FIELD_NAMES` (ai-config) ⊆ `keyof ModelInfo` (bridge), including the provider-discovered `baseUrl` routing default.
 - **Protocols** — `PROTOCOL_VALUES` (ai-config) ⊆ `Protocol` (bridge).
 - **Client kinds** — every `CLIENT_KIND_VALUES` entry (ai-config) resolves to a built-in provider id, either directly (identity) or via a non-identity mapping (`aws` → `bedrock`, `snowflake` → `snowflake-cortex`) maintained in the bridge's `ProviderRegistry`.
+- **Headless contract** (`headless-contract.typecheck.ts`) — the `ai-provider-bridge/headless` entry still satisfies the contract frozen for the current `HEADLESS_CONTRACT_VERSION`. For an intended break, bump the version and replace the frozen contract.
 
 ## Running
 
