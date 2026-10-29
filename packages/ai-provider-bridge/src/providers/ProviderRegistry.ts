@@ -103,10 +103,7 @@ export interface ModelDiscoveryResult {
 type ClearableModelFetcher = ModelFetcher & {
 	clearCache?: () => void;
 	getFetchState?: () => unknown;
-	discover?: (
-		credentials: ProviderCredentials,
-		metadata?: Record<string, unknown>,
-	) => Promise<ModelDiscoveryResult>;
+	discover?: (credentials: ProviderCredentials) => Promise<ModelDiscoveryResult>;
 };
 
 /** Only a request that carried a non-empty API key can have it accepted or rejected. */
@@ -244,7 +241,7 @@ export class ProviderRegistry implements ModelRequestCoalescer {
 			if (!fetcher.discover) {
 				return { models: await fetcher(shaped, metadata), credentialCheck: "unknown" };
 			}
-			const result = await fetcher.discover(shaped, metadata);
+			const result = await fetcher.discover(shaped);
 			return carriesApiKey(credentials) ? result : { ...result, credentialCheck: "unknown" };
 		} catch (error) {
 			this.logger.error(`Error fetching models for ${providerId}:`, error);

@@ -233,10 +233,7 @@ function isFetchFreshConfig<T extends ProviderCredentials>(
  */
 export type ClearableModelFetcher = ((credentials: ProviderCredentials) => Promise<ModelInfo[]>) & {
 	clearCache?: () => void;
-	discover?: (
-		credentials: ProviderCredentials,
-		metadata?: Record<string, unknown>,
-	) => Promise<ModelDiscoveryResult>;
+	discover?: (credentials: ProviderCredentials) => Promise<ModelDiscoveryResult>;
 };
 
 /**

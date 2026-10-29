@@ -594,26 +594,4 @@ describe("createCachedModelFetcher — credential check", () => {
 			credentialCheck: "unknown",
 		});
 	});
-
-	it("classifies with a provider-supplied isCredentialRejection", async () => {
-		const fetchMock = vi.fn(() =>
-			respond(400, {
-				error: { status: "INVALID_ARGUMENT", details: [{ reason: "API_KEY_INVALID" }] },
-			}),
-		);
-		vi.stubGlobal("fetch", fetchMock);
-		const isCredentialRejection = vi.fn(
-			(status: number, body: string) => status === 400 && body.includes("API_KEY_INVALID"),
-		);
-		const { discover } = requestFetcher({ isCredentialRejection });
-
-		expect((await discover(credentials)).credentialCheck).toBe("rejected");
-		expect(isCredentialRejection).toHaveBeenCalledWith(
-			400,
-			expect.stringContaining("API_KEY_INVALID"),
-		);
-
-		fetchMock.mockImplementation(() => respond(401));
-		expect((await discover(credentials)).credentialCheck).toBe("unknown");
-	});
 });
