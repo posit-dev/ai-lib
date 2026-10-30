@@ -5,8 +5,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ApiKeyCredentials, Logger, ModelInfo } from "../../types";
-import type { CachedModelFetcherFetchFreshConfig } from "../cached-model-fetcher";
+import type {
+	CachedModelFetcherFetchFreshConfig,
+	CachedModelFetcherRequestConfig,
+} from "../cached-model-fetcher";
 import { createCachedModelFetcher, DEFAULT_DISCOVERY_DEADLINE_MS } from "../cached-model-fetcher";
+import { InFlightRequestCoalescer } from "../request-coalescer";
 
 const logger: Logger = {
 	info: vi.fn(),
@@ -455,5 +459,139 @@ describe("createCachedModelFetcher — discovery deadline", () => {
 		expect((await fetcher(credentials)).map((m) => m.id)).toEqual(["fresh"]);
 		expect((await fetcher(credentials)).map((m) => m.id)).toEqual(["fresh"]);
 		expect(fetchFresh).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("createCachedModelFetcher — credential check", () => {
+	afterEach(() => {
+		vi.useRealTimers();
+		vi.unstubAllGlobals();
+		vi.clearAllMocks();
+	});
+
+	function respond(status: number, body: unknown = { data: [] }): Promise<Response> {
+		return Promise.resolve(new Response(JSON.stringify(body), { status }));
+	}
+
+	function requestFetcher(overrides?: Partial<CachedModelFetcherRequestConfig<ApiKeyCredentials>>) {
+		const fetcher = createCachedModelFetcher<ApiKeyCredentials>({
+			providerId: "test-provider",
+			hasCredentials: (creds) => Boolean(creds.apiKey),
+			apiUrl: "https://example.test/models",
+			createHeaders: (creds) => ({ Authorization: `Bearer ${creds.apiKey}` }),
+			parseResponse: () => [model("fresh")],
+			fallbackModels: [model("fallback")],
+			ttl: 0,
+			logger,
+			...overrides,
+		});
+		const discover = fetcher.discover;
+		if (!discover) throw new Error("createCachedModelFetcher must provide discover");
+		return { fetcher, discover };
+	}
+
+	it("reports accepted for a fresh success and unknown for a cache hit", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(() => respond(200)),
+		);
+		const { discover } = requestFetcher({ ttl: 60_000 });
+
+		expect(await discover(credentials)).toEqual({
+			models: [model("fresh")],
+			credentialCheck: "accepted",
+		});
+		expect(await discover(credentials)).toEqual({
+			models: [model("fresh")],
+			credentialCheck: "unknown",
+		});
+	});
+
+	it("reports rejected for a 401 on the direct path", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(() => respond(401, { error: "invalid x-api-key" })),
+		);
+		const { fetcher, discover } = requestFetcher();
+
+		expect(await discover(credentials)).toEqual({
+			models: [model("fallback")],
+			credentialCheck: "rejected",
+		});
+		// The plain fetcher keeps its fallback behavior.
+		expect(await fetcher(credentials)).toEqual([model("fallback")]);
+	});
+
+	it("reports rejected to every joiner of a coalesced 401", async () => {
+		const fetchMock = vi.fn(() => respond(401));
+		vi.stubGlobal("fetch", fetchMock);
+		const requestCoalescer = new InFlightRequestCoalescer();
+		const first = requestFetcher({ requestCoalescer });
+		const second = requestFetcher({ providerId: "test-provider-dup", requestCoalescer });
+
+		const results = await Promise.all([first.discover(credentials), second.discover(credentials)]);
+
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(results.map((result) => result.credentialCheck)).toEqual(["rejected", "rejected"]);
+	});
+
+	it("returns stale models but still reports rejected when a cached key is revoked", async () => {
+		const fetchMock = vi.fn(() => respond(200));
+		vi.stubGlobal("fetch", fetchMock);
+		const { discover } = requestFetcher();
+		await discover(credentials);
+
+		fetchMock.mockImplementation(() => respond(401));
+		expect(await discover(credentials)).toEqual({
+			models: [model("fresh")],
+			credentialCheck: "rejected",
+		});
+	});
+
+	it.each([
+		["a 500", () => respond(500)],
+		["a 403", () => respond(403)],
+		["a network error", () => Promise.reject(new TypeError("fetch failed"))],
+	])("reports unknown for %s", async (_name, fetchImpl) => {
+		vi.stubGlobal("fetch", vi.fn(fetchImpl));
+		const { discover } = requestFetcher();
+
+		expect(await discover(credentials)).toEqual({
+			models: [model("fallback")],
+			credentialCheck: "unknown",
+		});
+	});
+
+	it("reports unknown when discovery times out", async () => {
+		vi.useFakeTimers();
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(() => new Promise<Response>(() => {})),
+		);
+		const { discover } = requestFetcher();
+
+		const promise = discover(credentials);
+		await vi.advanceTimersByTimeAsync(DEFAULT_DISCOVERY_DEADLINE_MS);
+		expect(await promise).toEqual({ models: [model("fallback")], credentialCheck: "unknown" });
+	});
+
+	it("reports unknown without credentials and for the fetchFresh variant", async () => {
+		const fetchMock = vi.fn(() => respond(401));
+		vi.stubGlobal("fetch", fetchMock);
+		const { discover } = requestFetcher();
+		expect((await discover({ type: "apikey", apiKey: "" })).credentialCheck).toBe("unknown");
+		expect(fetchMock).not.toHaveBeenCalled();
+
+		const fetchFresh = createCachedModelFetcher<ApiKeyCredentials>({
+			providerId: "test-provider",
+			hasCredentials: (creds) => Boolean(creds.apiKey),
+			fetchFresh: async () => [model("fresh")],
+			fallbackModels: [],
+			logger,
+		});
+		expect(await fetchFresh.discover?.(credentials)).toEqual({
+			models: [model("fresh")],
+			credentialCheck: "unknown",
+		});
 	});
 });

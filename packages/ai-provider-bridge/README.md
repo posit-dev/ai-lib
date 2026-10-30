@@ -56,14 +56,15 @@ const registry = new ProviderRegistry(logger);
 
 #### Methods
 
-| Method                  | Signature                                                                                   | Description                                                           |
-| ----------------------- | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| `registerModelFetcher`  | `(providerId: string, fetcher: ModelFetcher) => void`                                       | Register a function that returns available models for a provider      |
-| `registerClientFactory` | `(providerId: string, factory: ClientFactory) => void`                                      | Register a function that creates a `ModelClient` for a provider       |
-| `getModelsForProvider`  | `(providerId: string, credentials: ProviderCredentials, metadata?) => Promise<ModelInfo[]>` | Fetch models (returns `[]` if provider not registered or fetch fails) |
-| `getClientForProvider`  | `(providerId: string, credentials: ProviderCredentials) => ModelClient \| null`             | Create a client (returns `null` if provider not registered)           |
-| `clearAllModelCaches`   | `() => void`                                                                                | Clear all provider-level model caches (call on credential change)     |
-| `clearModelCache`       | `(providerId: string) => void`                                                              | Clear a single provider's model cache                                 |
+| Method                  | Signature                                                                                            | Description                                                                                                     |
+| ----------------------- | ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `registerModelFetcher`  | `(providerId: string, fetcher: ModelFetcher) => void`                                                | Register a function that returns available models for a provider                                                |
+| `registerClientFactory` | `(providerId: string, factory: ClientFactory) => void`                                               | Register a function that creates a `ModelClient` for a provider                                                 |
+| `getModelsForProvider`  | `(providerId: string, credentials: ProviderCredentials, metadata?) => Promise<ModelInfo[]>`          | Fetch models (returns `[]` if provider not registered or fetch fails)                                           |
+| `discoverModels`        | `(providerId: string, credentials: ProviderCredentials, metadata?) => Promise<ModelDiscoveryResult>` | Like `getModelsForProvider`, plus `credentialCheck: "accepted" \| "rejected" \| "unknown"` from a fresh listing |
+| `getClientForProvider`  | `(providerId: string, credentials: ProviderCredentials) => ModelClient \| null`                      | Create a client (returns `null` if provider not registered)                                                     |
+| `clearAllModelCaches`   | `() => void`                                                                                         | Clear all provider-level model caches (call on credential change)                                               |
+| `clearModelCache`       | `(providerId: string) => void`                                                                       | Clear a single provider's model cache                                                                           |
 
 #### Types
 

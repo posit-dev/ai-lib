@@ -35,6 +35,8 @@ export { classifyAwsCredentialFailure } from "./aws-credential-failure";
 export { NON_IDENTITY_MAPPING, ProviderRegistry } from "./providers/ProviderRegistry";
 export type {
 	ClientFactory,
+	CredentialCheck,
+	ModelDiscoveryResult,
 	ModelFetcher,
 	NonIdentityClientKind,
 	NonIdentityFactoryId,
