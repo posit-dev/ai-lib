@@ -106,9 +106,13 @@ type ClearableModelFetcher = ModelFetcher & {
 	discover?: (credentials: ProviderCredentials) => Promise<ModelDiscoveryResult>;
 };
 
-/** Only a request that carried a non-empty API key can have it accepted or rejected. */
+/**
+ * Only a request that carried a non-empty API key can have it accepted or
+ * rejected. Truthiness matches the fetchers' own gate, and also covers untyped
+ * runtime callers that omit `apiKey`.
+ */
 function carriesApiKey(credentials: ProviderCredentials): boolean {
-	return credentials.type === "apikey" && credentials.apiKey !== "";
+	return credentials.type === "apikey" && Boolean(credentials.apiKey);
 }
 
 /**

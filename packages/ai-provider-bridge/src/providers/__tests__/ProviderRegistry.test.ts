@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Logger, ModelClient, ModelInfo, ProviderCredentials } from "../../types";
 import { registerAnthropicProvider } from "../anthropic-provider";
 import { registerGeminiProvider } from "../gemini-provider";
+import { registerOpenAICompatibleProvider } from "../openai-compatible-provider";
 import { ProviderRegistry } from "../ProviderRegistry";
 
 const logger: Logger = {
@@ -195,6 +196,19 @@ describe("ProviderRegistry.discoverModels credential check", () => {
 		expect(keyless).toEqual({ models: [], credentialCheck: "unknown" });
 		const keyed = await registry.discoverModels("anthropic", { type: "apikey", apiKey: "bad" });
 		expect(keyed.credentialCheck).toBe("rejected");
+	});
+
+	it("reports unknown for a gateway request from an untyped caller that omits apiKey", async () => {
+		stubFetch(401, { error: { message: "missing key" } });
+		const registry = new ProviderRegistry(logger);
+		registerOpenAICompatibleProvider(registry, logger);
+		// JSON.parse stands in for a loosely typed runtime caller.
+		const untyped: ProviderCredentials = JSON.parse(
+			'{ "type": "apikey", "baseUrl": "https://gateway.example/v1" }',
+		);
+
+		const result = await registry.discoverModels("openai-compatible", untyped);
+		expect(result.credentialCheck).toBe("unknown");
 	});
 
 	it("classifies Gemini's 400 API_KEY_INVALID as rejected", async () => {
