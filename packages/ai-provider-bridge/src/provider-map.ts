@@ -36,6 +36,7 @@ const MAPPING_SPECS: Partial<Record<ProviderId, MappingSpec>> = {
 	"ms-foundry": { scopes: [], credentialType: "apikey" },
 	"snowflake-cortex": { scopes: [], credentialType: "apikey" },
 	deepseek: { scopes: [], credentialType: "apikey" },
+	openrouter: { scopes: [], credentialType: "apikey" },
 	// Bearer-token provider: session.accessToken is a PAT or OAuth access token
 	// (the auth extension decides which); the workspace host comes from the
 	// `authentication.databricks.credentials` setting.
