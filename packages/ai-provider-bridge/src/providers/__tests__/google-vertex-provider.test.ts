@@ -216,7 +216,12 @@ describe("registerGoogleVertexProvider", () => {
 		expect(onProviderStatusChange).toHaveBeenCalledWith(
 			expect.objectContaining({
 				status: "auth_error",
-				error: expect.objectContaining({ code: "adc_expired" }),
+				error: expect.objectContaining({
+					code: "adc_file_missing",
+					message: expect.stringContaining(
+						"GOOGLE_APPLICATION_CREDENTIALS points to /no/such/adc.json, which does not exist.",
+					),
+				}),
 			}),
 		);
 		expect(mockLogger.error).toHaveBeenCalledWith(

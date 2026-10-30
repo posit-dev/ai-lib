@@ -12,6 +12,7 @@ import {
 	isApplicationDefaultCredentialsError,
 	isInlineServiceAccountError,
 	mintGoogleVertexAccessToken,
+	missingGoogleVertexKeyFile,
 	resolveGoogleVertexCredentialSource,
 } from "../google-vertex-credentials";
 import { GoogleVertexClient } from "../model-clients/GoogleVertexClient";
@@ -83,6 +84,21 @@ const AUTH_ERROR_GUIDANCE: Record<
 			"Google Cloud credentials expired or missing. Run 'gcloud auth application-default login' to refresh, then click Reload model list.",
 	},
 };
+
+/** The guidance for an auth error, naming a missing `GOOGLE_APPLICATION_CREDENTIALS` file when that's the cause. */
+function authErrorGuidance(source: GoogleVertexCredentialSource): {
+	code: string;
+	message: string;
+} {
+	const missingKeyFile = missingGoogleVertexKeyFile(source);
+	if (missingKeyFile) {
+		return {
+			code: "adc_file_missing",
+			message: `GOOGLE_APPLICATION_CREDENTIALS points to ${missingKeyFile}, which does not exist. Fix the path, or unset it to use gcloud's credentials, then click Reload model list.`,
+		};
+	}
+	return AUTH_ERROR_GUIDANCE[source.kind];
+}
 
 /**
  * Fetch models from a single Vertex AI publisher endpoint.
@@ -368,7 +384,7 @@ function createGoogleVertexModelFetcher(
 				const errorMsg = error instanceof Error ? error.message : String(error);
 
 				if (isAuthError(error)) {
-					const guidance = AUTH_ERROR_GUIDANCE[credentialSource.kind];
+					const guidance = authErrorGuidance(credentialSource);
 					logger.error(
 						`[GoogleVertex] ${guidance.message} Credential source: ${sourceDescription}. Error: ${errorMsg}`,
 					);

@@ -175,10 +175,30 @@ function wellKnownAdcFile(path: typeof NodePath): string | undefined {
 	return configDir && path.join(configDir, "gcloud", "application_default_credentials.json");
 }
 
+/** The `GOOGLE_APPLICATION_CREDENTIALS` path ADC will read, if one is set. */
+function adcKeyFile(source: GoogleVertexCredentialSource & { kind: "adc" }): string | undefined {
+	// With no captured path, google-auth-library reads the ambient environment itself.
+	return (
+		source.keyFilename ?? readSdkCredentialEnvironment(process.env).googleApplicationCredentials
+	);
+}
+
+/**
+ * The `GOOGLE_APPLICATION_CREDENTIALS` path when it points at a file that does
+ * not exist. google-auth-library does not fall back to gcloud's file then, so
+ * this is the cause of the failure.
+ */
+export function missingGoogleVertexKeyFile(
+	source: GoogleVertexCredentialSource,
+): string | undefined {
+	if (source.kind !== "adc" || !nodeFs) return undefined;
+	const keyFile = adcKeyFile(source);
+	return keyFile && !nodeFs.existsSync(keyFile) ? keyFile : undefined;
+}
+
 /**
  * Where the credential comes from, for logs. For ADC this names the file
- * google-auth-library will read and whether it exists, since a stale
- * `GOOGLE_APPLICATION_CREDENTIALS` path fails without falling back to gcloud's file.
+ * google-auth-library will read and whether it exists.
  */
 export function describeGoogleVertexCredentialSource(source: GoogleVertexCredentialSource): string {
 	switch (source.kind) {
@@ -187,12 +207,9 @@ export function describeGoogleVertexCredentialSource(source: GoogleVertexCredent
 		case "inline":
 			return "the inline service account in GOOGLE_CLIENT_EMAIL and GOOGLE_PRIVATE_KEY";
 		case "adc": {
-			// With no captured path, google-auth-library reads the ambient environment itself.
-			const envFile =
-				source.keyFilename ??
-				readSdkCredentialEnvironment(process.env).googleApplicationCredentials;
+			const envFile = adcKeyFile(source);
 			if (envFile) {
-				const missing = nodeFs && !nodeFs.existsSync(envFile) ? ", which does not exist" : "";
+				const missing = missingGoogleVertexKeyFile(source) ? ", which does not exist" : "";
 				return `Application Default Credentials from GOOGLE_APPLICATION_CREDENTIALS (${envFile}${missing})`;
 			}
 			if (!nodeFs || !nodePath) return "Application Default Credentials";
