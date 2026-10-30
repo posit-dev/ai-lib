@@ -230,15 +230,15 @@ If it is a local endpoint provider, add it to `LOCAL_PROVIDER_IDS` in `src/local
 
 ## Files Summary
 
-| File                                                 | Change                                                        |
-| ---------------------------------------------------- | ------------------------------------------------------------- |
-| `src/types.ts`                                       | Add to `PROVIDER_IDS`                                         |
-| `src/model-clients/XyzClient.ts`                     | New client class                                              |
-| `../ai-config/src/model-capabilities/xyz-helpers.ts` | Optional: capability inference helpers (lives in `ai-config`) |
-| `src/providers/xyz-provider.ts`                      | New provider module                                           |
-| `src/providers.ts`                                   | Export new registration function + client                     |
-| `src/provider-map.ts`                                | Add auth session mapping (all but local providers)            |
-| `../ai-credentials/src/types/credential-shaping.ts`  | Only for a new credential type: add shaping                   |
+| File                                                 | Change                                                         |
+| ---------------------------------------------------- | -------------------------------------------------------------- |
+| `src/types.ts`                                       | Add to `PROVIDER_IDS`                                          |
+| `src/model-clients/XyzClient.ts`                     | New client class                                               |
+| `../ai-config/src/model-capabilities/xyz-helpers.ts` | Optional: capability inference helpers (lives in `ai-config`)  |
+| `src/providers/xyz-provider.ts`                      | New provider module                                            |
+| `src/providers.ts`                                   | Export new registration function + client                      |
+| `src/provider-map.ts`                                | Add auth session mapping (all but local providers and copilot) |
+| `../ai-credentials/src/types/credential-shaping.ts`  | Only for a new credential type: add shaping                    |
 
 ## Thinking/Reasoning Support
 

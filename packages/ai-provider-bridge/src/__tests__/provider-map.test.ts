@@ -5,7 +5,12 @@
 import { POSITRON_LEGACY_AUTH_PROVIDER_IDS } from "ai-credentials/types";
 import { describe, expect, it } from "vitest";
 
+import { LOCAL_PROVIDER_IDS } from "../local-providers";
 import { MAPPED_PROVIDER_IDS, PROVIDER_MAP } from "../provider-map";
+import { PROVIDER_IDS } from "../types";
+
+/** Providers without an auth mapping that aren't local: `copilot` is reached only via vscode.lm. */
+const UNMAPPED_EXEMPT = ["copilot"];
 
 describe("PROVIDER_MAP auth provider ids", () => {
 	it("defaults the auth provider id to the catalog id", () => {
@@ -14,6 +19,12 @@ describe("PROVIDER_MAP auth provider ids", () => {
 
 	it("avoids an auth provider id another extension owns", () => {
 		expect(PROVIDER_MAP["posit-connect"]?.authProviderId).toBe("posit-connect-llm");
+	});
+
+	it("maps every provider except local ones and the exempt list", () => {
+		const exempt: readonly string[] = [...LOCAL_PROVIDER_IDS, ...UNMAPPED_EXEMPT];
+		const missing = PROVIDER_IDS.filter((id) => !exempt.includes(id) && !(id in PROVIDER_MAP));
+		expect(missing).toEqual([]);
 	});
 
 	it("maps every legacy Positron auth id to a mapped provider", () => {

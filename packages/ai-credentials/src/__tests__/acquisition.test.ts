@@ -1051,6 +1051,25 @@ describe("generalized store-backed acquisition", () => {
 			});
 		});
 
+		it("keeps the stored refresh token when the refresh response does not rotate it", async () => {
+			await seedExpiredPositai();
+			vi.stubGlobal(
+				"fetch",
+				vi.fn().mockResolvedValue(ok({ access_token: "fresh-access", expires_in: 3600 })),
+			);
+			const provider = createProvider();
+
+			expect(await provider.getCredentials("positai")).toEqual({
+				type: "oauth",
+				accessToken: "fresh-access",
+			});
+			expect(await storedPositai()).toMatchObject({
+				oauthAuth: {
+					tokenData: { accessToken: "fresh-access", refreshToken: "old-refresh" },
+				},
+			});
+		});
+
 		it("keeps the stored tokens and ready record when refresh hits a network error", async () => {
 			const seeded = await seedExpiredPositai();
 			const bytesBefore = fixture.readBytes();
