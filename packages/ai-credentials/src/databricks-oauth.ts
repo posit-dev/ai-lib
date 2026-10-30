@@ -10,6 +10,8 @@ export interface DatabricksOidcEndpoints {
 	tokenEndpoint: string;
 }
 
+const DISCOVERY_TIMEOUT_MS = 2000;
+
 const endpointDiscovery = new Map<string, Promise<DatabricksOidcEndpoints>>();
 
 /** Normalize and validate a workspace URL without retaining path/query fragments. */
@@ -17,41 +19,45 @@ export function normalizeDatabricksWorkspaceHost(raw: string): string {
 	return normalizeDatabricksHost(raw);
 }
 
-/** Discover workspace OAuth endpoints, falling back to the documented workspace paths. */
+/**
+ * Discover workspace OAuth endpoints once per process, falling back to the documented workspace
+ * paths when the metadata document is unavailable or invalid.
+ */
 export async function discoverDatabricksOidcEndpoints(
 	workspaceHost: string,
 ): Promise<DatabricksOidcEndpoints> {
 	const host = normalizeDatabricksWorkspaceHost(workspaceHost);
-	const existing = endpointDiscovery.get(host);
-	if (existing) return existing;
-
-	const discovery = discoverEndpoints(host);
-	endpointDiscovery.set(host, discovery);
-	try {
-		return await discovery;
-	} catch (error) {
-		endpointDiscovery.delete(host);
-		throw error;
+	let discovery = endpointDiscovery.get(host);
+	if (!discovery) {
+		discovery = fetchDiscoveryDocument(host)
+			.catch(() => undefined)
+			.then(
+				(discovered) =>
+					discovered ?? {
+						authorizationEndpoint: `${host}/oidc/v1/authorize`,
+						tokenEndpoint: `${host}/oidc/v1/token`,
+					},
+			);
+		endpointDiscovery.set(host, discovery);
 	}
+	return discovery;
 }
 
-async function discoverEndpoints(host: string): Promise<DatabricksOidcEndpoints> {
-	const response = await fetch(`${host}/.well-known/openid-configuration`);
-	if (response.ok) {
-		const document: unknown = await response.json();
-		if (
-			hasStringProperty(document, "authorization_endpoint") &&
-			hasStringProperty(document, "token_endpoint")
-		) {
-			return {
-				authorizationEndpoint: validateEndpoint(host, document.authorization_endpoint),
-				tokenEndpoint: validateEndpoint(host, document.token_endpoint),
-			};
-		}
+async function fetchDiscoveryDocument(host: string): Promise<DatabricksOidcEndpoints | undefined> {
+	const response = await fetch(`${host}/oidc/.well-known/oauth-authorization-server`, {
+		signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS),
+	});
+	if (!response.ok) return undefined;
+	const document: unknown = await response.json();
+	if (
+		!hasStringProperty(document, "authorization_endpoint") ||
+		!hasStringProperty(document, "token_endpoint")
+	) {
+		return undefined;
 	}
 	return {
-		authorizationEndpoint: `${host}/oidc/v1/authorize`,
-		tokenEndpoint: `${host}/oidc/v1/token`,
+		authorizationEndpoint: validateEndpoint(host, document.authorization_endpoint),
+		tokenEndpoint: validateEndpoint(host, document.token_endpoint),
 	};
 }
 
