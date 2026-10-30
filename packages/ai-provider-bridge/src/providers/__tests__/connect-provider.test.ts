@@ -29,7 +29,7 @@ const catalogSend = vi.hoisted(() => vi.fn());
 vi.mock("@aws-sdk/client-bedrock", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@aws-sdk/client-bedrock")>()),
 	BedrockClient: vi.fn(function () {
-		return { send: catalogSend };
+		return { send: catalogSend, destroy: vi.fn() };
 	}),
 }));
 

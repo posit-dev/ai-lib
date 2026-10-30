@@ -37,7 +37,7 @@
  *   host (see {@link ConnectProviderCallbacks.getAwsCredentials}).
  */
 
-import { BedrockClient as BedrockCatalogSdkClient } from "@aws-sdk/client-bedrock";
+import type { BedrockClient as BedrockCatalogSdkClient } from "@aws-sdk/client-bedrock";
 import type { ResolvedProviderId } from "ai-config";
 import {
 	completeCapabilities,
@@ -64,7 +64,11 @@ import { normalizeProtocol } from "../types";
 import { listMantleModels } from "./bedrock-mantle-models";
 import { resolveBedrockTransport } from "./bedrock-transport";
 import { createCachedModelFetcher } from "./cached-model-fetcher";
-import { type DiscoveredBedrockModel, listGatewayModels } from "./connect-bedrock-models";
+import {
+	createGatewayCatalogClient,
+	type DiscoveredBedrockModel,
+	listGatewayModels,
+} from "./connect-bedrock-models";
 import {
 	combineGatewayMetadataHeaders,
 	GATEWAY_METADATA_HEADER,
@@ -525,16 +529,20 @@ function mantleGatewayModels(
  * permissions still lists its Runtime models, and the reverse. Any other
  * failure (no credentials, a network error) yields no models for this
  * integration and leaves the others unaffected. The host reports credential
- * failures; a listing failure is logged here. An abort rejects.
+ * failures; a listing failure is logged here. An abort rejects. Both listings
+ * carry `customHeaders` (already without Gateway-Metadata), as a proxy in
+ * front of Connect may require them.
  */
 async function discoverBedrockGatewayModels(
 	providerId: ResolvedProviderId,
 	integration: ConnectIntegration,
 	connectUrl: string,
+	customHeaders: Record<string, string> | undefined,
 	callbacks: ConnectProviderCallbacks,
 	logger: Logger,
 	signal: AbortSignal,
 ): Promise<ModelInfo[]> {
+	let client: BedrockCatalogSdkClient | undefined;
 	try {
 		const minted = await callbacks.getAwsCredentials(integration, signal);
 		if (!minted.ok) {
@@ -550,12 +558,13 @@ async function discoverBedrockGatewayModels(
 		// Chat refuses Mantle when AWS FIPS endpoints are enforced, even through
 		// the gateway, so its models are not listed then either.
 		const { mantleEnabled } = await resolveBedrockTransport({ region, logger });
-		const client = new BedrockCatalogSdkClient({
+		client = createGatewayCatalogClient({
 			region,
 			endpoint: integration.baseUrl,
 			credentials: { accessKeyId, secretAccessKey, sessionToken: aws.sessionToken },
+			customHeaders,
 		});
-		const runtimeModels = listGatewayModels(client, logger).then(
+		const runtimeModels = listGatewayModels(client, logger, signal).then(
 			(discovered) => {
 				if (discovered === null) {
 					logger.warn(
@@ -576,7 +585,7 @@ async function discoverBedrockGatewayModels(
 			},
 		);
 		// listMantleModels logs its own failures and returns [] for them; only an
-		// abort rejects. No custom headers, as for the Runtime listing above.
+		// abort rejects.
 		const mantleModels = mantleEnabled
 			? listMantleModels(
 					{
@@ -585,6 +594,7 @@ async function discoverBedrockGatewayModels(
 						accessKeyId,
 						secretAccessKey,
 						sessionToken: aws.sessionToken,
+						customHeaders,
 					},
 					logger,
 					{
@@ -611,6 +621,8 @@ async function discoverBedrockGatewayModels(
 			`[posit-connect] Bedrock model discovery failed for integration "${integrationLabel(integration)}": ${message}`,
 		);
 		return [];
+	} finally {
+		client?.destroy();
 	}
 }
 
@@ -727,6 +739,7 @@ function createConnectModelFetcher(
 									providerId,
 									integration,
 									connectUrl,
+									connectCustomHeaders(credentials.customHeaders),
 									callbacks,
 									logger,
 									signal,

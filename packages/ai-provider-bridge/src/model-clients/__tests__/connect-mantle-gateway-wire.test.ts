@@ -23,6 +23,7 @@ vi.mock("@aws-sdk/client-bedrock", async (importOriginal) => ({
 			send: vi.fn(async () => {
 				throw Object.assign(new Error("denied"), { name: "AccessDeniedException" });
 			}),
+			destroy: vi.fn(),
 		};
 	}),
 }));

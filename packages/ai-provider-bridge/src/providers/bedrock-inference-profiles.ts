@@ -15,7 +15,10 @@ import type { Logger } from "../types";
  * mocking the whole SDK.
  */
 export interface InferenceProfileLister {
-	send(command: ListInferenceProfilesCommand): Promise<ListInferenceProfilesResponse>;
+	send(
+		command: ListInferenceProfilesCommand,
+		options?: { abortSignal?: AbortSignal },
+	): Promise<ListInferenceProfilesResponse>;
 }
 
 /**
@@ -67,12 +70,14 @@ function isAccessDenied(error: unknown): boolean {
  * policy gap and logs at debug; every other failure (throttling, service
  * errors, malformed responses, network) logs at warn with the actual error.
  * This function never touches provider status — a discovery 403 is a
- * degradation, not an auth failure.
+ * degradation, not an auth failure. `signal` cancels every page request;
+ * an abort rejects instead of returning `null`.
  */
 export async function listInferenceProfileIds(
 	listClient: InferenceProfileLister,
 	preferredProfilePrefix: string | null,
 	logger: Logger,
+	signal?: AbortSignal,
 ): Promise<Map<string, string> | null> {
 	try {
 		// bare modelId → candidate profile IDs
@@ -83,7 +88,10 @@ export async function listInferenceProfileIds(
 				typeEquals: "SYSTEM_DEFINED",
 				...(nextToken ? { nextToken } : {}),
 			});
-			const response: ListInferenceProfilesResponse = await listClient.send(command);
+			const response: ListInferenceProfilesResponse = await listClient.send(
+				command,
+				signal ? { abortSignal: signal } : undefined,
+			);
 			for (const profile of response.inferenceProfileSummaries ?? []) {
 				if (profile.status !== "ACTIVE" || !profile.inferenceProfileId) {
 					continue;
@@ -115,6 +123,7 @@ export async function listInferenceProfileIds(
 		}
 		return result;
 	} catch (error) {
+		if (signal?.aborted) throw error;
 		if (isAccessDenied(error)) {
 			logger.debug(
 				"[Bedrock] Inference profile discovery denied; bedrock:ListInferenceProfiles may be missing from the IAM policy.",
