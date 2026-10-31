@@ -339,6 +339,33 @@ permissions are not needed after subscription. AWS's
 zero-retention guarantee: AWS account/project retention policy is configured
 separately and may still retain data according to that policy.
 
+### Configured endpoints for direct Bedrock
+
+`resolveConfiguredBedrockEndpoints({ profile })` (`bedrock-transport.ts`) returns
+`{ runtime, listing }`, mirroring the AWS SDK's configured-endpoint lookup (Smithy's helper is not
+exported) on `loadConfig` from `@smithy/core/config`. `profile` is the one selected in the host's
+Bedrock settings (`credentials.profile`), not the ambient `AWS_PROFILE`. Every lookup passes
+`ignoreCache: true`, so `~/.aws/config` edits are seen per operation, as the FIPS lookup does.
+
+- **Off switch first:** `AWS_IGNORE_CONFIGURED_ENDPOINT_URLS` or the profile's
+  `ignore_configured_endpoint_urls` disables every source.
+- **Precedence, first match wins:** `AWS_ENDPOINT_URL_<SERVICE>`, `AWS_ENDPOINT_URL`, the profile's
+  `[services <name>]` entry `<service> = endpoint_url`, the profile's `endpoint_url`. Services are
+  "Bedrock Runtime" (chat, `runtime`) and "Bedrock" (model listing, `listing`). A missing
+  referenced `services` section falls through to no endpoint.
+- **Ownership:** a model's own `baseUrl` (Connect gateway, custom provider) beats a configured
+  endpoint, which beats the Amazon host. The lookup runs only for direct-Bedrock chat without a
+  per-model `baseUrl` and for the direct listing client, never for Connect or Mantle.
+- **Mantle is excluded.** AWS defines no configured-endpoint name for it, so Mantle keeps Amazon's
+  address even when Runtime requests are redirected.
+- **Listing client:** after constructing it, `bedrock-provider.ts` assigns
+  `client.config.serviceConfiguredEndpoint = async () => listing` (including `undefined`).
+  Otherwise `@smithy/middleware-endpoint` runs its own lookup, which ignores the off switch and
+  uses the ambient profile. Construction overwrites the field, hence the assignment afterwards. The
+  field is SDK-internal; the listing-path destination test catches an SDK change.
+- **FIPS:** `refuseConfiguredEndpointUnderFips()` throws for chat or listing when FIPS is enabled
+  and an endpoint is configured, as the SDK refuses FIPS with a custom endpoint. No allowlist.
+
 ### Bedrock through the Posit Connect gateway
 
 The `posit-connect` provider lists and chats with Bedrock models for each `aws`-template Connect
