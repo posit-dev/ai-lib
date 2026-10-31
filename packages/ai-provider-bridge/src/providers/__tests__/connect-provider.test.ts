@@ -580,6 +580,30 @@ describe("connect model fetcher", () => {
 			expect(catalogSend).not.toHaveBeenCalled();
 		});
 
+		it("recovers the models on the next discovery after a cache clear, once sign-in succeeds", async () => {
+			// The UI's Reload models clears every provider's model cache and
+			// refetches; a failed mint is never cached, so that discovery re-mints.
+			stubDiscoveryFetch();
+			stubSonnetCatalog();
+			const getAwsCredentials = vi.fn<ConnectProviderCallbacks["getAwsCredentials"]>(mintSuccess());
+			getAwsCredentials.mockResolvedValueOnce({ ok: false, code: "oauth_session_required" });
+			const registry = registryWithProvider({ getAwsCredentials });
+			const bedrockIds = async () =>
+				(await registry.getModelsForProvider("posit-connect", credentials))
+					.map((model) => model.id)
+					.filter((id) => id.startsWith(`${AWS_PREFIX}/`));
+
+			expect(await bedrockIds()).toEqual([]);
+			// Until something invalidates it, the empty listing is served from cache.
+			expect(await bedrockIds()).toEqual([]);
+			expect(getAwsCredentials).toHaveBeenCalledOnce();
+
+			registry.clearModelCache("posit-connect");
+
+			expect(await bedrockIds()).toEqual([`${AWS_PREFIX}/${BEDROCK_MODEL_ID}`]);
+			expect(getAwsCredentials).toHaveBeenCalledTimes(2);
+		});
+
 		describe("Bedrock Mantle models", () => {
 			const MANTLE_LISTING = {
 				data: [
