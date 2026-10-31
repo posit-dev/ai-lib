@@ -16,9 +16,14 @@ import { createBedrockMantle } from "@ai-sdk/amazon-bedrock/mantle";
 import type { LanguageModelV4 } from "@ai-sdk/provider";
 import { streamText } from "ai";
 
-import { createAwsCredentialProvider } from "../aws-credentials";
+import { createAwsCredentialProvider, hasManualAwsKeys } from "../aws-credentials";
 import { safeSdkCustomHeaders } from "../custom-headers";
-import { resolveBedrockTransport, type BedrockTransport } from "../providers/bedrock-transport";
+import {
+	refuseConfiguredEndpointUnderFips,
+	resolveBedrockTransport,
+	resolveConfiguredBedrockEndpoints,
+	type BedrockTransport,
+} from "../providers/bedrock-transport";
 import { sanitizeToolCallIdsForAnthropic } from "../tool-call-ids";
 import {
 	hasImagesInToolResults,
@@ -49,6 +54,13 @@ const EXPLICIT_PROMPT_CACHE_OPTIONS: { mode: "explicit"; ttl: "30m" } = {
  */
 export function isAnthropicModel(modelId: string): boolean {
 	return /(?:^|[./])anthropic\./.test(modelId);
+}
+
+/** Mantle (OpenAI models on Bedrock) protocols, which never use the Runtime endpoint. */
+function isMantleProtocol(
+	protocol: Protocol | undefined,
+): protocol is "openai-chat" | "openai-responses" {
+	return protocol === "openai-chat" || protocol === "openai-responses";
 }
 
 export interface BedrockClientConfig {
@@ -128,6 +140,12 @@ export class BedrockClient implements ModelClient {
 			normalizedProtocol,
 			params.baseUrl,
 			params.metadata?.sessionId,
+			// A model's own base URL (Connect gateway, custom provider) wins, as an
+			// endpoint set in code does in the AWS SDK; Mantle has no configured
+			// endpoint. Only then is the AWS configuration read.
+			params.baseUrl === undefined && !isMantleProtocol(normalizedProtocol)
+				? (await resolveConfiguredBedrockEndpoints({ profile: this.config.profile })).runtime
+				: undefined,
 		);
 
 		// Create abort controller with cleanup to prevent EventEmitter memory leaks
@@ -261,12 +279,14 @@ export class BedrockClient implements ModelClient {
 	 * - All other models use `createAmazonBedrock` (Converse API).
 	 *
 	 * The Anthropic and Converse routes honor an explicit `baseUrl` (e.g. a
-	 * Connect gateway route), falling back to the resolved AWS runtime endpoint
-	 * otherwise. When FIPS endpoints are mandated, an explicit `baseUrl` is
-	 * rejected unless {@link BedrockClientConfig.allowBaseUrlUnderFips} opts in
-	 * (then the override is logged). Mantle also honors an explicit `baseUrl`
-	 * but has no runtime-endpoint fallback and is vetoed entirely under FIPS,
-	 * with no override.
+	 * Connect gateway route), then the AWS configured runtime endpoint, falling
+	 * back to the resolved AWS runtime endpoint otherwise. A configured endpoint
+	 * is always refused under FIPS. When FIPS endpoints are mandated, an
+	 * explicit `baseUrl` is rejected unless
+	 * {@link BedrockClientConfig.allowBaseUrlUnderFips} opts in (then the
+	 * override is logged). Mantle also honors an explicit `baseUrl` but has no
+	 * runtime-endpoint or configured-endpoint fallback and is vetoed entirely
+	 * under FIPS, with no override.
 	 *
 	 * When an explicit `protocol` is provided, it takes precedence over the
 	 * model-ID heuristic.
@@ -277,8 +297,13 @@ export class BedrockClient implements ModelClient {
 		protocol: Protocol | undefined,
 		baseUrl: string | undefined,
 		session: string | undefined,
+		configuredRuntimeEndpoint: string | undefined,
 	): LanguageModelV4 {
 		const credentialProvider = createAwsCredentialProvider(this.config);
+		// Explicit keys are the intended identity (for example, Connect-minted
+		// gateway credentials); an ambient AWS_BEARER_TOKEN_BEDROCK must not
+		// replace them, so blank the SDK's apiKey lookup.
+		const explicitKeyAuth = hasManualAwsKeys(this.config) ? { apiKey: "" } : {};
 		const headers = safeSdkCustomHeaders(this.config.customHeaders);
 		const loggedFetch = withRawHttpLogging(undefined, {
 			provider: "bedrock",
@@ -286,7 +311,7 @@ export class BedrockClient implements ModelClient {
 			session,
 		});
 
-		if (protocol === "openai-chat" || protocol === "openai-responses") {
+		if (isMantleProtocol(protocol)) {
 			if (!transport.mantleEnabled) {
 				throw new Error(
 					`Bedrock protocol ${protocol} is unavailable when AWS FIPS endpoints are enabled`,
@@ -316,6 +341,8 @@ export class BedrockClient implements ModelClient {
 				`[Bedrock] Explicit base URL ${baseUrl} overrides the FIPS runtime endpoint ${transport.runtimeBaseUrl}`,
 			);
 		}
+		refuseConfiguredEndpointUnderFips(transport, configuredRuntimeEndpoint);
+		const runtimeBaseUrl = baseUrl ?? configuredRuntimeEndpoint ?? transport.runtimeBaseUrl;
 
 		const useAnthropicApi = protocol
 			? protocol === "anthropic-messages"
@@ -324,18 +351,20 @@ export class BedrockClient implements ModelClient {
 		if (useAnthropicApi) {
 			return createBedrockAnthropic({
 				region: this.config.region,
-				baseURL: baseUrl ?? transport.runtimeBaseUrl,
+				baseURL: runtimeBaseUrl,
 				headers,
 				credentialProvider,
+				...explicitKeyAuth,
 				...(loggedFetch && { fetch: loggedFetch }),
 			})(modelId);
 		}
 
 		return createAmazonBedrock({
 			region: this.config.region,
-			baseURL: baseUrl ?? transport.runtimeBaseUrl,
+			baseURL: runtimeBaseUrl,
 			headers,
 			credentialProvider,
+			...explicitKeyAuth,
 			...(loggedFetch && { fetch: loggedFetch }),
 		})(modelId);
 	}

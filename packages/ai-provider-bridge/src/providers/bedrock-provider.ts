@@ -8,9 +8,12 @@ import {
 } from "@aws-sdk/client-bedrock";
 import type { ResolvedProviderId } from "ai-config";
 import {
+	BEDROCK_FALLBACK_CONTEXT_LENGTH,
 	completeCapabilities,
 	getAnthropicModelCapabilities,
+	getBedrockConverseMediaSupport,
 	getBedrockMantleModelCapabilities,
+	supportsBedrockConverseTools,
 } from "ai-config";
 
 import { classifyAwsCredentialFailure } from "../aws-credential-failure";
@@ -21,7 +24,12 @@ import type { AwsCredentials, Logger, ModelInfo, ProviderCredentials } from "../
 import { NOTIFICATION_ACTIONS } from "../types";
 import { listInferenceProfileIds } from "./bedrock-inference-profiles";
 import { listMantleModels } from "./bedrock-mantle-models";
-import { resolveBedrockTransport, type BedrockTransport } from "./bedrock-transport";
+import {
+	refuseConfiguredEndpointUnderFips,
+	resolveBedrockTransport,
+	resolveConfiguredBedrockEndpoints,
+	type BedrockTransport,
+} from "./bedrock-transport";
 import { getOpenAIModelName } from "./openai-model-names";
 import type { ClientFactory, ProviderRegistry } from "./ProviderRegistry";
 
@@ -367,6 +375,16 @@ function createBedrockModelFetcher(
 			}
 
 			try {
+				const { listing } = await resolveConfiguredBedrockEndpoints({
+					profile: credentials.profile,
+				});
+				refuseConfiguredEndpointUnderFips(transport, listing);
+				// Without this, the SDK's endpoint middleware runs its own lookup,
+				// which ignores the off switch and PA's selected profile. Setting the
+				// provider (even to `undefined`) suppresses that lookup. Construction
+				// overwrites the field, so assign it afterwards.
+				listClient.config.serviceConfiguredEndpoint = async () => listing;
+
 				logger.debug("[Bedrock] Fetching models from ListFoundationModels API");
 
 				// List foundation models with cross-region inference profiles. This will find newer
@@ -428,10 +446,11 @@ function createBedrockModelFetcher(
 						const vendor = modelId.split(".")[0] || "aws";
 
 						// Determine capabilities based on model metadata
-						const supportsTools = Boolean(
-							model.responseStreamingSupported && (vendor === "anthropic" || vendor === "amazon"),
+						const supportsTools = supportsBedrockConverseTools(
+							vendor,
+							model.responseStreamingSupported,
 						);
-						const supportsImages = vendor === "anthropic" || vendor === "amazon";
+						const media = getBedrockConverseMediaSupport(vendor);
 
 						// Infer capabilities for Anthropic models
 						const capabilities = getAnthropicModelCapabilities(modelId);
@@ -446,12 +465,8 @@ function createBedrockModelFetcher(
 								maxInputTokens: undefined,
 								maxOutputTokens: undefined,
 								supportsTools,
-								supportsImages,
-								supportsToolResultImages: supportsImages,
-								supportedInputMediaTypes: supportsImages
-									? ["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"]
-									: undefined,
-								maxContextLength: 200000,
+								...media,
+								maxContextLength: BEDROCK_FALLBACK_CONTEXT_LENGTH,
 								// Spread Anthropic capabilities (token limits, family, thinking effort)
 								...capabilities,
 								supportsWebSearch: false,
@@ -565,6 +580,7 @@ function createBedrockClientFactory(logger: Logger): ClientFactory {
 				secretAccessKey: credentials.secretAccessKey,
 				sessionToken: credentials.sessionToken,
 				customHeaders: credentials.customHeaders,
+				allowBaseUrlUnderFips: credentials.allowBaseUrlUnderFips,
 			},
 			logger,
 		);

@@ -23,6 +23,8 @@ const {
 	resolveBedrockTransport: vi.fn(),
 	bedrockListClient: vi.fn(function () {
 		return {
+			// The provider pins the SDK's configured-endpoint lookup here.
+			config: {},
 			send: (command: { __kind?: string }) =>
 				command.__kind === "inference-profiles"
 					? listInferenceProfiles(command)
@@ -33,7 +35,12 @@ const {
 
 vi.mock("../bedrock-mantle-models", () => ({ listMantleModels }));
 vi.mock("../../aws-credentials", () => ({ createAwsCredentialProvider }));
-vi.mock("../bedrock-transport", () => ({ resolveBedrockTransport }));
+// No AWS configured endpoint, whatever the ambient environment holds.
+vi.mock("../bedrock-transport", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../bedrock-transport")>()),
+	resolveBedrockTransport,
+	resolveConfiguredBedrockEndpoints: async () => ({ runtime: undefined, listing: undefined }),
+}));
 vi.mock("@aws-sdk/client-bedrock", () => ({
 	BedrockClient: bedrockListClient,
 	ListFoundationModelsCommand: vi.fn(function (this: { __kind: string }) {

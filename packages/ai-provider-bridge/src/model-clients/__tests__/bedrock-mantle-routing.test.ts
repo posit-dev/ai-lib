@@ -25,7 +25,12 @@ vi.mock("ai", () => ({ streamText }));
 vi.mock("@ai-sdk/amazon-bedrock", () => ({ createAmazonBedrock }));
 vi.mock("@ai-sdk/amazon-bedrock/anthropic", () => ({ createBedrockAnthropic }));
 vi.mock("@ai-sdk/amazon-bedrock/mantle", () => ({ createBedrockMantle }));
-vi.mock("../../providers/bedrock-transport", () => ({ resolveBedrockTransport }));
+// No AWS configured endpoint, whatever the ambient environment holds.
+vi.mock("../../providers/bedrock-transport", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../../providers/bedrock-transport")>()),
+	resolveBedrockTransport,
+	resolveConfiguredBedrockEndpoints: async () => ({ runtime: undefined, listing: undefined }),
+}));
 vi.mock("@aws-sdk/credential-providers", () => ({
 	fromNodeProviderChain: vi.fn(() => vi.fn()),
 }));
@@ -38,6 +43,8 @@ vi.mock("../ai-sdk-helpers", () => ({
 	stepLoggingOptions: vi.fn(() => ({})),
 }));
 
+import { registerBedrockProvider } from "../../providers/bedrock-provider";
+import type { ProviderRegistry } from "../../providers/ProviderRegistry";
 import type { CancellationToken } from "../../types";
 import { BedrockClient } from "../BedrockClient";
 import type { ModelClientChatParams } from "../ModelClient";
@@ -262,6 +269,55 @@ describe("Bedrock Mantle protocol routing", () => {
 		expect(logger.warn).toHaveBeenCalledWith(
 			expect.stringContaining("overrides the FIPS runtime endpoint"),
 		);
+	});
+
+	describe("client factory allowBaseUrlUnderFips", () => {
+		const baseUrl = "https://connect.example.com/__gateway__/bedrock/guid";
+
+		async function factoryChat(allowBaseUrlUnderFips: boolean | undefined) {
+			resolveBedrockTransport.mockResolvedValue({
+				useFipsEndpoint: true,
+				runtimeBaseUrl: "https://bedrock-runtime-fips.us-east-1.amazonaws.com",
+				mantleEnabled: false,
+			});
+			let factory: ((credentials: unknown) => BedrockClient) | undefined;
+			const registry = {
+				registerModelFetcher: vi.fn(),
+				registerClientFactory: vi.fn((_id: string, f: typeof factory) => {
+					factory = f;
+				}),
+			} as unknown as ProviderRegistry;
+			registerBedrockProvider(registry, {
+				info: vi.fn(),
+				warn: vi.fn(),
+				error: vi.fn(),
+				debug: vi.fn(),
+				trace: vi.fn(),
+			});
+			const built = factory!({
+				type: "aws-credentials",
+				region: "us-east-1",
+				accessKeyId: "A",
+				secretAccessKey: "S",
+				allowBaseUrlUnderFips,
+			});
+			return built.chat(
+				params({ model: "amazon.nova-pro", protocol: "bedrock-converse", baseUrl }),
+			);
+		}
+
+		it("forwards allowBaseUrlUnderFips so the base URL is honored", async () => {
+			await factoryChat(true);
+			expect(createAmazonBedrock).toHaveBeenCalledWith(
+				expect.objectContaining({ baseURL: baseUrl }),
+			);
+		});
+
+		it("still vetoes the base URL without the allowance", async () => {
+			await expect(factoryChat(undefined)).rejects.toThrow(
+				/not permitted while AWS FIPS endpoints are enforced/,
+			);
+		});
 	});
 
 	it("forwards customHeaders to every factory route", async () => {

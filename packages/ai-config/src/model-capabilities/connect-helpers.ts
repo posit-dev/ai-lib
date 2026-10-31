@@ -3,32 +3,17 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { getAnthropicModelCapabilities } from "./anthropic-helpers.js";
+import {
+	BEDROCK_FALLBACK_CONTEXT_LENGTH,
+	getBedrockConverseMediaSupport,
+} from "./bedrock-defaults.js";
 
 /**
- * Bedrock models offered through a Posit Connect gateway route. Declared
- * rather than discovered: Connect's Bedrock gateway proxies Bedrock *Runtime*
- * operations only and rejects ListFoundationModels/ListInferenceProfiles
- * (connect/src/connect/gateway/bedrock/provider.go), so live discovery would
- * have to bypass the gateway and hit AWS directly with Connect-minted
- * credentials.
+ * Output cap for an id outside the Anthropic table, such as a non-Claude model
+ * the gateway lists. Deliberately conservative: an under-reported cap wastes
+ * budget, an over-reported one produces API errors. The context window falls
+ * back to {@link BEDROCK_FALLBACK_CONTEXT_LENGTH}.
  */
-export const CONNECT_BEDROCK_MODELS: readonly { id: string; name: string }[] = [
-	{ id: "us.anthropic.claude-sonnet-4-5-20250929-v1:0", name: "Claude Sonnet 4.5" },
-	{ id: "us.anthropic.claude-opus-4-1-20250805-v1:0", name: "Claude Opus 4.1" },
-	{ id: "us.anthropic.claude-3-5-haiku-20241022-v1:0", name: "Claude 3.5 Haiku" },
-];
-
-export const CONNECT_BEDROCK_MODEL_IDS: readonly string[] = CONNECT_BEDROCK_MODELS.map(
-	(model) => model.id,
-);
-
-/**
- * Context window and output cap for an id outside the Anthropic table — only
- * reachable via a user-configured override of the declared list. Deliberately
- * conservative: an under-reported cap wastes budget, an over-reported one
- * produces API errors.
- */
-const FALLBACK_CONTEXT_LENGTH = 200_000;
 const FALLBACK_MAX_OUTPUT_TOKENS = 4_096;
 
 /**
@@ -57,16 +42,17 @@ export interface ConnectBedrockModelCapabilities {
  * for Anthropic-on-Bedrock models (bedrock-provider.ts); token limits, family,
  * thinking levels, and media types come from the Anthropic-on-Bedrock table,
  * which answers every Claude id. Accepts any model id, so callers never have
- * to handle an unknown-model case (see the fallbacks above). For non-Claude
- * ids the image flags go conservative — vision is not the norm across Bedrock
- * chat models and over-reporting produces hard API errors — while tool use is,
- * so `supportsTools` stays on.
+ * to handle an unknown-model case (see the fallbacks above). Image flags
+ * follow the vendor as in the direct provider, so non-Claude Amazon models
+ * (Nova) accept images and other vendors do not.
  */
 export function getConnectBedrockModelCapabilities(
 	modelId: string,
+	vendor: string,
 ): ConnectBedrockModelCapabilities {
 	const claude = getAnthropicModelCapabilities(modelId);
-	const maxContextLength = claude?.maxContextLength ?? FALLBACK_CONTEXT_LENGTH;
+	const media = getBedrockConverseMediaSupport(vendor);
+	const maxContextLength = claude?.maxContextLength ?? BEDROCK_FALLBACK_CONTEXT_LENGTH;
 	const maxOutputTokens = claude?.maxOutputTokens ?? FALLBACK_MAX_OUTPUT_TOKENS;
 	return {
 		family: claude?.family,
@@ -75,9 +61,9 @@ export function getConnectBedrockModelCapabilities(
 		maxInputTokens: maxContextLength - maxOutputTokens,
 		maxOutputTokens,
 		supportsTools: true,
-		supportsImages: claude !== undefined,
-		supportsToolResultImages: claude !== undefined,
-		supportedInputMediaTypes: claude?.supportedInputMediaTypes,
+		supportsImages: media.supportsImages,
+		supportsToolResultImages: media.supportsToolResultImages,
+		supportedInputMediaTypes: claude?.supportedInputMediaTypes ?? media.supportedInputMediaTypes,
 		supportsWebSearch: false,
 	};
 }

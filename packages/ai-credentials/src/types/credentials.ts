@@ -104,10 +104,13 @@ export interface LocalCredentials {
 /**
  * AWS credentials (Amazon Bedrock)
  *
- * `customHeaders` carries the default Posit Assistant User-Agent, which the
- * provider registry injects before every model fetcher and client factory.
- * Credential shaping does not set it and the credential store never persists
- * it.
+ * `customHeaders` carries the catalog connection's additive headers plus the
+ * default Posit Assistant User-Agent the provider registry injects. The
+ * credential store never persists it.
+ *
+ * `allowBaseUrlUnderFips` lets a configured base URL override the FIPS
+ * runtime endpoint; hosts set it only when the base URL comes from
+ * configuration. Never persisted.
  */
 export interface AwsCredentials {
 	type: "aws-credentials";
@@ -117,6 +120,7 @@ export interface AwsCredentials {
 	secretAccessKey?: string;
 	sessionToken?: string;
 	customHeaders?: Record<string, string>;
+	allowBaseUrlUnderFips?: boolean;
 }
 
 /**
