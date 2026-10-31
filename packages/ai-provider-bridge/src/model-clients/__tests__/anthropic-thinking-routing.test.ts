@@ -43,7 +43,12 @@ vi.mock("@ai-sdk/google-vertex", () => ({ createVertex }));
 vi.mock("@ai-sdk/google-vertex/anthropic", () => ({ createVertexAnthropic }));
 vi.mock("@ai-sdk/openai", () => ({ createOpenAI: vi.fn(() => ({})) }));
 vi.mock("@aws-sdk/credential-providers", () => ({ fromNodeProviderChain }));
-vi.mock("../../providers/bedrock-transport", () => ({ resolveBedrockTransport }));
+// No AWS configured endpoint, whatever the ambient environment holds.
+vi.mock("../../providers/bedrock-transport", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../../providers/bedrock-transport")>()),
+	resolveBedrockTransport,
+	resolveConfiguredBedrockEndpoints: async () => ({ runtime: undefined, listing: undefined }),
+}));
 // Bypass stream-conversion + abort plumbing; only providerOptions matter here.
 vi.mock("../ai-sdk-helpers", () => ({
 	convertAiSdkStreamToPlatform: vi.fn(() => (async function* () {})()),

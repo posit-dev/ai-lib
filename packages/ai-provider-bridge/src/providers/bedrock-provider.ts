@@ -24,7 +24,12 @@ import type { AwsCredentials, Logger, ModelInfo, ProviderCredentials } from "../
 import { NOTIFICATION_ACTIONS } from "../types";
 import { listInferenceProfileIds } from "./bedrock-inference-profiles";
 import { listMantleModels } from "./bedrock-mantle-models";
-import { resolveBedrockTransport, type BedrockTransport } from "./bedrock-transport";
+import {
+	refuseConfiguredEndpointUnderFips,
+	resolveBedrockTransport,
+	resolveConfiguredBedrockEndpoints,
+	type BedrockTransport,
+} from "./bedrock-transport";
 import { getOpenAIModelName } from "./openai-model-names";
 import type { ClientFactory, ProviderRegistry } from "./ProviderRegistry";
 
@@ -370,6 +375,16 @@ function createBedrockModelFetcher(
 			}
 
 			try {
+				const { listing } = await resolveConfiguredBedrockEndpoints({
+					profile: credentials.profile,
+				});
+				refuseConfiguredEndpointUnderFips(transport, listing);
+				// Without this, the SDK's endpoint middleware runs its own lookup,
+				// which ignores the off switch and PA's selected profile. Setting the
+				// provider (even to `undefined`) suppresses that lookup. Construction
+				// overwrites the field, so assign it afterwards.
+				listClient.config.serviceConfiguredEndpoint = async () => listing;
+
 				logger.debug("[Bedrock] Fetching models from ListFoundationModels API");
 
 				// List foundation models with cross-region inference profiles. This will find newer

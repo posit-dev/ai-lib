@@ -25,7 +25,12 @@ vi.mock("ai", () => ({ streamText }));
 vi.mock("@ai-sdk/amazon-bedrock", () => ({ createAmazonBedrock }));
 vi.mock("@ai-sdk/amazon-bedrock/anthropic", () => ({ createBedrockAnthropic }));
 vi.mock("@ai-sdk/amazon-bedrock/mantle", () => ({ createBedrockMantle }));
-vi.mock("../../providers/bedrock-transport", () => ({ resolveBedrockTransport }));
+// No AWS configured endpoint, whatever the ambient environment holds.
+vi.mock("../../providers/bedrock-transport", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../../providers/bedrock-transport")>()),
+	resolveBedrockTransport,
+	resolveConfiguredBedrockEndpoints: async () => ({ runtime: undefined, listing: undefined }),
+}));
 vi.mock("@aws-sdk/credential-providers", () => ({
 	fromNodeProviderChain: vi.fn(() => vi.fn()),
 }));

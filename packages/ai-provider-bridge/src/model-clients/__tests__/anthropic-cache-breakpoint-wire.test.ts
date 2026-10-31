@@ -23,7 +23,12 @@ const { resolveBedrockTransport } = vi.hoisted(() => ({
 	})),
 }));
 
-vi.mock("../../providers/bedrock-transport", () => ({ resolveBedrockTransport }));
+// No AWS configured endpoint, whatever the ambient environment holds.
+vi.mock("../../providers/bedrock-transport", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../../providers/bedrock-transport")>()),
+	resolveBedrockTransport,
+	resolveConfiguredBedrockEndpoints: async () => ({ runtime: undefined, listing: undefined }),
+}));
 
 import { createRawFetchCapture } from "../../../tests/helpers/raw-fetch-capture";
 import type { CancellationToken } from "../../types";
