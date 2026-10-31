@@ -71,7 +71,7 @@ export interface ConfiguredBedrockEndpoints {
  * `getEndpointUrlConfig` (not publicly exported): `AWS_ENDPOINT_URL_<SERVICE>`,
  * then `AWS_ENDPOINT_URL`, then the profile's `[services <name>]` section, then
  * the profile's `endpoint_url`. A profile naming a missing services section
- * throws here, which `loadConfig` treats as "no endpoint".
+ * has no endpoint.
  */
 function endpointUrlSelectors(serviceId: string): LoadedConfigSelectors<string | undefined> {
 	const words = serviceId.split(" ");
@@ -83,11 +83,8 @@ function endpointUrlSelectors(serviceId: string): LoadedConfigSelectors<string |
 		configFileSelector: (profile, config) => {
 			if (profile.services) {
 				const section = config?.[["services", profile.services].join(CONFIG_PREFIX_SEPARATOR)];
-				if (!section) {
-					throw new Error(
-						`The services section "${profile.services}" specified in the profile is not present in the shared configuration file.`,
-					);
-				}
+				// Smithy throws here; `loadConfig` reads either as "no endpoint".
+				if (!section) return undefined;
 				const key = [words.map((word) => word.toLowerCase()).join("_"), "endpoint_url"].join(
 					CONFIG_PREFIX_SEPARATOR,
 				);
