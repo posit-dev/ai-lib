@@ -322,6 +322,35 @@ describe("connect model fetcher", () => {
 				status: undefined,
 			});
 		});
+
+		it.each([
+			["a listing", () => json([])],
+			["a rejected listing", () => new Response("nope", { status: 401 })],
+		])("publishes nothing from %s that spans clearCache()", async (_name, respond) => {
+			const listing = Promise.withResolvers<Response>();
+			let listingRequested!: () => void;
+			const requested = new Promise<void>((resolve) => (listingRequested = resolve));
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(async (url: string) => {
+					if (url !== `${CONNECT_URL}/__api__/v1/oauth/integrations`) {
+						throw new Error(`Unexpected fetch: ${url}`);
+					}
+					listingRequested();
+					return listing.promise;
+				}),
+			);
+			const { reportDiscovery, callbacks } = callbacksWithSpy();
+			const registry = registryWithProvider(callbacks);
+
+			const discovery = registry.getModelsForProvider("posit-connect", discoveryCredentials);
+			await requested;
+			registry.clearModelCache("posit-connect");
+			listing.resolve(respond());
+			await discovery;
+
+			expect(reportDiscovery).not.toHaveBeenCalled();
+		});
 	});
 
 	it("discovers integrations and namespaces each gateway's models", async () => {

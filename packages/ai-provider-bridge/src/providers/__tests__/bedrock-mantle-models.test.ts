@@ -121,7 +121,7 @@ describe("listMantleModels", () => {
 	});
 
 	describe("through a gateway", () => {
-		it("lists from the gateway base, signed for bedrock-mantle in the given region", async () => {
+		it("lists from the gateway base, signed for bedrock-mantle in the credentials' region", async () => {
 			const fetchFunction = vi.fn(
 				async (_input: RequestInfo | URL, _init?: RequestInit) =>
 					new Response(JSON.stringify({ data: [{ id: "openai.gpt-oss-120b-1:0" }] }), {
@@ -130,9 +130,9 @@ describe("listMantleModels", () => {
 			);
 
 			const ids = await listMantleModels(
-				credentials,
+				{ ...credentials, region: "us-west-2" },
 				logger(),
-				{ baseUrl: `${GATEWAY_MANTLE_BASE}/`, region: "us-west-2" },
+				{ baseUrl: `${GATEWAY_MANTLE_BASE}/` },
 				fetchFunction,
 			);
 

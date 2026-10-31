@@ -599,7 +599,6 @@ async function discoverBedrockGatewayModels(
 					logger,
 					{
 						baseUrl: mantleGatewayBaseUrl(connectUrl, integration.guid, "openai-chat"),
-						region,
 						signal,
 					},
 				).then((listings) =>
@@ -706,6 +705,13 @@ function createConnectModelFetcher(
 		maxCacheEntries: CONNECT_CACHE_MAX_ENTRIES,
 		fetchFresh: async (credentials, signal) => {
 			const cacheGeneration = cache.currentGeneration();
+			// A listing that spans clearCache() belongs to a retired discovery; its
+			// status must not overwrite the newer discovery's.
+			const reportDiscovery = (result: ConnectDiscoveryResult) => {
+				if (cache.currentGeneration() === cacheGeneration) {
+					callbacks?.reportDiscovery?.(result);
+				}
+			};
 			const connectUrl = credentials.baseUrl!.replace(/\/+$/, "");
 			const credentialKey = await connectCredentialKey(connectUrl, credentials);
 			const templates = resolveTemplates(callbacks?.templates?.(), logger);
@@ -714,16 +720,14 @@ function createConnectModelFetcher(
 				integrations = await fetchConnectIntegrations(connectUrl, credentials, templates, signal);
 			} catch (error) {
 				if (!signal.aborted) {
-					callbacks?.reportDiscovery?.({
+					reportDiscovery({
 						state: "unreachable",
 						status: error instanceof ConnectHttpError ? error.status : undefined,
 					});
 				}
 				throw error;
 			}
-			callbacks?.reportDiscovery?.({
-				state: integrations.length > 0 ? "ready" : "no-integrations",
-			});
+			reportDiscovery({ state: integrations.length > 0 ? "ready" : "no-integrations" });
 
 			if (!callbacks && integrations.some((integration) => integration.template === "aws")) {
 				logger.warn(

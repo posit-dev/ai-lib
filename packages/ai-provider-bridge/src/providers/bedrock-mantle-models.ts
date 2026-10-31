@@ -66,11 +66,6 @@ export interface ListMantleModelsOptions {
 	 * listing as a warning that names the missing action.
 	 */
 	baseUrl?: string;
-	/**
-	 * SigV4 signing region. Defaults to the credentials' region. A Connect
-	 * gateway verifies the signature against its integration's region.
-	 */
-	region?: string;
 	/** Aborts the listing; an aborted listing rejects instead of returning `[]`. */
 	signal?: AbortSignal;
 }
@@ -88,7 +83,6 @@ export async function listMantleModels(
 	options: ListMantleModelsOptions = {},
 	fetchFunction: typeof globalThis.fetch = globalThis.fetch,
 ): Promise<MantleModelListing[]> {
-	const region = options.region ?? credentials.region;
 	const isGateway = options.baseUrl !== undefined;
 	const baseUrl = (
 		options.baseUrl ?? `https://bedrock-mantle.${credentials.region}.api.aws/v1`
@@ -106,7 +100,9 @@ export async function listMantleModels(
 			url,
 			method: "GET",
 			headers: safeSdkCustomHeaders(credentials.customHeaders),
-			region,
+			// A Connect gateway verifies the signature against its integration's
+			// region, which its caller puts in the credentials.
+			region: credentials.region,
 			service: "bedrock-mantle",
 			accessKeyId: resolved.accessKeyId,
 			secretAccessKey: resolved.secretAccessKey,
