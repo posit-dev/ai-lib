@@ -265,13 +265,16 @@ describe("registerGoogleVertexProvider", () => {
 		authMocks.getClient.mockRejectedValueOnce(
 			Object.assign(new Error("unavailable"), { response: { status: 503 } }),
 		);
+		const dir = mkdtempSync(join(tmpdir(), "vertex-adc-"));
+		const keyFile = join(dir, "adc.json");
+		writeFileSync(keyFile, "{}");
 		const onProviderStatusChange = vi.fn().mockResolvedValue(undefined);
 		const registry = new ProviderRegistry(mockLogger);
 		registerGoogleVertexProvider(
 			registry,
 			mockLogger,
 			{ onProviderStatusChange },
-			{ GOOGLE_APPLICATION_CREDENTIALS: "/no/such/adc.json" },
+			{ GOOGLE_APPLICATION_CREDENTIALS: keyFile },
 		);
 
 		await registry.getModelsForProvider("google-vertex", {
@@ -285,9 +288,31 @@ describe("registerGoogleVertexProvider", () => {
 		);
 		expect(mockLogger.warn).toHaveBeenCalledWith(
 			expect.stringContaining(
-				"Credential source: Application Default Credentials from GOOGLE_APPLICATION_CREDENTIALS (/no/such/adc.json",
+				`Credential source: Application Default Credentials from GOOGLE_APPLICATION_CREDENTIALS (${keyFile})`,
 			),
 		);
+		rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("reports a proxy or TLS failure while minting an ADC token as a network error, not expired credentials", async () => {
+		vi.stubEnv("GOOGLE_APPLICATION_CREDENTIALS", undefined);
+		authMocks.getClient.mockRejectedValueOnce(
+			Object.assign(new Error("Proxy Authentication Required"), { response: { status: 407 } }),
+		);
+		const onProviderStatusChange = vi.fn().mockResolvedValue(undefined);
+		const registry = new ProviderRegistry(mockLogger);
+		registerGoogleVertexProvider(registry, mockLogger, { onProviderStatusChange }, {});
+
+		await registry.getModelsForProvider("google-vertex", {
+			type: "google-cloud",
+			project: "my-project",
+			location: "us-central1",
+		});
+
+		expect(onProviderStatusChange).toHaveBeenCalledWith(
+			expect.objectContaining({ status: "network_error" }),
+		);
+		vi.unstubAllEnvs();
 	});
 
 	it("uses a captured ADC path after the ambient environment is scrubbed", async () => {
@@ -479,14 +504,6 @@ describe("resolveGoogleVertexAccessToken", () => {
 		expect(authMocks.googleAuth).toHaveBeenCalledWith(
 			expect.not.objectContaining({ credentials: expect.anything() }),
 		);
-	});
-
-	it("treats ADC yielding no token as a credential error", async () => {
-		authMocks.getAccessToken.mockResolvedValueOnce({ token: null });
-		await expect(resolveGoogleVertexAccessToken({})).rejects.toMatchObject({
-			name: "ApplicationDefaultCredentialsError",
-			message: "Application Default Credentials failed: no access token was returned",
-		});
 	});
 });
 

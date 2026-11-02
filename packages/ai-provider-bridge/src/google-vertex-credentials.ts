@@ -67,21 +67,6 @@ export function isInlineServiceAccountError(error: unknown): boolean {
 	return error instanceof Error && error.name === INLINE_SERVICE_ACCOUNT_ERROR;
 }
 
-const ADC_ERROR = "ApplicationDefaultCredentialsError";
-
-/** Application Default Credentials could not be loaded or were rejected, e.g. a missing key file. */
-class ApplicationDefaultCredentialsError extends Error {
-	constructor(cause: string) {
-		super(`Application Default Credentials failed: ${cause}`);
-		this.name = ADC_ERROR;
-	}
-}
-
-/** Whether Application Default Credentials failed for a reason other than a transient network error. */
-export function isApplicationDefaultCredentialsError(error: unknown): boolean {
-	return error instanceof Error && error.name === ADC_ERROR;
-}
-
 const TRANSIENT_NETWORK_CODES: ReadonlySet<string> = new Set([
 	"ECONNRESET",
 	"ETIMEDOUT",
@@ -231,9 +216,8 @@ async function tokenFrom(auth: GoogleAuth): Promise<string | undefined> {
 /**
  * A cloud-platform access token for the Vertex REST API. An inline failure is
  * surfaced rather than masked by an ADC "no credentials" error, because setting
- * both inline variables signals explicit intent. Other inline and ADC failures
- * come back as typed credential errors; transient token-service failures pass
- * through unchanged.
+ * both inline variables signals explicit intent; transient token-service
+ * failures pass through unchanged.
  */
 export async function mintGoogleVertexAccessToken(
 	source: GoogleVertexCredentialSource,
@@ -262,15 +246,10 @@ export async function mintGoogleVertexAccessToken(
 				scopes: [CLOUD_PLATFORM_SCOPE],
 				keyFilename: source.keyFilename,
 			});
-			let token: string | undefined;
-			try {
-				token = await tokenFrom(auth);
-			} catch (err) {
-				if (isTransientTokenError(err)) throw err;
-				const message = err instanceof Error ? err.message : String(err);
-				throw new ApplicationDefaultCredentialsError(message);
+			const token = await tokenFrom(auth);
+			if (!token) {
+				throw new Error("Failed to obtain access token from Application Default Credentials");
 			}
-			if (!token) throw new ApplicationDefaultCredentialsError("no access token was returned");
 			return token;
 		}
 	}
