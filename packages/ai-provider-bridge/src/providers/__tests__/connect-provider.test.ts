@@ -782,9 +782,11 @@ describe("connect model fetcher", () => {
 				try {
 					stubCatalog();
 					let mantleSignal: AbortSignal | undefined;
+					const mantleRequested = Promise.withResolvers<void>();
 					const fetchMock = vi.fn((url: string, init?: RequestInit) => {
 						if (url === `${MANTLE_CHAT_GATEWAY}/models`) {
 							mantleSignal = init?.signal ?? undefined;
+							mantleRequested.resolve();
 							return new Promise<Response>((_resolve, reject) => {
 								mantleSignal?.addEventListener("abort", () => reject(mantleSignal!.reason));
 							});
@@ -799,9 +801,8 @@ describe("connect model fetcher", () => {
 					const discovery = registryWithProvider({
 						getAwsCredentials: mintSuccess(),
 					}).getModelsForProvider("posit-connect", credentials);
-					for (let i = 0; i < 1000 && !mantleSignal; i++) {
-						await new Promise((resolve) => setImmediate(resolve));
-					}
+					// Wait for the request itself: signing runs first and can take a while on CI.
+					await mantleRequested.promise;
 					expect(mantleSignal).toBeDefined();
 					expect(mantleSignal!.aborted).toBe(false);
 
@@ -1290,23 +1291,19 @@ describe("connect chat routing", () => {
 	/** Integrations re-read that never answers until its signal aborts. */
 	function stubStalledIntegrations() {
 		let signal: AbortSignal | undefined;
+		const requested = Promise.withResolvers<void>();
 		vi.stubGlobal(
 			"fetch",
 			vi.fn((_url: string, init?: RequestInit) => {
 				signal = init?.signal ?? undefined;
+				requested.resolve();
 				return new Promise<Response>((_resolve, reject) => {
 					signal?.addEventListener("abort", () => reject(signal!.reason));
 				});
 			}),
 		);
-		return { signal: () => signal };
-	}
-
-	async function untilDefined(read: () => unknown) {
-		for (let i = 0; i < 1000 && !read(); i++) {
-			await new Promise((resolve) => setImmediate(resolve));
-		}
-		expect(read()).toBeDefined();
+		// `requested` resolves once the re-read is sent, however long the work before it takes.
+		return { signal: () => signal, requested: requested.promise };
 	}
 
 	it("abandons a stalled region re-read when the chat is cancelled", async () => {
@@ -1326,7 +1323,7 @@ describe("connect chat routing", () => {
 			...chatParams(`${AWS_PREFIX}/${BEDROCK_MODEL_ID}`, "bedrock-converse"),
 			cancellationToken: token,
 		});
-		await untilDefined(stalled.signal);
+		await stalled.requested;
 		(token as { isCancellationRequested: boolean }).isCancellationRequested = true;
 		for (const listener of listeners) listener();
 
@@ -1342,7 +1339,7 @@ describe("connect chat routing", () => {
 			const client = clientWithoutDiscovery({ getAwsCredentials });
 
 			const chat = client.chat(chatParams(`${AWS_PREFIX}/${BEDROCK_MODEL_ID}`, "bedrock-converse"));
-			await untilDefined(stalled.signal);
+			await stalled.requested;
 			await vi.advanceTimersByTimeAsync(15_000);
 			await chat;
 
