@@ -283,20 +283,78 @@ function parseServingEndpointsResponse(data: unknown): ModelInfo[] {
 	return models;
 }
 
-/**
- * Parse a foundation-models list response into routable models, stamped for the
- * gateway surface. Route availability is not filtered here: the classifier
- * excludes endpoints whose entities cannot all serve any supported gateway
- * route.
- */
-function parseFoundationModelsResponse(data: unknown): ModelInfo[] {
-	const endpoints = (data as { endpoints?: ServingEndpoint[] }).endpoints ?? [];
+/** One entry of a Unity Catalog model-services list response (`view=FULL`). */
+interface ModelService {
+	/** `model-services/<catalog>.<schema>.<service>`. */
+	name?: string;
+	/** Gateway routes the service answers on, e.g. `"anthropic/v1/messages"`. */
+	supported_api_types?: string[] | null;
+}
 
-	const models: ModelInfo[] = [];
+interface ModelServicesPage {
+	model_services?: ModelService[];
+	next_page_token?: string;
+}
+
+const MODEL_SERVICE_PREFIX = "model-services/";
+
+/** Bare upstream identity, used to match a service to its foundation-model entry. */
+function bareModelName(name: string): string {
+	return name.replace(/^system\.ai\./, "").replace(/^databricks-/, "");
+}
+
+/** Foundation-model display names keyed by bare model name (`claude-sonnet-4-6`). */
+function foundationDisplayNames(data: unknown): Map<string, string> {
+	const endpoints = (data as { endpoints?: ServingEndpoint[] }).endpoints ?? [];
+	const names = new Map<string, string>();
 	for (const endpoint of endpoints) {
-		if (!endpoint.name) continue;
-		if (endpoint.route_optimized === true) continue;
-		const model = toModelInfo(endpoint, "gateway");
+		const displayName = endpoint.config?.served_entities?.[0]?.foundation_model?.display_name;
+		if (endpoint.name && displayName) names.set(bareModelName(endpoint.name), displayName);
+	}
+	return names;
+}
+
+/**
+ * Parse model services into routable models, stamped for the gateway surface.
+ * The Unity Catalog name (`system.ai.claude-sonnet-4-6`,
+ * `catalog.schema.service`) is the model id sent at chat time; newer models
+ * reject their legacy `databricks-*` endpoint name on the gateway.
+ *
+ * Each service is handed to the classifier as a one-entity endpoint whose
+ * `api_types` are the service's `supported_api_types`, so the classifier's
+ * gateway gating works unchanged. Services with no chat or Responses route
+ * (embeddings) are excluded by the classifier.
+ */
+function parseModelServices(
+	services: readonly ModelService[],
+	displayNames: ReadonlyMap<string, string>,
+): ModelInfo[] {
+	const models: ModelInfo[] = [];
+	for (const service of services) {
+		const id = service.name?.startsWith(MODEL_SERVICE_PREFIX)
+			? service.name.slice(MODEL_SERVICE_PREFIX.length)
+			: service.name;
+		if (!id) continue;
+		const model = toModelInfo(
+			{
+				name: id,
+				config: {
+					served_entities: [
+						{
+							foundation_model: {
+								name: id,
+								display_name: id.startsWith("system.ai.")
+									? (displayNames.get(bareModelName(id)) ?? bareModelName(id))
+									: id,
+								api_types: service.supported_api_types ?? [],
+								ai_gateway_v2_supported: true,
+							},
+						},
+					],
+				},
+			},
+			"gateway",
+		);
 		if (model) models.push(model);
 	}
 	return models;
@@ -312,6 +370,57 @@ async function fetchModelList(url: string, headers: Record<string, string>): Pro
 		throw new Error(`API returned ${response.status}`);
 	}
 	return response.json();
+}
+
+/** Upper bound on model-services pages, in case a workspace never stops returning tokens. */
+const MAX_MODEL_SERVICE_PAGES = 50;
+
+/**
+ * Every model service the caller can access, at metastore scope (no `parent`),
+ * so custom `catalog.schema.service` routes are included. `view=FULL` is
+ * required: the default view returns `supported_api_types: null` for custom
+ * services. An empty page can still carry a token, so only a missing token
+ * ends the list.
+ */
+async function fetchModelServices(
+	host: string,
+	headers: Record<string, string>,
+): Promise<ModelService[]> {
+	const services: ModelService[] = [];
+	let pageToken: string | undefined;
+	for (let page = 0; page < MAX_MODEL_SERVICE_PAGES; page++) {
+		const url = new URL(`${host}/api/2.1/unity-catalog/model-services`);
+		url.searchParams.set("page_size", "100");
+		url.searchParams.set("view", "FULL");
+		if (pageToken) url.searchParams.set("page_token", pageToken);
+		const data = (await fetchModelList(url.toString(), headers)) as ModelServicesPage;
+		services.push(...(data.model_services ?? []));
+		pageToken = data.next_page_token || undefined;
+		if (!pageToken) break;
+	}
+	return services;
+}
+
+/** Gateway discovery: model services, named from the foundation-models list where possible. */
+async function fetchGatewayModels(
+	host: string,
+	headers: Record<string, string>,
+	logger: Logger,
+): Promise<ModelInfo[]> {
+	const [services, displayNames] = await Promise.all([
+		fetchModelServices(host, headers),
+		fetchModelList(`${host}/api/2.0/serving-endpoints:foundation-models`, headers).then(
+			foundationDisplayNames,
+			(error: unknown) => {
+				const message = error instanceof Error ? error.message : String(error);
+				logger.debug(
+					`[databricks] Foundation-models list unavailable for display names: ${message}`,
+				);
+				return new Map<string, string>();
+			},
+		),
+	]);
+	return parseModelServices(services, displayNames);
 }
 
 function createDatabricksModelFetcher(
@@ -350,9 +459,7 @@ function createDatabricksModelFetcher(
 			const surface = await surfaceState.ensureSurface(host, headers);
 			const models =
 				surface === "gateway"
-					? parseFoundationModelsResponse(
-							await fetchModelList(`${host}/api/2.0/serving-endpoints:foundation-models`, headers),
-						)
+					? await fetchGatewayModels(host, headers, logger)
 					: parseServingEndpointsResponse(
 							await fetchModelList(`${host}/api/2.0/serving-endpoints`, headers),
 						);

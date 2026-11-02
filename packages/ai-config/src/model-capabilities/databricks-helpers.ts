@@ -363,7 +363,9 @@ function resolveEntity(
 	// entities; provisioned-throughput entities reference a Unity Catalog model
 	// through `entity_name` instead.
 	const isPayPerTokenFoundation = foundationModel !== undefined;
-	const isHosted = isPayPerTokenFoundation && identity.startsWith("databricks-");
+	// Hosted models appear under their legacy endpoint name (`databricks-*`) or
+	// their Unity Catalog name (`system.ai.*`).
+	const isHosted = isPayPerTokenFoundation && /^(databricks-|system\.ai\.)/.test(identity);
 
 	const base = {
 		sortKey: `${identity} ${externalProvider ?? ""} ${(entity.foundation_model?.api_types ?? []).join(",")}`,
@@ -411,7 +413,7 @@ function resolveEntity(
 		// (https://docs.databricks.com/aws/en/machine-learning/model-serving/query-openai-responses#limitations),
 		// and our responses thinking mode sends `store: false` plus an
 		// encrypted-reasoning round-trip whenever thinking is on. Hosted
-		// (`databricks-*`) endpoints therefore advertise no thinking controls, while
+		// (`databricks-*`, `system.ai.*`) endpoints therefore advertise no thinking controls, while
 		// external endpoints — documented as supporting the full Responses
 		// parameter set — keep the table's levels.
 		const { thinkingEffortLevels: _dropped, ...withoutThinking } = capabilities;

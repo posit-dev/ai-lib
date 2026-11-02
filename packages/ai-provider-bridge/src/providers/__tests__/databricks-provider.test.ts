@@ -38,6 +38,8 @@ const HOST = "https://adb-123.4.azuredatabricks.net";
 const PROBE_URL = `${HOST}/api/ai-gateway/v2/endpoints?page_size=1`;
 const SERVING_LIST_URL = `${HOST}/api/2.0/serving-endpoints`;
 const FOUNDATION_LIST_URL = `${HOST}/api/2.0/serving-endpoints:foundation-models`;
+const MODEL_SERVICES_PATH = `${HOST}/api/2.1/unity-catalog/model-services`;
+const MODEL_SERVICES_URL = `${MODEL_SERVICES_PATH}?page_size=100&view=FULL`;
 
 const CREDENTIALS = {
 	type: "apikey" as const,
@@ -142,7 +144,54 @@ const SERVING_ENDPOINTS_FIXTURE = {
 	],
 };
 
-/** Foundation-models list fixture (gateway discovery). */
+const CHAT = "mlflow/v1/chat/completions";
+const RESPONSES = "mlflow/v1/responses";
+
+/**
+ * Unity Catalog model-services pages (gateway discovery), keyed by page token.
+ * The middle page is empty but still carries a token, as Azure returns.
+ */
+const MODEL_SERVICES_PAGES: Record<string, unknown> = {
+	"": {
+		model_services: [
+			{
+				name: "model-services/system.ai.claude-opus-4-8",
+				supported_api_types: [CHAT, "anthropic/v1/messages", RESPONSES],
+			},
+			{ name: "model-services/system.ai.llama-4-maverick", supported_api_types: [CHAT] },
+		],
+		next_page_token: "p2",
+	},
+	p2: { model_services: [], next_page_token: "p3" },
+	p3: {
+		model_services: [
+			// Advertises both routes, but its Responses stream drops tool arguments.
+			{ name: "model-services/system.ai.gpt-oss-120b", supported_api_types: [CHAT, RESPONSES] },
+			// Gateway-only model with no foundation-models display name.
+			{
+				name: "model-services/system.ai.deepseek-v4-1-flash-1017",
+				supported_api_types: [CHAT, RESPONSES],
+			},
+			// Custom route with a cross-vendor fallback: unified routes only.
+			{
+				name: "model-services/explorations.assistant_test.posit_test_fallback",
+				supported_api_types: [CHAT, RESPONSES],
+			},
+			// Embeddings — excluded
+			{
+				name: "model-services/system.ai.gte-large-en",
+				supported_api_types: ["mlflow/v1/embeddings"],
+			},
+			// Not a chat or Responses route — excluded
+			{
+				name: "model-services/system.ai.openjev-qwen35-4b",
+				supported_api_types: ["typesafe/v1/systemone"],
+			},
+		],
+	},
+};
+
+/** Foundation-models list fixture (gateway display names). */
 const FOUNDATION_MODELS_FIXTURE = {
 	endpoints: [
 		// Advertises the native Anthropic Messages API alongside gateway chat
@@ -267,6 +316,7 @@ function stubWorkspaceFetch(initial: {
 	probeStatus: number;
 	servingStatus?: number;
 	foundationStatus?: number;
+	modelServicesStatus?: number;
 }) {
 	const status = { ...initial };
 	const chatRequests: CapturedChatRequest[] = [];
@@ -281,6 +331,10 @@ function stubWorkspaceFetch(initial: {
 		}
 		if (url === FOUNDATION_LIST_URL) {
 			return jsonResponse(FOUNDATION_MODELS_FIXTURE, status.foundationStatus ?? 200);
+		}
+		if (url.startsWith(MODEL_SERVICES_PATH)) {
+			const token = new URL(url).searchParams.get("page_token") ?? "";
+			return jsonResponse(MODEL_SERVICES_PAGES[token], status.modelServicesStatus ?? 200);
 		}
 		chatRequests.push({
 			url,
@@ -368,31 +422,50 @@ describe("registerDatabricksProvider model fetcher", () => {
 		expect(workspace.urlsCalled()).toEqual([PROBE_URL, SERVING_LIST_URL]);
 	});
 
-	it("uses foundation-models discovery when the gateway probe succeeds", async () => {
+	it("lists Unity Catalog model services by their UC names when the gateway probe succeeds", async () => {
 		const workspace = stubWorkspaceFetch({ probeStatus: 200 });
 
 		const models = await registry.getModelsForProvider("databricks", CREDENTIALS);
 
-		expect(models.map((m) => [m.id, m.protocol])).toEqual([
-			["databricks-claude-opus-4-8", "anthropic-messages"],
-			["databricks-llama-4-maverick", "openai-chat"],
-			["databricks-gpt-oss-120b", "openai-chat"],
+		expect(models.map((m) => [m.id, m.name, m.protocol])).toEqual([
+			["system.ai.claude-opus-4-8", "Claude Opus 4.8", "anthropic-messages"],
+			["system.ai.llama-4-maverick", "Llama 4 Maverick", "openai-chat"],
+			["system.ai.gpt-oss-120b", "gpt-oss-120b", "openai-chat"],
+			["system.ai.deepseek-v4-1-flash-1017", "deepseek-v4-1-flash-1017", "mlflow-responses"],
+			[
+				"explorations.assistant_test.posit_test_fallback",
+				"explorations.assistant_test.posit_test_fallback",
+				"mlflow-responses",
+			],
 		]);
 		expect(models[0]).toMatchObject({
-			name: "Claude Opus 4.8",
 			providerId: "databricks",
 			vendor: "anthropic",
 			family: "claude-4.8",
 			maxContextLength: 1_000_000,
 			supportsImages: true,
 		});
-		expect(workspace.urlsCalled()).toEqual([PROBE_URL, FOUNDATION_LIST_URL]);
+		expect(workspace.urlsCalled()).toEqual([
+			PROBE_URL,
+			MODEL_SERVICES_URL,
+			FOUNDATION_LIST_URL,
+			`${MODEL_SERVICES_URL}&page_token=p2`,
+			`${MODEL_SERVICES_URL}&page_token=p3`,
+		]);
+	});
+
+	it("still lists model services when the foundation-models list fails", async () => {
+		stubWorkspaceFetch({ probeStatus: 200, foundationStatus: 403 });
+
+		const models = await registry.getModelsForProvider("databricks", CREDENTIALS);
+
+		expect(models[0]).toMatchObject({ id: "system.ai.claude-opus-4-8", name: "claude-opus-4-8" });
 	});
 
 	it("routes discovered gateway GPT OSS over chat even when Responses is advertised", async () => {
 		const workspace = stubWorkspaceFetch({ probeStatus: 200 });
 		const models = await registry.getModelsForProvider("databricks", CREDENTIALS);
-		const gptOss = models.find((model) => model.id === "databricks-gpt-oss-120b");
+		const gptOss = models.find((model) => model.id === "system.ai.gpt-oss-120b");
 		if (!gptOss) throw new Error("GPT OSS endpoint was not discovered");
 
 		expect(gptOss.protocol).toBe("openai-chat");
@@ -555,7 +628,7 @@ describe("registerDatabricksProvider surface pinning", () => {
 
 		// A later discovery reuses the pin the chat request established.
 		const models = await registry.getModelsForProvider("databricks", CREDENTIALS);
-		expect(models.map((m) => m.id)).toContain("databricks-claude-opus-4-8");
+		expect(models.map((m) => m.id)).toContain("system.ai.claude-opus-4-8");
 		expect(workspace.probeCount()).toBe(1);
 	});
 
@@ -575,6 +648,9 @@ describe("registerDatabricksProvider surface pinning", () => {
 			if (url === FOUNDATION_LIST_URL) {
 				return jsonResponse(FOUNDATION_MODELS_FIXTURE);
 			}
+			if (url.startsWith(MODEL_SERVICES_PATH)) {
+				return jsonResponse(MODEL_SERVICES_PAGES[""]);
+			}
 			return jsonResponse({ message: `unexpected URL: ${url}` }, 500);
 		});
 		vi.stubGlobal("fetch", fetchCapture.mock);
@@ -588,7 +664,7 @@ describe("registerDatabricksProvider surface pinning", () => {
 		const fresh = registry.getModelsForProvider("databricks", CREDENTIALS);
 		await vi.waitFor(() => expect(probeResolvers).toHaveLength(2));
 		probeResolvers[1]?.(jsonResponse({ endpoints: [] }, 200));
-		expect((await fresh).map((m) => m.id)).toContain("databricks-claude-opus-4-8");
+		expect((await fresh).map((m) => m.id)).toContain("system.ai.claude-opus-4-8");
 
 		// The stale probe resolves last, reporting serving. It still answers its
 		// own caller, but it must not re-pin the surface or clobber the cache.
@@ -596,7 +672,7 @@ describe("registerDatabricksProvider surface pinning", () => {
 		await stale;
 
 		const after = await registry.getModelsForProvider("databricks", CREDENTIALS);
-		expect(after.map((m) => m.id)).toContain("databricks-claude-opus-4-8");
+		expect(after.map((m) => m.id)).toContain("system.ai.claude-opus-4-8");
 		expect(fetchCapture.calls.filter((call) => String(call[0]) === PROBE_URL)).toHaveLength(2);
 	});
 

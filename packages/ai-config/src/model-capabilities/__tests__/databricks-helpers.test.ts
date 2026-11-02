@@ -201,8 +201,26 @@ describe("inferDatabricksModelProfile — Responses family allowlist", () => {
 			}),
 		);
 
+		const hostedUnityCatalog = listed(
+			profile({
+				surface: "gateway",
+				endpointName: "system.ai.gpt-5-mini",
+				servedEntities: [
+					{
+						foundation_model: {
+							name: "system.ai.gpt-5-mini",
+							api_types: ["openai/v1/responses"],
+							ai_gateway_v2_supported: true,
+						},
+					},
+				],
+			}),
+		);
+
 		expect(hosted.protocol).toBe("openai-responses");
 		expect(hosted.capabilities.thinkingEffortLevels).toBeUndefined();
+		expect(hostedUnityCatalog.protocol).toBe("openai-responses");
+		expect(hostedUnityCatalog.capabilities.thinkingEffortLevels).toBeUndefined();
 		expect(external.protocol).toBe("openai-responses");
 		expect(external.capabilities.thinkingEffortLevels).toContain("high");
 	});
