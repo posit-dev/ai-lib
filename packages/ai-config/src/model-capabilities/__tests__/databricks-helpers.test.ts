@@ -186,6 +186,31 @@ describe("inferDatabricksModelProfile — Responses family allowlist", () => {
 		);
 	});
 
+	it("requires the streaming Gemini api type for the gateway's native route", () => {
+		const gemini = (apiTypes: string[]) =>
+			listed(
+				profile({
+					surface: "gateway",
+					endpointName: "databricks-gemini-2-5-pro",
+					servedEntities: [
+						{
+							foundation_model: {
+								name: "databricks-gemini-2-5-pro",
+								api_types: ["mlflow/v1/responses", ...apiTypes],
+								ai_gateway_v2_supported: true,
+							},
+						},
+					],
+				}),
+			).protocol;
+
+		expect(gemini(["gemini/v1/generateContent", "gemini/v1/streamGenerateContent"])).toBe(
+			"google-generative",
+		);
+		// Chat always streams, so a unary-only service falls back.
+		expect(gemini(["gemini/v1/generateContent"])).toBe("mlflow-responses");
+	});
+
 	it("keeps hosted pay-per-token Responses endpoints on the conservative thinking treatment", () => {
 		const hosted = listed(
 			profile({

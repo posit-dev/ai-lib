@@ -128,7 +128,9 @@ export function normalizeProtocol(protocol: string | undefined): Protocol | unde
 export interface ModelInfo {
 	/**
 	 * Provider-specific model ID
-	 * This is the EXACT string sent to the provider's API
+	 * This is the string sent to the provider's API, except where a provider's
+	 * client translates it (Databricks sends `databricks-<model>` to the Unity AI
+	 * Gateway as `system.ai.<model>`), so always chat through the client.
 	 *
 	 * Examples:
 	 *   - Anthropic: "claude-sonnet-4.5-20250929"

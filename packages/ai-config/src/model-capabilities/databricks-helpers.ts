@@ -133,13 +133,15 @@ const GATEWAY_RESPONSES_API_TYPE = "mlflow/v1/responses";
  * Gateway `api_types` value that must be advertised for each native protocol.
  *
  * All three are confirmed from a captured Unity Catalog model-services
- * response (2026-11). Gemini is advertised as `gemini/v1/...` even though the
- * request path is `/ai-gateway/gemini/v1beta/models/<service>:generateContent`.
+ * response (2026-11). Gemini lists unary and streaming separately; chat always
+ * streams, so the streaming type is the one required. It is advertised as
+ * `gemini/v1/...` even though the request path is
+ * `/ai-gateway/gemini/v1beta/models/<service>:streamGenerateContent`.
  */
 const NATIVE_API_TYPES: Readonly<Record<DatabricksNativeProtocol, string>> = {
 	"anthropic-messages": "anthropic/v1/messages",
 	"openai-responses": "openai/v1/responses",
-	"google-generative": "gemini/v1/generateContent",
+	"google-generative": "gemini/v1/streamGenerateContent",
 };
 
 /**

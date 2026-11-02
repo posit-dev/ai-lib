@@ -319,11 +319,14 @@ function bareModelName(name: string): string {
  * under their legacy `databricks-<bare>` id so saved selections, conversations
  * and model rules keep matching, but the gateway needs the Unity Catalog name
  * (`system.ai.<bare>`): newer models reject the legacy one. Custom services are
- * listed under their Unity Catalog name already.
+ * listed under their Unity Catalog name already, which always has dots
+ * (`catalog.schema.service`, even when the catalog starts with `databricks-`),
+ * while system model names never do.
  */
 function gatewayModelName(model: string): string {
-	return model.startsWith(LEGACY_MODEL_PREFIX)
-		? `${SYSTEM_MODEL_PREFIX}${model.slice(LEGACY_MODEL_PREFIX.length)}`
+	const bare = model.slice(LEGACY_MODEL_PREFIX.length);
+	return model.startsWith(LEGACY_MODEL_PREFIX) && !bare.includes(".")
+		? `${SYSTEM_MODEL_PREFIX}${bare}`
 		: model;
 }
 
@@ -406,7 +409,7 @@ async function fetchModelList(
 const MAX_MODEL_SERVICE_PAGES = 50;
 
 /** How long gateway discovery waits for the foundation-models list (display names only). */
-const DISPLAY_NAMES_TIMEOUT_MS = 10_000;
+const DISPLAY_NAMES_TIMEOUT_MS = 5_000;
 
 /**
  * Every model service the caller can access, at metastore scope (no `parent`),
@@ -446,26 +449,31 @@ async function fetchModelServices(
 
 /**
  * Display names from the foundation-models list. Only labels depend on it, so
- * a slow, failed or malformed response gives an empty map instead of holding up
- * or emptying the model list.
+ * a failed or malformed response gives an empty map instead of emptying the
+ * model list, and a slow one holds up the list for at most
+ * {@link DISPLAY_NAMES_TIMEOUT_MS}.
  */
 async function fetchDisplayNames(
 	host: string,
 	headers: Record<string, string>,
 	logger: Logger,
 ): Promise<Map<string, string>> {
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), DISPLAY_NAMES_TIMEOUT_MS);
 	try {
 		return foundationDisplayNames(
 			await fetchModelList(
 				`${host}/api/2.0/serving-endpoints:foundation-models`,
 				headers,
-				AbortSignal.timeout(DISPLAY_NAMES_TIMEOUT_MS),
+				controller.signal,
 			),
 		);
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		logger.debug(`[databricks] Foundation-models list unavailable for display names: ${message}`);
 		return new Map();
+	} finally {
+		clearTimeout(timer);
 	}
 }
 
@@ -630,7 +638,13 @@ export function registerDatabricksProvider(registry: ProviderRegistry, logger: L
 				// and never carries the workspace host, which lives in credentials —
 				// so it is trusted verbatim, and no probe is needed.
 				if (params.baseUrl) {
-					return delegate.chat(params);
+					// An override pointing at this workspace's own gateway still needs
+					// the Unity Catalog name; any other URL (a proxy) gets the id as listed.
+					return delegate.chat(
+						params.baseUrl.startsWith(`${host}/ai-gateway/`)
+							? { ...params, model: gatewayModelName(params.model) }
+							: params,
+					);
 				}
 				const surface = await surfaceState.ensureSurface(host, probeHeaders);
 				return delegate.chat({

@@ -179,6 +179,11 @@ const MODEL_SERVICES_PAGES: Record<string, unknown> = {
 				name: "model-services/explorations.assistant_test.posit_test_fallback",
 				supported_api_types: [CHAT, RESPONSES],
 			},
+			// Custom route whose catalog starts like a legacy id: never renamed.
+			{
+				name: "model-services/databricks-team.catalog.router",
+				supported_api_types: [CHAT, RESPONSES],
+			},
 			// Custom route whose catalog name looks like a known model: its name must
 			// not pick a native route or GPT-5's limits.
 			{
@@ -451,6 +456,7 @@ describe("registerDatabricksProvider model fetcher", () => {
 				"explorations.assistant_test.posit_test_fallback",
 				"mlflow-responses",
 			],
+			["databricks-team.catalog.router", "databricks-team.catalog.router", "mlflow-responses"],
 			["gpt-5.team.router", "gpt-5.team.router", "mlflow-responses"],
 		]);
 		expect(models.at(-1)).toMatchObject({ vendor: "databricks", maxContextLength: 128_000 });
@@ -484,15 +490,33 @@ describe("registerDatabricksProvider model fetcher", () => {
 		}
 	});
 
-	it("bounds the foundation-models request with its own abort signal", async () => {
-		const workspace = stubWorkspaceFetch({ probeStatus: 200 });
+	it("lists models with bare names when the foundation-models list hangs", async () => {
+		vi.useFakeTimers();
+		try {
+			const fetchCapture = createRawFetchCapture(async (input, init) => {
+				const url =
+					typeof input === "string" || input instanceof URL ? input.toString() : input.url;
+				if (url === PROBE_URL) return jsonResponse({ endpoints: [] });
+				if (url === FOUNDATION_LIST_URL) {
+					// Never answers; only an abort ends it.
+					return new Promise<Response>((_resolve, reject) => {
+						init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+					});
+				}
+				return jsonResponse(MODEL_SERVICES_PAGES[""]);
+			});
+			vi.stubGlobal("fetch", fetchCapture.mock);
 
-		await registry.getModelsForProvider("databricks", CREDENTIALS);
+			const listing = registry.getModelsForProvider("databricks", CREDENTIALS);
+			await vi.advanceTimersByTimeAsync(5_000);
 
-		const foundationCall = workspace.fetchMock.mock.calls.find(
-			(call) => String(call[0]) === FOUNDATION_LIST_URL,
-		);
-		expect(foundationCall?.[1]?.signal).toBeInstanceOf(AbortSignal);
+			expect((await listing)[0]).toMatchObject({
+				id: "databricks-claude-opus-4-8",
+				name: "claude-opus-4-8",
+			});
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("stops paging when a page token repeats", async () => {
@@ -961,7 +985,24 @@ describe("registerDatabricksProvider route seam", () => {
 		expect(await sentModel(200, "explorations.assistant_test.posit_test_fallback")).toBe(
 			"explorations.assistant_test.posit_test_fallback",
 		);
+		expect(await sentModel(200, "databricks-team.catalog.router")).toBe(
+			"databricks-team.catalog.router",
+		);
 		expect(await sentModel(404, "databricks-llama-4-maverick")).toBe("databricks-llama-4-maverick");
+	});
+
+	it("sends the Unity Catalog name to an override URL on this workspace's gateway", async () => {
+		const workspace = stubWorkspaceFetch({ probeStatus: 200 });
+
+		await runChat(registry.getClientForProvider("databricks", CREDENTIALS), {
+			model: "databricks-claude-sonnet-4-5",
+			protocol: "anthropic-messages",
+			baseUrl: `${HOST}/ai-gateway/anthropic/v1`,
+		});
+
+		expect(JSON.parse(workspace.chatRequests[0]?.body ?? "{}").model).toBe(
+			"system.ai.claude-sonnet-4-5",
+		);
 	});
 
 	it("keeps max_tokens on Databricks Chat Completions requests", async () => {

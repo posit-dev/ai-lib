@@ -1001,13 +1001,15 @@ discovery responses but in neither the REST docs nor the SDK's
 `FoundationModel` dataclass — so an observed roll-up is its only source of
 truth.
 
-Two constants remain flagged `PHASE0-VERIFY`, both because that workspace has no
-endpoint that can exercise them: the OpenAI and Gemini gateway `api_types`
-strings. Do **not** "correct" `openai/v1/responses` to the `mlflow/v1/responses`
+The OpenAI and Gemini gateway `api_types` strings are confirmed from a captured
+Unity Catalog model-services response (2026-11): `openai/v1/responses` and
+`gemini/v1/streamGenerateContent`. Gemini lists unary (`generateContent`) and
+streaming separately, and chat always streams, so the streaming type is the
+one required. Do **not** "correct" `openai/v1/responses` to the `mlflow/v1/responses`
 seen in a roll-up — they are different APIs, and the same model answers 200 on
 one and 400 on the other. Gemini's Bearer auth is effectively settled by
 Databricks' own example, which passes a dummy `api_key` and supplies
-`Authorization: Bearer` through `http_options`. A wrong guess degrades safely —
+`Authorization: Bearer` through `http_options`. If Databricks renames them, routing degrades safely —
 the native gate simply never passes, so those models stay on a working route
 rather than a broken one.
 
