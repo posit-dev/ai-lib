@@ -132,20 +132,14 @@ const GATEWAY_RESPONSES_API_TYPE = "mlflow/v1/responses";
 /**
  * Gateway `api_types` value that must be advertised for each native protocol.
  *
- * `anthropic/v1/messages` is confirmed from a captured gateway discovery
- * response. The other two mirror the documented gateway native request paths
- * (`/ai-gateway/openai/v1/responses`,
- * `/ai-gateway/gemini/v1beta/models/<service>:generateContent`) under the same
- * `<provider>/<version>/<operation>` shape.
- *
- * PHASE0-VERIFY: confirm the exact OpenAI and Gemini `api_types` strings against
- * a real gateway-enabled workspace. A wrong guess degrades safely — the native
- * gate never passes, so those models stay on `openai-chat`.
+ * All three are confirmed from a captured Unity Catalog model-services
+ * response (2026-11). Gemini is advertised as `gemini/v1/...` even though the
+ * request path is `/ai-gateway/gemini/v1beta/models/<service>:generateContent`.
  */
 const NATIVE_API_TYPES: Readonly<Record<DatabricksNativeProtocol, string>> = {
 	"anthropic-messages": "anthropic/v1/messages",
 	"openai-responses": "openai/v1/responses",
-	"google-generative": "gemini/v1beta/generateContent",
+	"google-generative": "gemini/v1/generateContent",
 };
 
 /**

@@ -13,6 +13,8 @@
  * surface × protocol pair produces.
  */
 
+import { readFileSync } from "node:fs";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createRawFetchCapture } from "../../../tests/helpers/raw-fetch-capture";
@@ -613,6 +615,95 @@ describe("registerDatabricksProvider model fetcher", () => {
 		const models = await registry.getModelsForProvider("databricks", CREDENTIALS);
 
 		expect(models).toEqual([]);
+	});
+});
+
+describe("registerDatabricksProvider captured gateway workspace", () => {
+	/**
+	 * A trimmed model-services response captured from a real gateway workspace
+	 * (2026-11, `view=FULL`), with ids and owners removed.
+	 */
+	const CAPTURED_MODEL_SERVICES: unknown = JSON.parse(
+		readFileSync(
+			new URL("../../../tests/fixtures/databricks-model-services.json", import.meta.url),
+			"utf8",
+		),
+	);
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it("routes each captured service to the request Databricks expects", async () => {
+		const registry = new ProviderRegistry(mockLogger);
+		registerDatabricksProvider(registry, mockLogger);
+		const chatRequests: Array<{ url: string; model: unknown }> = [];
+		const fetchCapture = createRawFetchCapture(async (input, init) => {
+			const url = typeof input === "string" || input instanceof URL ? input.toString() : input.url;
+			if (url === PROBE_URL) return jsonResponse({ endpoints: [] });
+			if (url === FOUNDATION_LIST_URL) return jsonResponse({ endpoints: [] });
+			if (url.startsWith(MODEL_SERVICES_PATH)) return jsonResponse(CAPTURED_MODEL_SERVICES);
+			const body = input instanceof Request ? await input.clone().text() : init?.body;
+			chatRequests.push({
+				url: url.split("?")[0] ?? url,
+				model: typeof body === "string" ? JSON.parse(body).model : undefined,
+			});
+			return new Response("", { status: 200, headers: { "content-type": "text/event-stream" } });
+		});
+		vi.stubGlobal("fetch", fetchCapture.mock);
+
+		const models = await registry.getModelsForProvider("databricks", CREDENTIALS);
+		const client = registry.getClientForProvider("databricks", CREDENTIALS);
+		for (const model of models) {
+			await runChat(client, { model: model.id, protocol: model.protocol });
+		}
+
+		const gateway = `${HOST}/ai-gateway`;
+		// Embeddings and non-chat services are not listed. Every request carries
+		// the Unity Catalog name (Gemini's goes in the URL instead of the body).
+		expect(models.map((m, i) => [m.id, m.protocol, chatRequests[i]])).toEqual([
+			[
+				"databricks-gpt-5-4-mini",
+				"openai-responses",
+				{ url: `${gateway}/openai/v1/responses`, model: "system.ai.gpt-5-4-mini" },
+			],
+			[
+				"databricks-deepseek-v4-1-flash-1017",
+				"mlflow-responses",
+				{ url: `${gateway}/mlflow/v1/responses`, model: "system.ai.deepseek-v4-1-flash-1017" },
+			],
+			[
+				"databricks-claude-sonnet-4-6",
+				"anthropic-messages",
+				{ url: `${gateway}/anthropic/v1/messages`, model: "system.ai.claude-sonnet-4-6" },
+			],
+			[
+				"databricks-meta-llama-3-3-70b-instruct",
+				"openai-chat",
+				{
+					url: `${gateway}/mlflow/v1/chat/completions`,
+					model: "system.ai.meta-llama-3-3-70b-instruct",
+				},
+			],
+			[
+				"databricks-gemini-3-5-flash",
+				"google-generative",
+				{
+					url: `${gateway}/gemini/v1beta/models/system.ai.gemini-3-5-flash:streamGenerateContent`,
+					model: undefined,
+				},
+			],
+			[
+				"databricks-gpt-5-5-pro",
+				"openai-responses",
+				{ url: `${gateway}/openai/v1/responses`, model: "system.ai.gpt-5-5-pro" },
+			],
+			[
+				"databricks-gpt-oss-120b",
+				"openai-chat",
+				{ url: `${gateway}/mlflow/v1/chat/completions`, model: "system.ai.gpt-oss-120b" },
+			],
+		]);
 	});
 });
 
