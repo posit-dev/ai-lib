@@ -66,6 +66,7 @@ describe("generalized store-backed acquisition", () => {
 	});
 
 	afterEach(() => {
+		vi.useRealTimers();
 		vi.unstubAllGlobals();
 		fixture.cleanup();
 	});
@@ -354,8 +355,13 @@ describe("generalized store-backed acquisition", () => {
 					: undefined,
 		});
 		const provider = createCredentialProvider({ backend });
+		vi.useFakeTimers({ toFake: ["Date"] });
 
 		const expected = { type: "apikey", apiKey: "valid-access", baseUrl: serverUrl };
+		// First seen with 60 s left: not due for renewal until half of that has passed.
+		expect(await provider.getCredentials("connect")).toEqual(expected);
+		expect(fetchMock).not.toHaveBeenCalled();
+		vi.setSystemTime(Date.now() + 31_000);
 		expect(await provider.getCredentials("connect")).toEqual(expected);
 		expect(await provider.getCredentials("connect")).toEqual(expected);
 		expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -379,7 +385,6 @@ describe("generalized store-backed acquisition", () => {
 			oauthAuth: {
 				serverUrl,
 				tokenData: {
-					// Valid, but sooner than the engine's 4-6 minute proactive refresh.
 					accessToken: "expiring-access",
 					refreshToken: "refresh",
 					expiresAt: new Date(Date.now() + 3 * 60_000).toISOString(),
@@ -396,7 +401,11 @@ describe("generalized store-backed acquisition", () => {
 			oauthConfigForProvider: () => Promise.reject(new Error("discovery unavailable")),
 		});
 		const provider = createCredentialProvider({ backend });
+		vi.useFakeTimers({ toFake: ["Date"] });
 
+		expect(await provider.getCredentials("connect")).toMatchObject({ apiKey: "expiring-access" });
+		// Past half its remaining life, so inside the proactive renewal window.
+		vi.setSystemTime(Date.now() + 2 * 60_000);
 		expect(await provider.getCredentials("connect")).toMatchObject({ apiKey: "expiring-access" });
 		await provider.dispose();
 	});
@@ -612,6 +621,28 @@ describe("generalized store-backed acquisition", () => {
 			source: "oauth-m2m",
 			origin: "environment",
 		});
+	});
+
+	it("reuses a short-lived M2M token until its half-life", async () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		const provider = createProvider({
+			DATABRICKS_CLIENT_ID: "client",
+			DATABRICKS_CLIENT_SECRET: "secret",
+			DATABRICKS_HOST: "https://workspace.test",
+		});
+		let issued = 0;
+		const fetchMock = vi.fn(() => {
+			issued += 1;
+			return Promise.resolve(ok({ access_token: `m2m-${issued}`, expires_in: 5 }));
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		expect(await provider.getCredentials("databricks")).toMatchObject({ apiKey: "m2m-1" });
+		expect(await provider.getCredentials("databricks")).toMatchObject({ apiKey: "m2m-1" });
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		vi.setSystemTime(Date.now() + 2_600);
+		expect(await provider.getCredentials("databricks")).toMatchObject({ apiKey: "m2m-2" });
+		expect(fetchMock).toHaveBeenCalledTimes(2);
 	});
 
 	it("treats a legacy generationless PAT as an explicit stored source", async () => {
@@ -1689,6 +1720,113 @@ describe("generalized store-backed acquisition", () => {
 				state.tokens = expiringTokens();
 				await engine.getCredentials("positai");
 				expect(fetchMock).toHaveBeenCalledTimes(3);
+			});
+		});
+
+		describe("short-lived tokens", () => {
+			beforeEach(() => vi.useFakeTimers());
+			afterEach(() => vi.useRealTimers());
+
+			/**
+			 * A token endpoint issuing a new access token on every refresh. The
+			 * lifetime may be a function of the current time, for a capped expiry.
+			 */
+			function rotatingTokenEndpoint(expiresIn: number | (() => number)) {
+				let issued = 0;
+				const fetchMock = vi.fn(() => {
+					issued += 1;
+					return Promise.resolve(
+						ok({
+							access_token: `access-${issued}`,
+							refresh_token: `refresh-${issued}`,
+							expires_in: typeof expiresIn === "number" ? expiresIn : expiresIn(),
+						}),
+					);
+				});
+				vi.stubGlobal("fetch", fetchMock);
+				return fetchMock;
+			}
+
+			async function accessToken(engine: AcquisitionEngine): Promise<string | undefined> {
+				const { credentials } = await engine.getCredentials("positai");
+				return credentials?.type === "oauth" ? credentials.accessToken : undefined;
+			}
+
+			it("reuses a freshly refreshed token until its half-life, then renews once", async () => {
+				const state = makeEngineState();
+				const fetchMock = rotatingTokenEndpoint(5);
+				const hooks = makeEngineHooks(state);
+				const transaction = vi.spyOn(hooks, "withRefreshTransaction");
+				const engine = new AcquisitionEngine(hooks);
+
+				expect(await accessToken(engine)).toBe("access-1");
+				expect(await accessToken(engine)).toBe("access-1");
+				await vi.advanceTimersByTimeAsync(2_000);
+				expect(await accessToken(engine)).toBe("access-1");
+				expect(fetchMock).toHaveBeenCalledTimes(1);
+				expect(transaction).toHaveBeenCalledTimes(1);
+
+				await vi.advanceTimersByTimeAsync(600);
+				expect(await accessToken(engine)).toBe("access-2");
+				expect(await accessToken(engine)).toBe("access-2");
+				expect(fetchMock).toHaveBeenCalledTimes(2);
+			});
+
+			it("does not ping-pong renewals between two windows sharing the store", async () => {
+				const state = makeEngineState();
+				const fetchMock = rotatingTokenEndpoint(5);
+				const windowA = new AcquisitionEngine(makeEngineHooks(state));
+				const windowB = new AcquisitionEngine(makeEngineHooks(state));
+
+				expect(await accessToken(windowA)).toBe("access-1");
+				for (let i = 0; i < 3; i++) {
+					expect(await accessToken(windowB)).toBe("access-1");
+					expect(await accessToken(windowA)).toBe("access-1");
+				}
+				expect(fetchMock).toHaveBeenCalledTimes(1);
+
+				await vi.advanceTimersByTimeAsync(2_600);
+				expect(await accessToken(windowB)).toBe("access-2");
+				expect(await accessToken(windowA)).toBe("access-2");
+				expect(await accessToken(windowB)).toBe("access-2");
+				expect(fetchMock).toHaveBeenCalledTimes(2);
+			});
+
+			it("reuses another window's fresh token found inside the refresh lock", async () => {
+				const state = makeEngineState();
+				const fetchMock = rotatingTokenEndpoint(5);
+				const windowA = new AcquisitionEngine(makeEngineHooks(state));
+				expect(await accessToken(windowA)).toBe("access-1");
+				expect(await accessToken(windowA)).toBe("access-1");
+				const stale = state.tokens;
+				const hooksB = makeEngineHooks(state);
+				const readTokens = vi.spyOn(hooksB, "readTokens");
+				const windowB = new AcquisitionEngine(hooksB);
+				expect(await accessToken(windowB)).toBe("access-1");
+
+				await vi.advanceTimersByTimeAsync(2_600);
+				// B's unlocked read still sees access-1; A renews before B takes the lock.
+				readTokens.mockImplementationOnce(async () => {
+					expect(await accessToken(windowA)).toBe("access-2");
+					return stale;
+				});
+				expect(await accessToken(windowB)).toBe("access-2");
+				expect(fetchMock).toHaveBeenCalledTimes(2);
+			});
+
+			it("treats a new token with an unchanged capped expiry as a new issuance", async () => {
+				const state = makeEngineState();
+				const cap = Date.now() + 10_000;
+				const fetchMock = rotatingTokenEndpoint(() => (cap - Date.now()) / 1000);
+				const engine = new AcquisitionEngine(makeEngineHooks(state));
+
+				expect(await accessToken(engine)).toBe("access-1");
+				expect(await accessToken(engine)).toBe("access-1");
+				await vi.advanceTimersByTimeAsync(5_000);
+				expect(await accessToken(engine)).toBe("access-2");
+				expect(state.tokens?.expiresAt).toBe(new Date(cap).toISOString());
+				expect(await accessToken(engine)).toBe("access-2");
+				expect(fetchMock).toHaveBeenCalledTimes(2);
 			});
 		});
 	});
