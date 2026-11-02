@@ -297,10 +297,34 @@ interface ModelServicesPage {
 }
 
 const MODEL_SERVICE_PREFIX = "model-services/";
+const SYSTEM_MODEL_PREFIX = "system.ai.";
+const LEGACY_MODEL_PREFIX = "databricks-";
+
+/**
+ * Classifier identity for custom services. A `catalog.schema.service` name is
+ * user-chosen and says nothing about the model behind it (a catalog named
+ * `gpt-5` would otherwise match GPT-5's routes and limits), so custom services
+ * get only their advertised routes and default limits. Must stay `""`, not
+ * `undefined`: the classifier falls back with `??`, which keeps `""`.
+ */
+const UNKNOWN_MODEL_IDENTITY = "";
 
 /** Bare upstream identity, used to match a service to its foundation-model entry. */
 function bareModelName(name: string): string {
 	return name.replace(/^system\.ai\./, "").replace(/^databricks-/, "");
+}
+
+/**
+ * The name the gateway expects for a listed model id. System models are listed
+ * under their legacy `databricks-<bare>` id so saved selections, conversations
+ * and model rules keep matching, but the gateway needs the Unity Catalog name
+ * (`system.ai.<bare>`): newer models reject the legacy one. Custom services are
+ * listed under their Unity Catalog name already.
+ */
+function gatewayModelName(model: string): string {
+	return model.startsWith(LEGACY_MODEL_PREFIX)
+		? `${SYSTEM_MODEL_PREFIX}${model.slice(LEGACY_MODEL_PREFIX.length)}`
+		: model;
 }
 
 /** Foundation-model display names keyed by bare model name (`claude-sonnet-4-6`). */
@@ -316,9 +340,8 @@ function foundationDisplayNames(data: unknown): Map<string, string> {
 
 /**
  * Parse model services into routable models, stamped for the gateway surface.
- * The Unity Catalog name (`system.ai.claude-sonnet-4-6`,
- * `catalog.schema.service`) is the model id sent at chat time; newer models
- * reject their legacy `databricks-*` endpoint name on the gateway.
+ * System services (`system.ai.<bare>`) are listed as `databricks-<bare>` (see
+ * {@link gatewayModelName}); custom services keep `catalog.schema.service`.
  *
  * Each service is handed to the classifier as a one-entity endpoint whose
  * `api_types` are the service's `supported_api_types`, so the classifier's
@@ -330,11 +353,16 @@ function parseModelServices(
 	displayNames: ReadonlyMap<string, string>,
 ): ModelInfo[] {
 	const models: ModelInfo[] = [];
+	const seen = new Set<string>();
 	for (const service of services) {
-		const id = service.name?.startsWith(MODEL_SERVICE_PREFIX)
+		const ucName = service.name?.startsWith(MODEL_SERVICE_PREFIX)
 			? service.name.slice(MODEL_SERVICE_PREFIX.length)
 			: service.name;
-		if (!id) continue;
+		if (!ucName || seen.has(ucName)) continue;
+		seen.add(ucName);
+		const isSystem = ucName.startsWith(SYSTEM_MODEL_PREFIX);
+		const bare = bareModelName(ucName);
+		const id = isSystem ? `${LEGACY_MODEL_PREFIX}${bare}` : ucName;
 		const model = toModelInfo(
 			{
 				name: id,
@@ -342,10 +370,8 @@ function parseModelServices(
 					served_entities: [
 						{
 							foundation_model: {
-								name: id,
-								display_name: id.startsWith("system.ai.")
-									? (displayNames.get(bareModelName(id)) ?? bareModelName(id))
-									: id,
+								name: isSystem ? id : UNKNOWN_MODEL_IDENTITY,
+								display_name: isSystem ? (displayNames.get(bare) ?? bare) : ucName,
 								api_types: service.supported_api_types ?? [],
 								ai_gateway_v2_supported: true,
 							},
@@ -364,8 +390,12 @@ function parseModelServices(
 // Registration
 // ---------------------------------------------------------------------------
 
-async function fetchModelList(url: string, headers: Record<string, string>): Promise<unknown> {
-	const response = await fetch(url, { headers });
+async function fetchModelList(
+	url: string,
+	headers: Record<string, string>,
+	signal?: AbortSignal,
+): Promise<unknown> {
+	const response = await fetch(url, signal ? { headers, signal } : { headers });
 	if (!response.ok) {
 		throw new Error(`API returned ${response.status}`);
 	}
@@ -375,18 +405,23 @@ async function fetchModelList(url: string, headers: Record<string, string>): Pro
 /** Upper bound on model-services pages, in case a workspace never stops returning tokens. */
 const MAX_MODEL_SERVICE_PAGES = 50;
 
+/** How long gateway discovery waits for the foundation-models list (display names only). */
+const DISPLAY_NAMES_TIMEOUT_MS = 10_000;
+
 /**
  * Every model service the caller can access, at metastore scope (no `parent`),
  * so custom `catalog.schema.service` routes are included. `view=FULL` is
  * required: the default view returns `supported_api_types: null` for custom
  * services. An empty page can still carry a token, so only a missing token
- * ends the list.
+ * ends the list. A repeated token or the page cap stops early with a warning.
  */
 async function fetchModelServices(
 	host: string,
 	headers: Record<string, string>,
+	logger: Logger,
 ): Promise<ModelService[]> {
 	const services: ModelService[] = [];
+	const seenTokens = new Set<string>();
 	let pageToken: string | undefined;
 	for (let page = 0; page < MAX_MODEL_SERVICE_PAGES; page++) {
 		const url = new URL(`${host}/api/2.1/unity-catalog/model-services`);
@@ -396,9 +431,42 @@ async function fetchModelServices(
 		const data = (await fetchModelList(url.toString(), headers)) as ModelServicesPage;
 		services.push(...(data.model_services ?? []));
 		pageToken = data.next_page_token || undefined;
-		if (!pageToken) break;
+		if (!pageToken) return services;
+		if (seenTokens.has(pageToken)) {
+			logger.warn("[databricks] Model-services list repeated a page token; stopping early");
+			return services;
+		}
+		seenTokens.add(pageToken);
 	}
+	logger.warn(
+		`[databricks] Model-services list still had more pages after ${MAX_MODEL_SERVICE_PAGES}; some models may be missing`,
+	);
 	return services;
+}
+
+/**
+ * Display names from the foundation-models list. Only labels depend on it, so
+ * a slow, failed or malformed response gives an empty map instead of holding up
+ * or emptying the model list.
+ */
+async function fetchDisplayNames(
+	host: string,
+	headers: Record<string, string>,
+	logger: Logger,
+): Promise<Map<string, string>> {
+	try {
+		return foundationDisplayNames(
+			await fetchModelList(
+				`${host}/api/2.0/serving-endpoints:foundation-models`,
+				headers,
+				AbortSignal.timeout(DISPLAY_NAMES_TIMEOUT_MS),
+			),
+		);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		logger.debug(`[databricks] Foundation-models list unavailable for display names: ${message}`);
+		return new Map();
+	}
 }
 
 /** Gateway discovery: model services, named from the foundation-models list where possible. */
@@ -408,17 +476,8 @@ async function fetchGatewayModels(
 	logger: Logger,
 ): Promise<ModelInfo[]> {
 	const [services, displayNames] = await Promise.all([
-		fetchModelServices(host, headers),
-		fetchModelList(`${host}/api/2.0/serving-endpoints:foundation-models`, headers).then(
-			foundationDisplayNames,
-			(error: unknown) => {
-				const message = error instanceof Error ? error.message : String(error);
-				logger.debug(
-					`[databricks] Foundation-models list unavailable for display names: ${message}`,
-				);
-				return new Map<string, string>();
-			},
-		),
+		fetchModelServices(host, headers, logger),
+		fetchDisplayNames(host, headers, logger),
 	]);
 	return parseModelServices(services, displayNames);
 }
@@ -576,6 +635,9 @@ export function registerDatabricksProvider(registry: ProviderRegistry, logger: L
 				const surface = await surfaceState.ensureSurface(host, probeHeaders);
 				return delegate.chat({
 					...params,
+					// Only the built-in gateway route gets the Unity Catalog name; a
+					// pipeline-supplied base URL (above) may be any proxy.
+					model: surface === "gateway" ? gatewayModelName(params.model) : params.model,
 					baseUrl: databricksBaseUrl(surface, protocol, host),
 				});
 			},

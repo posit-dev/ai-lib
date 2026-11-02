@@ -177,6 +177,12 @@ const MODEL_SERVICES_PAGES: Record<string, unknown> = {
 				name: "model-services/explorations.assistant_test.posit_test_fallback",
 				supported_api_types: [CHAT, RESPONSES],
 			},
+			// Custom route whose catalog name looks like a known model: its name must
+			// not pick a native route or GPT-5's limits.
+			{
+				name: "model-services/gpt-5.team.router",
+				supported_api_types: [CHAT, RESPONSES, "openai/v1/responses"],
+			},
 			// Embeddings — excluded
 			{
 				name: "model-services/system.ai.gte-large-en",
@@ -316,6 +322,8 @@ function stubWorkspaceFetch(initial: {
 	probeStatus: number;
 	servingStatus?: number;
 	foundationStatus?: number;
+	/** Replaces the foundation-models response body. */
+	foundationBody?: unknown;
 	modelServicesStatus?: number;
 }) {
 	const status = { ...initial };
@@ -330,7 +338,10 @@ function stubWorkspaceFetch(initial: {
 			return jsonResponse(SERVING_ENDPOINTS_FIXTURE, status.servingStatus ?? 200);
 		}
 		if (url === FOUNDATION_LIST_URL) {
-			return jsonResponse(FOUNDATION_MODELS_FIXTURE, status.foundationStatus ?? 200);
+			return jsonResponse(
+				"foundationBody" in status ? status.foundationBody : FOUNDATION_MODELS_FIXTURE,
+				status.foundationStatus ?? 200,
+			);
 		}
 		if (url.startsWith(MODEL_SERVICES_PATH)) {
 			const token = new URL(url).searchParams.get("page_token") ?? "";
@@ -422,22 +433,25 @@ describe("registerDatabricksProvider model fetcher", () => {
 		expect(workspace.urlsCalled()).toEqual([PROBE_URL, SERVING_LIST_URL]);
 	});
 
-	it("lists Unity Catalog model services by their UC names when the gateway probe succeeds", async () => {
+	it("lists Unity Catalog model services when the gateway probe succeeds", async () => {
 		const workspace = stubWorkspaceFetch({ probeStatus: 200 });
 
 		const models = await registry.getModelsForProvider("databricks", CREDENTIALS);
 
 		expect(models.map((m) => [m.id, m.name, m.protocol])).toEqual([
-			["system.ai.claude-opus-4-8", "Claude Opus 4.8", "anthropic-messages"],
-			["system.ai.llama-4-maverick", "Llama 4 Maverick", "openai-chat"],
-			["system.ai.gpt-oss-120b", "gpt-oss-120b", "openai-chat"],
-			["system.ai.deepseek-v4-1-flash-1017", "deepseek-v4-1-flash-1017", "mlflow-responses"],
+			// System services keep their legacy ids so saved references still match.
+			["databricks-claude-opus-4-8", "Claude Opus 4.8", "anthropic-messages"],
+			["databricks-llama-4-maverick", "Llama 4 Maverick", "openai-chat"],
+			["databricks-gpt-oss-120b", "gpt-oss-120b", "openai-chat"],
+			["databricks-deepseek-v4-1-flash-1017", "deepseek-v4-1-flash-1017", "mlflow-responses"],
 			[
 				"explorations.assistant_test.posit_test_fallback",
 				"explorations.assistant_test.posit_test_fallback",
 				"mlflow-responses",
 			],
+			["gpt-5.team.router", "gpt-5.team.router", "mlflow-responses"],
 		]);
+		expect(models.at(-1)).toMatchObject({ vendor: "databricks", maxContextLength: 128_000 });
 		expect(models[0]).toMatchObject({
 			providerId: "databricks",
 			vendor: "anthropic",
@@ -454,18 +468,57 @@ describe("registerDatabricksProvider model fetcher", () => {
 		]);
 	});
 
-	it("still lists model services when the foundation-models list fails", async () => {
-		stubWorkspaceFetch({ probeStatus: 200, foundationStatus: 403 });
+	it("still lists model services when the foundation-models list fails or is malformed", async () => {
+		for (const failure of [{ foundationStatus: 403 }, { foundationBody: null }]) {
+			registry.clearModelCache("databricks");
+			stubWorkspaceFetch({ probeStatus: 200, ...failure });
+
+			const models = await registry.getModelsForProvider("databricks", CREDENTIALS);
+
+			expect(models[0]).toMatchObject({
+				id: "databricks-claude-opus-4-8",
+				name: "claude-opus-4-8",
+			});
+		}
+	});
+
+	it("bounds the foundation-models request with its own abort signal", async () => {
+		const workspace = stubWorkspaceFetch({ probeStatus: 200 });
+
+		await registry.getModelsForProvider("databricks", CREDENTIALS);
+
+		const foundationCall = workspace.fetchMock.mock.calls.find(
+			(call) => String(call[0]) === FOUNDATION_LIST_URL,
+		);
+		expect(foundationCall?.[1]?.signal).toBeInstanceOf(AbortSignal);
+	});
+
+	it("stops paging when a page token repeats", async () => {
+		const fetchCapture = createRawFetchCapture(async (input) => {
+			const url = typeof input === "string" || input instanceof URL ? input.toString() : input.url;
+			if (url === PROBE_URL) return jsonResponse({ endpoints: [] });
+			if (url === FOUNDATION_LIST_URL) return jsonResponse(FOUNDATION_MODELS_FIXTURE);
+			return jsonResponse({
+				model_services: [
+					{ name: "model-services/system.ai.llama-4-maverick", supported_api_types: [CHAT] },
+				],
+				next_page_token: "same",
+			});
+		});
+		vi.stubGlobal("fetch", fetchCapture.mock);
 
 		const models = await registry.getModelsForProvider("databricks", CREDENTIALS);
 
-		expect(models[0]).toMatchObject({ id: "system.ai.claude-opus-4-8", name: "claude-opus-4-8" });
+		expect(models.map((m) => m.id)).toEqual(["databricks-llama-4-maverick"]);
+		expect(mockLogger.warn).toHaveBeenCalledWith(
+			"[databricks] Model-services list repeated a page token; stopping early",
+		);
 	});
 
 	it("routes discovered gateway GPT OSS over chat even when Responses is advertised", async () => {
 		const workspace = stubWorkspaceFetch({ probeStatus: 200 });
 		const models = await registry.getModelsForProvider("databricks", CREDENTIALS);
-		const gptOss = models.find((model) => model.id === "system.ai.gpt-oss-120b");
+		const gptOss = models.find((model) => model.id === "databricks-gpt-oss-120b");
 		if (!gptOss) throw new Error("GPT OSS endpoint was not discovered");
 
 		expect(gptOss.protocol).toBe("openai-chat");
@@ -511,11 +564,9 @@ describe("registerDatabricksProvider model fetcher", () => {
 		});
 
 		for (const call of workspace.fetchMock.mock.calls) {
-			expect(call[1]).toEqual({
-				headers: {
-					Authorization: "Bearer dapi-test-token",
-					"x-databricks-use-coding-agent-mode": "true",
-				},
+			expect(call[1]?.headers).toEqual({
+				Authorization: "Bearer dapi-test-token",
+				"x-databricks-use-coding-agent-mode": "true",
 			});
 		}
 	});
@@ -628,7 +679,7 @@ describe("registerDatabricksProvider surface pinning", () => {
 
 		// A later discovery reuses the pin the chat request established.
 		const models = await registry.getModelsForProvider("databricks", CREDENTIALS);
-		expect(models.map((m) => m.id)).toContain("system.ai.claude-opus-4-8");
+		expect(models.map((m) => m.id)).toContain("databricks-claude-opus-4-8");
 		expect(workspace.probeCount()).toBe(1);
 	});
 
@@ -649,7 +700,8 @@ describe("registerDatabricksProvider surface pinning", () => {
 				return jsonResponse(FOUNDATION_MODELS_FIXTURE);
 			}
 			if (url.startsWith(MODEL_SERVICES_PATH)) {
-				return jsonResponse(MODEL_SERVICES_PAGES[""]);
+				const token = new URL(url).searchParams.get("page_token") ?? "";
+				return jsonResponse(MODEL_SERVICES_PAGES[token]);
 			}
 			return jsonResponse({ message: `unexpected URL: ${url}` }, 500);
 		});
@@ -664,7 +716,7 @@ describe("registerDatabricksProvider surface pinning", () => {
 		const fresh = registry.getModelsForProvider("databricks", CREDENTIALS);
 		await vi.waitFor(() => expect(probeResolvers).toHaveLength(2));
 		probeResolvers[1]?.(jsonResponse({ endpoints: [] }, 200));
-		expect((await fresh).map((m) => m.id)).toContain("system.ai.claude-opus-4-8");
+		expect((await fresh).map((m) => m.id)).toContain("databricks-claude-opus-4-8");
 
 		// The stale probe resolves last, reporting serving. It still answers its
 		// own caller, but it must not re-pin the surface or clobber the cache.
@@ -672,7 +724,7 @@ describe("registerDatabricksProvider surface pinning", () => {
 		await stale;
 
 		const after = await registry.getModelsForProvider("databricks", CREDENTIALS);
-		expect(after.map((m) => m.id)).toContain("system.ai.claude-opus-4-8");
+		expect(after.map((m) => m.id)).toContain("databricks-claude-opus-4-8");
 		expect(fetchCapture.calls.filter((call) => String(call[0]) === PROBE_URL)).toHaveLength(2);
 	});
 
@@ -792,7 +844,7 @@ describe("registerDatabricksProvider route seam", () => {
 		expect(
 			await routedUrl(200, { model: "databricks-gemini-2-5-pro", protocol: "google-generative" }),
 		).toBe(
-			`${HOST}/ai-gateway/gemini/v1beta/models/databricks-gemini-2-5-pro:streamGenerateContent`,
+			`${HOST}/ai-gateway/gemini/v1beta/models/system.ai.gemini-2-5-pro:streamGenerateContent`,
 		);
 	});
 
@@ -800,6 +852,25 @@ describe("registerDatabricksProvider route seam", () => {
 		expect(
 			await routedUrl(200, { model: "databricks-llama-4-maverick", protocol: "openai-chat" }),
 		).toBe(`${HOST}/ai-gateway/mlflow/v1/chat/completions`);
+	});
+
+	it("sends the Unity Catalog name for legacy ids on the gateway route only", async () => {
+		const sentModel = async (probeStatus: number, model: string): Promise<unknown> => {
+			registry = new ProviderRegistry(mockLogger);
+			registerDatabricksProvider(registry, mockLogger);
+			const workspace = stubWorkspaceFetch({ probeStatus });
+			await runChat(registry.getClientForProvider("databricks", CREDENTIALS), {
+				model,
+				protocol: "openai-chat",
+			});
+			return JSON.parse(workspace.chatRequests[0]?.body ?? "{}").model;
+		};
+
+		expect(await sentModel(200, "databricks-llama-4-maverick")).toBe("system.ai.llama-4-maverick");
+		expect(await sentModel(200, "explorations.assistant_test.posit_test_fallback")).toBe(
+			"explorations.assistant_test.posit_test_fallback",
+		);
+		expect(await sentModel(404, "databricks-llama-4-maverick")).toBe("databricks-llama-4-maverick");
 	});
 
 	it("keeps max_tokens on Databricks Chat Completions requests", async () => {
@@ -828,6 +899,10 @@ describe("registerDatabricksProvider route seam", () => {
 		expect(workspace.chatRequests.map((r) => r.url)).toEqual([
 			"https://proxy.example.com/custom/anthropic/v1/messages",
 		]);
+		// A proxy gets the model id as listed.
+		expect(JSON.parse(workspace.chatRequests[0]?.body ?? "{}").model).toBe(
+			"databricks-claude-sonnet-4-5",
+		);
 		expect(workspace.probeCount()).toBe(0);
 	});
 
