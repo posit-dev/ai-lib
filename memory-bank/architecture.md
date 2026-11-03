@@ -477,14 +477,15 @@ trusted verbatim and skips the route seam entirely.
 On the gateway surface, discovery lists models from the Unity Catalog
 model-services API (`GET /api/2.1/unity-catalog/model-services`, no `parent`,
 `view=FULL`, paged), with display names from the foundation-models list where
-the bare name matches. System services (`system.ai.<model>`) are listed under
+the bare name matches. If the model-services list fails, discovery lists the
+foundation-models list instead (no custom services). System services (`system.ai.<model>`) are listed under
 their legacy id `databricks-<model>`, so saved selections and model rules from
 earlier releases keep matching; the client sends `system.ai.<model>` on the
 built-in gateway route and on an override URL under this workspace's
 `/ai-gateway/`, because newer models reject the legacy name. Any other override
 URL (a proxy) gets the id as listed. Custom services keep their
 `catalog.schema.service` name, which is never translated, and are classified
-with no model identity, so they get only the routes they list.
+with no model identity, so they get only unified routes and default limits.
 
 The gateway `api_types` strings (`anthropic/v1/messages`,
 `openai/v1/responses`, `gemini/v1/streamGenerateContent`) are confirmed from a

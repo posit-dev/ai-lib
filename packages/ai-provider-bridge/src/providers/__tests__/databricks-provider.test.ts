@@ -488,6 +488,27 @@ describe("registerDatabricksProvider model fetcher", () => {
 		}
 	});
 
+	it("lists foundation models when the model-services list fails", async () => {
+		stubWorkspaceFetch({ probeStatus: 200, modelServicesStatus: 404 });
+
+		const models = await registry.getModelsForProvider("databricks", CREDENTIALS);
+
+		expect(models.map((m) => [m.id, m.name, m.protocol])).toEqual([
+			["databricks-claude-opus-4-8", "Claude Opus 4.8", "anthropic-messages"],
+			["databricks-llama-4-maverick", "Llama 4 Maverick", "openai-chat"],
+			["databricks-gpt-oss-120b", "databricks-gpt-oss-120b", "openai-chat"],
+		]);
+		expect(mockLogger.warn).toHaveBeenCalledWith(
+			expect.stringContaining("listing foundation models instead"),
+		);
+	});
+
+	it("lists no models when both the model-services and foundation-models lists fail", async () => {
+		stubWorkspaceFetch({ probeStatus: 200, modelServicesStatus: 404, foundationStatus: 403 });
+
+		expect(await registry.getModelsForProvider("databricks", CREDENTIALS)).toEqual([]);
+	});
+
 	it("lists models with bare names when the foundation-models list hangs", async () => {
 		vi.useFakeTimers();
 		try {

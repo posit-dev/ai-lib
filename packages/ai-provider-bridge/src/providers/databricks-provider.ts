@@ -331,8 +331,7 @@ function isWorkspaceGatewayUrl(baseUrl: string, host: string): boolean {
 }
 
 /** Foundation-model display names keyed by bare model name (`claude-sonnet-4-6`). */
-function foundationDisplayNames(data: unknown): Map<string, string> {
-	const endpoints = (data as { endpoints?: ServingEndpoint[] }).endpoints ?? [];
+function foundationDisplayNames(endpoints: readonly ServingEndpoint[]): Map<string, string> {
 	const names = new Map<string, string>();
 	for (const endpoint of endpoints) {
 		const displayName = endpoint.config?.served_entities?.[0]?.foundation_model?.display_name;
@@ -411,8 +410,8 @@ async function fetchModelList(
 /** Upper bound on model-services pages, in case a workspace never stops returning tokens. */
 const MAX_MODEL_SERVICE_PAGES = 50;
 
-/** How long gateway discovery waits for the foundation-models list (display names only). */
-const DISPLAY_NAMES_TIMEOUT_MS = 5_000;
+/** How long gateway discovery waits for the foundation-models list. */
+const FOUNDATION_MODELS_TIMEOUT_MS = 5_000;
 
 /**
  * Every model service the caller can access, at metastore scope (no `parent`),
@@ -452,47 +451,63 @@ async function fetchModelServices(
 }
 
 /**
- * Display names from the foundation-models list. Only labels depend on it, so
- * a failed or malformed response gives an empty map instead of emptying the
- * model list, and a slow one holds up the list for at most
- * {@link DISPLAY_NAMES_TIMEOUT_MS}.
+ * The foundation-models list, or `undefined` when it fails, is malformed, or
+ * takes longer than {@link FOUNDATION_MODELS_TIMEOUT_MS}. Gateway discovery uses it
+ * for display names, and as the model list when model services can't be listed.
  */
-async function fetchDisplayNames(
+async function fetchFoundationModels(
 	host: string,
 	headers: Record<string, string>,
 	logger: Logger,
-): Promise<Map<string, string>> {
+): Promise<ServingEndpoint[] | undefined> {
 	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), DISPLAY_NAMES_TIMEOUT_MS);
+	const timer = setTimeout(() => controller.abort(), FOUNDATION_MODELS_TIMEOUT_MS);
 	try {
-		return foundationDisplayNames(
-			await fetchModelList(
-				`${host}/api/2.0/serving-endpoints:foundation-models`,
-				headers,
-				controller.signal,
-			),
+		const data = await fetchModelList(
+			`${host}/api/2.0/serving-endpoints:foundation-models`,
+			headers,
+			controller.signal,
 		);
+		const endpoints = (data as { endpoints?: unknown } | null)?.endpoints;
+		return Array.isArray(endpoints) ? (endpoints as ServingEndpoint[]) : undefined;
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
-		logger.debug(`[databricks] Foundation-models list unavailable for display names: ${message}`);
-		return new Map();
+		logger.debug(`[databricks] Foundation-models list unavailable: ${message}`);
+		return undefined;
 	} finally {
 		clearTimeout(timer);
 	}
 }
 
-/** Gateway discovery: model services, named from the foundation-models list where possible. */
+/**
+ * Gateway discovery: model services, named from the foundation-models list where
+ * possible. If model services can't be listed (an older or restricted
+ * workspace), the foundation-models list is used instead. It has no custom
+ * routes, but its `databricks-*` ids still get Unity Catalog names at chat time.
+ */
 async function fetchGatewayModels(
 	host: string,
 	headers: Record<string, string>,
 	logger: Logger,
 	signal: AbortSignal,
 ): Promise<ModelInfo[]> {
-	const [services, displayNames] = await Promise.all([
-		fetchModelServices(host, headers, logger, signal),
-		fetchDisplayNames(host, headers, logger),
+	const [services, foundation] = await Promise.all([
+		fetchModelServices(host, headers, logger, signal).catch((error: unknown) =>
+			error instanceof Error ? error : new Error(String(error)),
+		),
+		fetchFoundationModels(host, headers, logger),
 	]);
-	return parseModelServices(services, displayNames);
+	if (!(services instanceof Error)) {
+		return parseModelServices(services, foundationDisplayNames(foundation ?? []));
+	}
+	if (!foundation) throw services;
+	logger.warn(
+		`[databricks] Model-services list failed (${services.message}); listing foundation models instead`,
+	);
+	return foundation.flatMap((endpoint) => {
+		if (!endpoint.name || endpoint.route_optimized === true) return [];
+		return toModelInfo(endpoint, "gateway") ?? [];
+	});
 }
 
 function createDatabricksModelFetcher(
