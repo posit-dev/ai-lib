@@ -104,14 +104,34 @@ The `/store-backend` needs neither the provider registry nor the catalog:
 
 The provider-agnostic acquisition engine lives in the root (`acquisition.ts`).
 It supports RFC 8628 device code, authorization code with PKCE S256, client
-credentials, and refresh grants. A per-provider mutex and jittered
-proactive-refresh window prevent duplicate renewal in one process. The store
+credentials, and refresh grants. A per-provider mutex and a proactive-refresh
+window prevent duplicate renewal in one process. The store
 backend adds a provider-scoped transaction around stored refresh: check, lock,
 re-read, adopt another process's result when possible, otherwise refresh and
 persist the rotated token. The transaction notes the record's generation, and the
 refreshed tokens or a refresh error persist only while the record still holds it,
 so a refresh that another writer overtook writes nothing. Environment M2M tokens never enter that transaction
 because their derived tokens live only in process memory.
+
+**Renewal timing.** `isExpiring` is the one definition used by the ordinary
+read check (jittered 4-6 min margin), the in-lock re-check (2 min), and the
+client-credentials cache. The effective margin is the smaller of the fixed
+margin and half the life the token had left when this engine first saw it.
+The engine keeps one in-memory record per token key (`stored:<providerId>` or
+`client:<cacheKey>`): the access token and exact `expiresAt` string (the
+identity) plus the first-seen time. Without the half-life bound, a token whose
+whole lifetime is under the margin is "expiring" the moment it is minted, and
+every credential-change event's re-read refreshes again (a burst of refreshes
+at network speed). Keying on first observation, not on tokens this engine
+minted, covers tokens another window wrote, tokens loaded after a restart,
+and the first read after sign-in alike. The access token is part of the
+identity because a server capping rotating tokens at a session end reissues
+new tokens with the same `expiresAt`; `expiresAt` is compared exactly because
+it is computed to the millisecond at commit. Costs: a token first seen near
+expiry renews at half its remaining life rather than at once, and renewals
+tighten near a capped expiry. The record is in memory only, so the stored
+credential shape is unchanged. Zero-margin checks (offline serving, the
+re-read after a failed refresh) use plain expiry.
 
 ### Refresh failure policy — terminal vs. transient
 
