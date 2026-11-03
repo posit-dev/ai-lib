@@ -1723,7 +1723,7 @@ describe("generalized store-backed acquisition", () => {
 			});
 		});
 
-		describe("short-lived tokens", () => {
+		describe("renewal timing", () => {
 			beforeEach(() => vi.useFakeTimers());
 			afterEach(() => vi.useRealTimers());
 
@@ -1811,6 +1811,49 @@ describe("generalized store-backed acquisition", () => {
 					return stale;
 				});
 				expect(await accessToken(windowB)).toBe("access-2");
+				expect(fetchMock).toHaveBeenCalledTimes(2);
+			});
+
+			it("treats a same-token reissue with a new expiry as a new issuance", async () => {
+				// A whole second, so both expiries below fall within the same second.
+				vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+				const state = makeEngineState();
+				let issued = 0;
+				const fetchMock = vi.fn(() => {
+					issued += 1;
+					// A server that reissues the same access token: :05.000, then :05.100.
+					return Promise.resolve(
+						ok({ access_token: "constant", expires_in: issued === 1 ? 5 : 2.5 }),
+					);
+				});
+				vi.stubGlobal("fetch", fetchMock);
+				const engine = new AcquisitionEngine(makeEngineHooks(state));
+
+				expect(await accessToken(engine)).toBe("constant");
+				expect(await accessToken(engine)).toBe("constant");
+				await vi.advanceTimersByTimeAsync(2_600);
+				expect(await accessToken(engine)).toBe("constant");
+				expect(await accessToken(engine)).toBe("constant");
+				expect(fetchMock).toHaveBeenCalledTimes(2);
+			});
+
+			it("keeps the fixed margin for long-lived tokens", async () => {
+				const state = makeEngineState();
+				const fetchMock = rotatingTokenEndpoint(3600);
+				const hooks = makeEngineHooks(state);
+				const transaction = vi.spyOn(hooks, "withRefreshTransaction");
+				const engine = new AcquisitionEngine(hooks);
+
+				expect(await accessToken(engine)).toBe("access-1");
+				expect(await accessToken(engine)).toBe("access-1");
+				// Past half-life but far outside the fixed margin: no lock, no exchange.
+				await vi.advanceTimersByTimeAsync(31 * 60_000);
+				expect(await accessToken(engine)).toBe("access-1");
+				expect(transaction).toHaveBeenCalledTimes(1);
+
+				// 90 s left: inside both fixed margins.
+				await vi.advanceTimersByTimeAsync(27.5 * 60_000);
+				expect(await accessToken(engine)).toBe("access-2");
 				expect(fetchMock).toHaveBeenCalledTimes(2);
 			});
 
