@@ -43,6 +43,17 @@ interface DeviceAuthenticationStart {
 	info: DeviceAuthInfo;
 }
 
+/**
+ * A token issuance and when this engine first saw it. The access token is part
+ * of the identity because a server capping rotating tokens at a session end
+ * reissues new tokens with the same `expiresAt`.
+ */
+interface ObservedIssuance {
+	accessToken: string;
+	expiresAt: string;
+	firstSeenAt: number;
+}
+
 const DEFAULT_AUTHORIZATION_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_REFRESH_TIMEOUT_MS = 30_000;
 const DEFAULT_REFRESH_COOLDOWN_MS = 60_000;
@@ -92,6 +103,8 @@ export class AcquisitionEngine {
 		{ until: number; scope: string | undefined }
 	>();
 	private readonly clientCredentialTokens = new Map<string, StoredOAuthTokens>();
+	/** The last token issuance seen per token key; see {@link isExpiring}. */
+	private readonly observedIssuances = new Map<string, ObservedIssuance>();
 	private readonly refreshJitterMinutes = 4 + Math.random() * 2;
 	private readonly startPromises = new Set<Promise<unknown>>();
 	private readonly terminalPromises = new Set<Promise<void>>();
@@ -117,7 +130,7 @@ export class AcquisitionEngine {
 			const offline = await this.readOfflineToken(providerId);
 			// No refresh is possible without a grant, so the early refresh window
 			// does not apply: serve the token until it actually expires.
-			if (offline && !this.isExpiring(offline.tokens, 0)) {
+			if (offline && !isExpired(offline.tokens)) {
 				return { handled: true, credentials: offline.credentials };
 			}
 			return { handled: false, credentials: null };
@@ -131,7 +144,7 @@ export class AcquisitionEngine {
 
 		const tokens = await this.hooks.readTokens(providerId, config);
 		if (!tokens) return { handled: true, credentials: null };
-		if (!this.isExpiring(tokens)) {
+		if (!this.isExpiring(`stored:${providerId}`, tokens)) {
 			return {
 				handled: true,
 				credentials: this.hooks.shapeToken(providerId, tokens.accessToken, config),
@@ -157,7 +170,7 @@ export class AcquisitionEngine {
 		return {
 			handled: true,
 			credentials:
-				current && !this.isExpiring(current, 0)
+				current && !isExpired(current)
 					? this.hooks.shapeToken(providerId, current.accessToken, config)
 					: null,
 		};
@@ -580,7 +593,7 @@ export class AcquisitionEngine {
 			accessToken = await this.hooks.withRefreshTransaction(providerId, config, async (refresh) => {
 				if (!refresh) return null;
 				const current = refresh.tokens;
-				if (!this.isExpiring(current, 2)) {
+				if (!this.isExpiring(`stored:${providerId}`, current, 2)) {
 					return current.accessToken;
 				}
 				let refreshed: TokenData;
@@ -677,7 +690,7 @@ export class AcquisitionEngine {
 		config: Extract<OAuthGrantConfig, { grantType: "client-credentials" }>,
 	): Promise<ProviderCredentials | null> {
 		const cached = this.clientCredentialTokens.get(config.cacheKey);
-		if (cached && !this.isExpiring(cached)) {
+		if (cached && !this.isExpiring(`client:${config.cacheKey}`, cached)) {
 			return this.hooks.shapeToken(providerId, cached.accessToken, config);
 		}
 
@@ -707,9 +720,29 @@ export class AcquisitionEngine {
 		return promise.finally(() => this.refreshPromises.delete(mutexKey));
 	}
 
-	private isExpiring(tokens: StoredOAuthTokens, fixedMinutes?: number): boolean {
-		const minutes = fixedMinutes ?? this.refreshJitterMinutes;
-		return new Date(tokens.expiresAt).getTime() <= Date.now() + minutes * 60 * 1000;
+	/**
+	 * Whether a token is due for renewal: its remaining life is below the
+	 * fixed margin, or below half of what it had left when this engine first
+	 * saw it, whichever is smaller. The half-life bound keeps a token whose
+	 * whole lifetime is shorter than the margin from being renewed as soon as
+	 * it is minted, by this engine or by another window sharing the store.
+	 */
+	private isExpiring(key: string, tokens: StoredOAuthTokens, fixedMinutes?: number): boolean {
+		const now = Date.now();
+		const expiresAt = new Date(tokens.expiresAt).getTime();
+		const seen = this.observedIssuances.get(key);
+		let firstSeenAt = now;
+		if (seen?.accessToken === tokens.accessToken && seen.expiresAt === tokens.expiresAt) {
+			firstSeenAt = seen.firstSeenAt;
+		} else {
+			this.observedIssuances.set(key, {
+				accessToken: tokens.accessToken,
+				expiresAt: tokens.expiresAt,
+				firstSeenAt: now,
+			});
+		}
+		const fixedMs = (fixedMinutes ?? this.refreshJitterMinutes) * 60 * 1000;
+		return expiresAt - now <= Math.min(fixedMs, (expiresAt - firstSeenAt) / 2);
 	}
 
 	private isCurrent(attempt: ActiveAttempt): boolean {
@@ -949,6 +982,10 @@ async function tokenData(
 		tokenType: typeof body.token_type === "string" ? body.token_type : "Bearer",
 		scope: typeof body.scope === "string" ? body.scope : "",
 	};
+}
+
+function isExpired(tokens: StoredOAuthTokens): boolean {
+	return new Date(tokens.expiresAt).getTime() <= Date.now();
 }
 
 function toStored(tokens: TokenData): StoredOAuthTokens {
