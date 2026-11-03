@@ -64,9 +64,8 @@ import type { ApiKeyCredentials, Logger, ModelInfo, Protocol, ProviderCredential
 import { normalizeProtocol } from "../types";
 import { normalizeDatabricksHost } from "../utils";
 import type { ClearableModelFetcher } from "./cached-model-fetcher";
+import { createCachedModelFetcher } from "./cached-model-fetcher";
 import type { ProviderRegistry } from "./ProviderRegistry";
-
-const CACHE_TTL = 60 * 60 * 1000; // 60 minutes, matching createCachedModelFetcher
 
 // ---------------------------------------------------------------------------
 // Pinned surface decision
@@ -300,15 +299,6 @@ const MODEL_SERVICE_PREFIX = "model-services/";
 const SYSTEM_MODEL_PREFIX = "system.ai.";
 const LEGACY_MODEL_PREFIX = "databricks-";
 
-/**
- * Classifier identity for custom services. A `catalog.schema.service` name is
- * user-chosen and says nothing about the model behind it (a catalog named
- * `gpt-5` would otherwise match GPT-5's routes and limits), so custom services
- * get only their advertised routes and default limits. Must stay `""`, not
- * `undefined`: the classifier falls back with `??`, which keeps `""`.
- */
-const UNKNOWN_MODEL_IDENTITY = "";
-
 /** Bare upstream identity, used to match a service to its foundation-model entry. */
 function bareModelName(name: string): string {
 	return name.replace(/^system\.ai\./, "").replace(/^databricks-/, "");
@@ -328,6 +318,16 @@ function gatewayModelName(model: string): string {
 	return model.startsWith(LEGACY_MODEL_PREFIX) && !bare.includes(".")
 		? `${SYSTEM_MODEL_PREFIX}${bare}`
 		: model;
+}
+
+/** Whether a URL is on this workspace's gateway. `host` is already a normalized origin. */
+function isWorkspaceGatewayUrl(baseUrl: string, host: string): boolean {
+	try {
+		const url = new URL(baseUrl);
+		return url.origin === host && url.pathname.startsWith("/ai-gateway/");
+	} catch {
+		return false;
+	}
 }
 
 /** Foundation-model display names keyed by bare model name (`claude-sonnet-4-6`). */
@@ -372,8 +372,11 @@ function parseModelServices(
 				config: {
 					served_entities: [
 						{
+							// A custom `catalog.schema.service` name is user-chosen (a catalog
+							// named `gpt-5` must not get GPT-5's routes and limits).
+							identityUnknown: !isSystem,
 							foundation_model: {
-								name: isSystem ? id : UNKNOWN_MODEL_IDENTITY,
+								...(isSystem ? { name: id } : {}),
 								display_name: isSystem ? (displayNames.get(bare) ?? bare) : ucName,
 								api_types: service.supported_api_types ?? [],
 								ai_gateway_v2_supported: true,
@@ -422,6 +425,7 @@ async function fetchModelServices(
 	host: string,
 	headers: Record<string, string>,
 	logger: Logger,
+	signal: AbortSignal,
 ): Promise<ModelService[]> {
 	const services: ModelService[] = [];
 	const seenTokens = new Set<string>();
@@ -431,7 +435,7 @@ async function fetchModelServices(
 		url.searchParams.set("page_size", "100");
 		url.searchParams.set("view", "FULL");
 		if (pageToken) url.searchParams.set("page_token", pageToken);
-		const data = (await fetchModelList(url.toString(), headers)) as ModelServicesPage;
+		const data = (await fetchModelList(url.toString(), headers, signal)) as ModelServicesPage;
 		services.push(...(data.model_services ?? []));
 		pageToken = data.next_page_token || undefined;
 		if (!pageToken) return services;
@@ -482,9 +486,10 @@ async function fetchGatewayModels(
 	host: string,
 	headers: Record<string, string>,
 	logger: Logger,
+	signal: AbortSignal,
 ): Promise<ModelInfo[]> {
 	const [services, displayNames] = await Promise.all([
-		fetchModelServices(host, headers, logger),
+		fetchModelServices(host, headers, logger, signal),
 		fetchDisplayNames(host, headers, logger),
 	]);
 	return parseModelServices(services, displayNames);
@@ -494,62 +499,34 @@ function createDatabricksModelFetcher(
 	surfaceState: SurfaceState,
 	logger: Logger,
 ): ClearableModelFetcher {
-	let lastFetch = 0;
-	let cachedModels: ModelInfo[] | null = null;
-	// Same generation guard as the surface state: a fetch spanning clearCache()
-	// may still answer its own caller, but must not repopulate the cache.
-	let generation = 0;
-
-	const fetcher: ClearableModelFetcher = async (
-		credentials: ProviderCredentials,
-	): Promise<ModelInfo[]> => {
-		const typed = credentials as ApiKeyCredentials;
-		if (!typed.apiKey || !typed.baseUrl?.trim()) {
-			logger.debug("[databricks] Missing apiKey or workspace host, returning no models");
-			return [];
-		}
-
-		const now = Date.now();
-		if (cachedModels && now - lastFetch < CACHE_TTL) {
-			logger.debug("[databricks] Using cached models");
-			return cachedModels;
-		}
-
-		const host = normalizeDatabricksHost(typed.baseUrl);
-		const headers = additiveHeaderRecord(
-			{ Authorization: `Bearer ${typed.apiKey}` },
-			typed.customHeaders,
-		);
-
-		try {
-			const startedIn = generation;
+	const cached = createCachedModelFetcher<ApiKeyCredentials>({
+		providerId: "databricks",
+		hasCredentials: (credentials) => Boolean(credentials.apiKey && credentials.baseUrl?.trim()),
+		fetchFresh: async (credentials, signal) => {
+			const host = normalizeDatabricksHost(credentials.baseUrl ?? "");
+			const headers = additiveHeaderRecord(
+				{ Authorization: `Bearer ${credentials.apiKey}` },
+				credentials.customHeaders,
+			);
 			const surface = await surfaceState.ensureSurface(host, headers);
 			const models =
 				surface === "gateway"
-					? await fetchGatewayModels(host, headers, logger)
+					? await fetchGatewayModels(host, headers, logger, signal)
 					: parseServingEndpointsResponse(
-							await fetchModelList(`${host}/api/2.0/serving-endpoints`, headers),
+							await fetchModelList(`${host}/api/2.0/serving-endpoints`, headers, signal),
 						);
-
-			if (generation === startedIn) {
-				lastFetch = now;
-				cachedModels = models;
-			}
 			logger.info(
 				`[databricks] Fetched ${models.length} chat models via ${surface === "gateway" ? "Unity AI Gateway" : "model serving"}`,
 			);
 			return models;
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			logger.warn(`[databricks] Model fetch failed: ${message}`);
-			return cachedModels ?? [];
-		}
-	};
+		},
+		fallbackModels: [],
+		logger,
+	});
 
+	const fetcher: ClearableModelFetcher = (credentials) => cached(credentials);
 	fetcher.clearCache = () => {
-		generation += 1;
-		cachedModels = null;
-		lastFetch = 0;
+		cached.clearCache?.();
 		// The surface pin and the model cache are released together: stamps and
 		// routes must always come from the same decision.
 		surfaceState.clear();
@@ -641,7 +618,7 @@ export function registerDatabricksProvider(registry: ProviderRegistry, logger: L
 					// An override pointing at this workspace's own gateway still needs
 					// the Unity Catalog name; any other URL (a proxy) gets the id as listed.
 					return delegate.chat(
-						params.baseUrl.startsWith(`${host}/ai-gateway/`)
+						isWorkspaceGatewayUrl(params.baseUrl, host)
 							? { ...params, model: gatewayModelName(params.model) }
 							: params,
 					);

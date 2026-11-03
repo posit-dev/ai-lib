@@ -85,6 +85,12 @@ export interface DatabricksServedEntityInput {
 	readonly entity_name?: string;
 	readonly foundation_model?: DatabricksFoundationModelInput;
 	readonly external_model?: DatabricksExternalModelInput;
+	/**
+	 * The model behind this entity is unknown (a custom gateway service, whose
+	 * user-chosen name says nothing about it). Its names are then never matched
+	 * against known models: it gets only its advertised routes and default limits.
+	 */
+	readonly identityUnknown?: boolean;
 }
 
 export interface DatabricksModelProfileInput {
@@ -200,6 +206,7 @@ function normalizeDatabricksModelId(modelId: string): string {
 
 /** Best-known identity of one served entity, falling back to the endpoint name. */
 function entityIdentity(entity: DatabricksServedEntityInput, endpointName: string): string {
+	if (entity.identityUnknown) return "";
 	return (
 		entity.foundation_model?.name ??
 		entity.external_model?.name ??

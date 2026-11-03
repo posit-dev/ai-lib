@@ -209,8 +209,8 @@ generation guard covers the latter). The 15-second default preserves the
 per-provider envelope Node surfaces already apply around discovery, so the
 fetcher's deadline fires first and serves the stale/fallback result itself;
 surfaces may configure a shorter deadline only as an explicit policy.
-Discovery sources that do not use `createCachedModelFetcher` (Databricks,
-Posit AI Pass, Bedrock/Mantle, Google Vertex) own their transport and are not
+Discovery sources that do not use `createCachedModelFetcher` (Posit AI
+Pass, Bedrock/Mantle, Google Vertex) own their transport and are not
 bounded by it — Vertex bounds each request with its own
 `AbortSignal.timeout(15000)`.
 

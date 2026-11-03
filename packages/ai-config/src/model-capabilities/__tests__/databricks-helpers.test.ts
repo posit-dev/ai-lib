@@ -409,6 +409,27 @@ describe("inferDatabricksModelProfile — unified MLflow Responses route", () =>
 		const gptOss = foundationEntity("system.ai.gpt-oss-120b", [GATEWAY_CHAT, GATEWAY_RESPONSES]);
 		expect(responseProtocol("gateway", [gptOss])).toBe("openai-chat");
 	});
+
+	it("never matches an unknown identity against known models, even by endpoint name", () => {
+		const result = profile({
+			surface: "gateway",
+			endpointName: "gpt-5.team.router",
+			servedEntities: [
+				{
+					identityUnknown: true,
+					foundation_model: {
+						api_types: [GATEWAY_CHAT, GATEWAY_RESPONSES, "openai/v1/responses"],
+						ai_gateway_v2_supported: true,
+					},
+				},
+			],
+		});
+		expect(result).toMatchObject({
+			excluded: false,
+			protocol: "mlflow-responses",
+			vendor: "databricks",
+		});
+	});
 });
 
 describe("inferDatabricksModelProfile — gateway chat availability", () => {
