@@ -11,6 +11,9 @@
  * auth-error guidance all act on the same resolved source.
  */
 
+import type * as NodeFs from "node:fs";
+import type * as NodePath from "node:path";
+
 import {
 	readSdkCredentialEnvironment,
 	type SdkCredentialEnvironment,
@@ -21,6 +24,16 @@ import {
 	type GoogleAuthOptions,
 	type JWTInput,
 } from "google-auth-library";
+
+// Looked up lazily so this module stays bundleable for browser targets.
+const nodeFs =
+	typeof process !== "undefined"
+		? (process.getBuiltinModule?.("node:fs") as typeof NodeFs | undefined)
+		: undefined;
+const nodePath =
+	typeof process !== "undefined"
+		? (process.getBuiltinModule?.("node:path") as typeof NodePath | undefined)
+		: undefined;
 
 type CredentialEnvironment = Readonly<Record<string, string | undefined>>;
 
@@ -135,6 +148,62 @@ export function googleVertexAuthOptions(
 			return { credentials: source.serviceAccount, scopes: [CLOUD_PLATFORM_SCOPE] };
 		case "adc":
 			return source.keyFilename ? { keyFilename: source.keyFilename } : undefined;
+	}
+}
+
+/** Where gcloud writes ADC, following google-auth-library's well-known file lookup. */
+function wellKnownAdcFile(path: typeof NodePath): string | undefined {
+	const configDir =
+		process.platform === "win32"
+			? process.env.APPDATA
+			: process.env.HOME && path.join(process.env.HOME, ".config");
+	return configDir && path.join(configDir, "gcloud", "application_default_credentials.json");
+}
+
+/** The `GOOGLE_APPLICATION_CREDENTIALS` path ADC will read, if one is set. */
+function adcKeyFile(source: GoogleVertexCredentialSource & { kind: "adc" }): string | undefined {
+	// With no captured path, google-auth-library reads the ambient environment itself.
+	return (
+		source.keyFilename ?? readSdkCredentialEnvironment(process.env).googleApplicationCredentials
+	);
+}
+
+/**
+ * The `GOOGLE_APPLICATION_CREDENTIALS` path when it points at a file that does
+ * not exist. google-auth-library does not fall back to gcloud's file then, so
+ * this is the cause of the failure.
+ */
+export function missingGoogleVertexKeyFile(
+	source: GoogleVertexCredentialSource,
+): string | undefined {
+	if (source.kind !== "adc" || !nodeFs) return undefined;
+	const keyFile = adcKeyFile(source);
+	return keyFile && !nodeFs.existsSync(keyFile) ? keyFile : undefined;
+}
+
+/**
+ * Where the credential comes from, for logs. For ADC this names the file
+ * google-auth-library will read and whether it exists.
+ */
+export function describeGoogleVertexCredentialSource(source: GoogleVertexCredentialSource): string {
+	switch (source.kind) {
+		case "brokered":
+			return "a token from the host's credential broker";
+		case "inline":
+			return "the inline service account in GOOGLE_CLIENT_EMAIL and GOOGLE_PRIVATE_KEY";
+		case "adc": {
+			const envFile = adcKeyFile(source);
+			if (envFile) {
+				const missing = missingGoogleVertexKeyFile(source) ? ", which does not exist" : "";
+				return `Application Default Credentials from GOOGLE_APPLICATION_CREDENTIALS (${envFile}${missing})`;
+			}
+			if (!nodeFs || !nodePath) return "Application Default Credentials";
+			const gcloudFile = wellKnownAdcFile(nodePath);
+			if (gcloudFile && nodeFs.existsSync(gcloudFile)) {
+				return `Application Default Credentials from gcloud's file (${gcloudFile})`;
+			}
+			return `Application Default Credentials with no file (GOOGLE_APPLICATION_CREDENTIALS is unset and there is no gcloud file at ${gcloudFile ?? "the default location"}), so only the metadata server can supply them`;
+		}
 	}
 }
 

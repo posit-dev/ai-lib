@@ -7,9 +7,11 @@ import { getAnthropicModelCapabilities } from "ai-config";
 
 import { additiveHeaderRecord } from "../custom-headers";
 import {
+	describeGoogleVertexCredentialSource,
 	type GoogleVertexCredentialSource,
 	isInlineServiceAccountError,
 	mintGoogleVertexAccessToken,
+	missingGoogleVertexKeyFile,
 	resolveGoogleVertexCredentialSource,
 } from "../google-vertex-credentials";
 import { GoogleVertexClient } from "../model-clients/GoogleVertexClient";
@@ -85,6 +87,21 @@ const AUTH_ERROR_GUIDANCE: Record<
 			"Google Cloud credentials expired or missing. Run 'gcloud auth application-default login' to refresh, then click Reload model list.",
 	},
 };
+
+/** The guidance for an auth error, naming a missing `GOOGLE_APPLICATION_CREDENTIALS` file when that's the cause. */
+function authErrorGuidance(source: GoogleVertexCredentialSource): {
+	code: string;
+	message: string;
+} {
+	const missingKeyFile = missingGoogleVertexKeyFile(source);
+	if (missingKeyFile) {
+		return {
+			code: "adc_file_missing",
+			message: `GOOGLE_APPLICATION_CREDENTIALS points to ${missingKeyFile}, which does not exist. Fix the path, or unset it to use gcloud's credentials, then click Reload model list.`,
+		};
+	}
+	return AUTH_ERROR_GUIDANCE[source.kind];
+}
 
 /**
  * Fetch models from a single Vertex AI publisher endpoint.
@@ -232,6 +249,7 @@ function createGoogleVertexModelFetcher(
 				credentials.accessToken,
 				credentialEnvironment,
 			);
+			const sourceDescription = describeGoogleVertexCredentialSource(credentialSource);
 
 			// 4. Try to fetch from Vertex AI API
 			try {
@@ -242,6 +260,7 @@ function createGoogleVertexModelFetcher(
 				);
 
 				const token = await mintGoogleVertexAccessToken(credentialSource);
+				logger.info(`[GoogleVertex] Using ${sourceDescription}`);
 
 				// Fetch from both publishers in parallel, collecting errors
 				// so that if both fail we can propagate to the outer catch
@@ -367,9 +386,12 @@ function createGoogleVertexModelFetcher(
 			} catch (error) {
 				const errorMsg = error instanceof Error ? error.message : String(error);
 
-				if (isAuthError(error)) {
-					const guidance = AUTH_ERROR_GUIDANCE[credentialSource.kind];
-					logger.error(`[GoogleVertex] ${guidance.message} Error: ${errorMsg}`);
+				// Any failure is down to a missing key file, whatever error it surfaced as.
+				if (isAuthError(error) || missingGoogleVertexKeyFile(credentialSource)) {
+					const guidance = authErrorGuidance(credentialSource);
+					logger.error(
+						`[GoogleVertex] ${guidance.message} Credential source: ${sourceDescription}. Error: ${errorMsg}`,
+					);
 
 					await callbacks?.onProviderStatusChange?.({
 						providerId,
@@ -393,7 +415,9 @@ function createGoogleVertexModelFetcher(
 				}
 
 				// Non-auth errors (network, service issues)
-				logger.warn(`[GoogleVertex] API fetch failed: ${errorMsg}, using fallback`);
+				logger.warn(
+					`[GoogleVertex] API fetch failed: ${errorMsg}, using fallback. Credential source: ${sourceDescription}`,
+				);
 
 				await callbacks?.onProviderStatusChange?.({
 					providerId,
