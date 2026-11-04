@@ -38,6 +38,8 @@ const HOST = "https://adb-123.4.azuredatabricks.net";
 const PROBE_URL = `${HOST}/api/ai-gateway/v2/endpoints?page_size=1`;
 const SERVING_LIST_URL = `${HOST}/api/2.0/serving-endpoints`;
 const FOUNDATION_LIST_URL = `${HOST}/api/2.0/serving-endpoints:foundation-models`;
+const MODEL_SERVICES_PATH = `${HOST}/api/2.1/unity-catalog/model-services`;
+const MODEL_SERVICES_URL = `${MODEL_SERVICES_PATH}?page_size=100&view=FULL`;
 
 const CREDENTIALS = {
 	type: "apikey" as const,
@@ -142,7 +144,65 @@ const SERVING_ENDPOINTS_FIXTURE = {
 	],
 };
 
-/** Foundation-models list fixture (gateway discovery). */
+const CHAT = "mlflow/v1/chat/completions";
+const RESPONSES = "mlflow/v1/responses";
+
+/**
+ * Unity Catalog model-services pages (gateway discovery), keyed by page token.
+ * The middle page is empty but still carries a token, as Azure returns.
+ */
+const MODEL_SERVICES_PAGES: Record<string, unknown> = {
+	"": {
+		model_services: [
+			{
+				name: "model-services/system.ai.claude-opus-4-8",
+				supported_api_types: [CHAT, "anthropic/v1/messages", RESPONSES],
+			},
+			{ name: "model-services/system.ai.llama-4-maverick", supported_api_types: [CHAT] },
+		],
+		next_page_token: "p2",
+	},
+	p2: { model_services: [], next_page_token: "p3" },
+	p3: {
+		model_services: [
+			// Advertises both routes, but its Responses stream drops tool arguments.
+			{ name: "model-services/system.ai.gpt-oss-120b", supported_api_types: [CHAT, RESPONSES] },
+			// Gateway-only model with no foundation-models display name.
+			{
+				name: "model-services/system.ai.deepseek-v4-1-flash-1017",
+				supported_api_types: [CHAT, RESPONSES],
+			},
+			// Custom route with a cross-vendor fallback: unified routes only.
+			{
+				name: "model-services/explorations.assistant_test.posit_test_fallback",
+				supported_api_types: [CHAT, RESPONSES],
+			},
+			// Custom route whose catalog starts like a legacy id: never renamed.
+			{
+				name: "model-services/databricks-team.catalog.router",
+				supported_api_types: [CHAT, RESPONSES],
+			},
+			// Custom route whose catalog name looks like a known model: its name must
+			// not pick a native route or GPT-5's limits.
+			{
+				name: "model-services/gpt-5.team.router",
+				supported_api_types: [CHAT, RESPONSES, "openai/v1/responses"],
+			},
+			// Embeddings — excluded
+			{
+				name: "model-services/system.ai.gte-large-en",
+				supported_api_types: ["mlflow/v1/embeddings"],
+			},
+			// Not a chat or Responses route — excluded
+			{
+				name: "model-services/system.ai.openjev-qwen35-4b",
+				supported_api_types: ["typesafe/v1/systemone"],
+			},
+		],
+	},
+};
+
+/** Foundation-models list fixture (gateway display names). */
 const FOUNDATION_MODELS_FIXTURE = {
 	endpoints: [
 		// Advertises the native Anthropic Messages API alongside gateway chat
@@ -267,6 +327,9 @@ function stubWorkspaceFetch(initial: {
 	probeStatus: number;
 	servingStatus?: number;
 	foundationStatus?: number;
+	/** Replaces the foundation-models response body. */
+	foundationBody?: unknown;
+	modelServicesStatus?: number;
 }) {
 	const status = { ...initial };
 	const chatRequests: CapturedChatRequest[] = [];
@@ -280,7 +343,14 @@ function stubWorkspaceFetch(initial: {
 			return jsonResponse(SERVING_ENDPOINTS_FIXTURE, status.servingStatus ?? 200);
 		}
 		if (url === FOUNDATION_LIST_URL) {
-			return jsonResponse(FOUNDATION_MODELS_FIXTURE, status.foundationStatus ?? 200);
+			return jsonResponse(
+				"foundationBody" in status ? status.foundationBody : FOUNDATION_MODELS_FIXTURE,
+				status.foundationStatus ?? 200,
+			);
+		}
+		if (url.startsWith(MODEL_SERVICES_PATH)) {
+			const token = new URL(url).searchParams.get("page_token") ?? "";
+			return jsonResponse(MODEL_SERVICES_PAGES[token], status.modelServicesStatus ?? 200);
 		}
 		chatRequests.push({
 			url,
@@ -368,25 +438,126 @@ describe("registerDatabricksProvider model fetcher", () => {
 		expect(workspace.urlsCalled()).toEqual([PROBE_URL, SERVING_LIST_URL]);
 	});
 
-	it("uses foundation-models discovery when the gateway probe succeeds", async () => {
+	it("lists Unity Catalog model services when the gateway probe succeeds", async () => {
 		const workspace = stubWorkspaceFetch({ probeStatus: 200 });
 
 		const models = await registry.getModelsForProvider("databricks", CREDENTIALS);
 
-		expect(models.map((m) => [m.id, m.protocol])).toEqual([
-			["databricks-claude-opus-4-8", "anthropic-messages"],
-			["databricks-llama-4-maverick", "openai-chat"],
-			["databricks-gpt-oss-120b", "openai-chat"],
+		expect(models.map((m) => [m.id, m.name, m.protocol])).toEqual([
+			// System services keep their legacy ids so saved references still match.
+			["databricks-claude-opus-4-8", "Claude Opus 4.8", "anthropic-messages"],
+			["databricks-llama-4-maverick", "Llama 4 Maverick", "openai-chat"],
+			["databricks-gpt-oss-120b", "gpt-oss-120b", "openai-chat"],
+			["databricks-deepseek-v4-1-flash-1017", "deepseek-v4-1-flash-1017", "mlflow-responses"],
+			[
+				"explorations.assistant_test.posit_test_fallback",
+				"explorations.assistant_test.posit_test_fallback",
+				"openai-chat",
+			],
+			["databricks-team.catalog.router", "databricks-team.catalog.router", "openai-chat"],
+			["gpt-5.team.router", "gpt-5.team.router", "openai-chat"],
 		]);
+		expect(models.at(-1)).toMatchObject({ vendor: "databricks", maxContextLength: 128_000 });
 		expect(models[0]).toMatchObject({
-			name: "Claude Opus 4.8",
 			providerId: "databricks",
 			vendor: "anthropic",
 			family: "claude-4.8",
 			maxContextLength: 1_000_000,
 			supportsImages: true,
 		});
-		expect(workspace.urlsCalled()).toEqual([PROBE_URL, FOUNDATION_LIST_URL]);
+		expect(workspace.urlsCalled()).toEqual([
+			PROBE_URL,
+			MODEL_SERVICES_URL,
+			FOUNDATION_LIST_URL,
+			`${MODEL_SERVICES_URL}&page_token=p2`,
+			`${MODEL_SERVICES_URL}&page_token=p3`,
+		]);
+	});
+
+	it("still lists model services when the foundation-models list fails or is malformed", async () => {
+		for (const failure of [{ foundationStatus: 403 }, { foundationBody: null }]) {
+			registry.clearModelCache("databricks");
+			stubWorkspaceFetch({ probeStatus: 200, ...failure });
+
+			const models = await registry.getModelsForProvider("databricks", CREDENTIALS);
+
+			expect(models[0]).toMatchObject({
+				id: "databricks-claude-opus-4-8",
+				name: "claude-opus-4-8",
+			});
+		}
+	});
+
+	it("lists foundation models when the model-services list fails", async () => {
+		stubWorkspaceFetch({ probeStatus: 200, modelServicesStatus: 404 });
+
+		const models = await registry.getModelsForProvider("databricks", CREDENTIALS);
+
+		expect(models.map((m) => [m.id, m.name, m.protocol])).toEqual([
+			["databricks-claude-opus-4-8", "Claude Opus 4.8", "anthropic-messages"],
+			["databricks-llama-4-maverick", "Llama 4 Maverick", "openai-chat"],
+			["databricks-gpt-oss-120b", "databricks-gpt-oss-120b", "openai-chat"],
+		]);
+		expect(mockLogger.warn).toHaveBeenCalledWith(
+			expect.stringContaining("listing foundation models instead"),
+		);
+	});
+
+	it("lists no models when both the model-services and foundation-models lists fail", async () => {
+		stubWorkspaceFetch({ probeStatus: 200, modelServicesStatus: 404, foundationStatus: 403 });
+
+		expect(await registry.getModelsForProvider("databricks", CREDENTIALS)).toEqual([]);
+	});
+
+	it("lists models with bare names when the foundation-models list hangs", async () => {
+		vi.useFakeTimers();
+		try {
+			const fetchCapture = createRawFetchCapture(async (input, init) => {
+				const url =
+					typeof input === "string" || input instanceof URL ? input.toString() : input.url;
+				if (url === PROBE_URL) return jsonResponse({ endpoints: [] });
+				if (url === FOUNDATION_LIST_URL) {
+					// Never answers; only an abort ends it.
+					return new Promise<Response>((_resolve, reject) => {
+						init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+					});
+				}
+				return jsonResponse(MODEL_SERVICES_PAGES[""]);
+			});
+			vi.stubGlobal("fetch", fetchCapture.mock);
+
+			const listing = registry.getModelsForProvider("databricks", CREDENTIALS);
+			await vi.advanceTimersByTimeAsync(5_000);
+
+			expect((await listing)[0]).toMatchObject({
+				id: "databricks-claude-opus-4-8",
+				name: "claude-opus-4-8",
+			});
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("stops paging when a page token repeats", async () => {
+		const fetchCapture = createRawFetchCapture(async (input) => {
+			const url = typeof input === "string" || input instanceof URL ? input.toString() : input.url;
+			if (url === PROBE_URL) return jsonResponse({ endpoints: [] });
+			if (url === FOUNDATION_LIST_URL) return jsonResponse(FOUNDATION_MODELS_FIXTURE);
+			return jsonResponse({
+				model_services: [
+					{ name: "model-services/system.ai.llama-4-maverick", supported_api_types: [CHAT] },
+				],
+				next_page_token: "same",
+			});
+		});
+		vi.stubGlobal("fetch", fetchCapture.mock);
+
+		const models = await registry.getModelsForProvider("databricks", CREDENTIALS);
+
+		expect(models.map((m) => m.id)).toEqual(["databricks-llama-4-maverick"]);
+		expect(mockLogger.warn).toHaveBeenCalledWith(
+			"[databricks] Model-services list repeated a page token; stopping early",
+		);
 	});
 
 	it("routes discovered gateway GPT OSS over chat even when Responses is advertised", async () => {
@@ -438,11 +609,9 @@ describe("registerDatabricksProvider model fetcher", () => {
 		});
 
 		for (const call of workspace.fetchMock.mock.calls) {
-			expect(call[1]).toEqual({
-				headers: {
-					Authorization: "Bearer dapi-test-token",
-					"x-databricks-use-coding-agent-mode": "true",
-				},
+			expect(call[1]?.headers).toEqual({
+				Authorization: "Bearer dapi-test-token",
+				"x-databricks-use-coding-agent-mode": "true",
 			});
 		}
 	});
@@ -574,6 +743,10 @@ describe("registerDatabricksProvider surface pinning", () => {
 			}
 			if (url === FOUNDATION_LIST_URL) {
 				return jsonResponse(FOUNDATION_MODELS_FIXTURE);
+			}
+			if (url.startsWith(MODEL_SERVICES_PATH)) {
+				const token = new URL(url).searchParams.get("page_token") ?? "";
+				return jsonResponse(MODEL_SERVICES_PAGES[token]);
 			}
 			return jsonResponse({ message: `unexpected URL: ${url}` }, 500);
 		});
@@ -716,7 +889,7 @@ describe("registerDatabricksProvider route seam", () => {
 		expect(
 			await routedUrl(200, { model: "databricks-gemini-2-5-pro", protocol: "google-generative" }),
 		).toBe(
-			`${HOST}/ai-gateway/gemini/v1beta/models/databricks-gemini-2-5-pro:streamGenerateContent`,
+			`${HOST}/ai-gateway/gemini/v1beta/models/system.ai.gemini-2-5-pro:streamGenerateContent`,
 		);
 	});
 
@@ -724,6 +897,62 @@ describe("registerDatabricksProvider route seam", () => {
 		expect(
 			await routedUrl(200, { model: "databricks-llama-4-maverick", protocol: "openai-chat" }),
 		).toBe(`${HOST}/ai-gateway/mlflow/v1/chat/completions`);
+	});
+
+	it("sends the Unity Catalog name for legacy ids on the gateway route only", async () => {
+		const sentModel = async (probeStatus: number, model: string): Promise<unknown> => {
+			registry = new ProviderRegistry(mockLogger);
+			registerDatabricksProvider(registry, mockLogger);
+			const workspace = stubWorkspaceFetch({ probeStatus });
+			await runChat(registry.getClientForProvider("databricks", CREDENTIALS), {
+				model,
+				protocol: "openai-chat",
+			});
+			return JSON.parse(workspace.chatRequests[0]?.body ?? "{}").model;
+		};
+
+		expect(await sentModel(200, "databricks-llama-4-maverick")).toBe("system.ai.llama-4-maverick");
+		expect(await sentModel(200, "explorations.assistant_test.posit_test_fallback")).toBe(
+			"explorations.assistant_test.posit_test_fallback",
+		);
+		expect(await sentModel(200, "databricks-team.catalog.router")).toBe(
+			"databricks-team.catalog.router",
+		);
+		expect(await sentModel(404, "databricks-llama-4-maverick")).toBe("databricks-llama-4-maverick");
+	});
+
+	it.each([
+		`${HOST}/ai-gateway/anthropic/v1`,
+		`${HOST.toUpperCase().replace("HTTPS", "https")}:443/ai-gateway/anthropic/v1`,
+	])(
+		"sends the Unity Catalog name to an override URL on this workspace's gateway (%s)",
+		async (baseUrl) => {
+			const workspace = stubWorkspaceFetch({ probeStatus: 200 });
+
+			await runChat(registry.getClientForProvider("databricks", CREDENTIALS), {
+				model: "databricks-claude-sonnet-4-5",
+				protocol: "anthropic-messages",
+				baseUrl,
+			});
+
+			expect(JSON.parse(workspace.chatRequests[0]?.body ?? "{}").model).toBe(
+				"system.ai.claude-sonnet-4-5",
+			);
+		},
+	);
+
+	it("keeps the listed id for an override URL on this workspace outside the gateway", async () => {
+		const workspace = stubWorkspaceFetch({ probeStatus: 200 });
+
+		await runChat(registry.getClientForProvider("databricks", CREDENTIALS), {
+			model: "databricks-claude-sonnet-4-5",
+			protocol: "anthropic-messages",
+			baseUrl: `${HOST}/serving-endpoints/anthropic/v1`,
+		});
+
+		expect(JSON.parse(workspace.chatRequests[0]?.body ?? "{}").model).toBe(
+			"databricks-claude-sonnet-4-5",
+		);
 	});
 
 	it("keeps max_tokens on Databricks Chat Completions requests", async () => {
@@ -752,6 +981,10 @@ describe("registerDatabricksProvider route seam", () => {
 		expect(workspace.chatRequests.map((r) => r.url)).toEqual([
 			"https://proxy.example.com/custom/anthropic/v1/messages",
 		]);
+		// A proxy gets the model id as listed.
+		expect(JSON.parse(workspace.chatRequests[0]?.body ?? "{}").model).toBe(
+			"databricks-claude-sonnet-4-5",
+		);
 		expect(workspace.probeCount()).toBe(0);
 	});
 

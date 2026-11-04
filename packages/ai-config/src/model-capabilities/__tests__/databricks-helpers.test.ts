@@ -186,6 +186,31 @@ describe("inferDatabricksModelProfile — Responses family allowlist", () => {
 		);
 	});
 
+	it("requires the streaming Gemini api type for the gateway's native route", () => {
+		const gemini = (apiTypes: string[]) =>
+			listed(
+				profile({
+					surface: "gateway",
+					endpointName: "databricks-gemini-2-5-pro",
+					servedEntities: [
+						{
+							foundation_model: {
+								name: "databricks-gemini-2-5-pro",
+								api_types: ["mlflow/v1/responses", ...apiTypes],
+								ai_gateway_v2_supported: true,
+							},
+						},
+					],
+				}),
+			).protocol;
+
+		expect(gemini(["gemini/v1/generateContent", "gemini/v1/streamGenerateContent"])).toBe(
+			"google-generative",
+		);
+		// Chat always streams, so a unary-only service falls back.
+		expect(gemini(["gemini/v1/generateContent"])).toBe("mlflow-responses");
+	});
+
 	it("keeps hosted pay-per-token Responses endpoints on the conservative thinking treatment", () => {
 		const hosted = listed(
 			profile({
@@ -383,6 +408,46 @@ describe("inferDatabricksModelProfile — unified MLflow Responses route", () =>
 	it("keeps GPT OSS off unified Responses (empty streamed tool arguments)", () => {
 		const gptOss = foundationEntity("system.ai.gpt-oss-120b", [GATEWAY_CHAT, GATEWAY_RESPONSES]);
 		expect(responseProtocol("gateway", [gptOss])).toBe("openai-chat");
+	});
+
+	it("never matches an unknown identity against known models, even by endpoint name", () => {
+		const result = profile({
+			surface: "gateway",
+			endpointName: "gpt-5.team.router",
+			servedEntities: [
+				{
+					identityUnknown: true,
+					foundation_model: {
+						api_types: [GATEWAY_CHAT, GATEWAY_RESPONSES, "openai/v1/responses"],
+						ai_gateway_v2_supported: true,
+					},
+				},
+			],
+		});
+		expect(result).toMatchObject({
+			excluded: false,
+			protocol: "openai-chat",
+			vendor: "databricks",
+		});
+	});
+
+	it("routes an unknown identity over chat completions, since it may be GPT OSS", () => {
+		const custom = (apiTypes: string[]): string | undefined => {
+			const result = profile({
+				surface: "gateway",
+				endpointName: "catalog.schema.router",
+				servedEntities: [
+					{
+						identityUnknown: true,
+						foundation_model: { api_types: apiTypes, ai_gateway_v2_supported: true },
+					},
+				],
+			});
+			return result.excluded ? undefined : result.protocol;
+		};
+		expect(custom([GATEWAY_CHAT, GATEWAY_RESPONSES])).toBe("openai-chat");
+		// Responses is still used when it is the only route.
+		expect(custom([GATEWAY_RESPONSES])).toBe("mlflow-responses");
 	});
 });
 

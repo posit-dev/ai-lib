@@ -38,7 +38,7 @@ export interface ChatRequestMetadata {
  * so the contract is defined in one place.
  */
 export interface ModelClientChatParams {
-	/** The model ID from ModelInfo (provider-specific, exact string sent to API). */
+	/** The stable model ID from ModelInfo; the client may translate it for the wire. */
 	model: string;
 	/** Chat messages in AI SDK format. */
 	messages: ModelMessage[];

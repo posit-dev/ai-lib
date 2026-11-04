@@ -209,8 +209,8 @@ generation guard covers the latter). The 15-second default preserves the
 per-provider envelope Node surfaces already apply around discovery, so the
 fetcher's deadline fires first and serves the stale/fallback result itself;
 surfaces may configure a shorter deadline only as an explicit policy.
-Discovery sources that do not use `createCachedModelFetcher` (Databricks,
-Posit AI Pass, Bedrock/Mantle, Google Vertex) own their transport and are not
+Discovery sources that do not use `createCachedModelFetcher` (Posit AI
+Pass, Bedrock/Mantle, Google Vertex) own their transport and are not
 bounded by it — Vertex bounds each request with its own
 `AbortSignal.timeout(15000)`.
 
@@ -474,11 +474,24 @@ resolved protocol to an AI-SDK base URL (the version segment, `/v1` or
 operation path); `params.baseUrl`, when the pipeline already supplied one, is
 trusted verbatim and skips the route seam entirely.
 
-A couple of constants this classification depends on — the OpenAI/Gemini
-gateway `api_types` strings and tolerance of a stripped `x-goog-api-key` — are
-flagged `PHASE0-VERIFY` in code pending confirmation against a real Databricks
-workspace; a wrong guess degrades safely to the `openai-chat` fallback rather
-than a broken route. Hosted pay-per-token Responses endpoints are no longer in
+On the gateway surface, discovery lists models from the Unity Catalog
+model-services API (`GET /api/2.1/unity-catalog/model-services`, no `parent`,
+`view=FULL`, paged), with display names from the foundation-models list where
+the bare name matches. If the model-services list fails, discovery lists the
+foundation-models list instead (no custom services). System services (`system.ai.<model>`) are listed under
+their legacy id `databricks-<model>`, so saved selections and model rules from
+earlier releases keep matching; the client sends `system.ai.<model>` on the
+built-in gateway route and on an override URL under this workspace's
+`/ai-gateway/`, because newer models reject the legacy name. Any other override
+URL (a proxy) gets the id as listed. Custom services keep their
+`catalog.schema.service` name, which is never translated, and are classified
+with no model identity, so they get only unified routes and default limits.
+They use chat completions whenever it is advertised, since a custom route may send traffic to GPT OSS, which streams empty tool arguments on unified Responses; Responses is used only when it is the sole route.
+
+The gateway `api_types` strings (`anthropic/v1/messages`,
+`openai/v1/responses`, `gemini/v1/streamGenerateContent`) are confirmed from a
+captured model-services response. Tolerance of a stripped `x-goog-api-key` is
+still flagged `PHASE0-VERIFY` in code. Hosted pay-per-token Responses endpoints are no longer in
 that bucket: Databricks documents `store`/`previous_response_id` as unsupported
 there (400 if specified), which is why those endpoints advertise no thinking
 controls (see `memory-bank/aiConfig.md`).
