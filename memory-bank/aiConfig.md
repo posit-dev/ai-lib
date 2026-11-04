@@ -913,7 +913,8 @@ Classification rules, in order:
 - **Fallback stamps are always explicit**, never `undefined`: a gateway endpoint
   gets `mlflow-responses` when every entity advertises it and can stream tool
   arguments on that route (unlike GPT OSS), otherwise `openai-chat` wherever
-  chat exists. `undefined` stays reserved for providers that made no
+  chat exists. A custom service (unknown model) gets `openai-chat` whenever chat is advertised, since it may route to GPT OSS, and `mlflow-responses` only when that is its sole route.
+  `undefined` stays reserved for providers that made no
   routing decision at all.
 
 **Two documented limitations, not fixed here:**
@@ -979,7 +980,7 @@ streamed `mlflow/v1/responses` output carries `function_call` items with
 argument deltas, so every tool call reaches the client as `{}`; the same
 request non-streamed carries the arguments, and other hosted families (Qwen,
 Llama) stream them fine. The classifier therefore withholds the
-`mlflow-responses` stamp from `gpt-oss*` identities, and they fall back to
+`mlflow-responses` stamp from `gpt-oss*` identities, and from custom services that also advertise chat (their name can't tell us whether GPT OSS is behind them, directly or as a fallback), and they fall back to
 `openai-chat` (which they advertise). Chat completions is the better of two
 imperfect routes rather than a clean one: it streams the arguments, but it has
 also been observed to drop GPT OSS output entirely on large, tool-heavy

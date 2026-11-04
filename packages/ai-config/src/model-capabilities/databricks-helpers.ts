@@ -20,8 +20,9 @@
  * stamped only when the endpoint's structure, the model's identity, and (on the
  * gateway surface) the advertised `api_types` all agree. A non-native gateway
  * endpoint uses unified MLflow Responses when every entity advertises it and
- * streams tool arguments on it (GPT OSS does not), then falls back to an
- * explicit `openai-chat` stamp when every entity advertises chat. `undefined`
+ * streams tool arguments on it (GPT OSS does not, and an unknown identity may be
+ * GPT OSS), then falls back to an explicit `openai-chat` stamp when every entity
+ * advertises chat. `undefined`
  * is never returned as a protocol.
  *
  * Two outcomes exist because unavailability is real: on the gateway surface an
@@ -261,6 +262,8 @@ interface EntityResolution {
 	readonly gatewayV2Supported: boolean;
 	/** Whether the unified MLflow Responses route may serve this entity. */
 	readonly unifiedResponsesEligible: boolean;
+	/** Whether the model behind this entity is unknown (a custom gateway service). */
+	readonly identityUnknown: boolean;
 }
 
 /** OpenAI table capabilities with the shared-context input reservation applied. */
@@ -375,6 +378,7 @@ function resolveEntity(
 		apiTypes: foundationModel?.api_types ?? [],
 		gatewayV2Supported: foundationModel?.ai_gateway_v2_supported === true,
 		unifiedResponsesEligible: streamsUnifiedResponsesToolArguments(normalizedIdentity),
+		identityUnknown: entity.identityUnknown === true,
 	} as const;
 
 	if (!nativeAllowed) {
@@ -611,10 +615,16 @@ export function inferDatabricksModelProfile(
 	//
 	// Advertising the route is not enough for every family: GPT OSS streams
 	// empty tool arguments on it (see `streamsUnifiedResponsesToolArguments`).
+	// A custom service may route to GPT OSS (as its only or fallback
+	// destination), so it takes chat completions whenever that is advertised.
+	const unknownPrefersChat =
+		resolutions.some((entity) => entity.identityUnknown) &&
+		everyGatewayEntityAdvertises(GATEWAY_CHAT_API_TYPE);
 	if (
 		input.surface === "gateway" &&
 		everyGatewayEntityAdvertises(GATEWAY_RESPONSES_API_TYPE) &&
-		resolutions.every((entity) => entity.unifiedResponsesEligible)
+		resolutions.every((entity) => entity.unifiedResponsesEligible) &&
+		!unknownPrefersChat
 	) {
 		return {
 			excluded: false,

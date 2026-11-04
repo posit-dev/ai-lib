@@ -486,6 +486,7 @@ built-in gateway route and on an override URL under this workspace's
 URL (a proxy) gets the id as listed. Custom services keep their
 `catalog.schema.service` name, which is never translated, and are classified
 with no model identity, so they get only unified routes and default limits.
+They use chat completions whenever it is advertised, since a custom route may send traffic to GPT OSS, which streams empty tool arguments on unified Responses; Responses is used only when it is the sole route.
 
 The gateway `api_types` strings (`anthropic/v1/messages`,
 `openai/v1/responses`, `gemini/v1/streamGenerateContent`) are confirmed from a

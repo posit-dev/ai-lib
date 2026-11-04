@@ -452,10 +452,10 @@ describe("registerDatabricksProvider model fetcher", () => {
 			[
 				"explorations.assistant_test.posit_test_fallback",
 				"explorations.assistant_test.posit_test_fallback",
-				"mlflow-responses",
+				"openai-chat",
 			],
-			["databricks-team.catalog.router", "databricks-team.catalog.router", "mlflow-responses"],
-			["gpt-5.team.router", "gpt-5.team.router", "mlflow-responses"],
+			["databricks-team.catalog.router", "databricks-team.catalog.router", "openai-chat"],
+			["gpt-5.team.router", "gpt-5.team.router", "openai-chat"],
 		]);
 		expect(models.at(-1)).toMatchObject({ vendor: "databricks", maxContextLength: 128_000 });
 		expect(models[0]).toMatchObject({

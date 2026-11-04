@@ -426,9 +426,28 @@ describe("inferDatabricksModelProfile — unified MLflow Responses route", () =>
 		});
 		expect(result).toMatchObject({
 			excluded: false,
-			protocol: "mlflow-responses",
+			protocol: "openai-chat",
 			vendor: "databricks",
 		});
+	});
+
+	it("routes an unknown identity over chat completions, since it may be GPT OSS", () => {
+		const custom = (apiTypes: string[]): string | undefined => {
+			const result = profile({
+				surface: "gateway",
+				endpointName: "catalog.schema.router",
+				servedEntities: [
+					{
+						identityUnknown: true,
+						foundation_model: { api_types: apiTypes, ai_gateway_v2_supported: true },
+					},
+				],
+			});
+			return result.excluded ? undefined : result.protocol;
+		};
+		expect(custom([GATEWAY_CHAT, GATEWAY_RESPONSES])).toBe("openai-chat");
+		// Responses is still used when it is the only route.
+		expect(custom([GATEWAY_RESPONSES])).toBe("mlflow-responses");
 	});
 });
 
