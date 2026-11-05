@@ -623,7 +623,7 @@ export class AcquisitionEngine {
 						// Re-auth is genuinely required. Classification and the
 						// tombstone stay inside the transaction so a concurrent
 						// refresher cannot overwrite the terminal record.
-						const result = await refresh.commitError("refresh_failed", { code: error.code });
+						const result = await refresh.commitError("refresh_failed", error.code);
 						if (result === "committed") {
 							this.logger?.error(
 								`[ai-credentials] refresh rejected for ${providerId} (terminal: ${describeRefreshError(error)}; sent ${sent}, pid ${pid}); stored tokens removed`,

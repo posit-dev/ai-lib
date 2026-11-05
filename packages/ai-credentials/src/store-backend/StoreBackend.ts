@@ -9,7 +9,6 @@ import type {
 	MutableBackend,
 	OAuthGrantConfig,
 	OAuthProviderConfig,
-	RefreshRejection,
 	RefreshTransaction,
 	StoredOAuthTokens,
 } from "../Backend.js";
@@ -814,17 +813,17 @@ export function createStoreBackend(options: CreateStoreBackendOptions): StoreBac
 		};
 	}
 
-	/** A terminal record; a refresh `rejection` also records who wrote it and why. */
-	function terminalWith(error: string, rejection?: RefreshRejection): RecordBuilder {
+	/** A terminal record; a refresh's `rejectionCode` also records who wrote it and why. */
+	function terminalWith(error: string, rejectionCode?: string): RecordBuilder {
 		return (current) => {
 			if (!current.source) return null;
 			const record = terminalOAuthRecord(current.source, generationFactory(), error);
-			if (!rejection) return record;
+			if (rejectionCode === undefined) return record;
 			return {
 				...record,
 				failure: {
 					at: new Date().toISOString(),
-					code: rejection.code,
+					code: rejectionCode,
 					pid: process.pid,
 					...(writer ? { host: writer.host, version: writer.version } : {}),
 				},
@@ -949,7 +948,7 @@ export function createStoreBackend(options: CreateStoreBackendOptions): StoreBac
 				return await operation({
 					tokens,
 					commitTokens: (refreshed) => commit(authenticatedWith(refreshed)),
-					commitError: (error, rejection) => commit(terminalWith(error, rejection)),
+					commitError: (error, rejectionCode) => commit(terminalWith(error, rejectionCode)),
 				});
 			} finally {
 				open = false;

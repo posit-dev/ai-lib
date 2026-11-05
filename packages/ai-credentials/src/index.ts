@@ -37,7 +37,6 @@ export type {
 	OAuthGrantConfig,
 	OAuthProviderConfig,
 	PreparedAuthorizationCodeReceiver,
-	RefreshRejection,
 	RefreshTransaction,
 	StoredOAuthTokens,
 } from "./Backend.js";

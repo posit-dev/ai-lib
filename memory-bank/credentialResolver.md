@@ -169,12 +169,12 @@ was reused; a `#received` later sent once and rejected points at the server.
 Raw tokens are never logged.
 
 **Persisted failure.** The engine passes the terminal RFC 6749 code to
-`RefreshTransaction.commitError(error, { code })`. The backend owns what is
+`RefreshTransaction.commitError(error, rejectionCode)`. The backend owns what is
 persisted: StoreBackend adds `failure: { at, code, pid, host, version }` to the
 `refresh_failed` record (`host`/`version` from the optional
 `createStoreBackend({ writer })`), so a tombstone written by a process whose
 log is gone is still attributable. Interactive sign-in failures share the
-terminal-record builder but supply no rejection, so they write no `failure`.
+terminal-record builder but supply no rejection code, so they write no `failure`.
 
 Caveats:
 
