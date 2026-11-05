@@ -64,9 +64,13 @@ const MAX_SETTLED_OUTCOMES = 100;
  * Refresh-failure policy: only a definitive server rejection — one of these
  * RFC 6749 codes on a 400/401 — may delete the stored tokens. Every other
  * failure (network, timeout, 429, 5xx, unknown 4xx, malformed body, local
- * lock/IO) keeps them and retries later.
+ * lock/IO) keeps them and retries later. Exported so hosts can validate the
+ * `failure.code` of a stored terminal record before logging it.
  */
-const TERMINAL_REFRESH_CODES = new Set(["invalid_grant", "invalid_client"]);
+export const TERMINAL_REFRESH_CODES: ReadonlySet<string> = new Set([
+	"invalid_grant",
+	"invalid_client",
+]);
 
 /** Non-2xx response from an OAuth endpoint, with the parsed RFC 6749 code. */
 class OAuthHttpError extends Error {

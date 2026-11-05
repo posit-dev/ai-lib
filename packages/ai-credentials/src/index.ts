@@ -41,6 +41,7 @@ export type {
 	RefreshTransaction,
 	StoredOAuthTokens,
 } from "./Backend.js";
+export { TERMINAL_REFRESH_CODES } from "./acquisition.js";
 export { createCredentialProvider } from "./createCredentialProvider.js";
 export type {
 	CreateCredentialProviderOptions,
