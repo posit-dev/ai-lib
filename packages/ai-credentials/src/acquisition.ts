@@ -596,6 +596,10 @@ export class AcquisitionEngine {
 				if (!this.isExpiring(`stored:${providerId}`, current, 2)) {
 					return current.accessToken;
 				}
+				// Refresh tokens are logged only by fingerprint (the stored strings
+				// never are), so token reuse across processes can be traced.
+				const sent = await tokenFingerprint(current.refreshToken);
+				const pid = processId();
 				let refreshed: TokenData;
 				try {
 					const response = await postForm(
@@ -615,29 +619,35 @@ export class AcquisitionEngine {
 						// Re-auth is genuinely required. Classification and the
 						// tombstone stay inside the transaction so a concurrent
 						// refresher cannot overwrite the terminal record.
-						const result = await refresh.commitError("refresh_failed");
+						const result = await refresh.commitError("refresh_failed", { code: error.code });
 						if (result === "committed") {
 							this.logger?.error(
-								`[ai-credentials] refresh rejected for ${providerId} (terminal: ${describeRefreshError(error)}); stored tokens removed`,
+								`[ai-credentials] refresh rejected for ${providerId} (terminal: ${describeRefreshError(error)}; sent ${sent}, pid ${pid}); stored tokens removed`,
 							);
 						} else {
 							this.logger?.warn(
-								`[ai-credentials] refresh rejected for ${providerId} (terminal: ${describeRefreshError(error)}); stored record changed during the refresh and was kept`,
+								`[ai-credentials] refresh rejected for ${providerId} (terminal: ${describeRefreshError(error)}; sent ${sent}, pid ${pid}); stored record changed during the refresh and was kept`,
 							);
 						}
 					} else {
 						this.startRefreshCooldown(providerId);
 						this.logger?.warn(
-							`[ai-credentials] refresh failed for ${providerId} (transient: ${describeRefreshError(error)}); stored tokens kept`,
+							`[ai-credentials] refresh failed for ${providerId} (transient: ${describeRefreshError(error)}; sent ${sent}, pid ${pid}); stored tokens kept`,
 						);
 					}
 					return null;
 				}
+				const received = await tokenFingerprint(refreshed.refreshToken);
 				try {
 					const result = await refresh.commitTokens(refreshed);
-					if (result === "superseded") {
-						this.logger?.debug(
-							`[ai-credentials] refreshed tokens for ${providerId} not stored: stored record changed during the refresh`,
+					if (result === "committed") {
+						const expiresAt = new Date(Date.now() + refreshed.expiresIn * 1000).toISOString();
+						this.logger?.info(
+							`[ai-credentials] refreshed ${providerId}: ${sent} -> ${received}, expires ${expiresAt}, pid ${pid}`,
+						);
+					} else {
+						this.logger?.info(
+							`[ai-credentials] refreshed tokens for ${providerId} (${sent} -> ${received}, pid ${pid}) not stored: stored record changed during the refresh`,
 						);
 					}
 				} catch (error) {
@@ -647,7 +657,7 @@ export class AcquisitionEngine {
 					// invalid_grant and tombstones correctly.
 					this.startRefreshCooldown(providerId);
 					this.logger?.warn(
-						`[ai-credentials] refreshed tokens for ${providerId} could not be persisted (transient); stored tokens kept`,
+						`[ai-credentials] refreshed tokens for ${providerId} could not be persisted (transient; ${sent} -> ${received}, pid ${pid}); stored tokens kept`,
 						error,
 					);
 					return null;
@@ -945,7 +955,7 @@ function isClientRejection(error: unknown): boolean {
 }
 
 /** A definitive server rejection of the refresh token; anything else retries. */
-function isTerminalRefreshError(error: unknown): boolean {
+function isTerminalRefreshError(error: unknown): error is OAuthHttpError & { code: string } {
 	return (
 		error instanceof OAuthHttpError &&
 		(error.status === 400 || error.status === 401) &&
@@ -1041,6 +1051,24 @@ async function sha256Base64Url(value: string): Promise<string> {
 	let binary = "";
 	for (const byte of bytes) binary += String.fromCharCode(byte);
 	return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+}
+
+/**
+ * Non-secret identity of a token for logs: the first 8 hex digits of its
+ * SHA-256, prefixed with `#`. Equal fingerprints in two processes' logs mean
+ * the same token; the fingerprint reveals nothing usable about the token.
+ */
+async function tokenFingerprint(token: string): Promise<string> {
+	const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+	const hex = [...new Uint8Array(digest).subarray(0, 4)]
+		.map((byte) => byte.toString(16).padStart(2, "0"))
+		.join("");
+	return `#${hex}`;
+}
+
+/** This process's id for logs, where the runtime has one (no Node import). */
+function processId(): number | "unknown" {
+	return globalThis.process?.pid ?? "unknown";
 }
 
 function errorCode(error: unknown): string {

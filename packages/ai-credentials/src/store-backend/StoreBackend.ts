@@ -9,6 +9,7 @@ import type {
 	MutableBackend,
 	OAuthGrantConfig,
 	OAuthProviderConfig,
+	RefreshRejection,
 	RefreshTransaction,
 	StoredOAuthTokens,
 } from "../Backend.js";
@@ -147,6 +148,11 @@ export interface CreateStoreBackendOptions {
 	env?: Readonly<Record<string, string | undefined>>;
 	logger?: Logger;
 	generationFactory?: () => string;
+	/**
+	 * The host application writing records, persisted with a rejected
+	 * refresh's `failure` so a terminal record names its writer.
+	 */
+	writer?: { host: string; version: string };
 }
 
 interface NormalizedStored {
@@ -201,6 +207,7 @@ export function createStoreBackend(options: CreateStoreBackendOptions): StoreBac
 		watchedProviderIds = [],
 		logger,
 		generationFactory = defaultGeneration,
+		writer,
 	} = options;
 	const currentEnvironment = () => options.env ?? process.env;
 
@@ -807,9 +814,22 @@ export function createStoreBackend(options: CreateStoreBackendOptions): StoreBac
 		};
 	}
 
-	function terminalWith(error: string): RecordBuilder {
-		return (current) =>
-			current.source ? terminalOAuthRecord(current.source, generationFactory(), error) : null;
+	/** A terminal record; a refresh `rejection` also records who wrote it and why. */
+	function terminalWith(error: string, rejection?: RefreshRejection): RecordBuilder {
+		return (current) => {
+			if (!current.source) return null;
+			const record = terminalOAuthRecord(current.source, generationFactory(), error);
+			if (!rejection) return record;
+			return {
+				...record,
+				failure: {
+					at: new Date().toISOString(),
+					code: rejection.code,
+					pid: process.pid,
+					...(writer ? { host: writer.host, version: writer.version } : {}),
+				},
+			};
+		};
 	}
 
 	async function commitAuthentication(
@@ -929,7 +949,7 @@ export function createStoreBackend(options: CreateStoreBackendOptions): StoreBac
 				return await operation({
 					tokens,
 					commitTokens: (refreshed) => commit(authenticatedWith(refreshed)),
-					commitError: (error) => commit(terminalWith(error)),
+					commitError: (error, rejection) => commit(terminalWith(error, rejection)),
 				});
 			} finally {
 				open = false;

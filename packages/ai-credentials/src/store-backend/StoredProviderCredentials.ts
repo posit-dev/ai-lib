@@ -53,6 +53,24 @@ export const storedProviderCredentialsSchema = z.object({
 	generation: z.string().optional(),
 	readiness: z.enum(["pending", "ready", "unauthenticated"]).optional(),
 	source: credentialSourceSchema.optional(),
+	/**
+	 * Who wrote a terminal record after a rejected refresh, and why. Only a
+	 * refresh rejection writes it; sign-in and refresh commits build fresh
+	 * records, so it never outlives the terminal record. Free-form strings any
+	 * writer can set: never echo them unvalidated.
+	 */
+	failure: z
+		.object({
+			/** ISO-8601 time of the rejection. */
+			at: z.string(),
+			/** The RFC 6749 code the server rejected the refresh with. */
+			code: z.string().optional(),
+			pid: z.number().optional(),
+			/** The writing host, from `createStoreBackend`'s `writer` option. */
+			host: z.string().optional(),
+			version: z.string().optional(),
+		})
+		.optional(),
 
 	// Auth-method-specific fields (only one should be populated)
 	apiKeyAuth: z

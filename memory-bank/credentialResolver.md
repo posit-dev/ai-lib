@@ -157,6 +157,25 @@ the tokens and cannot take this fallback. An expired cooldown is removed before
 the retry. The cooldown is process-local; the file lock already serializes
 actual refreshes across processes.
 
+**Refresh logging.** Every stored refresh that reaches the token endpoint logs
+the refresh token it sent, and on success the one it received, as
+fingerprints (`#` + the first 8 hex digits of SHA-256, computed with
+`globalThis.crypto.subtle`), plus the process id (`globalThis.process?.pid`,
+so the pure root still imports nothing from Node). A stored commit logs
+`refreshed <provider>: #sent -> #received, expires <ISO>, pid <n>` at info; the
+terminal, transient, superseded, and failed-to-persist lines carry the same
+`sent`/`pid` fields. The same `#sent` in two processes' logs means the token
+was reused; a `#received` later sent once and rejected points at the server.
+Raw tokens are never logged.
+
+**Persisted failure.** The engine passes the terminal RFC 6749 code to
+`RefreshTransaction.commitError(error, { code })`. The backend owns what is
+persisted: StoreBackend adds `failure: { at, code, pid, host, version }` to the
+`refresh_failed` record (`host`/`version` from the optional
+`createStoreBackend({ writer })`), so a tombstone written by a process whose
+log is gone is still attributable. Interactive sign-in failures share the
+terminal-record builder but supply no rejection, so they write no `failure`.
+
 Caveats:
 
 - **Residual rotation loss.** If a refresh response is lost after the server
@@ -166,6 +185,7 @@ Caveats:
   correct terminal state; avoiding it needs server-side rotation grace.
 - **Mixed-version sharing.** Older builds sharing the same `data.json` can
   still write tombstones on transient failures; only new builds stop doing so.
+  Older builds also write no `failure`, so their tombstones stay unattributed.
 
 ## Databricks source and concurrency model
 
@@ -322,6 +342,15 @@ needs no envelope or migration. Optional credential groups may be added
 without rewriting legacy records.
 Structurally invalid records (e.g. an `apiKeyAuth` missing its required
 `apiKey`) are dropped rather than flowing out as credentials.
+
+The schema is a plain `z.object`, which strips unknown keys: an older build
+parses a newer record and drops fields it doesn't know if it rewrites it.
+`failure` (`{ at, code?, pid?, host?, version? }`) is such an addition. Only a
+rejected refresh writes it (see [Refresh failure
+policy](#refresh-failure-policy--terminal-vs-transient)); `error:
+"refresh_failed"` is unchanged, and sign-in and refresh commits build fresh
+records, so `failure` appears only on a terminal record. Its strings come from
+whichever process wrote the record; readers must not echo them unvalidated.
 
 Custom AWS providers persist manual secrets in `awsKeys`
 (`accessKeyId`, `secretAccessKey`, optional `sessionToken`) without duplicating

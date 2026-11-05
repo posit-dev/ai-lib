@@ -130,6 +130,12 @@ export interface StoredOAuthTokens {
 
 export type AuthenticationCommitResult = "committed" | "superseded";
 
+/** Why the authorization server rejected a refresh. */
+export interface RefreshRejection {
+	/** The RFC 6749 `error` code (e.g. `invalid_grant`). */
+	code: string;
+}
+
 /**
  * The stored OAuth tokens a refresh read, with writes bound to the generation
  * of that same read. Each commit lands only while the stored record still holds
@@ -139,7 +145,11 @@ export type AuthenticationCommitResult = "committed" | "superseded";
 export interface RefreshTransaction {
 	tokens: StoredOAuthTokens;
 	commitTokens(tokens: TokenData): Promise<AuthenticationCommitResult>;
-	commitError(error: string): Promise<AuthenticationCommitResult>;
+	/**
+	 * Replace the tokens with a terminal `error` record. `rejection` says why;
+	 * the backend decides what of it (plus its own writer identity) to persist.
+	 */
+	commitError(error: string, rejection: RefreshRejection): Promise<AuthenticationCommitResult>;
 }
 
 /** Durable hooks used by the generalized acquisition engine. */

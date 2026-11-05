@@ -2,6 +2,7 @@
  *  Copyright (C) 2026 Posit Software, PBC. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
+import { createHash } from "node:crypto";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 
@@ -79,6 +80,7 @@ describe("generalized store-backed acquisition", () => {
 		const backend = createStoreBackend({
 			store,
 			env,
+			writer: { host: "test-host", version: "1.2.3" },
 			generationFactory: () => `generation-${++generations}`,
 			resolveAuthMethod: (providerId) => {
 				if (providerId === "databricks") return { authMethodId: "apikey" };
@@ -785,6 +787,10 @@ describe("generalized store-backed acquisition", () => {
 					error: "access_denied",
 				});
 			});
+			// Only a rejected refresh records a failure; a failed sign-in does not.
+			expect(
+				(await store.get<StoredProviderCredentials>("auth:positai:oauth"))?.failure,
+			).toBeUndefined();
 			expect(await provider.getAuthenticationAttemptOutcome(denied.challenge.attemptId)).toEqual({
 				status: "failed",
 				error: "access_denied",
@@ -1021,6 +1027,17 @@ describe("generalized store-backed acquisition", () => {
 				.join(" | ");
 		}
 
+		/** Every argument the logger received, at any level, as text. */
+		function allLoggedText(logger: ReturnType<typeof mockLogger>): string {
+			return Object.values(logger)
+				.flatMap((fn) => fn.mock.calls.flat())
+				.map((arg) => (arg instanceof Error ? `${arg.name}: ${arg.message}` : String(arg)))
+				.join(" | ");
+		}
+
+		const fingerprint = (token: string): string =>
+			`#${createHash("sha256").update(token).digest("hex").slice(0, 8)}`;
+
 		function expiredPositaiRecord(): StoredProviderCredentials {
 			const expiresAt = new Date(Date.now() - 60_000).toISOString();
 			return {
@@ -1055,6 +1072,7 @@ describe("generalized store-backed acquisition", () => {
 
 		it("refreshes an expired token and persists the rotated tokens", async () => {
 			await seedExpiredPositai();
+			const logger = mockLogger();
 			vi.stubGlobal(
 				"fetch",
 				vi.fn().mockResolvedValue(
@@ -1067,7 +1085,7 @@ describe("generalized store-backed acquisition", () => {
 					}),
 				),
 			);
-			const provider = createProvider();
+			const provider = createProvider({}, undefined, logger);
 
 			expect(await provider.getCredentials("positai")).toEqual({
 				type: "oauth",
@@ -1080,6 +1098,15 @@ describe("generalized store-backed acquisition", () => {
 					tokenData: { accessToken: "fresh-access", refreshToken: "fresh-refresh" },
 				},
 			});
+			// The log names the refresh tokens by fingerprint only, so token reuse
+			// across processes can be traced without logging a secret.
+			const info = logger.info.mock.calls.flat().map(String).join(" | ");
+			expect(info).toContain(`${fingerprint("old-refresh")} -> ${fingerprint("fresh-refresh")}`);
+			expect(info).toContain(`pid ${process.pid}`);
+			const text = allLoggedText(logger);
+			for (const secret of ["old-refresh", "fresh-refresh", "old-access", "fresh-access"]) {
+				expect(text).not.toContain(secret);
+			}
 		});
 
 		it("keeps the stored refresh token when the refresh response does not rotate it", async () => {
@@ -1111,7 +1138,10 @@ describe("generalized store-backed acquisition", () => {
 			expect(await provider.getCredentials("positai")).toBeNull();
 			expect(await storedPositai()).toEqual(seeded);
 			expect(fixture.readBytes().equals(bytesBefore)).toBe(true);
-			expect(loggedText(logger)).toContain("transient");
+			const text = loggedText(logger);
+			expect(text).toContain("transient");
+			expect(text).toContain(`sent ${fingerprint("old-refresh")}`);
+			expect(allLoggedText(logger)).not.toContain("old-refresh");
 		});
 
 		it.each([
@@ -1123,16 +1153,25 @@ describe("generalized store-backed acquisition", () => {
 			vi.stubGlobal("fetch", vi.fn().mockResolvedValue(err(status, { error: code })));
 			const provider = createProvider({}, undefined, logger);
 
+			const before = Date.now();
 			expect(await provider.getCredentials("positai")).toBeNull();
-			expect(await storedPositai()).toMatchObject({
+			const stored = await storedPositai();
+			expect(stored).toMatchObject({
 				readiness: "unauthenticated",
 				authenticated: false,
 				error: "refresh_failed",
+				failure: { code, pid: process.pid, host: "test-host", version: "1.2.3" },
 			});
+			const at = Date.parse(stored?.failure?.at ?? "");
+			expect(at).toBeGreaterThanOrEqual(before);
+			expect(at).toBeLessThanOrEqual(Date.now());
 			const text = loggedText(logger);
 			expect(text).toContain("terminal");
 			expect(text).toContain(String(status));
 			expect(text).toContain(code);
+			expect(text).toContain(`sent ${fingerprint("old-refresh")}`);
+			expect(text).toContain(`pid ${process.pid}`);
+			expect(allLoggedText(logger)).not.toContain("old-refresh");
 		});
 
 		it("classifies by the RFC 6749 error code even when error_description is present", async () => {
@@ -1573,7 +1612,7 @@ describe("generalized store-backed acquisition", () => {
 			expect(state.tokens?.accessToken).toBe("old-access");
 			expect(state.tombstone).toBeUndefined();
 			expect(loggedText(logger)).toContain(
-				"refreshed tokens for positai could not be persisted (transient)",
+				"refreshed tokens for positai could not be persisted (transient",
 			);
 		});
 
