@@ -67,6 +67,15 @@ const MODEL_APIS_CAPABILITIES: Record<string, Partial<ModelInfo>> = {
 		maxContextLength: 250_000,
 		maxInputTokens: 250_000,
 	},
+	"moonshotai/Kimi-K3.1-Pro": {
+		family: "kimi",
+		thinkingEffortLevels: ["off", "low", "high", "max"],
+		supportedInputMediaTypes: ["image/png", "image/jpeg", "image/gif", "image/webp"],
+		maxOutputTokens: 262_144,
+		// Artificially limited from 1M to stay within per-minute token rate limits.
+		maxContextLength: 250_000,
+		maxInputTokens: 250_000,
+	},
 	"deepseek-ai/DeepSeek-V4.1-Flash-1017": {
 		family: "deepseek-v4",
 		thinkingEffortLevels: ["off", "low", "high", "max"],

@@ -159,7 +159,11 @@ export function positAiThinkingRequestFields(
 	effort: string | undefined,
 	requiresChatTemplateKwargs: boolean,
 ): Record<string, unknown> | undefined {
-	if (modelId === "deepseek-ai/DeepSeek-V4.1-Flash-1017" && effort === "off") {
+	if (
+		(modelId === "deepseek-ai/DeepSeek-V4.1-Flash-1017" ||
+			modelId === "moonshotai/Kimi-K3.1-Pro") &&
+		effort === "off"
+	) {
 		return { reasoning_effort: "none" };
 	}
 	return thinkingRequestFields(effort, requiresChatTemplateKwargs);
