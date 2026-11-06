@@ -159,13 +159,15 @@ actual refreshes across processes.
 
 **Refresh logging.** Every stored refresh that reaches the token endpoint logs
 the refresh token it sent, and on success the one it received, as
-fingerprints (`#` + the first 8 hex digits of SHA-256, computed with
+hashes (`#` + the first 8 hex digits of SHA-256, computed with
 `globalThis.crypto.subtle`), plus the process id (`globalThis.process?.pid`,
 so the pure root still imports nothing from Node). A stored commit logs
-`refreshed <provider>: #sent -> #received, expires <ISO>, pid <n>` at info; the
-terminal, transient, superseded, and failed-to-persist lines carry the same
-`sent`/`pid` fields. The same `#sent` in two processes' logs means the token
-was reused; a `#received` later sent once and rejected points at the server.
+`refreshed <provider>: token-sha256 #sent -> #received, expires <ISO>, pid <n>`
+at info; the terminal, transient, superseded, and failed-to-persist lines carry
+the same `sent token-sha256 #...`/`pid` fields. The `token-sha256` label tells
+a log reader the value is a SHA-256 hash (first 8 hex digits), not a token. The
+same `#sent` in two processes' logs means the token was reused; a `#received`
+later sent once and rejected points at the server.
 Raw tokens are never logged.
 
 **Persisted failure.** The engine passes the terminal RFC 6749 code to

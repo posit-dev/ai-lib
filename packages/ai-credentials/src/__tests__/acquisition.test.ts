@@ -1094,7 +1094,9 @@ describe("generalized store-backed acquisition", () => {
 			// The log names the refresh tokens by fingerprint only, so token reuse
 			// across processes can be traced without logging a secret.
 			const info = logger.info.mock.calls.flat().map(String).join(" | ");
-			expect(info).toContain(`${fingerprint("old-refresh")} -> ${fingerprint("fresh-refresh")}`);
+			expect(info).toContain(
+				`token-sha256 ${fingerprint("old-refresh")} -> ${fingerprint("fresh-refresh")}`,
+			);
 			expect(info).toContain(`pid ${process.pid}`);
 			const text = loggedText(logger);
 			for (const secret of ["old-refresh", "fresh-refresh", "old-access", "fresh-access"]) {
@@ -1133,7 +1135,7 @@ describe("generalized store-backed acquisition", () => {
 			expect(fixture.readBytes().equals(bytesBefore)).toBe(true);
 			const text = loggedText(logger);
 			expect(text).toContain("transient");
-			expect(text).toContain(`sent ${fingerprint("old-refresh")}`);
+			expect(text).toContain(`sent token-sha256 ${fingerprint("old-refresh")}`);
 			expect(loggedText(logger)).not.toContain("old-refresh");
 		});
 
@@ -1162,7 +1164,7 @@ describe("generalized store-backed acquisition", () => {
 			expect(text).toContain("terminal");
 			expect(text).toContain(String(status));
 			expect(text).toContain(code);
-			expect(text).toContain(`sent ${fingerprint("old-refresh")}`);
+			expect(text).toContain(`sent token-sha256 ${fingerprint("old-refresh")}`);
 			expect(text).toContain(`pid ${process.pid}`);
 			expect(loggedText(logger)).not.toContain("old-refresh");
 		});
@@ -1619,7 +1621,7 @@ describe("generalized store-backed acquisition", () => {
 				"refresh rejected for positai (terminal: http 400, code invalid_grant",
 			);
 			expect(text).toContain(
-				`sent #${createHash("sha256").update("old-refresh").digest("hex").slice(0, 8)}`,
+				`sent token-sha256 #${createHash("sha256").update("old-refresh").digest("hex").slice(0, 8)}`,
 			);
 			expect(text).toContain(`pid ${process.pid}`);
 			expect(text).toContain("EACCES: permission denied");
