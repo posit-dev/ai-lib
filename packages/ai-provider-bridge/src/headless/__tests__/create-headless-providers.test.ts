@@ -491,6 +491,29 @@ describe("createHeadlessProviders", () => {
 				expect(requestUrls).toEqual(["/models"]);
 			});
 
+			it("names an unavailable header reference instead of reporting the model gone", async () => {
+				await writeProviders(
+					customEntry({
+						baseUrl: await startModelServer(),
+						customHeaders: { "x-jws": "{env:PA_HEADLESS_TEST_UNSET_REFERENCE}" },
+					}),
+				);
+
+				const result = await collect(
+					create().streamChat(
+						{ providerId: customId, modelId: "m1", systemPrompt: "", messages: [] },
+						{ isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) },
+					),
+				);
+
+				expect(result.failure).toEqual(
+					new Error(
+						`Provider "${customId}": header "x-jws" references PA_HEADLESS_TEST_UNSET_REFERENCE, which is not set.`,
+					),
+				);
+				expect(requestUrls).toEqual([]);
+			});
+
 			it("routes by the current catalog after a change", async () => {
 				const baseUrl = await startModelServer();
 				await writeProviders(customEntry({ baseUrl }));

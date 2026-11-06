@@ -108,6 +108,57 @@ export function additiveHeaderRecord(
 }
 
 /**
+ * Reads one environment variable for a `{env:NAME}` reference in a custom
+ * header value. Returns `undefined` when the variable is unavailable, whether
+ * unset or withheld by the host, so callers cannot tell the two apart.
+ */
+export type HeaderReferenceLookup = (name: string) => string | undefined;
+
+/**
+ * `{env:NAME}` reference syntax. Posit Assistant's `env.set` values and MCP
+ * definitions use the same syntax (`packages/node/src/launch/references.ts` in
+ * the assistant repository, which cannot be imported here); keep them in step.
+ */
+const ENV_REFERENCE = /\{env:([^}]+)\}/g;
+
+/**
+ * Expand `{env:NAME}` references in custom header values. Headers without a
+ * reference are returned unchanged, and the input record is returned as-is
+ * when none has one.
+ *
+ * Throws when a referenced variable is unavailable, rather than sending the
+ * header empty or unexpanded. The message names the provider, header, and
+ * variables, never a value.
+ */
+export function expandHeaderReferences(
+	providerId: string,
+	customHeaders: Record<string, string> | undefined,
+	lookup: HeaderReferenceLookup,
+): Record<string, string> | undefined {
+	if (!customHeaders) return customHeaders;
+	let result = customHeaders;
+	for (const [name, value] of Object.entries(customHeaders)) {
+		const missing = new Set<string>();
+		const expanded = value.replace(ENV_REFERENCE, (match, variable: string) => {
+			const resolved = lookup(variable);
+			if (resolved === undefined) missing.add(variable);
+			return resolved ?? match;
+		});
+		if (missing.size > 0) {
+			const names = [...missing];
+			throw new Error(
+				`Provider "${providerId}": header "${name}" references ${names.join(", ")}, which ${names.length === 1 ? "is" : "are"} not set.`,
+			);
+		}
+		if (expanded !== value) {
+			if (result === customHeaders) result = { ...customHeaders };
+			result[name] = expanded;
+		}
+	}
+	return result;
+}
+
+/**
  * The non-empty `User-Agent` value among custom headers (matched
  * case-insensitively), for transports that take the identity as a dedicated
  * option rather than a header (e.g. the AWS SDK's `customUserAgent`).

@@ -240,6 +240,7 @@ function createRegistry(): ProviderRegistry {
 	const registry = new ProviderRegistry(logger);
 	registerAllProviders(registry, logger, {
 		positAiBaseUrl: "https://api.posit.cloud",
+		headerReferenceLookup: () => undefined,
 		userAgent: PRODUCT_USER_AGENT,
 		allowedProviders: [
 			"bedrock",
@@ -402,6 +403,7 @@ describe("default direct-provider User-Agent (wire)", () => {
 		const registry = new ProviderRegistry(logger);
 		registerAllProviders(registry, logger, {
 			positAiBaseUrl: "https://api.posit.cloud",
+			headerReferenceLookup: () => undefined,
 			userAgent: PRODUCT_USER_AGENT,
 			allowedProviders: [],
 		});

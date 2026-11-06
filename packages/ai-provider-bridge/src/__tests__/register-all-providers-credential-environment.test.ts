@@ -48,6 +48,7 @@ describe("registerAllProviders credential environment forwarding", () => {
 
 		registerAllProviders(registry, logger(), {
 			positAiBaseUrl: "https://api.posit.cloud",
+			headerReferenceLookup: () => undefined,
 			allowedProviders: ["google-vertex", "ms-foundry"],
 			credentialEnvironment,
 		});

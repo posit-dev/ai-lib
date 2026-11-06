@@ -26,7 +26,10 @@ describe("registerAllProviders", () => {
 	it("registers all providers by default and honors an explicit allow-list", () => {
 		const credentials = { type: "apikey", apiKey: "test" } as const;
 		const all = new ProviderRegistry(logger());
-		registerAllProviders(all, logger(), { positAiBaseUrl: "https://api.posit.cloud" });
+		registerAllProviders(all, logger(), {
+			positAiBaseUrl: "https://api.posit.cloud",
+			headerReferenceLookup: () => undefined,
+		});
 
 		expect(all.getClientForProvider("anthropic", credentials)).not.toBeNull();
 		expect(all.getClientForProvider("openai", credentials)).not.toBeNull();
@@ -34,6 +37,7 @@ describe("registerAllProviders", () => {
 		const selected = new ProviderRegistry(logger());
 		registerAllProviders(selected, logger(), {
 			positAiBaseUrl: "https://api.posit.cloud",
+			headerReferenceLookup: () => undefined,
 			allowedProviders: ["anthropic"],
 		});
 
@@ -45,6 +49,7 @@ describe("registerAllProviders", () => {
 		const registry = new ProviderRegistry(logger());
 		registerAllProviders(registry, logger(), {
 			positAiBaseUrl: "https://api.posit.cloud",
+			headerReferenceLookup: () => undefined,
 			allowedProviders: [],
 		});
 
@@ -63,6 +68,7 @@ describe("registerAllProviders", () => {
 		const registry = new ProviderRegistry(logger());
 		registerAllProviders(registry, logger(), {
 			positAiBaseUrl: () => baseUrl,
+			headerReferenceLookup: () => undefined,
 			allowedProviders: ["positai"],
 		});
 
@@ -79,6 +85,7 @@ describe("registerAllProviders", () => {
 		const registry = new ProviderRegistry(logger());
 		registerAllProviders(registry, logger(), {
 			positAiBaseUrl: "https://api.posit.cloud",
+			headerReferenceLookup: () => undefined,
 			allowedProviders: [],
 			customProviders: [{ id: "my-gateway" as never, clientKind: "openai-compatible" }],
 		});
@@ -97,6 +104,7 @@ describe("registerAllProviders", () => {
 		const registry = new ProviderRegistry(logger());
 		registerAllProviders(registry, log, {
 			positAiBaseUrl: "https://api.posit.cloud",
+			headerReferenceLookup: () => undefined,
 			allowedProviders: [],
 			customProviders: [
 				{ id: "odd" as never, clientKind: "positai" as never },

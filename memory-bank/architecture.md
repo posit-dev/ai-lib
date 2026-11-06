@@ -101,6 +101,22 @@ How each transport delivers it:
 The wire matrix in `default-user-agent-wire.test.ts` asserts the captured outgoing request for
 every route; see providerGuide.md for why that is the only proof.
 
+### `{env:NAME}` header references
+
+The registry's credential handoff (above) first expands `{env:NAME}` references in `customHeaders` values
+(`expandHeaderReferences` in `src/custom-headers.ts`), then applies the default User-Agent, so a
+templated `User-Agent` still beats the default. `registerAllProviders()` requires a synchronous
+`headerReferenceLookup` from the host and installs it with `setHeaderReferenceLookup()`; the
+host decides which variables are readable (Posit Assistant: `process.env` minus built-in
+exclusions; headless: plain `process.env`). A registry with no lookup treats every reference as
+unavailable. An unavailable reference throws a value-free error naming provider, header, and
+variable: client getters let it propagate to the chat request, and `discoverModels` logs a warning
+and returns no models for that provider only. The catalog and credential store keep the
+template; only the per-call credentials carry expanded values. Raw HTTP logs redact every request
+header value except a protocol allowlist (`LOGGED_REQUEST_HEADER_PATTERN` in
+`raw-http-logging.ts`, minus credential-looking names), so expanded values reach them only under
+an allowlisted, non-credential custom header name; response headers keep name-based redaction.
+
 ### Endpoint-required transport headers (OpenCode)
 
 Host-supplied capability params are one kind of input; a distinct kind is **endpoint-required

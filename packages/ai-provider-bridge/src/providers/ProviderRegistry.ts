@@ -15,7 +15,12 @@
 
 import type { ClientKind } from "ai-config";
 
-import { isHeaderCarrying, userAgentHeaderValue } from "../custom-headers";
+import {
+	expandHeaderReferences,
+	isHeaderCarrying,
+	userAgentHeaderValue,
+	type HeaderReferenceLookup,
+} from "../custom-headers";
 import type { ModelClient } from "../model-clients/ModelClient";
 import type { Logger, ModelInfo, ProviderId, ProviderCredentials } from "../types";
 import type {
@@ -138,6 +143,8 @@ export class ProviderRegistry implements ModelRequestCoalescer {
 	private modelFetchers = new Map<string, ClearableModelFetcher>();
 	private clientFactories = new Map<string, ClientFactory>();
 	private defaultUserAgent: string | undefined;
+	/** Fails closed until a host supplies its lookup: every reference is unavailable. */
+	private headerReferenceLookup: HeaderReferenceLookup = () => undefined;
 	/**
 	 * In-flight-only request coalescer, owned per registry so a replaced
 	 * registry can never join an old registry's flight. Opted-in fetchers
@@ -158,22 +165,50 @@ export class ProviderRegistry implements ModelRequestCoalescer {
 		this.defaultUserAgent = userAgent;
 	}
 
-	private withDefaultUserAgent(credentials: ProviderCredentials): ProviderCredentials {
-		if (!this.defaultUserAgent || !isHeaderCarrying(credentials)) {
+	/**
+	 * Set how `{env:NAME}` references in custom header values are read. The
+	 * lookup runs each time credentials enter a fetcher or client factory.
+	 * Until one is set, every reference is unavailable.
+	 */
+	setHeaderReferenceLookup(lookup: HeaderReferenceLookup): void {
+		this.headerReferenceLookup = lookup;
+	}
+
+	/**
+	 * Shape credentials before they enter a fetcher or client factory: expand
+	 * header references, then apply the default User-Agent beneath any explicit
+	 * one (so a templated User-Agent still wins). Throws when a reference is
+	 * unavailable; the message carries no header values.
+	 */
+	private shapeCredentials(
+		providerId: string,
+		credentials: ProviderCredentials,
+	): ProviderCredentials {
+		if (!isHeaderCarrying(credentials)) {
 			return credentials;
 		}
 
-		if (userAgentHeaderValue(credentials.customHeaders) !== undefined) {
-			return credentials;
+		const expanded = expandHeaderReferences(
+			providerId,
+			credentials.customHeaders,
+			this.headerReferenceLookup,
+		);
+		const shaped =
+			expanded === credentials.customHeaders
+				? credentials
+				: { ...credentials, customHeaders: expanded };
+
+		if (!this.defaultUserAgent || userAgentHeaderValue(expanded) !== undefined) {
+			return shaped;
 		}
 
 		const customHeaders = Object.fromEntries(
-			Object.entries(credentials.customHeaders ?? {}).filter(
+			Object.entries(expanded ?? {}).filter(
 				([name]) => name.toLowerCase() !== USER_AGENT_HEADER_NAME,
 			),
 		);
 		return {
-			...credentials,
+			...shaped,
 			customHeaders: { ...customHeaders, "User-Agent": this.defaultUserAgent },
 		};
 	}
@@ -240,7 +275,17 @@ export class ProviderRegistry implements ModelRequestCoalescer {
 			return { models: [], credentialCheck: "unknown" };
 		}
 
-		const shaped = this.withDefaultUserAgent(credentials);
+		let shaped: ProviderCredentials;
+		try {
+			shaped = this.shapeCredentials(providerId, credentials);
+		} catch (error) {
+			// An unavailable header reference: list nothing for this provider.
+			// The message names the variable, never a value.
+			this.logger.warn(
+				`Not listing models for ${providerId}: ${error instanceof Error ? error.message : String(error)}`,
+			);
+			return { models: [], credentialCheck: "unknown" };
+		}
 		try {
 			if (!fetcher.discover) {
 				return { models: await fetcher(shaped, metadata), credentialCheck: "unknown" };
@@ -323,7 +368,7 @@ export class ProviderRegistry implements ModelRequestCoalescer {
 			return null;
 		}
 
-		return factory(this.withDefaultUserAgent(credentials));
+		return factory(this.shapeCredentials(providerId, credentials));
 	}
 
 	/**
@@ -345,18 +390,12 @@ export class ProviderRegistry implements ModelRequestCoalescer {
 		credentials: ProviderCredentials,
 		clientKind?: ClientKind,
 	): ModelClient | null {
-		const credentialsWithUserAgent = this.withDefaultUserAgent(credentials);
-
-		// Try direct registration first (built-ins and any manually registered)
-		const directFactory = this.clientFactories.get(providerId);
-		if (directFactory) return directFactory(credentialsWithUserAgent);
-
-		// Fall back to clientKind → factory id mapping
-		if (clientKind) {
-			const factoryId = resolveFactoryId(clientKind);
-			const kindFactory = this.clientFactories.get(factoryId);
-			if (kindFactory) return kindFactory(credentialsWithUserAgent);
-		}
+		const factory =
+			this.clientFactories.get(providerId) ??
+			(clientKind ? this.clientFactories.get(resolveFactoryId(clientKind)) : undefined);
+		// Try direct registration first (built-ins and any manually registered),
+		// then fall back to the clientKind → factory id mapping.
+		if (factory) return factory(this.shapeCredentials(providerId, credentials));
 
 		this.logger.warn(`No client factory for ${providerId} (clientKind: ${clientKind})`);
 		return null;
