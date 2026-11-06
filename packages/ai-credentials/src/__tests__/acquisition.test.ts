@@ -53,6 +53,24 @@ const ok = (body: unknown): Response =>
 		headers: { "Content-Type": "application/json" },
 	});
 
+function mockLogger() {
+	return {
+		info: vi.fn(),
+		warn: vi.fn(),
+		error: vi.fn(),
+		debug: vi.fn(),
+		trace: vi.fn(),
+	};
+}
+
+/** Every argument the logger received, at any level, as text. */
+function loggedText(logger: ReturnType<typeof mockLogger>): string {
+	return Object.values(logger)
+		.flatMap((fn) => fn.mock.calls.flat())
+		.map((arg) => (arg instanceof Error ? `${arg.name}: ${arg.message}` : String(arg)))
+		.join(" | ");
+}
+
 describe("generalized store-backed acquisition", () => {
 	let fixture: SingleFileStoreFixture;
 	let store: SingleFileStoreFixture["store"];
@@ -1010,31 +1028,6 @@ describe("generalized store-backed acquisition", () => {
 				headers: { "Content-Type": "application/json" },
 			});
 
-		function mockLogger() {
-			return {
-				info: vi.fn(),
-				warn: vi.fn(),
-				error: vi.fn(),
-				debug: vi.fn(),
-				trace: vi.fn(),
-			};
-		}
-
-		function loggedText(logger: ReturnType<typeof mockLogger>): string {
-			return [...logger.warn.mock.calls, ...logger.error.mock.calls]
-				.flat()
-				.map((arg) => (arg instanceof Error ? `${arg.name}: ${arg.message}` : String(arg)))
-				.join(" | ");
-		}
-
-		/** Every argument the logger received, at any level, as text. */
-		function allLoggedText(logger: ReturnType<typeof mockLogger>): string {
-			return Object.values(logger)
-				.flatMap((fn) => fn.mock.calls.flat())
-				.map((arg) => (arg instanceof Error ? `${arg.name}: ${arg.message}` : String(arg)))
-				.join(" | ");
-		}
-
 		const fingerprint = (token: string): string =>
 			`#${createHash("sha256").update(token).digest("hex").slice(0, 8)}`;
 
@@ -1103,7 +1096,7 @@ describe("generalized store-backed acquisition", () => {
 			const info = logger.info.mock.calls.flat().map(String).join(" | ");
 			expect(info).toContain(`${fingerprint("old-refresh")} -> ${fingerprint("fresh-refresh")}`);
 			expect(info).toContain(`pid ${process.pid}`);
-			const text = allLoggedText(logger);
+			const text = loggedText(logger);
 			for (const secret of ["old-refresh", "fresh-refresh", "old-access", "fresh-access"]) {
 				expect(text).not.toContain(secret);
 			}
@@ -1141,7 +1134,7 @@ describe("generalized store-backed acquisition", () => {
 			const text = loggedText(logger);
 			expect(text).toContain("transient");
 			expect(text).toContain(`sent ${fingerprint("old-refresh")}`);
-			expect(allLoggedText(logger)).not.toContain("old-refresh");
+			expect(loggedText(logger)).not.toContain("old-refresh");
 		});
 
 		it.each([
@@ -1171,7 +1164,7 @@ describe("generalized store-backed acquisition", () => {
 			expect(text).toContain(code);
 			expect(text).toContain(`sent ${fingerprint("old-refresh")}`);
 			expect(text).toContain(`pid ${process.pid}`);
-			expect(allLoggedText(logger)).not.toContain("old-refresh");
+			expect(loggedText(logger)).not.toContain("old-refresh");
 		});
 
 		it("classifies by the RFC 6749 error code even when error_description is present", async () => {
@@ -1381,23 +1374,6 @@ describe("generalized store-backed acquisition", () => {
 			failPersist: boolean;
 		}
 
-		function mockLogger() {
-			return {
-				info: vi.fn(),
-				warn: vi.fn(),
-				error: vi.fn(),
-				debug: vi.fn(),
-				trace: vi.fn(),
-			};
-		}
-
-		function loggedText(logger: ReturnType<typeof mockLogger>): string {
-			return [...logger.warn.mock.calls, ...logger.error.mock.calls]
-				.flat()
-				.map((arg) => (arg instanceof Error ? `${arg.name}: ${arg.message}` : String(arg)))
-				.join(" | ");
-		}
-
 		function expiringTokens(): StoredOAuthTokens {
 			return {
 				accessToken: "old-access",
@@ -1452,6 +1428,9 @@ describe("generalized store-backed acquisition", () => {
 							return Promise.resolve("committed");
 						},
 						commitError: (error) => {
+							if (state.failPersist) {
+								return Promise.reject(new Error("EACCES: permission denied"));
+							}
 							state.tombstone = error;
 							state.tokens = null;
 							return Promise.resolve("committed");
@@ -1614,6 +1593,36 @@ describe("generalized store-backed acquisition", () => {
 			expect(loggedText(logger)).toContain(
 				"refreshed tokens for positai could not be persisted (transient",
 			);
+		});
+
+		it("keeps the rejection evidence when the tombstone cannot be persisted", async () => {
+			const state = makeEngineState();
+			state.failPersist = true;
+			const logger = mockLogger();
+			vi.stubGlobal(
+				"fetch",
+				vi.fn().mockResolvedValue(
+					new Response(JSON.stringify({ error: "invalid_grant" }), {
+						status: 400,
+						headers: { "Content-Type": "application/json" },
+					}),
+				),
+			);
+			const engine = new AcquisitionEngine(makeEngineHooks(state), logger);
+
+			const result = await engine.getCredentials("positai");
+			expect(result.credentials).toBeNull();
+			expect(state.tokens?.refreshToken).toBe("old-refresh");
+			expect(state.tombstone).toBeUndefined();
+			const text = loggedText(logger);
+			expect(text).toContain(
+				"refresh rejected for positai (terminal: http 400, code invalid_grant",
+			);
+			expect(text).toContain(
+				`sent #${createHash("sha256").update("old-refresh").digest("hex").slice(0, 8)}`,
+			);
+			expect(text).toContain(`pid ${process.pid}`);
+			expect(text).toContain("EACCES: permission denied");
 		});
 
 		it("lets a credential-shaping programming error reject instead of returning null", async () => {
