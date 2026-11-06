@@ -632,24 +632,24 @@ export class AcquisitionEngine {
 							// and retry later, as for any storage failure.
 							this.startRefreshCooldown(providerId);
 							this.logger?.error(
-								`[ai-credentials] refresh rejected for ${providerId} (terminal: ${describeRefreshError(error)}; sent ${sent}, pid ${pid}); the rejection could not be persisted, stored tokens kept`,
+								`[ai-credentials] refresh rejected for ${providerId} (terminal: ${describeRefreshError(error)}; sent token-sha256 ${sent}, pid ${pid}); the rejection could not be persisted, stored tokens kept`,
 								commitFailure,
 							);
 							return null;
 						}
 						if (result === "committed") {
 							this.logger?.error(
-								`[ai-credentials] refresh rejected for ${providerId} (terminal: ${describeRefreshError(error)}; sent ${sent}, pid ${pid}); stored tokens removed`,
+								`[ai-credentials] refresh rejected for ${providerId} (terminal: ${describeRefreshError(error)}; sent token-sha256 ${sent}, pid ${pid}); stored tokens removed`,
 							);
 						} else {
 							this.logger?.warn(
-								`[ai-credentials] refresh rejected for ${providerId} (terminal: ${describeRefreshError(error)}; sent ${sent}, pid ${pid}); stored record changed during the refresh and was kept`,
+								`[ai-credentials] refresh rejected for ${providerId} (terminal: ${describeRefreshError(error)}; sent token-sha256 ${sent}, pid ${pid}); stored record changed during the refresh and was kept`,
 							);
 						}
 					} else {
 						this.startRefreshCooldown(providerId);
 						this.logger?.warn(
-							`[ai-credentials] refresh failed for ${providerId} (transient: ${describeRefreshError(error)}; sent ${sent}, pid ${pid}); stored tokens kept`,
+							`[ai-credentials] refresh failed for ${providerId} (transient: ${describeRefreshError(error)}; sent token-sha256 ${sent}, pid ${pid}); stored tokens kept`,
 						);
 					}
 					return null;
@@ -660,11 +660,11 @@ export class AcquisitionEngine {
 					if (result === "committed") {
 						const expiresAt = new Date(Date.now() + refreshed.expiresIn * 1000).toISOString();
 						this.logger?.info(
-							`[ai-credentials] refreshed ${providerId}: ${sent} -> ${received}, expires ${expiresAt}, pid ${pid}`,
+							`[ai-credentials] refreshed ${providerId}: token-sha256 ${sent} -> ${received}, expires ${expiresAt}, pid ${pid}`,
 						);
 					} else {
 						this.logger?.info(
-							`[ai-credentials] refreshed tokens for ${providerId} (${sent} -> ${received}, pid ${pid}) not stored: stored record changed during the refresh`,
+							`[ai-credentials] refreshed tokens for ${providerId} (token-sha256 ${sent} -> ${received}, pid ${pid}) not stored: stored record changed during the refresh`,
 						);
 					}
 				} catch (error) {
@@ -674,7 +674,7 @@ export class AcquisitionEngine {
 					// invalid_grant and tombstones correctly.
 					this.startRefreshCooldown(providerId);
 					this.logger?.warn(
-						`[ai-credentials] refreshed tokens for ${providerId} could not be persisted (transient; ${sent} -> ${received}, pid ${pid}); stored tokens kept`,
+						`[ai-credentials] refreshed tokens for ${providerId} could not be persisted (transient; token-sha256 ${sent} -> ${received}, pid ${pid}); stored tokens kept`,
 						error,
 					);
 					return null;
