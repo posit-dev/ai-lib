@@ -139,7 +139,12 @@ export type AuthenticationCommitResult = "committed" | "superseded";
 export interface RefreshTransaction {
 	tokens: StoredOAuthTokens;
 	commitTokens(tokens: TokenData): Promise<AuthenticationCommitResult>;
-	commitError(error: string): Promise<AuthenticationCommitResult>;
+	/**
+	 * Replace the tokens with a terminal `error` record. `rejectionCode` is the
+	 * server's RFC 6749 code (e.g. `invalid_grant`); the backend decides what to
+	 * persist with it (plus its own writer identity).
+	 */
+	commitError(error: string, rejectionCode: string): Promise<AuthenticationCommitResult>;
 }
 
 /** Durable hooks used by the generalized acquisition engine. */
