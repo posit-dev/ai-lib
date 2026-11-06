@@ -1098,6 +1098,7 @@ describe("generalized store-backed acquisition", () => {
 				`token-sha256 ${fingerprint("old-refresh")} -> ${fingerprint("fresh-refresh")}`,
 			);
 			expect(info).toContain(`pid ${process.pid}`);
+			expect(info).toContain("server auth.test");
 			const text = loggedText(logger);
 			for (const secret of ["old-refresh", "fresh-refresh", "old-access", "fresh-access"]) {
 				expect(text).not.toContain(secret);
@@ -1136,6 +1137,7 @@ describe("generalized store-backed acquisition", () => {
 			const text = loggedText(logger);
 			expect(text).toContain("transient");
 			expect(text).toContain(`sent token-sha256 ${fingerprint("old-refresh")}`);
+			expect(text).toContain("server auth.test");
 			expect(loggedText(logger)).not.toContain("old-refresh");
 		});
 
@@ -1166,6 +1168,7 @@ describe("generalized store-backed acquisition", () => {
 			expect(text).toContain(code);
 			expect(text).toContain(`sent token-sha256 ${fingerprint("old-refresh")}`);
 			expect(text).toContain(`pid ${process.pid}`);
+			expect(text).toContain("server auth.test");
 			expect(loggedText(logger)).not.toContain("old-refresh");
 		});
 
