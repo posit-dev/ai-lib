@@ -49,8 +49,13 @@ import type * as NodeFs from "node:fs";
  *   completes; on error or cancellation, whatever bytes arrived plus an
  *   `[error: ...]` marker.
  *
- * Credential-bearing header values (authorization, api-key, token, secret,
- * etc.) are replaced with `[REDACTED]`. Bodies are never modified.
+ * Request header values are replaced with `[REDACTED]` except for a fixed
+ * allowlist of protocol headers (content type/length, accept, API version and
+ * beta flags, `x-stainless-*`). User-Agent and custom headers are therefore
+ * redacted whatever their name, since custom header values can be expanded
+ * from environment secrets. Response headers redact only credential-bearing
+ * names (authorization, api-key, token, secret, cookie), so rate-limit values
+ * stay visible. Bodies are never modified.
  *
  * All logging failures are swallowed: the wrapped fetch never throws for
  * logging reasons and never alters the bytes seen by the SDK.
@@ -68,12 +73,20 @@ const nodeFs =
 		: undefined;
 
 /**
- * Headers whose values are replaced with [REDACTED] in log files. "token"
- * only matches as a trailing segment (`x-auth-token`, `session-token`) so
- * rate-limit headers like `anthropic-ratelimit-tokens-remaining` survive.
+ * Response headers whose values are replaced with [REDACTED] in log files.
+ * "token" only matches as a trailing segment (`x-auth-token`,
+ * `session-token`) so rate-limit headers like
+ * `anthropic-ratelimit-tokens-remaining` survive.
  */
 const SENSITIVE_HEADER_PATTERN =
 	/authorization|api[-_]?key|secret|x-amz-security-token|(?:^|[-_])token$|cookie/i;
+
+/**
+ * The only request headers whose values are logged: protocol headers set by
+ * SDKs, never by users. Everything else, including User-Agent, is redacted.
+ */
+const LOGGED_REQUEST_HEADER_PATTERN =
+	/^(?:content-type|content-length|accept(?:-.+)?|anthropic-version|anthropic-beta|openai-beta|x-stainless-.+)$/i;
 
 let configuredOutputDir: string | undefined;
 let configuredOverrideDir: string | undefined;
@@ -209,10 +222,14 @@ function timestamp(): string {
 	return new Date().toISOString().replace(/[:.]/g, "-");
 }
 
-function redactHeaders(headers: Headers): string[] {
+function redactHeaders(headers: Headers, direction: "request" | "response"): string[] {
 	const lines: string[] = [];
 	headers.forEach((value, name) => {
-		lines.push(`${name}: ${SENSITIVE_HEADER_PATTERN.test(name) ? "[REDACTED]" : value}`);
+		const logged =
+			direction === "request"
+				? LOGGED_REQUEST_HEADER_PATTERN.test(name)
+				: !SENSITIVE_HEADER_PATTERN.test(name);
+		lines.push(`${name}: ${logged ? value : "[REDACTED]"}`);
 	});
 	return lines;
 }
@@ -447,7 +464,7 @@ function formatRequestFile(
 	const lines = [
 		`${method} ${url.pathname}${url.search} HTTP/1.1`,
 		`host: ${url.host}`,
-		...redactHeaders(headers),
+		...redactHeaders(headers, "request"),
 		"",
 	];
 	const parts = [Buffer.from(lines.join("\n") + "\n", "utf8"), body ?? Buffer.alloc(0)];
@@ -491,7 +508,7 @@ function captureResponseForLog(
 function formatResponseFile(response: Response, body: Buffer, terminal: StreamTerminal): Buffer {
 	const lines = [
 		`HTTP/1.1 ${response.status} ${response.statusText}`.trimEnd(),
-		...redactHeaders(response.headers),
+		...redactHeaders(response.headers, "response"),
 		"",
 	];
 	const parts = [Buffer.from(lines.join("\n") + "\n", "utf8"), body];

@@ -109,6 +109,7 @@ export function createHeadlessProviders(options: HeadlessProvidersOptions): Head
 				providers.find(({ id }) => id === "positai")?.connection.baseUrl ||
 				POSIT_AI_DEFAULTS.baseUrl,
 			userAgent: options.userAgent,
+			headerReferenceLookup: (name) => process.env[name],
 			customProviders: providers.flatMap(({ id }) => {
 				const clientKind = clientKinds.get(id);
 				return clientKind ? [{ id, clientKind }] : [];

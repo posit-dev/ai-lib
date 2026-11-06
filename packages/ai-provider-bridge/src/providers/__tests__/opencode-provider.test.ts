@@ -189,6 +189,7 @@ describe("OpenCode built-in chat", () => {
 		const registry = new ProviderRegistry(logger);
 		registerAllProviders(registry, logger, {
 			positAiBaseUrl: "https://api.posit.cloud",
+			headerReferenceLookup: () => undefined,
 		});
 		const client = registry.getClientForProviderOrKind("opencode", credentials, "openai");
 		if (!client) {
@@ -275,6 +276,7 @@ describe("OpenCode built-in chat", () => {
 		const registry = new ProviderRegistry(logger);
 		registerAllProviders(registry, logger, {
 			positAiBaseUrl: "https://api.posit.cloud",
+			headerReferenceLookup: () => undefined,
 		});
 		const credentials: ApiKeyCredentials = { type: "apikey", apiKey: "sk-test" };
 		const discovered = await registry.getModelsForProvider("opencode", credentials);
@@ -324,6 +326,7 @@ describe("OpenCode protocol routing", () => {
 		const registry = new ProviderRegistry(logger);
 		registerAllProviders(registry, logger, {
 			positAiBaseUrl: "https://api.posit.cloud",
+			headerReferenceLookup: () => undefined,
 		});
 		const client = registry.getClientForProviderOrKind("opencode", credentials, "openai");
 		if (!client) {

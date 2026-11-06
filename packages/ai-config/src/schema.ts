@@ -462,7 +462,7 @@ function builtinScalarFields(providerId: BuiltinProviderId): Record<string, z.Zo
 const customHeadersSchema = z
 	.record(z.string().describe("Header name."), z.string().describe("Header value."))
 	.describe(
-		"Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. Do not put credentials or SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
+		"Extra HTTP headers sent with each request to this provider, for proxy tenancy or routing markers, on providers whose transport supports custom headers. A value can include `{env:NAME}` references, which are replaced with that environment variable when the request is made; use this for secret values instead of writing them here. Requests fail if a referenced variable is not set. SDK-managed headers such as `Authorization`, `x-api-key`, or `anthropic-version` cannot be set here. A `User-Agent` entry replaces the default Posit Assistant product identity; the SDK's library tokens are still appended.",
 	);
 
 /**

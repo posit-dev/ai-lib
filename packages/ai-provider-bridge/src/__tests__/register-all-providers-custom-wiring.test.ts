@@ -135,6 +135,7 @@ describe("registerAllProviders custom-entry wiring", () => {
 
 			registerAllProviders(registry, log, {
 				positAiBaseUrl: "https://posit.example.com",
+				headerReferenceLookup: () => undefined,
 				allowedProviders: [],
 				customProviders: [{ id, clientKind }],
 			});
@@ -167,6 +168,7 @@ describe("registerAllProviders custom-entry wiring", () => {
 
 		registerAllProviders(registry, log, {
 			positAiBaseUrl: "https://posit.example.com",
+			headerReferenceLookup: () => undefined,
 			allowedProviders: [],
 			bedrockCallbacks,
 			googleVertexCallbacks,

@@ -152,6 +152,89 @@ describe("ProviderRegistry default User-Agent", () => {
 	});
 });
 
+describe("ProviderRegistry header references", () => {
+	const env: Record<string, string> = { JWS_TOKEN: "jws-secret", CLIENT_ID: "private-client" };
+	const lookup = (name: string) => env[name];
+
+	it("expands references for fetchers and clients; templated User-Agent beats the default", async () => {
+		const registry = new ProviderRegistry(logger);
+		const fetcher = vi.fn(async (_credentials: ProviderCredentials) => []);
+		const factory = vi.fn((_credentials: ProviderCredentials): ModelClient => client);
+		registry.registerModelFetcher("portkey", fetcher);
+		registry.registerClientFactory("openai", factory);
+		registry.setDefaultUserAgent("PositAssistant/1.0");
+		registry.setHeaderReferenceLookup(lookup);
+
+		await registry.getModelsForProvider("portkey", {
+			type: "apikey",
+			apiKey: "key",
+			customHeaders: { "x-jws-token": "Bearer {env:JWS_TOKEN}", "x-tenant": "acme" },
+		});
+		registry.getClientForProviderOrKind(
+			"custom",
+			{ type: "apikey", apiKey: "key", customHeaders: { "User-Agent": "{env:CLIENT_ID}" } },
+			"openai",
+		);
+
+		expect(fetcher).toHaveBeenCalledWith(
+			expect.objectContaining({
+				customHeaders: {
+					"x-jws-token": "Bearer jws-secret",
+					"x-tenant": "acme",
+					"User-Agent": "PositAssistant/1.0",
+				},
+			}),
+			undefined,
+		);
+		expect(factory).toHaveBeenCalledWith(
+			expect.objectContaining({ customHeaders: { "User-Agent": "private-client" } }),
+		);
+	});
+
+	it("treats every reference as unavailable until a lookup is set", () => {
+		const registry = new ProviderRegistry(logger);
+		registry.registerClientFactory("portkey", () => client);
+		vi.stubEnv("JWS_TOKEN", "ambient");
+		try {
+			expect(() =>
+				registry.getClientForProvider("portkey", {
+					type: "apikey",
+					apiKey: "key",
+					customHeaders: { "x-jws-token": "{env:JWS_TOKEN}" },
+				}),
+			).toThrow(/references JWS_TOKEN, which is not set/);
+		} finally {
+			vi.unstubAllEnvs();
+		}
+	});
+
+	it("lists no models for a provider with an unavailable reference, leaving others intact", async () => {
+		const warn = vi.fn();
+		const registry = new ProviderRegistry({ ...logger, warn });
+		const model = { id: "m" } as ModelInfo;
+		const fetcher = vi.fn(async (_credentials: ProviderCredentials) => [model]);
+		registry.registerModelFetcher("broken", fetcher);
+		registry.registerModelFetcher("healthy", fetcher);
+		registry.setHeaderReferenceLookup(lookup);
+
+		const [broken, healthy] = await Promise.all([
+			registry.discoverModels("broken", {
+				type: "apikey",
+				apiKey: "key",
+				customHeaders: { "x-jws-token": "{env:MISSING}" },
+			}),
+			registry.discoverModels("healthy", { type: "apikey", apiKey: "key" }),
+		]);
+
+		expect(broken).toEqual({ models: [], credentialCheck: "unknown" });
+		expect(healthy.models).toEqual([model]);
+		expect(fetcher).toHaveBeenCalledOnce();
+		expect(warn).toHaveBeenCalledExactlyOnceWith(
+			'Not listing models for broken: Provider "broken": header "x-jws-token" references MISSING, which is not set.',
+		);
+	});
+});
+
 describe("ProviderRegistry.discoverModels credential check", () => {
 	afterEach(() => {
 		vi.unstubAllGlobals();

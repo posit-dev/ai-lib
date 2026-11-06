@@ -13,6 +13,7 @@
 import { isSupportedCustomClientKind } from "ai-config";
 import type { ResolvedProviderId, SupportedCustomClientKind } from "ai-config";
 
+import type { HeaderReferenceLookup } from "./custom-headers";
 import {
 	registerAnthropicProvider,
 	registerCustomAnthropicProvider,
@@ -90,6 +91,13 @@ export interface ProviderRegistrationConfig {
 	 * non-OAuth credential variant), beneath any explicit custom value.
 	 */
 	userAgent?: string;
+	/**
+	 * Reads the variable named by a `{env:NAME}` reference in a custom header
+	 * value, or returns `undefined` when it is unavailable. Called each time
+	 * credentials enter a fetcher or client factory. The host decides which
+	 * variables are readable.
+	 */
+	headerReferenceLookup: HeaderReferenceLookup;
 	/** If set, only these providers register; an empty list registers none. */
 	allowedProviders?: ProviderId[];
 	/** Pre-built by the caller; the bridge never constructs host callbacks. */
@@ -215,6 +223,7 @@ export function registerAllProviders(
 	config: ProviderRegistrationConfig,
 ): void {
 	registry.setDefaultUserAgent(config.userAgent);
+	registry.setHeaderReferenceLookup(config.headerReferenceLookup);
 	for (const id of PROVIDER_IDS) {
 		if (id === "copilot") continue;
 		if (!config.allowedProviders || config.allowedProviders.includes(id)) {
