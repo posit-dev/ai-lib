@@ -114,8 +114,8 @@ variable: client getters let it propagate to the chat request, and `discoverMode
 and returns no models for that provider only. The catalog and credential store keep the
 template; only the per-call credentials carry expanded values. Raw HTTP logs redact every request
 header value except a protocol allowlist (`LOGGED_REQUEST_HEADER_PATTERN` in
-`raw-http-logging.ts`), so expanded values never reach them, whatever header name holds them;
-response headers keep name-based redaction.
+`raw-http-logging.ts`, minus credential-looking names), so expanded values reach them only under
+an allowlisted, non-credential custom header name; response headers keep name-based redaction.
 
 ### Endpoint-required transport headers (OpenCode)
 

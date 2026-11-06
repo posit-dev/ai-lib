@@ -77,7 +77,11 @@ it("sends expanded header values but keeps them out of the raw HTTP log", async 
 	);
 	vi.stubGlobal("fetch", capture.mock);
 
-	const env: Record<string, string> = { CLIENT_ID: "private-client", JWS_TOKEN: "jws-secret" };
+	const env: Record<string, string> = {
+		CLIENT_ID: "private-client",
+		JWS_TOKEN: "jws-secret",
+		STAINLESS_TOKEN: "stainless-secret",
+	};
 	const providerId = mintCustomProviderId("acme-gateway");
 	const registry = new ProviderRegistry(logger);
 	registerAllProviders(registry, logger, {
@@ -93,7 +97,12 @@ it("sends expanded header values but keeps them out of the raw HTTP log", async 
 			type: "apikey",
 			apiKey: "sk-test",
 			baseUrl: "https://gateway.example/v1",
-			customHeaders: { "User-Agent": "{env:CLIENT_ID}", "x-jws": "{env:JWS_TOKEN}" },
+			customHeaders: {
+				"User-Agent": "{env:CLIENT_ID}",
+				"x-jws": "{env:JWS_TOKEN}",
+				// Inside the logged protocol namespace, but a credential-looking name.
+				"x-stainless-auth-token": "{env:STAINLESS_TOKEN}",
+			},
 		},
 		"openai-compatible",
 	);
@@ -120,10 +129,12 @@ it("sends expanded header values but keeps them out of the raw HTTP log", async 
 	// The SDK appended its own tokens, so the wire value differs from the expansion.
 	expect(userAgent.startsWith("private-client ")).toBe(true);
 	expect(sent.get("x-jws")).toBe("jws-secret");
+	expect(sent.get("x-stainless-auth-token")).toBe("stainless-secret");
 
 	const { request, response } = await readLogs();
 	expect(request).not.toContain("private-client");
 	expect(request).not.toContain("jws-secret");
+	expect(request).not.toContain("stainless-secret");
 	expect(request).toContain("user-agent: [REDACTED]");
 	expect(request).toContain("content-type: application/json");
 	expect(response).toContain("x-ratelimit-remaining-requests: 99");

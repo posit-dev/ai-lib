@@ -181,12 +181,8 @@ export function createHeadlessProviders(options: HeadlessProvidersOptions): Head
 		if (!resolved) {
 			throw new Error(`No credentials for provider ${request.providerId}`);
 		}
-		if (!resolved.models.some((model) => model.id === request.modelId)) {
-			throw new Error(
-				`Model "${request.modelId}" is no longer available from "${request.providerId}".`,
-			);
-		}
-		const route = resolved.routes.get(request.modelId);
+		// Before the model check: an unavailable header reference also empties discovery, and
+		// constructing the client reports it by name.
 		const client = resolved.registry.getClientForProviderOrKind(
 			request.providerId,
 			resolved.credentials,
@@ -195,6 +191,12 @@ export function createHeadlessProviders(options: HeadlessProvidersOptions): Head
 		if (!client) {
 			throw new Error(`No client for provider ${request.providerId}`);
 		}
+		if (!resolved.models.some((model) => model.id === request.modelId)) {
+			throw new Error(
+				`Model "${request.modelId}" is no longer available from "${request.providerId}".`,
+			);
+		}
+		const route = resolved.routes.get(request.modelId);
 		const messages: ModelMessage[] = request.messages.map((message) => ({
 			role: message.role,
 			content: message.content,
