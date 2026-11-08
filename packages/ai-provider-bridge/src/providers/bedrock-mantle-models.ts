@@ -66,7 +66,7 @@ export interface ListMantleModelsOptions {
 	 * listing as a warning that names the missing action.
 	 */
 	baseUrl?: string;
-	/** Aborts the listing; an aborted listing rejects instead of returning `[]`. */
+	/** Aborts the listing; an aborted listing rejects instead of returning `null`. */
 	signal?: AbortSignal;
 }
 
@@ -74,15 +74,19 @@ export interface ListMantleModelsOptions {
  * List Mantle model IDs without allowing Mantle discovery to break Bedrock's
  * existing Converse catalog. The live service exposes its complete catalog at
  * `/v1/models`; inference routing is assigned later from model-family rules.
- * Every failure yields `[]` except an abort through `options.signal`, which
- * rejects so a cancelled discovery is not held behind a hung listing.
+ *
+ * Returns `[]` only when a retry would give the same answer: Mantle is absent
+ * in the region (404) or the listing is denied for lack of permission. Every
+ * other failure returns `null`, so a caller can retry rather than cache it.
+ * An abort through `options.signal` rejects instead, so a cancelled discovery
+ * is not held behind a hung listing.
  */
 export async function listMantleModels(
 	credentials: AwsCredentials,
 	logger: Logger,
 	options: ListMantleModelsOptions = {},
 	fetchFunction: typeof globalThis.fetch = globalThis.fetch,
-): Promise<MantleModelListing[]> {
+): Promise<MantleModelListing[] | null> {
 	const isGateway = options.baseUrl !== undefined;
 	const baseUrl = (
 		options.baseUrl ?? `https://bedrock-mantle.${credentials.region}.api.aws/v1`
@@ -120,7 +124,9 @@ export async function listMantleModels(
 		if (!response.ok) {
 			if (response.status === 404) {
 				logger.debug(`[Bedrock Mantle] Model listing is unavailable at ${url} (404)`);
-			} else if (
+				return [];
+			}
+			if (
 				isGateway &&
 				response.status === 403 &&
 				!isSignatureRejection(responseBody) &&
@@ -132,17 +138,20 @@ export async function listMantleModels(
 					`[Bedrock Mantle] Model listing at ${url} was denied; the role needs ` +
 						`bedrock-mantle:ListModels to list OpenAI models: ${responseBody}`,
 				);
-			} else if (
+				return [];
+			}
+			if (
 				(response.status === 401 || response.status === 403) &&
 				!isSignatureRejection(responseBody)
 			) {
 				logger.debug(
 					`[Bedrock Mantle] Model listing denied; bedrock-mantle:ListModels may be missing: ${responseBody}`,
 				);
-			} else {
-				logger.warn(`[Bedrock Mantle] Model listing failed (${response.status}): ${responseBody}`);
+				// Only a recognized permission denial is a stable answer.
+				return isAccessDenied(responseBody) ? [] : null;
 			}
-			return [];
+			logger.warn(`[Bedrock Mantle] Model listing failed (${response.status}): ${responseBody}`);
+			return null;
 		}
 
 		let parsed: unknown;
@@ -150,19 +159,19 @@ export async function listMantleModels(
 			parsed = JSON.parse(responseBody);
 		} catch {
 			logger.warn(`[Bedrock Mantle] Model listing returned malformed JSON: ${responseBody}`);
-			return [];
+			return null;
 		}
 
 		const models = parseModels(parsed);
 		if (!models) {
 			logger.warn(`[Bedrock Mantle] Model listing returned an unexpected body: ${responseBody}`);
-			return [];
+			return null;
 		}
 		return [...new Set(models.map((model) => model.id))].map((id) => ({ id }));
 	} catch (error) {
 		if (signal?.aborted) throw error;
 		const message = error instanceof Error ? error.message : String(error);
 		logger.warn(`[Bedrock Mantle] Model listing failed: ${message}`);
-		return [];
+		return null;
 	}
 }

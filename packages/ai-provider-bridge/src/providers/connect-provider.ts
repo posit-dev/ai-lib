@@ -584,8 +584,8 @@ async function discoverBedrockGatewayModels(
 				return [];
 			},
 		);
-		// listMantleModels logs its own failures and returns [] for them; only an
-		// abort rejects.
+		// listMantleModels logs its own failures and returns null for them; only
+		// an abort rejects. A failure lists no Mantle models.
 		const mantleModels = mantleEnabled
 			? listMantleModels(
 					{
@@ -606,7 +606,7 @@ async function discoverBedrockGatewayModels(
 						providerId,
 						integration,
 						connectUrl,
-						listings.map(({ id }) => id),
+						(listings ?? []).map(({ id }) => id),
 						logger,
 					),
 				)
