@@ -480,6 +480,24 @@ describe("mutateProvidersConfig first creation and seed boundaries", () => {
 		expect(content.version).toBe(PROVIDERS_CONFIG_VERSION);
 	});
 
+	it.each([
+		["an empty", ""],
+		["a whitespace-only", "  \n"],
+	])("seeds %s file left by an interrupted creation", async (_, blank) => {
+		await fixture.writeRawJsonc(blank);
+
+		const wrote = await mutateProvidersConfig(
+			(current) => ({ ...current, providers: { anthropic: { enabled: true } } }),
+			{ configPath, logger: mockLogger },
+		);
+
+		expect(wrote).toBe(true);
+		const content = JSON.parse(await fixture.readRaw());
+		expect(content.providers?.anthropic?.enabled).toBe(true);
+		expect(content.$schema).toBe(PROVIDERS_SCHEMA_URL);
+		expect(content.version).toBe(PROVIDERS_CONFIG_VERSION);
+	});
+
 	it("does NOT re-inject $schema/version when a user removes them", async () => {
 		// Create an initial file without $schema or version
 		await fixture.writeTypedConfig({

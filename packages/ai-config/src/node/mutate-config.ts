@@ -24,7 +24,7 @@ import { PROVIDERS_CONFIG_VERSION } from "../index.js";
 import { isPlainObject } from "../is-plain-object.js";
 import { providersConfigSchema } from "../schema.js";
 import type { ProvidersConfig } from "../types.js";
-import { parseJsonc } from "./parse-jsonc.js";
+import { isBlankConfigText, parseJsonc } from "./parse-jsonc.js";
 import { parseProvidersConfig } from "./parse-providers-config.js";
 import {
 	LEGACY_PROVIDERS_SCHEMA_PATH,
@@ -233,6 +233,10 @@ async function performLockedMutation(
 		// Re-read current state under lock
 		const { raw, config: current } = await readCurrentConfig(configPath);
 
+		// A blank file is one whose creation was interrupted before its seed
+		// was written: seed it now, as if this call had created it.
+		const seeding = fileCreated || isBlankConfigText(raw);
+
 		// Apply mutation
 		let updated = await mutator(current);
 
@@ -240,10 +244,10 @@ async function performLockedMutation(
 		// into the first mutation result so mutators don't need to preserve them.
 		// This is seed-only — subsequent mutations pass through whatever the
 		// user/mutator wrote. If a user later removes $schema, that's their choice.
-		if (fileCreated && updated.$schema === undefined) {
+		if (seeding && updated.$schema === undefined) {
 			updated = { $schema: PROVIDERS_SCHEMA_URL, ...updated };
 		}
-		if (fileCreated && updated.version === undefined) {
+		if (seeding && updated.version === undefined) {
 			updated = { ...updated, version: PROVIDERS_CONFIG_VERSION };
 		}
 
@@ -264,7 +268,7 @@ async function performLockedMutation(
 		}
 
 		const normalized = normalizeJsonValue(result.data);
-		const output = fileCreated ? JSON.stringify(normalized, null, 2) : editJsonc(raw, result.data);
+		const output = seeding ? JSON.stringify(normalized, null, 2) : editJsonc(raw, result.data);
 
 		if (output === raw) {
 			logger?.debug("[ai-config] Config mutation made no changes");
@@ -296,14 +300,15 @@ async function performLockedMutation(
  * after race-safe creation, an unreadable or missing file is anomalous, and
  * treating invalid content as `{}` would silently discard user configuration.
  * Invalid content throws {@link ProvidersConfigInvalidError} so hosts can say
- * why; read failures throw a plain error.
+ * why; read failures throw a plain error. A blank file holds no configuration
+ * to discard, so it reads as `{}`.
  */
 async function readCurrentConfig(
 	configPath: string,
 ): Promise<{ raw: string; config: ProvidersConfig }> {
 	try {
 		const raw = await fs.readFile(configPath, "utf-8");
-		return { raw, config: parseProvidersConfig(raw) };
+		return { raw, config: isBlankConfigText(raw) ? {} : parseProvidersConfig(raw) };
 	} catch (error) {
 		const invalid = existingFileInvalidError(configPath, error);
 		if (invalid) {
@@ -346,7 +351,9 @@ async function atomicWrite(configPath: string, text: string): Promise<void> {
  * where two concurrent callers both observe ENOENT and then one clobbers the
  * other's completed write with an empty `{}`.
  *
- * On file creation, seeds the file with `$schema` and `version` fields.
+ * On file creation, seeds the file with `$schema` and `version` fields. The
+ * open and the write are separate steps, so a process stopped between them
+ * leaves a blank file; readers and the next mutation treat that as missing.
  *
  * @returns `true` if this call created the file (first write), `false` if
  * it already existed. The caller uses this to inject seed metadata into

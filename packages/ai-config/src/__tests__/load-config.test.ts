@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createConfigFileFixture } from "../../tests/helpers/config-file-fixture.js";
 import type { ConfigFileFixture } from "../../tests/helpers/config-file-fixture.js";
 import { loadProviderCatalogReport, loadResolvedProviderCatalog } from "../node/load-catalog.js";
-import { readEnvFragment } from "../node/load-config.js";
+import { readEnvFragment, readFileConfig } from "../node/load-config.js";
 import type { ResolvedProvider } from "../types.js";
 import { BUILTIN_PROVIDER_IDS } from "../vocabulary.js";
 
@@ -182,6 +182,16 @@ describe("loadResolvedProviderCatalog", () => {
 			expect(catalog.length).toBe(BUILTIN_PROVIDER_IDS.length);
 			expect(findProvider(catalog, "positai")?.enabled).toBe(true);
 			expect(findProvider(catalog, "anthropic")?.enabled).toBe(true);
+		});
+
+		it("reads a blank file as missing, without an issue", async () => {
+			await fixture.writeRawJsonc("");
+
+			const report = await readFileConfig(configPath);
+
+			expect(report.layer.state).toBe("missing");
+			expect(report.source?.config).toEqual({});
+			expect(report.issues).toEqual([]);
 		});
 
 		it("should return all built-in providers for empty config", async () => {
