@@ -659,6 +659,7 @@ async function discoverAnthropicGatewayModels(
 		models.push({
 			id: `${integration.idPrefix}/${record.id}`,
 			name: `${displayName} (${integrationLabel(integration)})`,
+			baseName: displayName,
 			providerId,
 			vendor: "anthropic",
 			family: undefined,
