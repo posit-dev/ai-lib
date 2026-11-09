@@ -380,6 +380,7 @@ describe("connect model fetcher", () => {
 		);
 		expect(anthropicModel).toMatchObject({
 			name: "Claude Sonnet 4.5 (Anthropic Prod)",
+			baseName: "Claude Sonnet 4.5",
 			providerId: "posit-connect",
 			vendor: "anthropic",
 			protocol: "anthropic-messages",
