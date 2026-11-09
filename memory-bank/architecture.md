@@ -328,7 +328,11 @@ ordinary Bedrock models through Converse, and OpenAI families through Mantle.
 Mantle has one independently cached discovery source,
 `GET https://bedrock-mantle.{region}.api.aws/v1/models`, signed for the
 `bedrock-mantle` service. A Mantle discovery failure never clears or replaces
-the Converse cache.
+the Converse cache. `listMantleModels()` returns `[]` only for answers a retry
+won't change (a 404, or an access-denied body), and those are cached for the
+TTL. Every other failure (expired credentials, signature rejections, 5xx,
+unexpected bodies) returns `null`, lists no Mantle models, and is not cached,
+so the next listing retries it, for example after `aws sso login`.
 
 AWS publishes no FIPS endpoint for Mantle. When the standard AWS FIPS setting
 is enabled, the shared transport policy suppresses Mantle discovery and the

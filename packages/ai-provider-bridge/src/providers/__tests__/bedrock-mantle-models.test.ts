@@ -7,8 +7,17 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it, vi } from "vitest";
 
+import { createAwsCredentialProvider } from "../../aws-credentials";
 import type { AwsCredentials, Logger } from "../../types";
 import { listMantleModels } from "../bedrock-mantle-models";
+
+vi.mock("../../aws-credentials", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../../aws-credentials")>();
+	return {
+		...actual,
+		createAwsCredentialProvider: vi.fn(actual.createAwsCredentialProvider),
+	};
+});
 
 const credentials: AwsCredentials = {
 	type: "aws-credentials",
@@ -73,7 +82,7 @@ describe("listMantleModels", () => {
 			return new Response("The request signature we calculated does not match", { status: 403 });
 		});
 
-		await expect(listMantleModels(credentials, log, {}, fetchFunction)).resolves.toEqual([]);
+		await expect(listMantleModels(credentials, log, {}, fetchFunction)).resolves.toBeNull();
 		expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("signature"));
 	});
 
@@ -100,24 +109,55 @@ describe("listMantleModels", () => {
 		expect(permissionLog.warn).not.toHaveBeenCalled();
 
 		const authLog = logger();
-		await listMantleModels(
-			credentials,
-			authLog,
-			{},
-			vi.fn(
-				async () =>
-					new Response("The security token included in the request is expired", { status: 401 }),
+		await expect(
+			listMantleModels(
+				credentials,
+				authLog,
+				{},
+				vi.fn(
+					async () =>
+						new Response("The security token included in the request is expired", {
+							status: 401,
+						}),
+				),
 			),
-		);
+		).resolves.toBeNull();
 		expect(authLog.warn).toHaveBeenCalledWith(expect.stringContaining("security token"));
 	});
 
-	it("returns an empty list for malformed success bodies", async () => {
+	it("returns null for malformed success bodies", async () => {
 		const log = logger();
 		const fetchFunction = vi.fn(async () => new Response("{", { status: 200 }));
 
-		await expect(listMantleModels(credentials, log, {}, fetchFunction)).resolves.toEqual([]);
+		await expect(listMantleModels(credentials, log, {}, fetchFunction)).resolves.toBeNull();
 		expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("malformed JSON"));
+	});
+
+	it.each([
+		["an unrecognized 401", new Response("Unauthorized", { status: 401 })],
+		["a service failure", new Response("Service Unavailable", { status: 503 })],
+		["an unexpected body", new Response(JSON.stringify({ models: [] }), { status: 200 })],
+	])("returns null for %s so the listing is retried", async (_case, response) => {
+		await expect(
+			listMantleModels(
+				credentials,
+				logger(),
+				{},
+				vi.fn(async () => response),
+			),
+		).resolves.toBeNull();
+	});
+
+	it("returns null without a request when credential resolution fails", async () => {
+		vi.mocked(createAwsCredentialProvider).mockReturnValueOnce(async () => {
+			throw new Error("Token is expired. To refresh this SSO session run 'aws sso login'.");
+		});
+		const log = logger();
+		const fetchFunction = vi.fn(async () => new Response("{}", { status: 200 }));
+
+		await expect(listMantleModels(credentials, log, {}, fetchFunction)).resolves.toBeNull();
+		expect(fetchFunction).not.toHaveBeenCalled();
+		expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("Token is expired"));
 	});
 
 	describe("through a gateway", () => {
@@ -176,21 +216,23 @@ describe("listMantleModels", () => {
 
 		it("keeps signature rejections as a generic failure warning", async () => {
 			const log = logger();
-			await listMantleModels(
-				credentials,
-				log,
-				{ baseUrl: GATEWAY_MANTLE_BASE },
-				vi.fn(
-					async () =>
-						new Response("The request signature we calculated does not match", { status: 403 }),
+			await expect(
+				listMantleModels(
+					credentials,
+					log,
+					{ baseUrl: GATEWAY_MANTLE_BASE },
+					vi.fn(
+						async () =>
+							new Response("The request signature we calculated does not match", { status: 403 }),
+					),
 				),
-			);
+			).resolves.toBeNull();
 
 			expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("failed (403)"));
 			expect(log.warn).not.toHaveBeenCalledWith(expect.stringContaining("needs"));
 		});
 
-		it("rejects on abort instead of returning an empty list", async () => {
+		it("rejects on abort instead of returning null", async () => {
 			const controller = new AbortController();
 			const fetchFunction = vi.fn(
 				(_input: RequestInfo | URL, init?: RequestInit) =>

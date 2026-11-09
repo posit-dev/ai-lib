@@ -305,6 +305,8 @@ function createBedrockModelFetcher(
 			}
 
 			const mantleListings = await listMantleModels(credentials, logger);
+			// A failed listing stays uncached so the next listing retries it.
+			if (mantleListings === null) return [];
 			const mantleModels: ModelInfo[] = mantleListings.flatMap(({ id }) => {
 				const capabilityFacts = getBedrockMantleModelCapabilities(id);
 				if (!capabilityFacts) {

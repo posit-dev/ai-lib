@@ -260,6 +260,54 @@ describe("Bedrock provider Mantle aggregation", () => {
 		);
 	});
 
+	it("re-lists Mantle on the next listing after credential resolution fails", async () => {
+		const actual = await vi.importActual<typeof import("../bedrock-mantle-models")>(
+			"../bedrock-mantle-models",
+		);
+		listMantleModels.mockImplementation(actual.listMantleModels);
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response(JSON.stringify({ data: [{ id: "openai.gpt-5.6-terra" }] }), {
+						status: 200,
+					}),
+			),
+		);
+		// Converse and Mantle both resolve credentials during one listing, so
+		// the failure lasts until the user signs in again, not for one call.
+		let signedIn = false;
+		createAwsCredentialProvider.mockReturnValue(async () => {
+			if (!signedIn) throw new Error(SSO_TOKEN_EXPIRED);
+			return { accessKeyId: "key", secretAccessKey: "secret" };
+		});
+		const registry = new ProviderRegistry(logger());
+		registerBedrockProvider(registry, logger());
+		const credentials = credentialsFor("us-east-2");
+
+		try {
+			await registry.getModelsForProvider("bedrock", credentials);
+			signedIn = true;
+			const models = await registry.getModelsForProvider("bedrock", credentials);
+
+			expect(models.some((model) => model.id === "openai.gpt-5.6-terra")).toBe(true);
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
+
+	it("caches an empty Mantle listing", async () => {
+		listMantleModels.mockResolvedValueOnce([]);
+		const registry = new ProviderRegistry(logger());
+		registerBedrockProvider(registry, logger());
+		const credentials = credentialsFor("us-east-2");
+
+		await registry.getModelsForProvider("bedrock", credentials);
+		await registry.getModelsForProvider("bedrock", credentials);
+
+		expect(listMantleModels).toHaveBeenCalledTimes(1);
+	});
+
 	it("starts independently stale discovery sources concurrently", async () => {
 		let resolveMantle: ((value: Array<{ id: string }>) => void) | undefined;
 		let resolveConverse: ((value: { modelSummaries: [] }) => void) | undefined;
