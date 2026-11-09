@@ -96,7 +96,7 @@ export async function readFileConfig(configPath: string): Promise<ProviderConfig
 	}
 
 	if (isBlankConfigText(raw)) {
-		return { layer: layer("missing"), source: { ...identity, config: {} }, issues: [] };
+		return { layer: layer("empty"), source: { ...identity, config: {} }, issues: [] };
 	}
 
 	try {

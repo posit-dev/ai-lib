@@ -184,16 +184,6 @@ describe("loadResolvedProviderCatalog", () => {
 			expect(findProvider(catalog, "anthropic")?.enabled).toBe(true);
 		});
 
-		it("reads a blank file as missing, without an issue", async () => {
-			await fixture.writeRawJsonc("");
-
-			const report = await readFileConfig(configPath);
-
-			expect(report.layer.state).toBe("missing");
-			expect(report.source?.config).toEqual({});
-			expect(report.issues).toEqual([]);
-		});
-
 		it("should return all built-in providers for empty config", async () => {
 			await fixture.writeTypedConfig({});
 
@@ -1088,6 +1078,22 @@ describe("loadResolvedProviderCatalog", () => {
 	// ========================================================================
 
 	describe("whole-source failures", () => {
+		it("reads a blank file as empty, without an issue", async () => {
+			await fixture.writeRawJsonc("  \n");
+
+			const report = await loadProviderCatalogReport({
+				envVars: process.env,
+				configPath,
+				logger: mockLogger,
+			});
+			const file = await readFileConfig(configPath);
+
+			expect(report.issues).toEqual([]);
+			expect(mockLogger.warn).not.toHaveBeenCalled();
+			expect(file.layer.state).toBe("empty");
+			expect(file.source?.config).toEqual({});
+		});
+
 		it("reports a syntax error as an error-severity issue with line and column", async () => {
 			// Missing comma after the `providers` block: the parser reports
 			// CommaExpected at the `"version"` token on line 3.

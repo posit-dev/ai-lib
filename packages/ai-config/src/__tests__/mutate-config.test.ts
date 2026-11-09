@@ -498,6 +498,20 @@ describe("mutateProvidersConfig first creation and seed boundaries", () => {
 		expect(content.version).toBe(PROVIDERS_CONFIG_VERSION);
 	});
 
+	it("repairs a blank file when the mutation changes nothing", async () => {
+		await fixture.writeRawJsonc("");
+
+		const wrote = await mutateProvidersConfig((current) => current, {
+			configPath,
+			logger: mockLogger,
+		});
+
+		expect(wrote).toBe(true);
+		const content = JSON.parse(await fixture.readRaw());
+		expect(content.$schema).toBe(PROVIDERS_SCHEMA_URL);
+		expect(content.version).toBe(PROVIDERS_CONFIG_VERSION);
+	});
+
 	it("does NOT re-inject $schema/version when a user removes them", async () => {
 		// Create an initial file without $schema or version
 		await fixture.writeTypedConfig({

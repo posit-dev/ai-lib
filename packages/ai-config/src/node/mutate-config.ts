@@ -79,7 +79,8 @@ function enqueue<T>(configPath: string, fn: () => Promise<T>): Promise<T> {
  * @param opts - Optional path override and logger.
  * @returns `true` if the mutation wrote new content to the file, `false` if
  * the result was unchanged and nothing was written. (Creating a missing file
- * whose only content is the seed metadata reports `false`.)
+ * whose only content is the seed metadata reports `false`. Repairing a blank
+ * file reports `true`.)
  */
 export async function mutateProvidersConfig(
 	mutator: (current: ProvidersConfig) => ProvidersConfig | Promise<ProvidersConfig>,
