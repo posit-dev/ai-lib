@@ -97,7 +97,6 @@ export class GoogleVertexClient implements ModelClient {
 		const { providerOptions, headers: requestHeaders } = isAnthropic
 			? anthropicRequestOptions({
 					effort: params.thinkingEffort,
-					transport: "vertex",
 					blockBinding: params.thinkingBlockBinding,
 					clientOptions: {},
 				})

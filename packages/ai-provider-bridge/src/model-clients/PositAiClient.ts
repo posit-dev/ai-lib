@@ -205,7 +205,6 @@ export class PositAiClient implements ModelClient {
 		if (normalizedProtocol === "anthropic-messages") {
 			const { providerOptions, headers: requestHeaders } = anthropicRequestOptions({
 				effort: params.thinkingEffort,
-				transport: "positai",
 				blockBinding: params.thinkingBlockBinding,
 				clientOptions: {},
 			});

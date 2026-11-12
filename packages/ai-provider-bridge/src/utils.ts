@@ -42,21 +42,6 @@ export type ThinkingBlockBinding = "error" | "drop_block" | "header-only";
 /** Beta that enables `thinking.block_binding` and `input_transformations`. */
 export const THINKING_BINDING_BETA = "thinking-binding-controls-2026-08-01";
 
-/** The transport a request on the Anthropic Messages wire travels over. */
-export type AnthropicTransport = "anthropic" | "bedrock" | "vertex" | "positai" | "snowflake";
-
-/**
- * Transports whose endpoint rejects or drops thinking-block binding. Requests
- * over them never carry the beta or the body field. Add a transport here when
- * live verification shows it fails; see
- * plans/2026-10-09-1737-preserved-thinking-sequencing.md (phase 0).
- *
- * - `positai`: the gateway rejects the request with 400 `disallowed
- *   Anthropic-Beta value: "thinking-binding-controls-2026-08-01"` (verified
- *   2026-10-12 against staging). Remove once the gateway allows the beta.
- */
-const TRANSPORTS_WITHOUT_BLOCK_BINDING: ReadonlySet<AnthropicTransport> = new Set(["positai"]);
-
 type AnthropicThinkingOptions = {
 	thinking?:
 		| { type: "disabled" }
@@ -89,23 +74,19 @@ export type AnthropicRequestOptions = {
  *
  * `blockBinding` applies only with adaptive thinking: the API rejects
  * `block_binding` next to `disabled`, and with the provider default PA replays
- * no thinking, so there is nothing to bind. A transport in
- * `TRANSPORTS_WITHOUT_BLOCK_BINDING` vetoes it. `"error"` and `"drop_block"`
- * set the body field (the SDK adds the beta header); `"header-only"` adds only
- * the beta header.
+ * no thinking, so there is nothing to bind. `"error"` and `"drop_block"` set
+ * the body field (the SDK adds the beta header); `"header-only"` adds only the
+ * beta header.
  *
  * `clientOptions` are merged on top.
  */
 export function anthropicRequestOptions(request: {
 	effort: string | undefined;
-	transport: AnthropicTransport;
 	blockBinding: ThinkingBlockBinding | undefined;
 	clientOptions: AnthropicClientOptions;
 }): AnthropicRequestOptions {
-	const { effort, transport, clientOptions } = request;
-	const adaptive = isThinkingEnabled(effort);
-	const blockBinding =
-		adaptive && !TRANSPORTS_WITHOUT_BLOCK_BINDING.has(transport) ? request.blockBinding : undefined;
+	const { effort, clientOptions } = request;
+	const blockBinding = isThinkingEnabled(effort) ? request.blockBinding : undefined;
 	const thinkingOptions: AnthropicThinkingOptions =
 		effort === undefined
 			? {}

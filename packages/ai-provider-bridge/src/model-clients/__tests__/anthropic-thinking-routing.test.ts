@@ -118,7 +118,6 @@ describe.each([
 		name: "Bedrock",
 		client: new BedrockClient({ region: "us-east-1" }),
 		model: "anthropic.claude-haiku-5-5",
-		bindsThinking: true,
 	},
 	{
 		name: "Google Vertex",
@@ -127,22 +126,18 @@ describe.each([
 			logger,
 		),
 		model: "claude-haiku-5-5",
-		bindsThinking: true,
 	},
 	{
 		name: "Snowflake",
 		client: new SnowflakeClient("token", "https://acct.snowflakecomputing.com/api/v2/cortex"),
 		model: "claude-haiku-5-5",
-		bindsThinking: true,
 	},
 	{
 		name: "Posit AI",
 		client: new PositAiClient("token", "https://api.posit.example", "test-agent", logger),
 		model: "claude-haiku-5-5",
-		// The gateway rejects the beta: 400 "disallowed Anthropic-Beta value".
-		bindsThinking: false,
 	},
-])("$name Claude thinking options", ({ client, model, bindsThinking }) => {
+])("$name Claude thinking options", ({ client, model }) => {
 	it('disables thinking for "off"', async () => {
 		expect(await anthropicOptions(client, model, "off")).toEqual({
 			thinking: { type: "disabled" },
@@ -156,13 +151,13 @@ describe.each([
 		});
 	});
 
-	it("forwards the block-binding policy with adaptive thinking, unless the transport vetoes it", async () => {
+	it("forwards the block-binding policy with adaptive thinking", async () => {
 		expect(await streamTextOptions(client, model, "medium", "drop_block")).toEqual({
 			anthropic: {
 				thinking: {
 					type: "adaptive",
 					display: "summarized",
-					...(bindsThinking ? { blockBinding: { prefixMismatchBehavior: "drop_block" } } : {}),
+					blockBinding: { prefixMismatchBehavior: "drop_block" },
 				},
 				effort: "medium",
 			},
@@ -170,12 +165,10 @@ describe.each([
 		});
 	});
 
-	it("sends only the beta header for header-only, unless the transport vetoes it", async () => {
+	it("sends only the beta header for header-only", async () => {
 		expect(await streamTextOptions(client, model, "medium", "header-only")).toEqual({
 			anthropic: { thinking: { type: "adaptive", display: "summarized" }, effort: "medium" },
-			headers: bindsThinking
-				? { "anthropic-beta": "thinking-binding-controls-2026-08-01" }
-				: undefined,
+			headers: { "anthropic-beta": "thinking-binding-controls-2026-08-01" },
 		});
 	});
 

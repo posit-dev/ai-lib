@@ -165,7 +165,6 @@ export class BedrockClient implements ModelClient {
 		const anthropicOptions = isAnthropic
 			? anthropicRequestOptions({
 					effort: params.thinkingEffort,
-					transport: "bedrock",
 					blockBinding: params.thinkingBlockBinding,
 					clientOptions: rejectsEagerInputStreaming(params.model) ? { toolStreaming: false } : {},
 				})
