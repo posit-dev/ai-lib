@@ -33,9 +33,9 @@ export interface GoogleVertexProviderStatusUpdate {
 		};
 	};
 	/**
-	 * Set when a user action (a send-time sign-in check) produced the update rather than model
-	 * discovery. Hosts re-show the prompt even if it was already shown or dismissed, and must not
-	 * count the update as discovery evidence (e.g. as a reconnect verification verdict).
+	 * Set when a sign-in check (before a send or after a failed turn) produced the update rather
+	 * than model discovery. Hosts re-show the prompt even if it was already shown or dismissed, and
+	 * must not count the update as discovery evidence (e.g. as a reconnect verification verdict).
 	 */
 	userInitiated?: true;
 }
