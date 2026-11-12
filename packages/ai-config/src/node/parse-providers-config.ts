@@ -11,17 +11,35 @@ import type { ProvidersConfig } from "../types.js";
 import { parseJsonc } from "./parse-jsonc.js";
 
 /**
- * Parse providers.json as JSONC and validate its complete on-disk shape.
+ * Whether providers.json text is empty or whitespace only. Such a file holds
+ * no configuration, so it parses as `{}` rather than as invalid JSONC: another
+ * process sees exactly this while a first mutation is between creating the
+ * file and seeding it, and a writer stopped there leaves it behind for good.
+ * A file holding only comments is still invalid, since only a user writes
+ * comments.
+ */
+export function isBlankConfigText(text: string): boolean {
+	return text.trim() === "";
+}
+
+/**
+ * Parse providers.json as JSONC and validate its complete on-disk shape. Blank
+ * text is `{}`.
  *
  * Syntax failures propagate as `SyntaxError`; schema failures propagate as a
  * Zod error. Loaders can therefore report and degrade by failure kind, while
  * mutations can abort without duplicating either policy.
  */
 export function parseProvidersConfig(text: string): ProvidersConfig {
-	return providersConfigSchema.parse(parseJsonc(text));
+	return isBlankConfigText(text) ? {} : providersConfigSchema.parse(parseJsonc(text));
 }
 
-/** Parse JSONC syntax, then salvage independently valid provider blocks. */
+/**
+ * Parse JSONC syntax, then salvage independently valid provider blocks. Blank
+ * text is `{}`, with no issues.
+ */
 export function parseProvidersConfigTolerant(text: string): SalvagedProvidersConfig {
-	return salvageProvidersConfig(parseJsonc(text));
+	return isBlankConfigText(text)
+		? { config: {}, issues: [] }
+		: salvageProvidersConfig(parseJsonc(text));
 }

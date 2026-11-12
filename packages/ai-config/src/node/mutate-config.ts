@@ -24,8 +24,8 @@ import { PROVIDERS_CONFIG_VERSION } from "../index.js";
 import { isPlainObject } from "../is-plain-object.js";
 import { providersConfigSchema } from "../schema.js";
 import type { ProvidersConfig } from "../types.js";
-import { isBlankConfigText, parseJsonc } from "./parse-jsonc.js";
-import { parseProvidersConfig } from "./parse-providers-config.js";
+import { parseJsonc } from "./parse-jsonc.js";
+import { isBlankConfigText, parseProvidersConfig } from "./parse-providers-config.js";
 import {
 	LEGACY_PROVIDERS_SCHEMA_PATH,
 	PROVIDERS_CONFIG_PATH,
@@ -309,7 +309,7 @@ async function readCurrentConfig(
 ): Promise<{ raw: string; config: ProvidersConfig }> {
 	try {
 		const raw = await fs.readFile(configPath, "utf-8");
-		return { raw, config: isBlankConfigText(raw) ? {} : parseProvidersConfig(raw) };
+		return { raw, config: parseProvidersConfig(raw) };
 	} catch (error) {
 		const invalid = existingFileInvalidError(configPath, error);
 		if (invalid) {
@@ -353,8 +353,10 @@ async function atomicWrite(configPath: string, text: string): Promise<void> {
  * other's completed write with an empty `{}`.
  *
  * On file creation, seeds the file with `$schema` and `version` fields. The
- * open and the write are separate steps, so a process stopped between them
- * leaves a blank file; readers and the next mutation treat that as missing.
+ * open and the write are separate steps taken before the lock, so other
+ * processes can see the file blank in between, and a process stopped there
+ * leaves it blank. Readers report a blank file as empty, and the next
+ * mutation seeds it.
  *
  * @returns `true` if this call created the file (first write), `false` if
  * it already existed. The caller uses this to inject seed metadata into

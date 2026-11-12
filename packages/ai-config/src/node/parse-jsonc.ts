@@ -31,17 +31,6 @@ export class JsoncSyntaxError extends SyntaxError {
 	}
 }
 
-/**
- * Whether a config file's text is empty or whitespace only. Such a file holds
- * no configuration, so readers and writers treat it as empty rather than as
- * invalid JSONC: a writer interrupted between creating the file and seeding
- * it leaves exactly this, and it must not lock the user out for good. A file
- * holding only comments is still invalid, since a user wrote it.
- */
-export function isBlankConfigText(text: string): boolean {
-	return text.trim() === "";
-}
-
 /** Parse JSONC into null-prototype objects, throwing `JsoncSyntaxError` on invalid input. */
 export function parseJsonc(text: string): unknown {
 	const errors: ParseError[] = [];

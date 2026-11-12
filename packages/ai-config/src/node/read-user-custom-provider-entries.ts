@@ -5,7 +5,6 @@
 import { promises as fs } from "node:fs";
 
 import type { CustomProviderEntry } from "../types.js";
-import { isBlankConfigText } from "./parse-jsonc.js";
 import { parseProvidersConfig } from "./parse-providers-config.js";
 import { PROVIDERS_CONFIG_PATH } from "./paths.js";
 
@@ -49,10 +48,6 @@ export async function readUserCustomProviderEntries(
 			`[ai-config] Cannot read ${configPath}: ${errorMessage(error)}. Fix the file before editing custom providers.`,
 			{ cause: error },
 		);
-	}
-
-	if (isBlankConfigText(raw)) {
-		return new Map();
 	}
 
 	try {

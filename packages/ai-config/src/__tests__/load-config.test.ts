@@ -1094,6 +1094,24 @@ describe("loadResolvedProviderCatalog", () => {
 			expect(file.source?.config).toEqual({});
 		});
 
+		it("reads a comment-only file as invalid", async () => {
+			await fixture.writeRawJsonc("// nothing\n");
+
+			const report = await loadProviderCatalogReport({
+				envVars: process.env,
+				configPath,
+			});
+			const file = await readFileConfig(configPath);
+
+			expect(report.issues).toEqual([
+				expect.objectContaining({
+					severity: "error",
+					message: expect.stringContaining("Invalid JSONC"),
+				}),
+			]);
+			expect(file.layer.state).toBe("invalid");
+		});
+
 		it("reports a syntax error as an error-severity issue with line and column", async () => {
 			// Missing comma after the `providers` block: the parser reports
 			// CommaExpected at the `"version"` token on line 3.

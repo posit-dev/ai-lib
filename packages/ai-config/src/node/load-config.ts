@@ -13,7 +13,6 @@ import type { ProviderConfigSource } from "../resolve-catalog.js";
 import { salvageProvidersConfigFragment } from "../salvage-config.js";
 import type { SalvageFailureReason } from "../salvage-config.js";
 import type { LoggerLike } from "../types.js";
-import { isBlankConfigText } from "./parse-jsonc.js";
 import { parseProvidersConfigTolerant } from "./parse-providers-config.js";
 import { DEFAULT_ENV_VAR, ENFORCED_ENV_VAR, PROVIDERS_CONFIG_PATH } from "./paths.js";
 
@@ -93,10 +92,6 @@ export async function readFileConfig(configPath: string): Promise<ProviderConfig
 				),
 			],
 		};
-	}
-
-	if (isBlankConfigText(raw)) {
-		return { layer: layer("empty"), source: { ...identity, config: {} }, issues: [] };
 	}
 
 	try {
