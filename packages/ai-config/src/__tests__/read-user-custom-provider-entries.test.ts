@@ -58,6 +58,15 @@ describe("readUserCustomProviderEntries", () => {
 		).resolves.toEqual(new Map());
 	});
 
+	it("returns an empty map when providers.json is blank", async () => {
+		const fixture = await configFixture();
+		await fixture.writeRawJsonc("");
+
+		await expect(
+			readUserCustomProviderEntries({ configPath: fixture.configPath }),
+		).resolves.toEqual(new Map());
+	});
+
 	it("returns an empty map for an empty custom map", async () => {
 		const fixture = await configFixture();
 		await fixture.writeTypedConfig({ version: 1, providers: { custom: {} } });

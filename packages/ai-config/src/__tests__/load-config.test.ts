@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createConfigFileFixture } from "../../tests/helpers/config-file-fixture.js";
 import type { ConfigFileFixture } from "../../tests/helpers/config-file-fixture.js";
 import { loadProviderCatalogReport, loadResolvedProviderCatalog } from "../node/load-catalog.js";
-import { readEnvFragment } from "../node/load-config.js";
+import { readEnvFragment, readFileConfig } from "../node/load-config.js";
 import type { ResolvedProvider } from "../types.js";
 import { BUILTIN_PROVIDER_IDS } from "../vocabulary.js";
 
@@ -1078,6 +1078,40 @@ describe("loadResolvedProviderCatalog", () => {
 	// ========================================================================
 
 	describe("whole-source failures", () => {
+		it("reads a blank file as empty, without an issue", async () => {
+			await fixture.writeRawJsonc("  \n");
+
+			const report = await loadProviderCatalogReport({
+				envVars: process.env,
+				configPath,
+				logger: mockLogger,
+			});
+			const file = await readFileConfig(configPath);
+
+			expect(report.issues).toEqual([]);
+			expect(mockLogger.warn).not.toHaveBeenCalled();
+			expect(file.layer.state).toBe("empty");
+			expect(file.source?.config).toEqual({});
+		});
+
+		it("reads a comment-only file as invalid", async () => {
+			await fixture.writeRawJsonc("// nothing\n");
+
+			const report = await loadProviderCatalogReport({
+				envVars: process.env,
+				configPath,
+			});
+			const file = await readFileConfig(configPath);
+
+			expect(report.issues).toEqual([
+				expect.objectContaining({
+					severity: "error",
+					message: expect.stringContaining("Invalid JSONC"),
+				}),
+			]);
+			expect(file.layer.state).toBe("invalid");
+		});
+
 		it("reports a syntax error as an error-severity issue with line and column", async () => {
 			// Missing comma after the `providers` block: the parser reports
 			// CommaExpected at the `"version"` token on line 3.

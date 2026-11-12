@@ -345,9 +345,10 @@ from severity, scope, path and source). It is read-only and silent, and shares t
 
 - **Read state.** Each reader's report carries a `layer` (`ProviderConfigLayer`, the ref plus its
   source `kind`). The user file is `missing` (ENOENT), `invalid` (unreadable, bad JSONC, or a
-  whole-file salvage failure; a zero-byte file is invalid, as its issue says), `empty` (sets no
-  `providers`/`agentEngines` key) or `found`; env payloads and legacy layers are `not set` when
-  absent.
+  whole-file salvage failure; a comment-only file is invalid), `empty` (sets no
+  `providers`/`agentEngines` key, or is blank: zero bytes or whitespace only, with no issue) or
+  `found`; env payloads and legacy layers are `not set` when absent. `parseProvidersConfig` and
+  `parseProvidersConfigTolerant` own the blank rule, so every reader and the mutation path agree.
 - **No second copy of precedence.** `resolveProviderCatalogReport` and the explainer both run
   `foldProviderCatalog` (rank, recover, enablement layers, `agentEngines` fold). The explainer
   replays the same merge step (`foldConfigLayers`, also used by `mergeAndValidate` and the
@@ -558,7 +559,11 @@ without managing locking, atomicity, or watch lifecycle themselves.
   a `proper-lockfile` lock (with retries and stale detection), an in-process
   serialization queue per config path, race-safe first-creation via the
   exclusive `wx` flag, atomic write (temp file + rename), and seed-metadata
-  injection (`$schema`, `version`) on first creation. `$schema` is seeded with
+  injection (`$schema`, `version`) on first creation. Creation opens the file
+  and writes the seed before the lock, so the file can be blank in between (or
+  for good, if the writer stops there); a mutation that finds it blank seeds it
+  as if it had created it, writes through `atomicWrite`, and returns `true`.
+  `$schema` is seeded with
   `PROVIDERS_SCHEMA_URL` (`node/paths.ts`), the hosted
   `providers.schema.json` at `assistant.posit.co/schemas/providers.schema.json`
   — editors resolve and cache that URL natively, so no local sidecar file or
