@@ -15,28 +15,37 @@ import {
 	resolveGoogleVertexCredentialSource,
 } from "../google-vertex-credentials";
 import { GoogleVertexClient } from "../model-clients/GoogleVertexClient";
-import type { Logger, ModelInfo, ProviderCredentials } from "../types";
+import type { GoogleCloudCredentials, Logger, ModelInfo, ProviderCredentials } from "../types";
 import { NOTIFICATION_ACTIONS } from "../types";
 import type { ClientFactory, ProviderRegistry } from "./ProviderRegistry";
+
+/** A Google Vertex provider status update, with full provider context. */
+export interface GoogleVertexProviderStatusUpdate {
+	providerId: string;
+	authMethodId: string;
+	status: "ok" | "auth_error" | "network_error";
+	error?: {
+		code: string;
+		message: string;
+		action?: {
+			label: string;
+			commandId: string;
+		};
+	};
+	/**
+	 * Set when a user action (a send-time sign-in check) produced the update rather than model
+	 * discovery. Hosts re-show the prompt even if it was already shown or dismissed, and must not
+	 * count the update as discovery evidence (e.g. as a reconnect verification verdict).
+	 */
+	userInitiated?: true;
+}
 
 /**
  * Optional callbacks for platform-specific Google Vertex provider status updates.
  * Same interface shape as BedrockProviderCallbacks.
  */
 export interface GoogleVertexProviderCallbacks {
-	onProviderStatusChange?: (update: {
-		providerId: string;
-		authMethodId: string;
-		status: "ok" | "auth_error" | "network_error";
-		error?: {
-			code: string;
-			message: string;
-			action?: {
-				label: string;
-				commandId: string;
-			};
-		};
-	}) => Promise<void>;
+	onProviderStatusChange?: (update: GoogleVertexProviderStatusUpdate) => Promise<void>;
 }
 
 /**
@@ -101,6 +110,69 @@ function authErrorGuidance(source: GoogleVertexCredentialSource): {
 		};
 	}
 	return AUTH_ERROR_GUIDANCE[source.kind];
+}
+
+function vertexAuthErrorUpdate(
+	providerId: string,
+	guidance: { code: string; message: string },
+): GoogleVertexProviderStatusUpdate {
+	return {
+		providerId,
+		authMethodId: "google-cloud",
+		status: "auth_error",
+		error: {
+			code: guidance.code,
+			message: guidance.message,
+			action: {
+				label: "Reload model list",
+				commandId: NOTIFICATION_ACTIONS.REFRESH_MODELS,
+			},
+		},
+	};
+}
+
+/** Result of {@link checkGoogleVertexSignIn}. */
+export type GoogleVertexSignInCheck =
+	| { status: "ok" }
+	| { status: "unknown" }
+	| { status: "sign-in-required"; update: GoogleVertexProviderStatusUpdate };
+
+/**
+ * Mint a Vertex access token and report whether the user must sign in again. Publishes nothing:
+ * on `sign-in-required` the result carries the `adc_expired` status update (the model list's copy,
+ * flagged `userInitiated`) for the caller to deliver to its status callbacks. Any other failure,
+ * including other auth errors (a missing key file, rejected inline credentials), is `unknown`.
+ * A brokered token is returned as-is by minting, so it is `ok` without being validated.
+ * `credentialEnvironment` is the same captured environment the client factory receives
+ * (undefined reads `process.env`).
+ */
+export async function checkGoogleVertexSignIn(
+	providerId: string,
+	credentials: GoogleCloudCredentials,
+	logger: Logger,
+	credentialEnvironment: Readonly<Record<string, string | undefined>> | undefined,
+): Promise<GoogleVertexSignInCheck> {
+	const credentialSource = resolveGoogleVertexCredentialSource(
+		credentials.accessToken,
+		credentialEnvironment,
+	);
+	try {
+		await mintGoogleVertexAccessToken(credentialSource);
+		return { status: "ok" };
+	} catch (error) {
+		const guidance = isAuthError(error) ? authErrorGuidance(credentialSource) : undefined;
+		if (guidance?.code !== "adc_expired") {
+			const errorMsg = error instanceof Error ? error.message : String(error);
+			logger.warn(
+				`[GoogleVertex] Sign-in check for ${providerId} could not mint a token from ${describeGoogleVertexCredentialSource(credentialSource)}: ${errorMsg}`,
+			);
+			return { status: "unknown" };
+		}
+		return {
+			status: "sign-in-required",
+			update: { ...vertexAuthErrorUpdate(providerId, guidance), userInitiated: true },
+		};
+	}
 }
 
 /**
@@ -393,19 +465,7 @@ function createGoogleVertexModelFetcher(
 						`[GoogleVertex] ${guidance.message} Credential source: ${sourceDescription}. Error: ${errorMsg}`,
 					);
 
-					await callbacks?.onProviderStatusChange?.({
-						providerId,
-						authMethodId: "google-cloud",
-						status: "auth_error",
-						error: {
-							code: guidance.code,
-							message: guidance.message,
-							action: {
-								label: "Reload model list",
-								commandId: NOTIFICATION_ACTIONS.REFRESH_MODELS,
-							},
-						},
-					});
+					await callbacks?.onProviderStatusChange?.(vertexAuthErrorUpdate(providerId, guidance));
 
 					// Clear cache so subsequent requests don't short-circuit
 					cachedModels = null;
