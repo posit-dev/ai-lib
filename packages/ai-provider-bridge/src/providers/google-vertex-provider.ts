@@ -11,6 +11,7 @@ import {
 	type GoogleVertexCredentialSource,
 	isInlineServiceAccountError,
 	mintGoogleVertexAccessToken,
+	googleVertexKeyFile,
 	missingGoogleVertexKeyFile,
 	resolveGoogleVertexCredentialSource,
 } from "../google-vertex-credentials";
@@ -142,7 +143,8 @@ export type GoogleVertexSignInCheck =
  * on `sign-in-required` the result carries the `adc_expired` status update (the model list's copy,
  * flagged `userInitiated`) for the caller to deliver to its status callbacks. Any other failure,
  * including other auth errors (a missing key file, rejected inline credentials), is `unknown`.
- * A brokered token is returned as-is by minting, so it is `ok` without being validated.
+ * So is a rejected `GOOGLE_APPLICATION_CREDENTIALS` file: it overrides gcloud's file, so signing
+ * in again with gcloud could not repair it. A brokered token is returned as-is by minting, so it is `ok` without being validated.
  * `credentialEnvironment` is the same captured environment the client factory receives
  * (undefined reads `process.env`).
  */
@@ -161,7 +163,7 @@ export async function checkGoogleVertexSignIn(
 		return { status: "ok" };
 	} catch (error) {
 		const guidance = isAuthError(error) ? authErrorGuidance(credentialSource) : undefined;
-		if (guidance?.code !== "adc_expired") {
+		if (guidance?.code !== "adc_expired" || googleVertexKeyFile(credentialSource)) {
 			const errorMsg = error instanceof Error ? error.message : String(error);
 			logger.warn(
 				`[GoogleVertex] Sign-in check for ${providerId} could not mint a token from ${describeGoogleVertexCredentialSource(credentialSource)}: ${errorMsg}`,

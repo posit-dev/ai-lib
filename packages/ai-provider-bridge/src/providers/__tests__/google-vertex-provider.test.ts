@@ -553,6 +553,25 @@ describe("checkGoogleVertexSignIn", () => {
 		).resolves.toEqual({ status: "unknown" });
 	});
 
+	it("is unknown when an existing GOOGLE_APPLICATION_CREDENTIALS file is rejected", async () => {
+		// A gcloud login writes gcloud's own file, which this explicit file
+		// overrides, so prompting to sign in again could not fix it.
+		const dir = mkdtempSync(join(tmpdir(), "vertex-key-"));
+		try {
+			const keyFile = join(dir, "service-account.json");
+			writeFileSync(keyFile, "{}");
+			authMocks.getAccessToken.mockRejectedValueOnce(new Error("invalid_grant"));
+
+			await expect(
+				checkGoogleVertexSignIn("google-vertex", credentials, mockLogger, {
+					GOOGLE_APPLICATION_CREDENTIALS: keyFile,
+				}),
+			).resolves.toEqual({ status: "unknown" });
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
 	it("is ok for a brokered token without minting", async () => {
 		await expect(
 			checkGoogleVertexSignIn(
