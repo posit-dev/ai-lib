@@ -37,6 +37,7 @@ import {
 	createAbortControllerFromToken,
 	stepLoggingOptions,
 } from "./ai-sdk-helpers";
+import { withPrefixMismatchBehavior } from "./bedrock-block-binding-fetch";
 import type { ModelClient, ModelClientChatParams } from "./ModelClient";
 import { prepareExplicitOpenAIRequest } from "./openai-prompt-caching";
 import { mergeOpenAIWebSearchTool } from "./provider-tools";
@@ -355,7 +356,7 @@ export class BedrockClient implements ModelClient {
 				headers,
 				credentialProvider,
 				...explicitKeyAuth,
-				...(loggedFetch && { fetch: loggedFetch }),
+				fetch: withPrefixMismatchBehavior(credentialProvider, loggedFetch),
 			})(modelId);
 		}
 
