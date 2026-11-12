@@ -124,7 +124,6 @@ export class AnthropicClient implements ModelClient {
 
 		const { providerOptions, headers: requestHeaders } = anthropicRequestOptions({
 			effort: params.thinkingEffort,
-			transport: "anthropic",
 			blockBinding: params.thinkingBlockBinding,
 			clientOptions: {},
 		});

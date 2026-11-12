@@ -16,7 +16,7 @@ import {
 // The per-effort thinking options are covered end to end by
 // `anthropic-thinking-wire.test.ts` (real SDK) and `anthropic-thinking-routing.test.ts`.
 describe("anthropicRequestOptions", () => {
-	const request = { transport: "anthropic", clientOptions: { toolStreaming: false } } as const;
+	const request = { clientOptions: { toolStreaming: false } } as const;
 
 	it("merges client options with and without thinking options", () => {
 		expect(
