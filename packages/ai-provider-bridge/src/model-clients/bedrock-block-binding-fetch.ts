@@ -48,6 +48,12 @@ export function withPrefixMismatchBehavior(
 		for (const name of SIGNATURE_HEADERS) {
 			headers.delete(name);
 		}
+		// Fetch sends header values as Latin-1 but SigV4 hashes them as UTF-8, so
+		// a non-ASCII value can't be signed. Leave it unsigned, as the SDK does.
+		const unsignable = [...headers].filter(([, value]) => !isAscii(value));
+		for (const [name] of unsignable) {
+			headers.delete(name);
+		}
 		const credentials = await credentialProvider();
 		const signed = await new AwsV4Signer({
 			url: typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
@@ -60,6 +66,9 @@ export function withPrefixMismatchBehavior(
 			secretAccessKey: credentials.secretAccessKey,
 			sessionToken: credentials.sessionToken,
 		}).sign();
+		for (const [name, value] of unsignable) {
+			signed.headers.set(name, value);
+		}
 		return send(input, { ...init, body, headers: signed.headers });
 	};
 }
@@ -84,6 +93,10 @@ function renameMismatchBehavior(body: string): string | undefined {
 			block_binding: { ...rest, prefix_mismatch_behavior: behavior },
 		},
 	});
+}
+
+function isAscii(value: string): boolean {
+	return !/[\u0080-\uffff]/.test(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

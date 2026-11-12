@@ -18,7 +18,7 @@ import {
 } from "../../../tests/helpers/raw-fetch-capture";
 import type { CancellationToken } from "../../types";
 import { THINKING_BINDING_BETA } from "../../utils";
-import { BedrockClient } from "../BedrockClient";
+import { BedrockClient, type BedrockClientConfig } from "../BedrockClient";
 
 vi.mock("../../providers/bedrock-transport", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../../providers/bedrock-transport")>()),
@@ -41,6 +41,8 @@ const keys = {
 	sessionToken: "token-test",
 };
 
+const GATEWAY = "https://connect.example.com/__gateway__/bedrock/g1";
+
 let fetchCapture: RawFetchCapture;
 
 beforeEach(() => {
@@ -56,6 +58,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	vi.unstubAllGlobals();
+	delete process.env.AWS_BEARER_TOKEN_BEDROCK;
 });
 
 /**
@@ -63,12 +66,16 @@ afterEach(() => {
  * BedrockClient leaves AI SDK's default error logging on, so expect its one
  * NoOutputGeneratedError log.
  */
-async function sendRequest(): Promise<void> {
+async function sendRequest(
+	config: BedrockClientConfig = { region: "us-east-1", ...keys },
+	baseUrl?: string,
+): Promise<void> {
 	const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
 	try {
 		try {
-			const stream = await new BedrockClient({ region: "us-east-1", ...keys }).chat({
+			const stream = await new BedrockClient(config).chat({
 				model: "us.anthropic.claude-opus-5-5",
+				baseUrl,
 				messages: [{ role: "user", content: "hello" }],
 				maxOutputTokens: 1024,
 				thinkingEffort: "high",
@@ -99,22 +106,63 @@ describe("Bedrock thinking block binding wire", () => {
 		expect(body.anthropic_beta).toContain(THINKING_BINDING_BETA);
 	});
 
-	it("signs the body it sends", async () => {
-		await sendRequest();
+	it("signs the body it sends with the SDK's scope", async () => {
+		await sendRequest({ region: "eu-west-1", ...keys }, GATEWAY);
+		const [input, init] = fetchCapture.single();
+		expect(String(input).startsWith(GATEWAY)).toBe(true);
+		const sent = new Headers(init?.headers);
+		expect(sent.get("authorization")).toContain("/eu-west-1/bedrock/aws4_request");
+		expect(sent.get("authorization")).toBe(
+			await expectedAuthorization(String(input), init, "eu-west-1"),
+		);
+	});
+
+	it("leaves a non-ASCII custom header unsigned but sends it", async () => {
+		await sendRequest({
+			region: "us-east-1",
+			...keys,
+			customHeaders: { "x-title": "Example · App" },
+		});
 		const [input, init] = fetchCapture.single();
 		const sent = new Headers(init?.headers);
-		const unsigned = new Headers(sent);
-		unsigned.delete("authorization");
-		const expected = await new AwsV4Signer({
-			url: String(input),
-			method: "POST",
-			headers: unsigned,
-			body: String(init?.body),
-			region: "us-east-1",
-			service: "bedrock",
-			datetime: sent.get("x-amz-date") ?? undefined,
-			...keys,
-		}).sign();
-		expect(sent.get("authorization")).toBe(expected.headers.get("authorization"));
+		expect(sent.get("x-title")).toBe("Example · App");
+		expect(sent.get("authorization")).not.toContain("x-title");
+		expect(sent.get("authorization")).toBe(
+			await expectedAuthorization(String(input), init, "us-east-1", ["x-title"]),
+		);
+	});
+
+	it("sends prefix_mismatch_behavior with bearer auth", async () => {
+		process.env.AWS_BEARER_TOKEN_BEDROCK = "tok";
+		await sendRequest({ region: "us-east-1" });
+		const [, init] = fetchCapture.single();
+		expect(new Headers(init?.headers).get("authorization")).toBe("Bearer tok");
+		const body = JSON.parse(String(init?.body));
+		expect(body.thinking.block_binding).toEqual({ prefix_mismatch_behavior: "drop_block" });
 	});
 });
+
+/** The Authorization a correct SigV4 signature of the sent request would carry. */
+async function expectedAuthorization(
+	url: string,
+	init: RequestInit | undefined,
+	region: string,
+	unsignedHeaders: string[] = [],
+): Promise<string | null> {
+	const sent = new Headers(init?.headers);
+	const signedInput = new Headers(sent);
+	for (const name of ["authorization", ...unsignedHeaders]) {
+		signedInput.delete(name);
+	}
+	const expected = await new AwsV4Signer({
+		url,
+		method: "POST",
+		headers: signedInput,
+		body: String(init?.body),
+		region,
+		service: "bedrock",
+		datetime: sent.get("x-amz-date") ?? undefined,
+		...keys,
+	}).sign();
+	return expected.headers.get("authorization");
+}
