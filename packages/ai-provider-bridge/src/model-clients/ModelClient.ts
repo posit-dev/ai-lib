@@ -56,7 +56,7 @@ export interface ModelClientChatParams {
 	 * Host policy for Anthropic thinking-block binding. The host sets it only for
 	 * models that run the prefix check; absent means no binding controls are
 	 * sent. Clients on the Anthropic Messages wire apply it with adaptive
-	 * thinking and may veto it on transport grounds; other clients ignore it.
+	 * thinking; other clients ignore it.
 	 */
 	thinkingBlockBinding?: ThinkingBlockBinding;
 	/** Context length hint for the model (e.g., Ollama num_ctx). From ModelInfo.maxContextLength. */

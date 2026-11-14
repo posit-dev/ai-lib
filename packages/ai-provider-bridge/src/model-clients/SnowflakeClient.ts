@@ -268,7 +268,6 @@ export class SnowflakeClient implements ModelClient {
 		// Cortex; opt those out (see rejectsEagerInputStreaming). Others accept it.
 		const { providerOptions, headers: requestHeaders } = anthropicRequestOptions({
 			effort: params.thinkingEffort,
-			transport: "snowflake",
 			blockBinding: params.thinkingBlockBinding,
 			clientOptions: rejectsEagerInputStreaming(params.model) ? { toolStreaming: false } : {},
 		});

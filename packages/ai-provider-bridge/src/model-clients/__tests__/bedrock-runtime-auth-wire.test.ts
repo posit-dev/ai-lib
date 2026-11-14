@@ -46,17 +46,31 @@ async function consumeIgnoringNetworkFailure(
 	}
 }
 
+/**
+ * Send one request through the stubbed fetch. The mocked 400 fails the call,
+ * and BedrockClient leaves AI SDK's default error logging on, so expect its
+ * one APICallError log.
+ */
 async function send(client: BedrockClient, model: string, baseUrl?: string) {
 	const capture = createRawFetchCapture(async () => new Response("{}", { status: 400 }));
 	vi.stubGlobal("fetch", capture.mock);
-	await consumeIgnoringNetworkFailure(
-		client.chat({
-			model,
-			baseUrl,
-			messages: [{ role: "user", content: "Hello" }],
-			cancellationToken,
-		}),
-	);
+	const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+	try {
+		await consumeIgnoringNetworkFailure(
+			client.chat({
+				model,
+				baseUrl,
+				messages: [{ role: "user", content: "Hello" }],
+				cancellationToken,
+			}),
+		);
+		expect(consoleError).toHaveBeenCalledTimes(1);
+		expect(consoleError).toHaveBeenCalledWith(
+			expect.objectContaining({ name: "AI_APICallError", statusCode: 400 }),
+		);
+	} finally {
+		consoleError.mockRestore();
+	}
 	const [input, init] = capture.call(0);
 	return {
 		url: String(input instanceof Request ? input.url : input),
