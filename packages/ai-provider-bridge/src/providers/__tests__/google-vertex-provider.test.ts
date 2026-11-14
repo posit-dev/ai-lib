@@ -29,8 +29,9 @@ import {
 	getEffectiveLocation,
 	isVertexAnthropicModel,
 } from "../../model-clients/GoogleVertexClient";
-import type { Logger } from "../../types";
+import type { GoogleCloudCredentials, Logger } from "../../types";
 import {
+	checkGoogleVertexSignIn,
 	claudeDisplayName,
 	registerCustomGoogleVertexProvider,
 	registerGoogleVertexProvider,
@@ -504,6 +505,83 @@ describe("resolveGoogleVertexAccessToken", () => {
 		expect(authMocks.googleAuth).toHaveBeenCalledWith(
 			expect.not.objectContaining({ credentials: expect.anything() }),
 		);
+	});
+});
+
+describe("checkGoogleVertexSignIn", () => {
+	const credentials: GoogleCloudCredentials = { type: "google-cloud", project: "my-project" };
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		vi.stubEnv("GOOGLE_APPLICATION_CREDENTIALS", undefined);
+		authMocks.getClient.mockResolvedValue({ getAccessToken: authMocks.getAccessToken });
+		// A `function` (not an arrow) so the code under test can call it with
+		// `new GoogleAuth(...)`; returning an object makes it the instance.
+		authMocks.googleAuth.mockImplementation(function () {
+			return { getClient: authMocks.getClient };
+		});
+	});
+
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
+	it("requires sign-in when ADC is expired, returning a userInitiated adc_expired update", async () => {
+		authMocks.getAccessToken.mockRejectedValueOnce(new Error("invalid_grant"));
+
+		const result = await checkGoogleVertexSignIn("custom-vertex", credentials, mockLogger, {});
+
+		expect(result).toEqual({
+			status: "sign-in-required",
+			update: expect.objectContaining({
+				providerId: "custom-vertex",
+				authMethodId: "google-cloud",
+				status: "auth_error",
+				error: expect.objectContaining({ code: "adc_expired" }),
+				userInitiated: true,
+			}),
+		});
+	});
+
+	it("is unknown when GOOGLE_APPLICATION_CREDENTIALS points at a missing file", async () => {
+		authMocks.getClient.mockRejectedValueOnce(new Error("Could not load the default credentials."));
+
+		await expect(
+			checkGoogleVertexSignIn("google-vertex", credentials, mockLogger, {
+				GOOGLE_APPLICATION_CREDENTIALS: "/no/such/adc.json",
+			}),
+		).resolves.toEqual({ status: "unknown" });
+	});
+
+	it("is unknown when an existing GOOGLE_APPLICATION_CREDENTIALS file is rejected", async () => {
+		// A gcloud login writes gcloud's own file, which this explicit file
+		// overrides, so prompting to sign in again could not fix it.
+		const dir = mkdtempSync(join(tmpdir(), "vertex-key-"));
+		try {
+			const keyFile = join(dir, "service-account.json");
+			writeFileSync(keyFile, "{}");
+			authMocks.getAccessToken.mockRejectedValueOnce(new Error("invalid_grant"));
+
+			await expect(
+				checkGoogleVertexSignIn("google-vertex", credentials, mockLogger, {
+					GOOGLE_APPLICATION_CREDENTIALS: keyFile,
+				}),
+			).resolves.toEqual({ status: "unknown" });
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("is ok for a brokered token without minting", async () => {
+		await expect(
+			checkGoogleVertexSignIn(
+				"google-vertex",
+				{ ...credentials, accessToken: "brokered-token" },
+				mockLogger,
+				undefined,
+			),
+		).resolves.toEqual({ status: "ok" });
+		expect(authMocks.googleAuth).not.toHaveBeenCalled();
 	});
 });
 

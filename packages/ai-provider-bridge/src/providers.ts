@@ -45,6 +45,7 @@ export {
 } from "./providers/foundry-provider";
 export { registerCustomGeminiProvider, registerGeminiProvider } from "./providers/gemini-provider";
 export {
+	checkGoogleVertexSignIn,
 	registerCustomGoogleVertexProvider,
 	registerGoogleVertexProvider,
 } from "./providers/google-vertex-provider";
@@ -53,7 +54,11 @@ export {
 	resolveGoogleVertexCredentialSource,
 } from "./google-vertex-credentials";
 export type { GoogleVertexCredentialSource } from "./google-vertex-credentials";
-export type { GoogleVertexProviderCallbacks } from "./providers/google-vertex-provider";
+export type {
+	GoogleVertexProviderCallbacks,
+	GoogleVertexProviderStatusUpdate,
+	GoogleVertexSignInCheck,
+} from "./providers/google-vertex-provider";
 export {
 	registerCustomLitellmProvider,
 	registerLitellmProvider,

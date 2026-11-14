@@ -169,6 +169,14 @@ function adcKeyFile(source: GoogleVertexCredentialSource & { kind: "adc" }): str
 }
 
 /**
+ * The `GOOGLE_APPLICATION_CREDENTIALS` path ADC reads, or undefined when it
+ * uses gcloud's file or the metadata server (or the source isn't ADC).
+ */
+export function googleVertexKeyFile(source: GoogleVertexCredentialSource): string | undefined {
+	return source.kind === "adc" ? adcKeyFile(source) : undefined;
+}
+
+/**
  * The `GOOGLE_APPLICATION_CREDENTIALS` path when it points at a file that does
  * not exist. google-auth-library does not fall back to gcloud's file then, so
  * this is the cause of the failure.
