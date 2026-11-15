@@ -142,6 +142,7 @@ export function positAiThinkingRequestFields(
 ): Record<string, unknown> | undefined {
 	if (
 		(modelId === "deepseek-ai/DeepSeek-V4.1-Flash-1017" ||
+			modelId === "moonshotai/Kimi-K3" ||
 			modelId === "moonshotai/Kimi-K3.1-Pro") &&
 		effort === "off"
 	) {

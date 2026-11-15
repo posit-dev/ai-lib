@@ -63,6 +63,12 @@ describe("positAiThinkingRequestFields", () => {
 			positAiThinkingRequestFields("deepseek-ai/DeepSeek-V4.1-Flash-1017", "high", false),
 		).toEqual({ reasoning_effort: "high" });
 	});
+
+	it("maps Kimi K3 off to none instead of omitting the field", () => {
+		expect(positAiThinkingRequestFields("moonshotai/Kimi-K3", "off", false)).toEqual({
+			reasoning_effort: "none",
+		});
+	});
 });
 
 describe("normalizeProviderBaseUrl", () => {
