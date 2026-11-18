@@ -53,21 +53,24 @@ describe("thinkingRequestFields", () => {
 });
 
 describe("positAiThinkingRequestFields", () => {
-	it("maps DeepSeek off to none and reuses named efforts", () => {
-		expect(
-			positAiThinkingRequestFields("deepseek-ai/DeepSeek-V4.1-Flash-1017", "off", false),
-		).toEqual({
-			reasoning_effort: "none",
-		});
-		expect(
-			positAiThinkingRequestFields("deepseek-ai/DeepSeek-V4.1-Flash-1017", "high", false),
-		).toEqual({ reasoning_effort: "high" });
-	});
-
-	it("maps Kimi K3 off to none instead of omitting the field", () => {
+	it("sends off as none when the table offers off next to named effort levels", () => {
 		expect(positAiThinkingRequestFields("moonshotai/Kimi-K3", "off", false)).toEqual({
 			reasoning_effort: "none",
 		});
+	});
+
+	it("passes named efforts through unchanged", () => {
+		expect(positAiThinkingRequestFields("moonshotai/Kimi-K3", "high", false)).toEqual({
+			reasoning_effort: "high",
+		});
+	});
+
+	it("sends nothing for off on a binary-toggle model", () => {
+		expect(positAiThinkingRequestFields("zai-org/GLM-5.2", "off", true)).toBeUndefined();
+	});
+
+	it("sends nothing for off on a model the table does not know", () => {
+		expect(positAiThinkingRequestFields("example/unknown-model", "off", false)).toBeUndefined();
 	});
 });
 

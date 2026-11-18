@@ -33,7 +33,11 @@ The bridge owns **wire protocols, transport quirks, credentials, and model disco
 not own host policy: cache placement, model-capability eligibility rules, and pricing decisions
 belong to consumers. Capabilities arrive as **explicit per-request chat params**
 (`supportsImages`, `usesExplicitPromptCaching`, …), never inferred from model IDs inside a
-client. A client acts only on the params it is handed; when a param is absent the provider's
+client. Exception: `PositAiClient` reads ai-config's Model APIs table
+(`getModelApisModelCapabilities`) to decide how to send thinking "off" (Baseten's
+`reasoning_effort: "none"`), because that table is the same source that decides whether "off"
+is offered. Do not extend this to other capabilities without revisiting the charter. A client
+acts only on the params it is handed; when a param is absent the provider's
 default behavior applies, so a client that ignores a capability param is correct by default.
 Clients may still veto a host instruction on transport grounds (e.g. `BedrockClient` honors the
 explicit prompt-caching opt-in only on its Mantle Responses route) — that is wire knowledge, not
