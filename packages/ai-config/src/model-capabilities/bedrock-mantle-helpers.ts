@@ -12,12 +12,15 @@ const IMAGE_MEDIA_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp",
 const DATED_SNAPSHOT_SUFFIX = /-\d{4}-\d{2}-\d{2}$/;
 
 // Limits published on each model's AWS card, keyed by undated model name.
-// Sources verified 2026-09-22 (Astra) and 2026-10-27 (6.1 Terra, 6.1 Sol):
+// Sources verified 2026-09-22 (Astra), 2026-10-27 (6.1 Terra, 6.1 Sol), and
+// 2026-11-18 (6.2 Sol, 6.2 Astra):
 // https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-astra.html
 // https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-1-terra.html
 // https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-1-sol.html
+// https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-2-sol.html
+// https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-2-astra.html
 // 6.1 Sol's card lists a 1M window and 131,072 output tokens, unlike the
-// 1.05M / 128K of the other two.
+// 1.05M / 128K of the others.
 const GPT6_PUBLISHED_LIMITS = new Map<
 	string,
 	Required<Pick<InferredModelCapabilities, "maxContextLength" | "maxOutputTokens">>
@@ -25,6 +28,8 @@ const GPT6_PUBLISHED_LIMITS = new Map<
 	["gpt-6-astra", { maxContextLength: 1_050_000, maxOutputTokens: 128_000 }],
 	["gpt-6.1-terra", { maxContextLength: 1_050_000, maxOutputTokens: 128_000 }],
 	["gpt-6.1-sol", { maxContextLength: 1_000_000, maxOutputTokens: 131_072 }],
+	["gpt-6.2-sol", { maxContextLength: 1_050_000, maxOutputTokens: 128_000 }],
+	["gpt-6.2-astra", { maxContextLength: 1_050_000, maxOutputTokens: 128_000 }],
 ]);
 
 /**

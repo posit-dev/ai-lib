@@ -24,13 +24,15 @@ export type Gpt6ModelProfile = Required<
 const GPT6_EFFORT_LEVELS = ["off", "low", "medium", "high", "xhigh", "max"];
 // The product's "off" maps onto OpenAI's "none" effort (the OpenAI client
 // omits reasoning_effort; Bedrock Mantle sends the wire value "none").
-// Sources verified 2026-09-22 (Astra) and 2026-09-30 (6.1 Sol):
+// Sources verified 2026-09-22 (Astra), 2026-09-30 (6.1 Sol), 2026-11-18 (6.2):
 // https://developers.openai.com/api/docs/models/gpt-6-astra
 // https://developers.openai.com/api/docs/models/gpt-6.1-sol
-// Neither model offers "none", so the product must not offer "off". This is a
-// model property, so it applies to every accepted suffix of these names.
+// https://developers.openai.com/api/docs/models/gpt-6.2-sol
+// https://developers.openai.com/api/docs/models/gpt-6.2-astra
+// None of these models offers "none", so the product must not offer "off".
+// This is a model property, so it applies to every accepted suffix of these names.
 const GPT6_NO_OFF_EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"];
-const GPT6_NO_OFF_MODEL = /^gpt-6(?:-astra|\.1-sol)(?:-|$)/;
+const GPT6_NO_OFF_MODEL = /^gpt-6(?:-astra|\.1-sol|\.2-(?:sol|astra))(?:-|$)/;
 const IMAGE_MEDIA_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"];
 
 /**

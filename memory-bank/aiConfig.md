@@ -664,9 +664,9 @@ limit or drops a thinking level fails requests until a row is added.
 (`getGpt6ModelProfile`, not exported from the package). It takes a canonical,
 unprefixed ID and owns the traits that hold on every endpoint: family, tools,
 image/PDF input, tool-result images, and reasoning levels — including which
-models lack `off` (GPT-6 Astra and GPT-6.1 Sol, matched at a model-name boundary
-for any accepted suffix; original Sol/Luna and unknown future GPT-6 IDs keep
-`off`). `openai-helpers.ts` and `bedrock-mantle-helpers.ts` both consume it
+models lack `off` (GPT-6 Astra, GPT-6.1 Sol, GPT-6.2 Sol, and GPT-6.2 Astra,
+matched at a model-name boundary for any accepted suffix; original Sol/Luna,
+6.1 Terra, and unknown future GPT-6 IDs keep `off`). `openai-helpers.ts` and `bedrock-mantle-helpers.ts` both consume it
 (Bedrock strips `openai.` first) and layer their own endpoint policy on top:
 token limits, protocol, web search. The profile must never carry limits,
 routes, or eligibility — a published OpenAI capacity is not an assumed
@@ -699,7 +699,7 @@ Per-provider cases:
   known older GPT-5.4/5.5 IDs retain the prior 272K rule, and unknown future
   GPT-5.x IDs default to the 1M family window. GPT-6 uses Responses with the
   shared GPT-6 profile; only bare and dated IDs with a published AWS card
-  carry its limits (Astra and 6.1 Terra: 1.05M/128K; 6.1 Sol: 1M/131,072),
+  carry its limits (Astra, 6.1 Terra, 6.2 Sol, and 6.2 Astra: 1.05M/128K; 6.1 Sol: 1M/131,072),
   and other GPT-6 IDs get a 1M window with unknown output — so a suffixed
   Astra ID can inherit Astra's no-`off` rule without its limits.
 - `openai` → the OpenAI table, with `maxInputTokens` re-derived via

@@ -113,6 +113,20 @@ describe("inferModelCapabilities", () => {
 		}
 	});
 
+	it("omits off but allows max for GPT-6.2 Sol and Astra on OpenAI and Bedrock", () => {
+		for (const name of ["gpt-6.2-sol", "gpt-6.2-astra"]) {
+			for (const [providerId, modelId] of [
+				["openai", name],
+				["bedrock", `openai.${name}`],
+			]) {
+				const facts = inferModelCapabilities(providerId, modelId).facts;
+				expect(facts.thinkingEffortLevels).toEqual(["low", "medium", "high", "xhigh", "max"]);
+				expect(facts.maxContextLength).toBe(1_050_000);
+				expect(facts.maxOutputTokens).toBe(128_000);
+			}
+		}
+	});
+
 	it("keeps provider-owned GPT-6 capacities while sharing reasoning levels", () => {
 		const openai = inferModelCapabilities("openai", "gpt-6.1-sol");
 		const bedrock = inferModelCapabilities("bedrock", "openai.gpt-6.1-sol");
