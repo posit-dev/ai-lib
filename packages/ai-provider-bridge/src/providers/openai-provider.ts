@@ -29,17 +29,19 @@ const OPENAI_DEFAULT_CAPABILITIES = {
 
 // Static fallback models for Responses API - current as of September 2026
 // Only includes models confirmed to support Responses API
-const OPENAI_FALLBACK_ROWS = [
-	{ id: "gpt-6-astra", name: "GPT-6 Astra" },
-	{ id: "gpt-6-sol", name: "GPT-6 Sol" },
-	{ id: "gpt-6.1-sol", name: "GPT-6.1 Sol" },
-	{ id: "gpt-6.1-terra", name: "GPT-6.1 Terra" },
-	{ id: "gpt-6-luna", name: "GPT-6 Luna" },
-	{ id: "gpt-5.4", name: "GPT-5.4" },
-	{ id: "gpt-5.4-mini", name: "GPT-5.4 Mini" },
-	{ id: "gpt-5.4-nano", name: "GPT-5.4 Nano" },
-	{ id: "gpt-5.4-pro", name: "GPT-5.4 Pro" },
-	{ id: "gpt-5-chat-latest", name: "GPT-5 Chat Latest" },
+const OPENAI_FALLBACK_IDS = [
+	"gpt-6-astra",
+	"gpt-6-sol",
+	"gpt-6.1-sol",
+	"gpt-6.1-terra",
+	"gpt-6.2-sol",
+	"gpt-6.2-astra",
+	"gpt-6-luna",
+	"gpt-5.4",
+	"gpt-5.4-mini",
+	"gpt-5.4-nano",
+	"gpt-5.4-pro",
+	"gpt-5-chat-latest",
 ];
 
 function buildOpenAIModel(providerId: ResolvedProviderId, id: string, name: string): ModelInfo {
@@ -106,7 +108,7 @@ function createOpenAIModelFetcher(
 			);
 		},
 		fallbackModels: includeHostedModels
-			? OPENAI_FALLBACK_ROWS.map(({ id, name }) => buildOpenAIModel(providerId, id, name))
+			? OPENAI_FALLBACK_IDS.map((id) => buildOpenAIModel(providerId, id, getOpenAIModelName(id)))
 			: [],
 		logger,
 	});

@@ -98,9 +98,16 @@ describe("OpenAI model discovery", () => {
 				"gpt-6-sol",
 				"gpt-6.1-sol",
 				"gpt-6.1-terra",
+				"gpt-6.2-sol",
+				"gpt-6.2-astra",
 				"gpt-6-luna",
 			]),
 		);
+		expect(models.find((model) => model.id === "gpt-6.2-sol")).toMatchObject({
+			name: "GPT-6.2 Sol",
+			thinkingEffortLevels: ["low", "medium", "high", "xhigh", "max"],
+		});
+		expect(models.find((model) => model.id === "gpt-6.2-astra")?.name).toBe("GPT-6.2 Astra");
 		expect(models.find((model) => model.id === "gpt-6.1-terra")).toMatchObject({
 			name: "GPT-6.1 Terra",
 			thinkingEffortLevels: ["off", "low", "medium", "high", "xhigh", "max"],
