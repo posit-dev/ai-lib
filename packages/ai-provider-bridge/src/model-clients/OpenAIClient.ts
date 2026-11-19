@@ -170,7 +170,7 @@ export class OpenAIClient implements ModelClient {
 		const prepared = prepareExplicitOpenAIRequest(messagesToSend, {
 			enabled: usesExplicitPromptCaching,
 			apiMode: effectiveApiMode,
-			sessionId: params.metadata?.sessionId,
+			metadata: params.metadata,
 		});
 		messagesToSend = prepared.messages;
 		const promptCacheKey = prepared.promptCacheKey;

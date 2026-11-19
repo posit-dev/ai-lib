@@ -199,7 +199,7 @@ export class BedrockClient implements ModelClient {
 		const prepared = prepareExplicitOpenAIRequest(messagesToSend, {
 			enabled: usesExplicitPromptCaching,
 			apiMode: "responses",
-			sessionId: params.metadata?.sessionId,
+			metadata: params.metadata,
 		});
 		messagesToSend = prepared.messages;
 		const promptCacheKey = prepared.promptCacheKey;

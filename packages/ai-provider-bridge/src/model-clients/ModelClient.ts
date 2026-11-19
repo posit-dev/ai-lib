@@ -15,22 +15,24 @@ import type { ThinkingBlockBinding } from "../utils";
 /**
  * Runtime request metadata supplied by the host for a chat request.
  *
- * Both fields are opaque routing identities owned by the host; the bridge
- * never derives, splits, or invents them.
+ * The host owns these identities. The bridge treats them as opaque values.
  *
- * - `sessionId`: the host's full structured session identity for this
- *   request. Projections that consume it (Posit AI Pass `Session-Id`,
- *   OpenAI explicit `prompt_cache_key`) continue to use this value.
+ * - `sessionId` supplies the Posit AI Pass `Session-Id` header. It also
+ *   supplies the explicit prompt-cache identity if `cacheAffinityId` is absent.
  * - `rootConversationId`: the identity of the root conversation the request
  *   belongs to. Endpoint-specific transport policies (e.g. OpenCode's
  *   `x-opencode-session`) route on this value so every request in a
  *   conversation — main chat, subagents, auxiliary requests — shares it.
+ * - `cacheAffinityId` overrides the identity used for explicit prompt-cache
+ *   keys such as OpenAI's `prompt_cache_key`. Hosts can use the same ID for
+ *   sessions with a matching prefix without changing their session or routing IDs.
  *
  * This is runtime metadata only; it is not a persisted schema.
  */
 export interface ChatRequestMetadata {
 	sessionId?: string;
 	rootConversationId?: string;
+	cacheAffinityId?: string;
 }
 
 /**

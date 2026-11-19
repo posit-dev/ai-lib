@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import { createRawFetchCapture } from "../../../tests/helpers/raw-fetch-capture";
 import type { AiToolWithJsonSchema, CancellationToken } from "../../types";
+import type { ChatRequestMetadata } from "../ModelClient";
 import { OpenAIClient } from "../OpenAIClient";
 
 const cancellationToken: CancellationToken = {
@@ -188,7 +189,7 @@ async function captureRequest(options: {
 	usesExplicitPromptCaching?: boolean;
 	model: string;
 	protocol?: "openai-chat" | "openai-responses";
-	metadata?: { sessionId?: string };
+	metadata?: ChatRequestMetadata;
 	messages: ModelMessage[];
 	tools?: Record<string, AiToolWithJsonSchema>;
 	thinkingEffort?: string;
@@ -429,6 +430,19 @@ describe("OpenAI explicit prompt caching wire requests", () => {
 			"input[1].content[0].prompt_cache_breakpoint",
 			"input[4].output[0].prompt_cache_breakpoint",
 		]);
+	});
+
+	it("keys the cache on the host's cache affinity ID instead of the session ID", async () => {
+		const requestBody = await captureRequest({
+			apiMode: "responses",
+			usesExplicitPromptCaching: true,
+			model: "gpt-5.6-sol",
+			metadata: { sessionId: "fork-conversation", cacheAffinityId: "parent-conversation" },
+			messages: markedContinuationMessages(),
+		});
+
+		expect(requestBody.prompt_cache_key).toBe("parent-conversation");
+		expect(breakpointPaths(requestBody)).toHaveLength(3);
 	});
 
 	it("keeps explicit mode but strips key and markers when session metadata is absent", async () => {

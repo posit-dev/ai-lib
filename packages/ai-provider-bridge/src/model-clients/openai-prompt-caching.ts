@@ -6,6 +6,8 @@ import { createHash } from "node:crypto";
 
 import type { ModelMessage } from "ai";
 
+import type { ChatRequestMetadata } from "./ModelClient";
+
 type ProviderOptions = NonNullable<ModelMessage["providerOptions"]>;
 type ToolMessage = Extract<ModelMessage, { role: "tool" }>;
 type ToolResultPart = Extract<ToolMessage["content"][number], { type: "tool-result" }>;
@@ -220,42 +222,39 @@ function normalizeResponsesMessage(message: ModelMessage): ModelMessage {
 const MAX_PROMPT_CACHE_KEY_LENGTH = 64;
 
 /**
- * Project a session ID onto OpenAI's bounded `prompt_cache_key` space. Short IDs
- * pass through so keys stay readable and provider-side cache affinity survives;
- * longer ones (subagent lineages such as `rootId:subId`) become their SHA-256 hex
- * digest, which is exactly at the limit and stable across a conversation's turns.
+ * OpenAI rejects keys over 64 characters. Hash longer IDs (such as subagent
+ * lineage IDs) to a stable, 64-character SHA-256 hex digest.
  */
-function toPromptCacheKey(sessionId: string): string {
-	return sessionId.length <= MAX_PROMPT_CACHE_KEY_LENGTH
-		? sessionId
-		: createHash("sha256").update(sessionId).digest("hex");
+function toPromptCacheKey(cacheId: string): string {
+	return cacheId.length <= MAX_PROMPT_CACHE_KEY_LENGTH
+		? cacheId
+		: createHash("sha256").update(cacheId).digest("hex");
 }
 
 /**
- * Prepare a request-local message copy and the matching cache key for explicit
- * OpenAI prompt caching. Clients call this unconditionally, passing their
- * already-resolved `enabled` decision (host opt-in plus any transport veto).
+ * Call this even when explicit caching is disabled, with `enabled` reflecting
+ * both host opt-in and transport support. If caching is disabled or neither
+ * `cacheAffinityId` nor `sessionId` is set, the request sends no key or
+ * `openai.promptCacheBreakpoint` markers.
  *
- * Whenever the effective answer is "no explicit caching" — disabled, or enabled
- * without session metadata — every `openai.promptCacheBreakpoint` marker is
- * stripped from the copy and no key is returned, so a marker can never reach an
- * endpoint that was not opted in. Clients must send the returned key rather than
- * a raw session ID: the projection to OpenAI's 64-char limit lives here.
+ * Send the returned key, not the raw ID. This helper prefers `cacheAffinityId`
+ * over `sessionId` and applies OpenAI's 64-character limit to either.
  */
 export function prepareExplicitOpenAIRequest(
 	messages: ModelMessage[],
 	options: {
 		enabled: boolean;
 		apiMode: "completions" | "responses";
-		sessionId: string | undefined;
+		metadata: ChatRequestMetadata | undefined;
 	},
 ): { messages: ModelMessage[]; promptCacheKey: string | undefined } {
-	if (!options.enabled || options.sessionId === undefined) {
+	const cacheId = options.metadata?.cacheAffinityId ?? options.metadata?.sessionId;
+	if (!options.enabled || cacheId === undefined) {
 		return { messages: messages.map(stripMessageBreakpoint), promptCacheKey: undefined };
 	}
 
 	return {
 		messages: options.apiMode === "responses" ? messages.map(normalizeResponsesMessage) : messages,
-		promptCacheKey: toPromptCacheKey(options.sessionId),
+		promptCacheKey: toPromptCacheKey(cacheId),
 	};
 }

@@ -5,6 +5,7 @@
 import type { ModelMessage } from "ai";
 import { describe, expect, it } from "vitest";
 
+import type { ChatRequestMetadata } from "../ModelClient";
 import { prepareExplicitOpenAIRequest } from "../openai-prompt-caching";
 
 const breakpointProviderOptions = {
@@ -23,14 +24,30 @@ function markedMessages(): ModelMessage[] {
 }
 
 function keyFor(sessionId: string | undefined): string | undefined {
+	return keyForMetadata({ sessionId });
+}
+
+function keyForMetadata(metadata: ChatRequestMetadata | undefined): string | undefined {
 	return prepareExplicitOpenAIRequest(markedMessages(), {
 		enabled: true,
 		apiMode: "responses",
-		sessionId,
+		metadata,
 	}).promptCacheKey;
 }
 
 describe("prepareExplicitOpenAIRequest cache-key projection", () => {
+	it("keys on the cache affinity ID when present, and on the session ID otherwise", () => {
+		const shared = "conversation-1";
+		expect(keyForMetadata({ sessionId: "conversation-2", cacheAffinityId: shared })).toBe(shared);
+		expect(keyForMetadata({ sessionId: shared })).toBe(shared);
+		expect(keyForMetadata({ cacheAffinityId: shared })).toBe(shared);
+	});
+
+	it("projects a long cache affinity ID like a long session ID", () => {
+		const long = "conversation:".repeat(8);
+		expect(keyForMetadata({ sessionId: "other", cacheAffinityId: long })).toBe(keyFor(long));
+	});
+
 	it("passes a session ID through at exactly the 64-char limit", () => {
 		const sessionId = "a".repeat(64);
 		expect(keyFor(sessionId)).toBe(sessionId);
@@ -73,7 +90,7 @@ describe("prepareExplicitOpenAIRequest cache-key projection", () => {
 		const prepared = prepareExplicitOpenAIRequest(messages, {
 			enabled: true,
 			apiMode: "responses",
-			sessionId: "conversation-1",
+			metadata: { sessionId: "conversation-1" },
 		});
 
 		expect(prepared.messages[0]).toEqual({
@@ -105,8 +122,9 @@ describe("prepareExplicitOpenAIRequest cache-key projection", () => {
 	});
 
 	it.each([
-		["the session ID is absent", { enabled: true, sessionId: undefined }],
-		["caching is disabled", { enabled: false, sessionId: "conversation-1" }],
+		["the metadata is absent", { enabled: true, metadata: undefined }],
+		["the metadata has no identity", { enabled: true, metadata: { rootConversationId: "c" } }],
+		["caching is disabled", { enabled: false, metadata: { sessionId: "conversation-1" } }],
 	] as const)("emits no key and strips breakpoints when %s", (_label, options) => {
 		const messages = markedMessages();
 		const prepared = prepareExplicitOpenAIRequest(messages, {
