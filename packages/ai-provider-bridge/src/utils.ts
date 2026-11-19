@@ -7,6 +7,8 @@
  * Kept here to avoid depending on any consumer package.
  */
 
+import { getModelApisModelCapabilities } from "ai-config";
+
 // ---------------------------------------------------------------------------
 // Thinking effort
 // ---------------------------------------------------------------------------
@@ -135,17 +137,26 @@ export function thinkingRequestFields(
 		: undefined;
 }
 
+/** Whether the Model APIs table offers "off" next to at least one named effort level. */
+function offIsNamedEffortLevel(modelId: string): boolean {
+	const levels = getModelApisModelCapabilities(modelId)?.thinkingEffortLevels ?? [];
+	return levels.includes("off") && levels.some((level) => level !== "off" && level !== "on");
+}
+
+/**
+ * `thinkingRequestFields` for Posit AI Pass's OpenAI-chat route, plus Baseten's
+ * spelling of "off". On a model whose Model APIs table entry offers "off" next to
+ * named effort levels, "off" goes out as `reasoning_effort: "none"`; omitting the
+ * field would leave Baseten's default effort in place. The table is the same
+ * source that decides whether the picker offers "off", so for built-in models the
+ * two cannot disagree (see the charter exception in `memory-bank/architecture.md`).
+ */
 export function positAiThinkingRequestFields(
 	modelId: string,
 	effort: string | undefined,
 	requiresChatTemplateKwargs: boolean,
 ): Record<string, unknown> | undefined {
-	if (
-		(modelId === "deepseek-ai/DeepSeek-V4.1-Flash-1017" ||
-			modelId === "moonshotai/Kimi-K3" ||
-			modelId === "moonshotai/Kimi-K3.1-Pro") &&
-		effort === "off"
-	) {
+	if (effort === "off" && offIsNamedEffortLevel(modelId)) {
 		return { reasoning_effort: "none" };
 	}
 	return thinkingRequestFields(effort, requiresChatTemplateKwargs);

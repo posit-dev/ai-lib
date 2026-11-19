@@ -149,6 +149,7 @@ export type {
 	PortkeyModelClassificationInput,
 	PortkeyModelFamily,
 } from "./model-capabilities/portkey-helpers.js";
+export { getModelApisModelCapabilities } from "./model-capabilities/model-apis-helpers.js";
 export { getPositAiModelCapabilities } from "./model-capabilities/positai-helpers.js";
 export {
 	getSnowflakeCortexModelCapabilities,

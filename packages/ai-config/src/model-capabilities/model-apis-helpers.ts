@@ -13,7 +13,8 @@ import type { InferredModelCapabilities as ModelInfo } from "../types.js";
  * Models with `requiresChatTemplateKwargs` expose a binary toggle via the
  * vLLM-style `chat_template_kwargs: { enable_thinking: true }` request field;
  * models with named effort levels take a top-level OpenAI-style
- * `reasoning_effort` instead.
+ * `reasoning_effort` instead. Listing "off" next to named levels means Baseten
+ * accepts `reasoning_effort: "none"`; the bridge sends that for thinking "off".
  */
 const MODEL_APIS_CAPABILITIES: Record<string, Partial<ModelInfo>> = {
 	"zai-org/GLM-5.2": {

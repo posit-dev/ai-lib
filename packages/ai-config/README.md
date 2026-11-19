@@ -172,6 +172,7 @@ import {
   getDeepSeekModelCapabilities,
   getGeminiModelCapabilities,
   getGemmaModelCapabilities,
+  getModelApisModelCapabilities,
   getOpenAIModelCapabilities,
   openaiMaxInputTokens,
   getPositAiModelCapabilities,
