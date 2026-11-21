@@ -4,12 +4,13 @@
 
 /**
  * Variant and version of a bare Gemini id: `gemini-3.8-flash`,
- * `gemini-3.1-pro-preview`, `gemini-2.5-flash-preview-09-2025`. Suffixes after
- * the variant are ignored. `flash-lite` precedes `flash` so Flash-Lite ids
- * aren't read as Flash. Gemma, `-latest` aliases, and dash-joined versions
- * (`gemini-2-5-pro`) don't match.
+ * `gemini-3.1-pro-preview`, `gemini-4-neon`, `gemini-2.5-flash-preview-09-2025`.
+ * Suffixes after the variant are ignored. `flash-lite` precedes `flash` so
+ * Flash-Lite ids aren't read as Flash. Gemma, `-latest` aliases, and
+ * dash-joined versions (`gemini-2-5-pro`) don't match.
  */
-const GEMINI_VARIANT_ID = /^gemini-(\d+)(?:\.(\d+))?-(flash-lite|flash|pro)(?=$|-)/;
+const GEMINI_VARIANT_ID =
+	/^gemini-(\d+)(?:\.(\d+))?-(flash-lite|flash|pro|argon|carbon|hydrogen|neon)(?=$|-)/;
 
 interface ParsedGeminiId {
 	variant: string;
@@ -37,7 +38,7 @@ export interface GeminiVariantDonor {
 }
 
 /**
- * Find the known id of the same variant (`pro`, `flash`, `flash-lite`) with
+ * Find the known id of the same variant (`pro`, `flash`, `neon`, …) with
  * the greatest version at or below `modelId`'s own, so later versions
  * inherit from the newest known model (`gemini-3.9-flash` → 3.8 Flash).
  * `newest` lets a caller restrict inheritance to versions at or above the

@@ -124,9 +124,11 @@ Gemini 3.6/3.7 Flash were invisible until manually allowlisted):
 - **Future versions inherit.** `getGeminiInteractionsProfile` falls back,
   after an exact miss, to ai-config's `findGeminiVariantDonor`: a Gemini
   chat id (`isGeminiApiChatModel`) whose variant (`pro`, `flash`,
-  `flash-lite`) version is at or above that variant's newest profiled id
-  takes that profile (`gemini-3.9-flash` → `gemini-3.8-flash`,
-  `gemini-4-pro` and the alias `gemini-3.1-pro` → `gemini-3.1-pro-preview`).
+  `flash-lite`, or a Gemini 4 name: `argon`, `carbon`, `hydrogen`, `neon`)
+  version is at or above that variant's newest profiled id takes that
+  profile (`gemini-3.9-flash` → `gemini-3.8-flash`, `gemini-4-pro` and the
+  alias `gemini-3.1-pro` → `gemini-3.1-pro-preview`,
+  `gemini-4-argon-cyber-permissive` → `gemini-4-argon`).
   An id below the newest profile (`gemini-3-pro-preview`) gets nothing,
   since plain "nearest older" would hand it 2.5 Pro's `medium`. The chat gate
   matters because `GeminiClient` looks up whatever id it is given:

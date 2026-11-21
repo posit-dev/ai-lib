@@ -31,7 +31,11 @@ interface GeminiCapabilities {
 	thinkingEffortLevels?: string[];
 }
 
-/** Limits shared by every Gemini 2.5 and 3.x model. */
+/**
+ * Limits shared by every Gemini 2.5, 3.x, and 4 model. Gemini 4 documents a
+ * 1,048,576-token window shared by input and output, with 65,536 output
+ * tokens per synchronous response.
+ */
 const LIMITS_1M = {
 	maxInputTokens: 1_000_000,
 	maxContextLength: 1_000_000,
@@ -40,7 +44,8 @@ const LIMITS_1M = {
 
 /**
  * Gemini models keyed by a representative id of their variant (`pro`,
- * `flash`, `flash-lite`) and version. A requested id takes the entry of its
+ * `flash`, `flash-lite`, and the Gemini 4 names) and version. A requested id
+ * takes the entry of its
  * variant with the greatest version at or below its own (see
  * {@link findGeminiVariantDonor}), so each entry covers the versions up to
  * the next one, and the newest entry of a variant is the fallback for later
@@ -95,6 +100,29 @@ const VARIANT_ENTRIES: ReadonlyMap<string, GeminiCapabilities> = new Map([
 	[
 		"gemini-3-flash-lite",
 		{ family: "gemini-3", ...LIMITS_1M, thinkingEffortLevels: LEVELS_WITH_MINIMAL },
+	],
+
+	// --- Gemini 4 ---
+	// All reject `minimal`. Checked 2026-11-20 against Google's model docs
+	// (https://ai.google.dev/gemini-api/docs/latest-model and the Gemini 4
+	// model pages). Hydrogen and Neon also document `xhigh`, but
+	// @ai-sdk/google before 4.0.124 rejects it in provider options, so it is
+	// not advertised until the SDK is bumped.
+	[
+		"gemini-4-argon",
+		{ family: "gemini-4", ...LIMITS_1M, thinkingEffortLevels: LEVELS_WITHOUT_MINIMAL },
+	],
+	[
+		"gemini-4-carbon",
+		{ family: "gemini-4", ...LIMITS_1M, thinkingEffortLevels: LEVELS_WITHOUT_MINIMAL },
+	],
+	[
+		"gemini-4-hydrogen",
+		{ family: "gemini-4", ...LIMITS_1M, thinkingEffortLevels: LEVELS_WITHOUT_MINIMAL },
+	],
+	[
+		"gemini-4-neon",
+		{ family: "gemini-4", ...LIMITS_1M, thinkingEffortLevels: LEVELS_WITHOUT_MINIMAL },
 	],
 ]);
 

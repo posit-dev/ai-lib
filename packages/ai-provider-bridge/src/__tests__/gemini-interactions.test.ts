@@ -46,6 +46,9 @@ describe("getGeminiInteractionsProfile inheritance", () => {
 		{ id: "gemini-4-pro", donor: "gemini-3.1-pro-preview" },
 		// Equal version: an alias of the newest profiled id
 		{ id: "gemini-3.1-pro", donor: "gemini-3.1-pro-preview" },
+		// Gemini 4 names are variants too, so suffixed ids and later versions inherit
+		{ id: "gemini-4-argon-cyber-permissive", donor: "gemini-4-argon" },
+		{ id: "gemini-4.1-hydrogen", donor: "gemini-4-hydrogen" },
 	])("$id inherits the newest same-variant profile", ({ id, donor }) => {
 		const profile = getGeminiInteractionsProfile(id);
 		expect(profile).toBeDefined();
