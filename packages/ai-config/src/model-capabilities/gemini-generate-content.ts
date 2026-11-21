@@ -168,6 +168,24 @@ const VARIANT_RULES: readonly VariantRule[] = [
 		match: /^gemini-3\.8-flash(?:$|[-.])/,
 		thinking: { control: "level", levels: LEVELS_LOW_MEDIUM_HIGH },
 	},
+
+	// --- Gemini 4 ---
+	{
+		// Argon and Carbon document low/medium/high; `minimal` and thinkingBudget
+		// return HTTP 400. Checked 2026-11-20 against
+		// https://ai.google.dev/gemini-api/docs/latest-model and Google Cloud's
+		// Gemini 4 model pages. Also covers `gemini-4-argon-cyber-permissive`,
+		// which takes the same levels.
+		match: /^gemini-4-(?:argon|carbon)(?:$|[-.])/,
+		thinking: { control: "level", levels: LEVELS_LOW_MEDIUM_HIGH },
+	},
+	{
+		// Hydrogen and Neon add `xhigh` (same sources and date), but
+		// @ai-sdk/google before 4.0.124 rejects it in provider options, so it is
+		// left out until the SDK is bumped.
+		match: /^gemini-4-(?:hydrogen|neon)(?:$|[-.])/,
+		thinking: { control: "level", levels: LEVELS_LOW_MEDIUM_HIGH },
+	},
 ];
 
 // ---------------------------------------------------------------------------
