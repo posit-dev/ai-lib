@@ -118,6 +118,9 @@ by the resolved credential base URL so a product switch refetches.
 `thinkingConfig`; the 3.x rules are exact per documented variant (level sets differ per variant —
 3.7/3.8 Flash accept `low`/`medium`/`high`, no `minimal`; verified against
 https://ai.google.dev/gemini-api/docs/thinking, page updated 2026-09-09 UTC, reviewed 2026-09-11).
+Gemini 4 Argon and Carbon accept `low`/`medium`/`high`; Hydrogen and Neon add `xhigh` (reviewed
+2026-11-20). `@ai-sdk/google` before 4.0.119 rejects `xhigh` in provider options without sending a
+request, so the SDK must not drop below that version.
 OpenCode discovery **excludes** a Gemini-stamped model with no verified profile (actionable
 `logger.warn` diagnostic) rather than advertising an unusable model; an explicit configured model
 with such an id surfaces the client's unsupported-variant error. No silent Chat Completions

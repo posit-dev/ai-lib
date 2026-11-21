@@ -56,7 +56,7 @@ function identityLevels(...levels: string[]): Readonly<Record<string, string>> {
 /**
  * Explicit enumerated thinking profiles for models reachable via
  * `POST /v1beta/interactions`. An unlisted Gemini chat ID at or above the
- * newest listed version of its variant (`pro`, `flash`, `flash-lite`)
+ * newest listed version of its variant (`pro`, `flash`, `neon`, …)
  * inherits that entry's profile, so the newest entry of a variant also
  * serves its future versions. Other unlisted IDs are still discoverable (see
  * {@link isGeminiApiChatModel}) but get no advertised thinking levels and no
@@ -97,6 +97,18 @@ const INTERACTIONS_PROFILES: ReadonlyMap<string, GeminiInteractionsProfile> = ne
 	// 3.8-flash rejects `minimal` exactly like 3.7-flash
 	// (https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash).
 	["gemini-3.8-flash", { effortToWireLevel: identityLevels("low", "medium", "high") }],
+
+	// --- Gemini 4 ---
+	// All reject `minimal`. Argon (default medium) and Carbon (default medium)
+	// take low/medium/high; Hydrogen and Neon (default high) add xhigh.
+	// Checked 2026-11-20 against Google's model docs
+	// (https://ai.google.dev/gemini-api/docs/latest-model and the Gemini 4
+	// model pages). @ai-sdk/google before 4.0.119 rejects xhigh in provider
+	// options without sending a request.
+	["gemini-4-argon", { effortToWireLevel: identityLevels("low", "medium", "high") }],
+	["gemini-4-carbon", { effortToWireLevel: identityLevels("low", "medium", "high") }],
+	["gemini-4-hydrogen", { effortToWireLevel: identityLevels("low", "medium", "high", "xhigh") }],
+	["gemini-4-neon", { effortToWireLevel: identityLevels("low", "medium", "high", "xhigh") }],
 
 	// --- Gemma 4 (hosted on the Gemini API) ---
 	// Binary thinking, verified against the live API (2026-08-17): wire

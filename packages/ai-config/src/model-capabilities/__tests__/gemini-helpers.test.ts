@@ -12,12 +12,20 @@ describe("getGeminiModelCapabilities", () => {
 		{ name: "a two-digit minor", id: "gemini-3.10-flash", donor: "gemini-3.8-flash" },
 		{ name: "a major bump", id: "gemini-4-pro", donor: "gemini-3.1-pro" },
 		{ name: "Flash-Lite", id: "gemini-3.5-flash-lite", donor: "gemini-3.1-flash-lite" },
+		{ name: "a Gemini 4 name", id: "gemini-4.1-neon", donor: "gemini-4-neon" },
+		{
+			name: "a suffixed Gemini 4 name",
+			id: "gemini-4-argon-cyber-permissive",
+			donor: "gemini-4-argon",
+		},
 		{
 			name: "a dated suffix",
 			id: "gemini-2.5-flash-preview-09-2025",
 			donor: "gemini-2.5-flash",
 		},
 	])("inherits the nearest older same-variant entry for $name", ({ id, donor }) => {
+		// Unrecognized ids share the defaults, so equality alone proves nothing.
+		expect(getGeminiModelCapabilities(donor)?.family).toBeDefined();
 		expect(getGeminiModelCapabilities(id)).toEqual(getGeminiModelCapabilities(donor));
 	});
 

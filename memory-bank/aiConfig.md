@@ -649,7 +649,8 @@ known generation, the existing GPT-5.x and GPT-6 catch-alls still apply.
 Gemini (`gemini-helpers.ts`) keys its entries by a representative id per
 variant and version (`gemini-3.7-flash`, `gemini-3-pro`); the exported
 `findGeminiVariantDonor` (`gemini-variant.ts`) parses
-`gemini-<major>[.<minor>]-<pro|flash|flash-lite>` and returns the
+`gemini-<major>[.<minor>]-<variant>` (`pro`, `flash`, `flash-lite`, and the
+Gemini 4 names `argon`, `carbon`, `hydrogen`, `neon`) and returns the
 same-variant known id with the greatest version at or below the requested
 one, plus whether it is the variant's newest: `gemini-3.9-flash` → 3.7/3.8
 Flash, `gemini-4-pro` → 3 Pro. The table ignores the newest flag; the

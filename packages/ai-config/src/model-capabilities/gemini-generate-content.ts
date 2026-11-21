@@ -82,6 +82,7 @@ const FLASH_BUDGETS = { low: 2048, medium: 8192, high: 24_576 } as const;
 /** Level sets for the documented 3.x variants. */
 const LEVELS_WITH_MINIMAL = ["minimal", "low", "medium", "high"] as const;
 const LEVELS_LOW_MEDIUM_HIGH = ["low", "medium", "high"] as const;
+const LEVELS_LOW_TO_XHIGH = ["low", "medium", "high", "xhigh"] as const;
 /** `gemini-3-pro-preview` documents only these two levels. */
 const LEVELS_LOW_HIGH = ["low", "high"] as const;
 /** `gemini-3.1-flash-lite-image` documents only these two levels. */
@@ -167,6 +168,23 @@ const VARIANT_RULES: readonly VariantRule[] = [
 		// Same source and review date as 3.7 Flash: identical level set.
 		match: /^gemini-3\.8-flash(?:$|[-.])/,
 		thinking: { control: "level", levels: LEVELS_LOW_MEDIUM_HIGH },
+	},
+
+	// --- Gemini 4 ---
+	{
+		// Argon and Carbon document low/medium/high; `minimal` and thinkingBudget
+		// return HTTP 400. Checked 2026-11-20 against
+		// https://ai.google.dev/gemini-api/docs/latest-model and Google Cloud's
+		// Gemini 4 model pages. Also covers `gemini-4-argon-cyber-permissive`,
+		// which takes the same levels.
+		match: /^gemini-4-(?:argon|carbon)(?:$|[-.])/,
+		thinking: { control: "level", levels: LEVELS_LOW_MEDIUM_HIGH },
+	},
+	{
+		// Hydrogen and Neon add `xhigh` (same sources and date). Sending it
+		// needs @ai-sdk/google 4.0.119 or later.
+		match: /^gemini-4-(?:hydrogen|neon)(?:$|[-.])/,
+		thinking: { control: "level", levels: LEVELS_LOW_TO_XHIGH },
 	},
 ];
 
