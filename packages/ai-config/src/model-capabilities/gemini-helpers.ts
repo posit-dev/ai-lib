@@ -22,6 +22,9 @@ const LEVELS_WITH_MINIMAL = ["minimal", "low", "medium", "high"];
  */
 const LEVELS_WITHOUT_MINIMAL = ["low", "medium", "high"];
 
+/** Effort levels for Gemini 4 models that add `xhigh` (and reject `minimal`). */
+const LEVELS_WITH_XHIGH = ["low", "medium", "high", "xhigh"];
+
 /** Limits and thinking levels a capability entry assigns to a Gemini model. */
 interface GeminiCapabilities {
 	family: string;
@@ -103,11 +106,10 @@ const VARIANT_ENTRIES: ReadonlyMap<string, GeminiCapabilities> = new Map([
 	],
 
 	// --- Gemini 4 ---
-	// All reject `minimal`. Checked 2026-11-20 against Google's model docs
+	// All reject `minimal`. Argon and Carbon take low/medium/high; Hydrogen and
+	// Neon add xhigh. Checked 2026-11-20 against Google's model docs
 	// (https://ai.google.dev/gemini-api/docs/latest-model and the Gemini 4
-	// model pages). Hydrogen and Neon also document `xhigh`, but
-	// @ai-sdk/google before 4.0.124 rejects it in provider options, so it is
-	// not advertised until the SDK is bumped.
+	// model pages). Sending xhigh needs @ai-sdk/google 4.0.119 or later.
 	[
 		"gemini-4-argon",
 		{ family: "gemini-4", ...LIMITS_1M, thinkingEffortLevels: LEVELS_WITHOUT_MINIMAL },
@@ -118,12 +120,9 @@ const VARIANT_ENTRIES: ReadonlyMap<string, GeminiCapabilities> = new Map([
 	],
 	[
 		"gemini-4-hydrogen",
-		{ family: "gemini-4", ...LIMITS_1M, thinkingEffortLevels: LEVELS_WITHOUT_MINIMAL },
+		{ family: "gemini-4", ...LIMITS_1M, thinkingEffortLevels: LEVELS_WITH_XHIGH },
 	],
-	[
-		"gemini-4-neon",
-		{ family: "gemini-4", ...LIMITS_1M, thinkingEffortLevels: LEVELS_WITHOUT_MINIMAL },
-	],
+	["gemini-4-neon", { family: "gemini-4", ...LIMITS_1M, thinkingEffortLevels: LEVELS_WITH_XHIGH }],
 ]);
 
 /**

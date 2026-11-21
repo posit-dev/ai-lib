@@ -99,15 +99,16 @@ const INTERACTIONS_PROFILES: ReadonlyMap<string, GeminiInteractionsProfile> = ne
 	["gemini-3.8-flash", { effortToWireLevel: identityLevels("low", "medium", "high") }],
 
 	// --- Gemini 4 ---
-	// All reject `minimal`. Checked 2026-11-20 against Google's model docs
+	// All reject `minimal`. Argon (default medium) and Carbon (default medium)
+	// take low/medium/high; Hydrogen and Neon (default high) add xhigh.
+	// Checked 2026-11-20 against Google's model docs
 	// (https://ai.google.dev/gemini-api/docs/latest-model and the Gemini 4
-	// model pages). Hydrogen and Neon also accept `xhigh`, but @ai-sdk/google
-	// before 4.0.124 rejects it in provider options ("invalid google provider
-	// options", no request sent), so add it after bumping the SDK.
+	// model pages). @ai-sdk/google before 4.0.119 rejects xhigh in provider
+	// options without sending a request.
 	["gemini-4-argon", { effortToWireLevel: identityLevels("low", "medium", "high") }],
 	["gemini-4-carbon", { effortToWireLevel: identityLevels("low", "medium", "high") }],
-	["gemini-4-hydrogen", { effortToWireLevel: identityLevels("low", "medium", "high") }],
-	["gemini-4-neon", { effortToWireLevel: identityLevels("low", "medium", "high") }],
+	["gemini-4-hydrogen", { effortToWireLevel: identityLevels("low", "medium", "high", "xhigh") }],
+	["gemini-4-neon", { effortToWireLevel: identityLevels("low", "medium", "high", "xhigh") }],
 
 	// --- Gemma 4 (hosted on the Gemini API) ---
 	// Binary thinking, verified against the live API (2026-08-17): wire

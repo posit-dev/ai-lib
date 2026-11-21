@@ -82,6 +82,7 @@ const FLASH_BUDGETS = { low: 2048, medium: 8192, high: 24_576 } as const;
 /** Level sets for the documented 3.x variants. */
 const LEVELS_WITH_MINIMAL = ["minimal", "low", "medium", "high"] as const;
 const LEVELS_LOW_MEDIUM_HIGH = ["low", "medium", "high"] as const;
+const LEVELS_LOW_TO_XHIGH = ["low", "medium", "high", "xhigh"] as const;
 /** `gemini-3-pro-preview` documents only these two levels. */
 const LEVELS_LOW_HIGH = ["low", "high"] as const;
 /** `gemini-3.1-flash-lite-image` documents only these two levels. */
@@ -180,11 +181,10 @@ const VARIANT_RULES: readonly VariantRule[] = [
 		thinking: { control: "level", levels: LEVELS_LOW_MEDIUM_HIGH },
 	},
 	{
-		// Hydrogen and Neon add `xhigh` (same sources and date), but
-		// @ai-sdk/google before 4.0.124 rejects it in provider options, so it is
-		// left out until the SDK is bumped.
+		// Hydrogen and Neon add `xhigh` (same sources and date). Sending it
+		// needs @ai-sdk/google 4.0.119 or later.
 		match: /^gemini-4-(?:hydrogen|neon)(?:$|[-.])/,
-		thinking: { control: "level", levels: LEVELS_LOW_MEDIUM_HIGH },
+		thinking: { control: "level", levels: LEVELS_LOW_TO_XHIGH },
 	},
 ];
 
