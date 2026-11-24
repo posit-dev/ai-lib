@@ -21,6 +21,17 @@ export type AuthenticationChallenge =
 	  }
 	| {
 			/**
+			 * The user approves at `authorizationUrl`, the provider shows a code,
+			 * and the user pastes it back into the host. No callback arrives, so
+			 * the host shows a code field and submits the code for this attempt.
+			 */
+			kind: "code-entry";
+			attemptId: string;
+			authorizationUrl: string;
+			expiresIn: number;
+	  }
+	| {
+			/**
 			 * An external process (e.g. a spawned CLI such as `gcloud`) owns the
 			 * browser flow. `url` is omitted when the process opens the browser
 			 * itself and no URL is known up front.
